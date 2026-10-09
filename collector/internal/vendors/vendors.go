@@ -19,6 +19,14 @@ const (
 func PiSupported() bool                  { return piSupportedOn(runtime.GOOS) }
 func piSupportedOn(platform string) bool { return platform == "darwin" || platform == "windows" }
 
+// PiCollectionSupported covers session collection and the runtime extension,
+// which also run on Linux hosts; Pi launch and synthesis stay on macOS and
+// Windows.
+func PiCollectionSupported() bool { return piCollectionSupportedOn(runtime.GOOS) }
+func piCollectionSupportedOn(platform string) bool {
+	return piSupportedOn(platform) || platform == "linux"
+}
+
 func PiExecutable() (string, error) {
 	if path, err := exec.LookPath("pi"); err == nil {
 		return path, nil

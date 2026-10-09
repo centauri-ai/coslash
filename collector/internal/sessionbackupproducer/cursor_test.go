@@ -8,12 +8,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 	_ "modernc.org/sqlite"
 )
@@ -21,10 +21,7 @@ import (
 const cursorTestID = "01234567-89ab-4def-8123-456789abcdef"
 
 func cursorIDEStateDB(home string) string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(home, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb")
-	}
-	return filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	return filepath.Join(cursor.GlobalStorage(home), "state.vscdb")
 }
 
 func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string) {

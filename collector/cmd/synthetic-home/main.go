@@ -394,10 +394,13 @@ func pick(r source, items []string) string { return items[r.IntN(len(items))] }
 // cursorGlobalStorage mirrors where Cursor's reader looks for state.vscdb on
 // the platform the home is generated for.
 func cursorGlobalStorage() string {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		return "AppData/Roaming/Cursor/User/globalStorage"
+	case "darwin":
+		return "Library/Application Support/Cursor/User/globalStorage"
 	}
-	return "Library/Application Support/Cursor/User/globalStorage"
+	return ".config/Cursor/User/globalStorage"
 }
 
 // slug is the folder name Claude Code and Cursor derive from a workspace path.

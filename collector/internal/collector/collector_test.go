@@ -535,7 +535,7 @@ func TestPiRegistrationMatchesSupportedPlatform(t *testing.T) {
 	for _, source := range vendorSources {
 		found = found || source.name == vendors.AgentPi
 	}
-	if found != vendors.PiSupported() {
+	if found != vendors.PiCollectionSupported() {
 		t.Fatalf("Pi registration %t differs from platform support", found)
 	}
 }

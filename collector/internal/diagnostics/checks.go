@@ -97,7 +97,7 @@ func derive(snapshot *Snapshot) []Check {
 	}
 	checks = append(checks, synthesis)
 	checks = append(checks, openCodePluginCheck(snapshot))
-	if vendors.PiSupported() {
+	if vendors.PiCollectionSupported() {
 		checks = append(checks, piExtensionCheck(snapshot))
 	}
 
