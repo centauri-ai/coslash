@@ -27,6 +27,7 @@ func cursorIDEStateDB(home string) string {
 func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string) {
 	t.Helper()
 	home, workspace := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	workspaceJSON, err := json.Marshal(workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +82,22 @@ func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string
 		}
 	}
 	return home, workspace, transcript
+}
+
+func TestCursorBackupFixturesIsolateXDGConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "shared-xdg"))
+	firstHome, _, _ := writeCursorBackupFixture(t, "cursor-ide")
+	firstState := cursorIDEStateDB(firstHome)
+	secondHome, _, _ := writeCursorBackupFixture(t, "cursor-ide")
+	secondState := cursorIDEStateDB(secondHome)
+	if firstState == secondState {
+		t.Fatalf("fixture database paths collide: %q", firstState)
+	}
+	for _, path := range []string{firstState, secondState} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("fixture database %q: %v", path, err)
+		}
+	}
 }
 
 func TestCursorLocalCompleteBundleRoundTripsIDEAndCLI(t *testing.T) {

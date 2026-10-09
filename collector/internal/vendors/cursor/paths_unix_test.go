@@ -30,3 +30,12 @@ func TestCursorGlobalStorageUsesPlatformLayout(t *testing.T) {
 		t.Fatalf("cursorGlobalStorage ignores a relative XDG_CONFIG_HOME: got %q", got)
 	}
 }
+
+func TestCursorTestGlobalStorageIsolatesTemporaryHomes(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "shared-xdg"))
+	first := cursorTestGlobalStorage(t, t.TempDir())
+	second := cursorTestGlobalStorage(t, t.TempDir())
+	if first == second {
+		t.Fatalf("fixture storage paths collide: %q", first)
+	}
+}
