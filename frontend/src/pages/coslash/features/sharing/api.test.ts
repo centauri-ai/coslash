@@ -100,6 +100,12 @@ describe('Hub sharing local adapter', () => {
     );
   });
 
+  it('accepts terminal credential-store failures from pairing polls', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ state: 'credential_store_failed' }));
+    installBrowser(fetchMock);
+    await expect(pollHubPairing('pair-1')).resolves.toMatchObject({ state: 'credential_store_failed' });
+  });
+
   it('rejects malformed local adapter responses before they reach the share UI', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({

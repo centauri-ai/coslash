@@ -426,7 +426,15 @@ export function ShareToHubDialog({
 
   useEffect(() => {
     const pairingId = pairing?.pairingId;
-    if (!open || fixtureMode || pairing?.state !== 'pending' || !pairingId || pairingRefreshRequired) return;
+    if (
+      !open ||
+      fixtureMode ||
+      (pairing?.state !== 'pending' && pairing?.state !== 'retrying') ||
+      !pairingId ||
+      pairingRefreshRequired
+    ) {
+      return;
+    }
     let stopped = false;
     let timeout = 0;
     const delay = Math.max(2, pairing.intervalSeconds ?? 2) * 1000;
@@ -448,7 +456,11 @@ export function ShareToHubDialog({
               );
             }
           }
-        } else if (next.state === 'expired') {
+        } else if (
+          next.state === 'declined' ||
+          next.state === 'expired' ||
+          next.state === 'credential_store_failed'
+        ) {
           finished = true;
           setPairing((current) => ({ ...current, ...next }));
         } else {
@@ -969,21 +981,30 @@ export function ShareToHubDialog({
             <AlertTriangleIcon className="text-warning-fg size-7" />
             <h3 className="mt-3 font-semibold">{eligibility?.title}</h3>
             <p className="text-coslash-muted mt-2 max-w-md text-sm">{eligibility?.detail}</p>
-            {!fixtureMode && pairing?.state === 'pending' ? (
+            {!fixtureMode &&
+            (pairing?.state === 'pending' ||
+              pairing?.state === 'retrying' ||
+              (pairing?.state === 'paired' && pairingRefreshRequired)) ? (
               <div className="mt-5 rounded-lg border p-4">
                 <p className="text-sm font-semibold">
-                  {pairingRefreshRequired ? 'Pairing approved' : `Approve code ${pairing.userCode}`}
+                  {pairingRefreshRequired
+                    ? 'Pairing approved'
+                    : pairing?.state === 'retrying'
+                      ? 'Saving pairing credential'
+                      : `Approve code ${pairing?.userCode}`}
                 </p>
                 <p className="text-coslash-muted pt-1 text-xs">
                   {pairingRefreshRequired
                     ? 'Refresh the destination to finish enabling sharing.'
-                    : 'A Hub sign-in window was opened. This page will update after approval.'}
+                    : pairing?.state === 'retrying'
+                      ? 'Hub approved the device. Local is retrying the secure credential save.'
+                      : 'A Hub sign-in window was opened. This page will update after approval.'}
                 </p>
                 {pairingRefreshRequired ? (
                   <Button className="mt-3" size="sm" onClick={retryDestinationRefresh}>
                     Retry destination refresh
                   </Button>
-                ) : (
+                ) : pairing?.state === 'pending' ? (
                   (pairing.verificationUriComplete ?? pairing.verificationUri) && (
                     <a
                       className="text-info-fg mt-3 inline-block text-sm font-semibold underline"
@@ -994,7 +1015,7 @@ export function ShareToHubDialog({
                       Open approval page
                     </a>
                   )
-                )}
+                ) : null}
               </div>
             ) : (
               <Button className="mt-5" onClick={fixtureMode ? onOpenSettings : beginPairing}>
@@ -1003,6 +1024,17 @@ export function ShareToHubDialog({
             )}
             {pairing?.state === 'expired' && (
               <p className="text-warning-fg mt-3 text-sm">Pairing expired. Start again.</p>
+            )}
+            {pairing?.state === 'declined' && (
+              <p className="text-danger-fg mt-3 text-sm" role="alert">
+                Pairing was declined in Hub. Start again to pair this device.
+              </p>
+            )}
+            {pairing?.state === 'credential_store_failed' && (
+              <p className="text-danger-fg mt-3 text-sm" role="alert">
+                Local could not save the pairing credential to the secure credential store. Resolve the system
+                credential store issue and pair again.
+              </p>
             )}
             {pairingError && (
               <p className="text-danger-fg mt-3 text-sm" role="alert">
