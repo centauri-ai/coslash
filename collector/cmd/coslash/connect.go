@@ -185,9 +185,11 @@ func runConnectCLI(stdout, stderr io.Writer, args []string) int {
 		switch status.State {
 		case connectJobConnected:
 			if opts.json {
+				reportBackgroundPersistence(io.Discard)
 				writeConnectJSON(stdout, status.State, connectExitOK)
 			} else {
 				fmt.Fprintln(stdout, "✓ Connected. Your recent sessions are syncing to My space.")
+				reportBackgroundPersistence(stdout)
 			}
 			return connectExitOK
 		case connectJobDeclined:
