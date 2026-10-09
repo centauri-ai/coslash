@@ -69,6 +69,7 @@ type state struct {
 	Config               hubclient.V4Config `json:"config"`
 	PlanStartedAt        int64              `json:"planStartedAt,omitempty"`
 	CatchUpFrozenVersion int64              `json:"catchUpFrozenVersion,omitempty"`
+	LiveOnlyPlanVersion  int64              `json:"liveOnlyPlanVersion,omitempty"`
 	NextCheckInSeconds   int                `json:"nextCheckInSeconds,omitempty"`
 	Phase                string             `json:"phase,omitempty"`
 	RateBytesSec         float64            `json:"rateBytesSec,omitempty"`
@@ -206,6 +207,7 @@ func (q *Queue) Rebind(binding string) error {
 		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
 		q.state.Config = hubclient.V4Config{}
 		q.state.PlanStartedAt, q.state.Phase = 0, ""
+		q.state.LiveOnlyPlanVersion = 0
 		q.state.Commands = nil
 		// Unsent lines name the previous binding's sessions.
 		q.state.Log = nil
@@ -270,9 +272,11 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 				q.state.PlanStartedAt = now.UnixMilli()
 				q.state.Phase = "warm_start"
 				q.state.CatchUpFrozenVersion = 0
+				q.state.LiveOnlyPlanVersion = 0
 				if completedBackfill {
 					q.state.Phase = "complete"
 					q.state.CatchUpFrozenVersion = result.Config.ImportPlan.Version
+					q.state.LiveOnlyPlanVersion = result.Config.ImportPlan.Version
 				}
 				for i := range q.state.Entries {
 					q.state.Entries[i].CatchUpPlanVersion = 0
@@ -283,6 +287,7 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 		if result.Config.ImportPlan == nil {
 			q.state.PlanStartedAt, q.state.Phase = 0, "awaiting_plan"
 			q.state.CatchUpFrozenVersion = 0
+			q.state.LiveOnlyPlanVersion = 0
 		}
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
