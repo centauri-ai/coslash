@@ -93,6 +93,27 @@ func TestPlanDiscoveryResumesBelowTheCursorAndRevisitsChangedFamilies(t *testing
 	}
 }
 
+func TestPlanDiscoveryRestartsWhenHubPlanChanges(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	projects := filepath.Join(home, ".claude", "projects", "p")
+	snapshot := &Snapshot{Files: []File{
+		{Agent: vendors.AgentClaude, Path: filepath.Join(projects, "a.jsonl"), ModTimeMs: 300, Session: true, FamilyID: "a"},
+		{Agent: vendors.AgentClaude, Path: filepath.Join(projects, "b.jsonl"), ModTimeMs: 200, Session: true, FamilyID: "b"},
+		{Agent: vendors.AgentClaude, Path: filepath.Join(projects, "c.jsonl"), ModTimeMs: 100, Session: true, FamilyID: "c"},
+	}}
+	resume := &Cursor{StartedAtMs: 250, PlanVersion: 1, ActivityMs: 200, Agent: vendors.AgentClaude, Family: "b"}
+	plan, err := planDiscovery(ctx, DiscoverOptions{Snapshot: snapshot, PlanVersion: 2, Resume: resume})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.families) != 3 || plan.families[0].id != "a" || plan.families[2].id != "c" {
+		t.Fatalf("new plan resumed from stale cursor: %+v", plan.families)
+	}
+}
+
 func TestDiscoverKeepsTranscriptActivityDespiteOldFileMtime(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

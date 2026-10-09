@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -35,9 +36,17 @@ func catchUpEntry(queue *Queue, key, agent string, activity time.Time) Entry {
 		Selection: sessionbackupproducer.Selection{Agent: agent, SessionID: key}}
 }
 
-func TestCatchUpTenDaysThirtyPerAgent(t *testing.T) {
+func entryKeys(entries []Entry) []string {
+	keys := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		keys = append(keys, entry.Key)
+	}
+	return keys
+}
+
+func TestCatchUpThreeDaysThirtyPerAgent(t *testing.T) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "10d", MaxSessionsPerAgent: 30}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
 	queue, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -99,9 +108,200 @@ func TestCatchUpTenDaysThirtyPerAgent(t *testing.T) {
 	}
 }
 
+func TestDefaultPlanDoesNotUploadOlderHistory(t *testing.T) {
+	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessions: 30, MaxSessionsPerAgent: 30}
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	older := catchUpEntry(queue, "offline-history", "codex", started.Add(-4*24*time.Hour))
+	if err := queue.Merge([]Entry{older}, started); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, started); err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{plan: &plan}
+	runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return started }, checkedAt: started,
+		config: hubclient.V4Config{ImportPlan: &plan}, lastReportedPhase: "warm_start"}
+	if err := runner.runPlanned(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if hub.creates != 0 || len(hub.lists) != 0 {
+		t.Fatalf("default plan contacted Hub for older history: creates=%d lists=%v", hub.creates, hub.lists)
+	}
+	if got := queue.Entries()[0]; got.Listed || got.UploadID != "" || got.RevisionID != "" {
+		t.Fatalf("older history entered the upload queue: %+v", got)
+	}
+}
+
+func TestManualSixtyDayBackfillIsFiniteAndPerDevice(t *testing.T) {
+	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	entries := make([]Entry, 0, 34)
+	entry := func(key string, activity time.Time) Entry {
+		return Entry{Key: key, Activity: activity.UnixMilli(), Session: hubclient.V4Session{LocalKeyHash: key, Agent: "codex"},
+			Selection: sessionbackupproducer.Selection{Agent: "codex", SessionID: key}}
+	}
+	for i := 0; i < 31; i++ {
+		entries = append(entries, entry(fmt.Sprintf("within-%02d", i), started.Add(-30*24*time.Hour-time.Duration(i)*time.Minute)))
+	}
+	entries = append(entries,
+		entry("recent", started.Add(-2*24*time.Hour)),
+		entry("cutoff", started.Add(-60*24*time.Hour)),
+		entry("outside", started.Add(-60*24*time.Hour-time.Millisecond)))
+
+	newQueue := func(plan hubclient.V4ImportPlan) *Queue {
+		t.Helper()
+		queue, err := Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range entries {
+			entries[i].Session.InstallID = queue.InstallID()
+		}
+		if err := queue.Merge(entries, started.Add(-time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, started); err != nil {
+			t.Fatal(err)
+		}
+		if err := queue.FreezeCatchUp(plan); err != nil {
+			t.Fatal(err)
+		}
+		return queue
+	}
+
+	defaultPlan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessions: 30, MaxSessionsPerAgent: 30}
+	defaultQueue := newQueue(defaultPlan)
+	if got := defaultQueue.PlannedEntries(defaultPlan, started); len(got) != 1 || got[0].Key != "recent" {
+		t.Fatalf("default device plan = %v; want recent activity only", entryKeys(got))
+	}
+
+	backfillPlan := hubclient.V4ImportPlan{Version: 1, Window: "60d", Backfill: true}
+	backfillQueue := newQueue(backfillPlan)
+	planned := backfillQueue.PlannedEntries(backfillPlan, started)
+	if len(planned) != 33 {
+		t.Fatalf("manual 60-day plan selected %d sessions, want 33", len(planned))
+	}
+	keys := make(map[string]bool, len(planned))
+	for _, entry := range planned {
+		keys[entry.Key] = true
+		if !isCatchUpEntry(entry, backfillPlan) {
+			t.Fatalf("selected history was not frozen for the manual plan: %+v", entry)
+		}
+	}
+	if !keys["cutoff"] || keys["outside"] {
+		t.Fatalf("60-day boundary is not finite: cutoff=%v outside=%v", keys["cutoff"], keys["outside"])
+	}
+	discoveryPlan, planStartedAt := backfillQueue.DiscoveryPlan()
+	if got, want := DiscoveryMinActivity(discoveryPlan, planStartedAt), started.Add(-60*24*time.Hour).UnixMilli(); got != want {
+		t.Fatalf("discovery cutoff = %d, want %d", got, want)
+	}
+	if got := defaultQueue.PlannedEntries(defaultPlan, started); len(got) != 1 {
+		t.Fatalf("opting one device into backfill changed another device's plan: %v", entryKeys(got))
+	}
+	for _, window := range []string{"7d", "10d", "30d", "60d", "all"} {
+		if err := validateImportPlan(hubclient.V4ImportPlan{Window: window}); err == nil {
+			t.Fatalf("extended %s plan was accepted without an explicit choice", window)
+		}
+	}
+	if err := validateImportPlan(hubclient.V4ImportPlan{Window: "all", Backfill: true}); err == nil {
+		t.Fatal("unbounded history was accepted as a finite backfill")
+	}
+	invalidSixtyDay := defaultPlan
+	invalidSixtyDay.Version++
+	invalidSixtyDay.Window = "60d"
+	if err := defaultQueue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 2, Config: hubclient.V4Config{ImportPlan: &invalidSixtyDay}}, started.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := defaultQueue.FreezeCatchUp(invalidSixtyDay); err == nil {
+		t.Fatal("60-day plan without explicit backfill was accepted")
+	}
+}
+
+func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
+	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := catchUpEntry(queue, "backfilled", "codex", started.Add(-40*24*time.Hour))
+	revisionOnly := catchUpEntry(queue, "revision-only", "claude", started.Add(-45*24*time.Hour))
+	recentBackfilled := catchUpEntry(queue, "recent-backfilled", "codex", started.Add(-24*time.Hour))
+	if err := queue.Merge([]Entry{old, revisionOnly, recentBackfilled}, started.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	backfill := hubclient.V4ImportPlan{Version: 1, Window: "60d", Backfill: true}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &backfill}}, started); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(backfill); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range queue.Entries() {
+		entry.RevisionID, entry.SyncedActivity, entry.SyncedSourceRevision = "rev_"+entry.Key, entry.Activity, entry.SourceRevision
+		if err := queue.Update(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := queue.SetPhase("complete"); err != nil {
+		t.Fatal(err)
+	}
+
+	returnedAt := started.Add(time.Hour)
+	livePlan := hubclient.V4ImportPlan{Version: 2, Window: "3d", MaxSessions: 30, MaxSessionsPerAgent: 30}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 2, Config: hubclient.V4Config{ImportPlan: &livePlan}}, returnedAt); err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.ImportSnapshot(returnedAt).Phase; got != "complete" {
+		t.Fatalf("post-backfill phase = %q, want complete", got)
+	}
+	activeSince := returnedAt.Add(time.Hour)
+	offline := catchUpEntry(queue, "created-while-offline", "codex", returnedAt.Add(15*time.Minute))
+	live := catchUpEntry(queue, "live-after-reset", "codex", returnedAt.Add(90*time.Minute))
+	revisionOnly.SourceRevision = "revision-only-updated"
+	if _, err := queue.MergePlannedDiscovery([]Entry{offline, live, revisionOnly}, returnedAt.Add(2*time.Hour), livePlan, activeSince); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(livePlan); err != nil {
+		t.Fatal(err)
+	}
+	keys := entryKeys(queue.PlannedEntries(livePlan, returnedAt.Add(2*time.Minute)))
+	if slices.Contains(keys, offline.Key) || !slices.Contains(keys, live.Key) || !slices.Contains(keys, revisionOnly.Key) {
+		t.Fatalf("post-backfill live plan = %v; offline session must stay out while live activity and revision-only changes stay in", keys)
+	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	queue, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(livePlan); err != nil {
+		t.Fatal(err)
+	}
+	planned := queue.PlannedEntries(livePlan, returnedAt.Add(2*time.Hour))
+	keys = entryKeys(planned)
+	if slices.Contains(keys, offline.Key) || slices.Contains(keys, recentBackfilled.Key) || !slices.Contains(keys, live.Key) || !slices.Contains(keys, revisionOnly.Key) {
+		t.Fatalf("post-backfill live-only plan after restart = %v; offline and preexisting backlog must stay out", keys)
+	}
+	for _, entry := range queue.Entries() {
+		if queue.InPlanScope(entry, livePlan) != slices.Contains(keys, entry.Key) {
+			t.Fatalf("in-plan scope disagrees for %s: planned=%v", entry.Key, slices.Contains(keys, entry.Key))
+		}
+	}
+	for _, entry := range planned {
+		if entry.Key == revisionOnly.Key && !pending(entry) {
+			t.Fatal("revision-only source change is not pending")
+		}
+	}
+}
+
 func TestChangedOldSessionSyncsDespiteCap(t *testing.T) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "10d", MaxSessionsPerAgent: 1}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 1}
 	queue, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +319,8 @@ func TestChangedOldSessionSyncsDespiteCap(t *testing.T) {
 	}
 	changed := older
 	changed.SourceRevision = "source-changed"
-	if err := queue.Merge([]Entry{changed}, started.Add(time.Second)); err != nil {
+	changed.Activity = started.Add(time.Second).UnixMilli()
+	if _, err := queue.MergePlannedDiscovery([]Entry{changed}, started.Add(time.Second), plan, started); err != nil {
 		t.Fatal(err)
 	}
 	planned := queue.PlannedEntries(plan, started.Add(24*time.Hour))
@@ -135,7 +336,7 @@ func TestChangedOldSessionSyncsDespiteCap(t *testing.T) {
 
 func TestNewSessionDoesNotEvictCatchUpEntry(t *testing.T) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "10d", MaxSessionsPerAgent: 30}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
 	queue, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +364,7 @@ func TestNewSessionDoesNotEvictCatchUpEntry(t *testing.T) {
 			selected[entry.Key] = true
 		}
 	}
-	if err := queue.Merge([]Entry{catchUpEntry(queue, "new-session", "codex", started.Add(time.Second))}, started.Add(time.Second)); err != nil {
+	if _, err := queue.MergePlannedDiscovery([]Entry{catchUpEntry(queue, "new-session", "codex", started.Add(time.Second))}, started.Add(time.Second), plan, started); err != nil {
 		t.Fatal(err)
 	}
 	planned := queue.PlannedEntries(plan, started.Add(24*time.Hour))
@@ -189,7 +390,7 @@ func TestNewSessionDoesNotEvictCatchUpEntry(t *testing.T) {
 
 func TestProgressIgnoresOutOfScopeHistory(t *testing.T) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "10d", MaxSessionsPerAgent: 1}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 1}
 	queue, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +427,7 @@ func TestProgressIgnoresOutOfScopeHistory(t *testing.T) {
 
 func TestLeaveOutBeatsCatchUp(t *testing.T) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "10d", MaxSessionsPerAgent: 30}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
 	entry := Entry{Key: "private", Activity: started.Add(-time.Hour).UnixMilli(),
 		Session:   hubclient.V4Session{Agent: "codex", Repo: "repo/private"},
 		Selection: sessionbackupproducer.Selection{Agent: "codex", SessionID: "private"}}
@@ -268,7 +469,7 @@ func TestUnknownWindowStillFailsClosed(t *testing.T) {
 
 func TestProgressDesignState_setup_sync_progress(t *testing.T) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "10d", MaxSessionsPerAgent: 30}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
 	queue, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +544,7 @@ func TestDebounceDesignState_badges_live_revision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "10d", MaxSessionsPerAgent: 30}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
 	entry := Entry{Key: "live", Activity: started.UnixMilli(), SourceRevision: "source-live", Live: true,
 		ChangedAt: started.UnixMilli(), BundleID: prepared.BundleID, Selection: prepared.Selection,
 		Session: hubclient.V4Session{InstallID: queue.InstallID(), LocalKeyHash: "live", Agent: "codex", Title: "Live"}}

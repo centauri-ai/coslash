@@ -1,0 +1,26 @@
+{
+  "configVersion": 10,
+  "capabilities": [
+    "scale-import/v1"
+  ],
+  "config": {
+    "paused": false,
+    "deviceOff": false,
+    "leaveOut": [],
+    "agentKnowledge": true,
+    "importPlan": {
+      "version": 4,
+      "window": "60d",
+      "history": false,
+      "backfill": true,
+      "historyPaused": false,
+      "warmStartSeconds": 30,
+      "maxSessionsPerAgent": 0,
+      "maxSessions": 0
+    }
+  },
+  "commands": [],
+  "minVersion": "0.10.0",
+  "recommendedVersion": "0.10.0",
+  "nextCheckInSeconds": 10
+}

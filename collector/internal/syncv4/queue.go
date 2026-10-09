@@ -69,6 +69,7 @@ type state struct {
 	Config               hubclient.V4Config `json:"config"`
 	PlanStartedAt        int64              `json:"planStartedAt,omitempty"`
 	CatchUpFrozenVersion int64              `json:"catchUpFrozenVersion,omitempty"`
+	LiveOnlyPlanVersion  int64              `json:"liveOnlyPlanVersion,omitempty"`
 	NextCheckInSeconds   int                `json:"nextCheckInSeconds,omitempty"`
 	Phase                string             `json:"phase,omitempty"`
 	RateBytesSec         float64            `json:"rateBytesSec,omitempty"`
@@ -139,7 +140,7 @@ func Open(root string) (*Queue, error) {
 		if err := json.Unmarshal(data, &q.state); err != nil || q.state.Version != 1 || q.state.InstallID == "" {
 			return nil, errors.New("invalid v4 queue")
 		}
-		if q.state.Inventory != nil && !storedInventoryHasD10(data) {
+		if q.state.Inventory != nil && !storedInventoryHasD60(data) {
 			q.state.Inventory = nil
 		}
 		for i := range q.state.Commands {
@@ -167,7 +168,7 @@ func Open(root string) (*Queue, error) {
 	return q, nil
 }
 
-func storedInventoryHasD10(data []byte) bool {
+func storedInventoryHasD60(data []byte) bool {
 	var persisted struct {
 		Inventory *struct {
 			Windows map[string]json.RawMessage `json:"windows"`
@@ -176,7 +177,7 @@ func storedInventoryHasD10(data []byte) bool {
 	if err := json.Unmarshal(data, &persisted); err != nil || persisted.Inventory == nil {
 		return false
 	}
-	_, ok := persisted.Inventory.Windows["d10"]
+	_, ok := persisted.Inventory.Windows["d60"]
 	return ok
 }
 
@@ -206,6 +207,7 @@ func (q *Queue) Rebind(binding string) error {
 		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
 		q.state.Config = hubclient.V4Config{}
 		q.state.PlanStartedAt, q.state.Phase = 0, ""
+		q.state.LiveOnlyPlanVersion = 0
 		q.state.Commands = nil
 		// Unsent lines name the previous binding's sessions.
 		q.state.Log = nil
@@ -258,6 +260,8 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 	prior.DiscardBundles = append([]string(nil), q.state.DiscardBundles...)
 	if result.ConfigVersion > q.state.ConfigVersion || !q.state.PolicyKnown {
 		oldPlan := q.state.Config.ImportPlan
+		completedBackfill := oldPlan != nil && oldPlan.Backfill && q.state.Phase == "complete" &&
+			result.Config.ImportPlan != nil && !result.Config.ImportPlan.Backfill
 		q.state.ConfigVersion = result.ConfigVersion
 		q.state.Config = result.Config
 		q.state.PolicyKnown = true
@@ -268,6 +272,12 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 				q.state.PlanStartedAt = now.UnixMilli()
 				q.state.Phase = "warm_start"
 				q.state.CatchUpFrozenVersion = 0
+				q.state.LiveOnlyPlanVersion = 0
+				if completedBackfill {
+					q.state.Phase = "complete"
+					q.state.CatchUpFrozenVersion = result.Config.ImportPlan.Version
+					q.state.LiveOnlyPlanVersion = result.Config.ImportPlan.Version
+				}
 				for i := range q.state.Entries {
 					q.state.Entries[i].CatchUpPlanVersion = 0
 					q.state.Entries[i].ChangedPlanVersion = 0
@@ -277,6 +287,7 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 		if result.Config.ImportPlan == nil {
 			q.state.PlanStartedAt, q.state.Phase = 0, "awaiting_plan"
 			q.state.CatchUpFrozenVersion = 0
+			q.state.LiveOnlyPlanVersion = 0
 		}
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
@@ -539,19 +550,23 @@ func (q *Queue) Matches(entry Entry) bool {
 }
 
 func (q *Queue) Merge(found []Entry, now time.Time) error {
-	_, err := q.merge(found, now, nil)
+	_, err := q.merge(found, now, nil, time.Time{})
 	return err
 }
 
 // MergePlannedDiscovery counts only newly discovered entries that are
 // currently in the plan and still need Hub listing.
-func (q *Queue) MergePlannedDiscovery(found []Entry, now time.Time, plan hubclient.V4ImportPlan) (int, error) {
-	return q.merge(found, now, &plan)
+func (q *Queue) MergePlannedDiscovery(found []Entry, now time.Time, plan hubclient.V4ImportPlan, activeSince time.Time) (int, error) {
+	return q.merge(found, now, &plan, activeSince)
 }
 
-func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan) (int, error) {
+func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan, activeSince time.Time) (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	changePlan := plan
+	if changePlan == nil {
+		changePlan = q.state.Config.ImportPlan
+	}
 	index := make(map[string]int, len(q.state.Entries))
 	for i, entry := range q.state.Entries {
 		index[entry.Key] = i
@@ -562,6 +577,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 		}
 		if i, ok := index[item.Key]; ok {
 			entry := &q.state.Entries[i]
+			sourceChanged := item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision
 			entry.Recent = entry.Recent || item.Activity >= now.Add(-recentWindow).UnixMilli()
 			wasLive := entry.Live
 			if item.ContentBytes > 0 || entry.ContentBytes == 0 {
@@ -575,10 +591,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.Session = item.Session
 				entry.Listed = false
 			}
-			if item.Activity > entry.Activity || item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision {
-				if plan := q.state.Config.ImportPlan; plan != nil && q.state.PlanStartedAt > 0 && now.UnixMilli() >= q.state.PlanStartedAt {
-					entry.ChangedPlanVersion = plan.Version
-				}
+			if item.Activity > entry.Activity || sourceChanged {
 				if item.ContentBytes <= 0 {
 					entry.ContentBytes = 0
 				}
@@ -595,9 +608,15 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.Attempt = 0
 				entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 			}
+			if q.planChangeIsEligible(*entry, now, changePlan, activeSince, sourceChanged) {
+				entry.ChangedPlanVersion = changePlan.Version
+			}
 		} else {
 			item.Recent = item.Activity >= now.Add(-recentWindow).UnixMilli()
 			item.ChangedAt = now.UnixMilli()
+			if q.planChangeIsEligible(item, now, changePlan, activeSince, false) {
+				item.ChangedPlanVersion = changePlan.Version
+			}
 			index[item.Key] = len(q.state.Entries)
 			q.state.Entries = append(q.state.Entries, item)
 		}
@@ -619,7 +638,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 			if entry.Listed || entry.RevisionID != "" || entry.Excluded || entry.ListRejected || leftOut(entry.Session, q.state.Config.LeaveOut) {
 				continue
 			}
-			if inScope(entry, *plan, now) && (plan.History || entry.CatchUpPlanVersion == plan.Version || entry.ChangedPlanVersion == plan.Version || entry.Priority || entry.Activity >= startedAt.UnixMilli()) {
+			if q.inPlanScopeLocked(entry, *plan, startedAt) && (plan.History || plan.Backfill || entry.CatchUpPlanVersion == plan.Version || entry.ChangedPlanVersion == plan.Version || entry.Priority || entry.Activity >= startedAt.UnixMilli()) {
 				pendingListings++
 			}
 		}
@@ -628,6 +647,20 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 		return 0, err
 	}
 	return pendingListings, nil
+}
+
+func (q *Queue) planChangeIsEligible(entry Entry, now time.Time, plan *hubclient.V4ImportPlan, activeSince time.Time, sourceChanged bool) bool {
+	current := q.state.Config.ImportPlan
+	if plan == nil || current == nil || current.Version != plan.Version || q.state.PlanStartedAt <= 0 || now.UnixMilli() < q.state.PlanStartedAt {
+		return false
+	}
+	if plan.History {
+		return true
+	}
+	if plan.Backfill {
+		return inWindow(entry, *plan, time.UnixMilli(q.state.PlanStartedAt))
+	}
+	return sourceChanged || !activeSince.IsZero() && entry.Activity >= activeSince.UnixMilli()
 }
 
 func (q *Queue) Update(entry Entry) error {
@@ -749,7 +782,7 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	planned := plan != nil && (q.state.CatchUpFrozenVersion == plan.Version || hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport))
 	if planned {
 		entries = q.plannedEntriesLocked(*plan)
-		if !plan.History {
+		if !plan.History && !plan.Backfill {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 	}
@@ -773,7 +806,7 @@ func (q *Queue) Progress() hubclient.V4Queue {
 			if !pending(entry) {
 				progress.FirstSync.RecentDone++
 			}
-		} else if pending(entry) && (plan == nil || plan.History) {
+		} else if pending(entry) && (plan == nil || plan.History || plan.Backfill) {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 		if pending(entry) {
@@ -784,7 +817,7 @@ func (q *Queue) Progress() hubclient.V4Queue {
 			progress.Failing++
 		}
 	}
-	if plan != nil && !plan.History && q.state.CatchUpFrozenVersion == plan.Version && progress.FirstSync.RecentDone == progress.FirstSync.RecentTotal {
+	if plan != nil && !plan.History && !plan.Backfill && q.state.CatchUpFrozenVersion == plan.Version && progress.FirstSync.RecentDone == progress.FirstSync.RecentTotal {
 		progress.FirstSync.HistoryState = "off"
 	}
 	if q.state.Inventory != nil && hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport) {
@@ -817,6 +850,20 @@ func (q *Queue) PlanStartedAt() time.Time {
 	return time.UnixMilli(q.state.PlanStartedAt)
 }
 
+func (q *Queue) DiscoveryPlan() (*hubclient.V4ImportPlan, time.Time) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.Config.ImportPlan == nil {
+		return nil, time.Time{}
+	}
+	plan := *q.state.Config.ImportPlan
+	startedAt := time.Time{}
+	if q.state.PlanStartedAt > 0 {
+		startedAt = time.UnixMilli(q.state.PlanStartedAt)
+	}
+	return &plan, startedAt
+}
+
 func (q *Queue) InPlanScope(entry Entry, plan hubclient.V4ImportPlan) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -827,7 +874,7 @@ func (q *Queue) InPlanScope(entry Entry, plan hubclient.V4ImportPlan) bool {
 	if q.state.PlanStartedAt > 0 {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
 	}
-	return inScope(entry, plan, startedAt)
+	return q.inPlanScopeLocked(entry, plan, startedAt)
 }
 
 func pending(entry Entry) bool {
