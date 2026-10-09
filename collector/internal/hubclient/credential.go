@@ -6,7 +6,10 @@ import (
 	"sync"
 )
 
-var ErrNotPaired = errors.New("hub device credential is not available")
+var (
+	ErrNotPaired                  = errors.New("hub device credential is not available")
+	ErrCredentialStoreUnavailable = errors.New("secure credential store unavailable")
+)
 
 type CredentialStore interface {
 	Load(context.Context) (string, error)
