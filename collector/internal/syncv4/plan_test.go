@@ -335,6 +335,105 @@ func TestMergePlannedDiscoveryCountsOnlyPendingInScopeEntries(t *testing.T) {
 	}
 }
 
+func TestListedSessionWithoutServerRevisionClearsLocalCompletion(t *testing.T) {
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	plan := &hubclient.V4ImportPlan{Version: 2, Window: "3d", MaxSessionsPerAgent: 30}
+	root := t.TempDir()
+	q, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, prepared, _ := fixtureBundle(t)
+	activity := now.Add(-time.Hour).UnixMilli()
+	entry := Entry{Key: "synthetic-claude-key", Activity: activity, SyncedActivity: activity, Listed: true,
+		SourceRevision: "synthetic-source-revision", SyncedSourceRevision: "synthetic-source-revision",
+		RevisionID: "synthetic-previous-revision", SessionID: "ses_synthetic_selected",
+		BundleID: prepared.BundleID,
+		Session:  hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "synthetic-claude-key", Agent: "claude"}}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 2, Config: hubclient.V4Config{ImportPlan: plan}}, now.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.FreezeCatchUp(*plan); err != nil {
+		t.Fatal(err)
+	}
+	if progress, snapshot := q.Progress(), q.ImportSnapshot(now); progress.Pending != 0 ||
+		snapshot.TotalSessions != 1 || snapshot.ContentSessions != 1 {
+		t.Fatalf("synthetic persisted state did not match the completed Local: queue=%+v import=%+v", progress, snapshot)
+	}
+	if err := q.SetPhase("complete"); err != nil {
+		t.Fatal(err)
+	}
+	q, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{plan: plan}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+		scaleEnabled: true, config: hubclient.V4Config{ImportPlan: plan}}
+	if err := runner.runPlanned(t.Context()); err == nil {
+		t.Fatal("expected the synthetic Hub to reject upload creation")
+	}
+	progress := q.Progress()
+	snapshot := q.ImportSnapshot(now)
+	phase, _, _ := q.Phase()
+	entry = q.Entries()[0]
+	if len(hub.lists) != 1 || hub.creates != 1 || phase == "complete" || progress.Pending != 1 ||
+		snapshot.ContentSessions != 0 || snapshot.TotalSessions != 1 || entry.RevisionID != "" || !entry.Listed {
+		t.Fatalf("listed session was not reconciled: lists=%d creates=%d phase=%q queue=%+v import=%+v entry=%+v",
+			len(hub.lists), hub.creates, phase, progress, snapshot, entry)
+	}
+}
+
+func TestNewImportPlanVersionInvalidatesListingState(t *testing.T) {
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := &hubclient.V4ImportPlan{Version: 1, Window: "3d"}
+	next := &hubclient.V4ImportPlan{Version: 2, Window: "3d"}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: prior}}, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "synthetic-key", Listed: true, SessionID: "ses_old", Activity: now.UnixMilli(),
+		Session: hubclient.V4Session{LocalKeyHash: "synthetic-key", Agent: "claude"}}
+	if err := q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 2, Config: hubclient.V4Config{ImportPlan: next}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.Entries()[0]; got.Listed {
+		t.Fatalf("new plan retained old listing confirmation: %+v", got)
+	}
+}
+
+func TestExistingHubRevisionPreservesLocalCompletion(t *testing.T) {
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity := now.Add(-time.Hour).UnixMilli()
+	entry := Entry{Key: "synthetic-key", Activity: activity, SyncedActivity: activity,
+		SourceRevision: "synthetic-source-revision", SyncedSourceRevision: "synthetic-source-revision",
+		RevisionID: "synthetic-accepted-revision",
+		Session:    hubclient.V4Session{LocalKeyHash: "synthetic-key", Agent: "claude"}}
+	if err := q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.MarkListedAt([]hubclient.V4ListResult{{LocalKeyHash: "synthetic-key", SessionID: "ses_existing", State: "existing"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	got := q.Entries()[0]
+	if pending(got) || got.RevisionID != "synthetic-accepted-revision" || got.SessionID != "ses_existing" {
+		t.Fatalf("existing Hub revision changed local completion: %+v", got)
+	}
+}
+
 func TestChunkScalingEnabledHonorsKillSwitchAndPlan(t *testing.T) {
 	plan := hubclient.V4ImportPlan{Version: 1, Window: "all"}
 	runner := &Runner{scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}}
@@ -468,7 +567,16 @@ func (h *warmOrderHub) V4Create(_ context.Context, _ hubclient.V4Create) (hubcli
 
 func (h *warmOrderHub) V4ListBatch(ctx context.Context, items []hubclient.V4ListItem) ([]hubclient.V4ListResult, error) {
 	h.events = append(h.events, "list")
-	return h.planHub.V4ListBatch(ctx, items)
+	results, err := h.planHub.V4ListBatch(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	for i, item := range items {
+		if item.LocalKeyHash == "first" {
+			results[i].State = "existing"
+		}
+	}
+	return results, nil
 }
 
 func TestWarmSessionCompletesBeforeMetadataListing(t *testing.T) {
@@ -910,6 +1018,21 @@ func (h *bandwidthHub) Now() time.Time {
 func (h *bandwidthHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
 	h.creates++
 	return hubclient.V4Status{UploadID: "up_resume", SessionID: "ses_resume", State: "open"}, nil
+}
+
+func (h *bandwidthHub) V4ListBatch(ctx context.Context, items []hubclient.V4ListItem) ([]hubclient.V4ListResult, error) {
+	results, err := h.resumeScaleHub.planHub.V4ListBatch(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	if h.resumeScaleHub.finalized > 0 {
+		for i, item := range items {
+			if item.LocalKeyHash == "first" {
+				results[i].State = "existing"
+			}
+		}
+	}
+	return results, nil
 }
 
 func (h *bandwidthHub) V4PutChunk(_ context.Context, _ string, missing hubclient.V4Missing, body io.Reader) error {

@@ -72,6 +72,17 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 		if err := r.Queue.SetPhase("listing"); err != nil {
 			return err
 		}
+		phase = "listing"
+	}
+	if phase != "listing" {
+		for _, entry := range r.Queue.PlannedEntries(*plan, r.now()) {
+			if !entry.Listed && !entry.Excluded && !entry.ListRejected {
+				if err := r.Queue.SetPhase("listing"); err != nil {
+					return err
+				}
+				break
+			}
+		}
 	}
 	if err := r.listAll(ctx, *plan); err != nil {
 		return err
@@ -286,7 +297,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 		return r.Queue.MarkListedAt(results, r.now())
 	}
 	for _, entry := range entries {
-		if entry.Listed || entry.RevisionID != "" || entry.Excluded || entry.ListRejected {
+		if entry.Listed || entry.Excluded || entry.ListRejected {
 			continue
 		}
 		activity := time.UnixMilli(entry.Activity).UTC()

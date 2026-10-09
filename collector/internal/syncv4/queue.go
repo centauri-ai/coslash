@@ -149,6 +149,9 @@ func Open(root string) (*Queue, error) {
 				command.Result = hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "execution_interrupted"}
 			}
 		}
+		for i := range q.state.Entries {
+			q.state.Entries[i].Listed = false
+		}
 		q.pruneCommands(time.Now())
 		if err := q.save(); err != nil {
 			return nil, err
@@ -201,6 +204,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.ParkedVersion, entry.LoggedFailure = "", ""
 			entry.SyncedActivity, entry.SyncedSourceRevision = 0, ""
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
+			entry.Listed, entry.ListRejected, entry.ServerLeftOut = false, false, false
 			entry.Manifest, entry.Attempt = nil, 0
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
@@ -260,6 +264,8 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 	prior.DiscardBundles = append([]string(nil), q.state.DiscardBundles...)
 	if result.ConfigVersion > q.state.ConfigVersion || !q.state.PolicyKnown {
 		oldPlan := q.state.Config.ImportPlan
+		refreshListings := result.Config.ImportPlan != nil &&
+			(oldPlan == nil || oldPlan.Version != result.Config.ImportPlan.Version || q.state.PlanStartedAt == 0)
 		completedBackfill := oldPlan != nil && oldPlan.Backfill && q.state.Phase == "complete" &&
 			result.Config.ImportPlan != nil && !result.Config.ImportPlan.Backfill
 		q.state.ConfigVersion = result.ConfigVersion
@@ -291,6 +297,9 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 		}
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
+			if refreshListings {
+				entry.Listed = false
+			}
 			entry.ServerLeftOut = false
 			entry.ListRejected = false
 			entry.Excluded = leftOut(entry.Session, result.Config.LeaveOut)
