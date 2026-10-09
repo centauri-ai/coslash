@@ -54,6 +54,14 @@ func (transport currentHubTransport) V4Status(ctx context.Context, uploadID stri
 	return client.V4Status(ctx, uploadID)
 }
 
+func (transport currentHubTransport) V4Abort(ctx context.Context, uploadID string) error {
+	client, err := transport.client()
+	if err != nil {
+		return err
+	}
+	return client.V4Abort(ctx, uploadID)
+}
+
 func (transport currentHubTransport) V4PutChunk(ctx context.Context, uploadID string, missing hubclient.V4Missing, body io.Reader) error {
 	client, err := transport.client()
 	if err != nil {
