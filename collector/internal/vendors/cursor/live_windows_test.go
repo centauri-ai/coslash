@@ -18,7 +18,7 @@ import (
 func TestWindowsCursorLivenessUsesSelectedIDEChat(t *testing.T) {
 	home := t.TempDir()
 	setWindowsCursorTestHome(t, home)
-	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
+	path := filepath.Join(GlobalStorage(home), "state.vscdb")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestWindowsCursorLivenessMarksSameSessionAmbiguousAcrossLanes(t *testing.T)
 	if err := os.WriteFile(store, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	state := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
+	state := filepath.Join(GlobalStorage(home), "state.vscdb")
 	if err := os.MkdirAll(filepath.Dir(state), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -38,7 +38,7 @@ func ExtensionPath() (string, error) {
 
 // EnsureExtension installs through Pi's native extension discovery, preserving settings.
 func EnsureExtension() error {
-	if !vendors.PiSupported() {
+	if !vendors.PiCollectionSupported() {
 		return nil
 	}
 	return ensureExtension()
@@ -108,7 +108,7 @@ type ExtensionHealth struct {
 }
 
 func ExtensionDiagnostics() ExtensionHealth {
-	if !vendors.PiSupported() {
+	if !vendors.PiCollectionSupported() {
 		return ExtensionHealth{}
 	}
 	return extensionDiagnostics()
