@@ -222,13 +222,15 @@ func TestManualSixtyDayBackfillIsFiniteAndPerDevice(t *testing.T) {
 
 func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	queue, err := Open(t.TempDir())
+	root := t.TempDir()
+	queue, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	old := catchUpEntry(queue, "backfilled", "codex", started.Add(-40*24*time.Hour))
 	revisionOnly := catchUpEntry(queue, "revision-only", "claude", started.Add(-45*24*time.Hour))
-	if err := queue.Merge([]Entry{old, revisionOnly}, started.Add(-time.Second)); err != nil {
+	recentBackfilled := catchUpEntry(queue, "recent-backfilled", "codex", started.Add(-24*time.Hour))
+	if err := queue.Merge([]Entry{old, revisionOnly, recentBackfilled}, started.Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	backfill := hubclient.V4ImportPlan{Version: 1, Window: "60d", Backfill: true}
@@ -270,7 +272,21 @@ func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
 	if slices.Contains(keys, offline.Key) || !slices.Contains(keys, live.Key) || !slices.Contains(keys, revisionOnly.Key) {
 		t.Fatalf("post-backfill live plan = %v; offline session must stay out while live activity and revision-only changes stay in", keys)
 	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	queue, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(livePlan); err != nil {
+		t.Fatal(err)
+	}
 	planned := queue.PlannedEntries(livePlan, returnedAt.Add(2*time.Hour))
+	keys = entryKeys(planned)
+	if slices.Contains(keys, offline.Key) || slices.Contains(keys, recentBackfilled.Key) || !slices.Contains(keys, live.Key) || !slices.Contains(keys, revisionOnly.Key) {
+		t.Fatalf("post-backfill live-only plan after restart = %v; offline and preexisting backlog must stay out", keys)
+	}
 	for _, entry := range queue.Entries() {
 		if queue.InPlanScope(entry, livePlan) != slices.Contains(keys, entry.Key) {
 			t.Fatalf("in-plan scope disagrees for %s: planned=%v", entry.Key, slices.Contains(keys, entry.Key))
