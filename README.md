@@ -21,7 +21,7 @@ A separately authorized remote Hub MCP connection lets your agent query Hub
 sessions; synthesis uses the selected agent CLI. See [data and
 privacy](docs/data-and-privacy.md).
 
-**Early preview · macOS and Windows 11 amd64**
+**Early preview · macOS, Linux (amd64, arm64) and Windows 11 amd64**
 
 | Agent | Supported OS | Local sessions | Linux over SSH | Resume |
 | --- | --- | --- | --- | --- |
@@ -31,6 +31,8 @@ privacy](docs/data-and-privacy.md).
 | OpenCode | macOS, Windows | Desktop App, CLI | No | Yes |
 | Pi | macOS, Windows | CLI | No | Yes |
 | Grok Build | macOS, Windows | CLI | No | Yes |
+
+On Linux (amd64, arm64), Local collects these agents' local sessions and syncs them to Hub. Pi and Grok Build synthesis, resume, and handoff stay on macOS and Windows; see [Linux](#linux).
 
 Local collection needs no Hub account or telemetry.
 
@@ -44,7 +46,8 @@ the computer.
 Hub shows a personalized command. These examples use a sample code and origin;
 run the exact command Hub provides.
 
-**macOS:**
+**macOS and Linux** (on a server, paste it in your own SSH session; Hub never
+sees SSH credentials):
 
 ```sh
 curl -fsSL https://coslash.io/install.sh | bash -s -- --connect K7QX-29PD --hub https://hub.coslash.io
@@ -74,7 +77,8 @@ the background without opening its own browser tab. The first start registers a
 per-user URL handler on macOS or Windows; neither requires administrator rights.
 Once paired, Local also registers a per-user login start. Closing the browser
 does not stop its sync worker. On macOS, the login agent restarts Local if its
-process exits; on Windows, Local starts at the next sign-in. Hub asks running
+process exits; on Windows, Local starts at the next sign-in; on Linux, see
+[Linux](#linux). Hub asks running
 Locals to check in when My space opens and shows whether they are reachable.
 When uninstalling a paired Windows copy, remove its login entry with
 `Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'coSlash Local'`.
@@ -104,6 +108,41 @@ coslash
 coSlash serves <http://127.0.0.1:8787> and opens your browser with a fresh access token. Use the URL it opens. Links from an earlier run stop working when the server restarts.
 
 `brew upgrade coslash` updates it and `brew uninstall coslash` removes the binary. Your data stays in `~/.coslash` until you delete that directory. To install a specific version from a release archive, see [Install from a release archive](docs/install.md).
+
+### Linux
+
+coSlash Local runs on Linux amd64 and arm64, including headless servers. To
+connect a server, choose **Devices → Add device → A server over SSH** in
+Hub, SSH into the server, and paste the command there. To install without
+connecting:
+
+```sh
+curl -fsSL https://coslash.io/install.sh | bash
+```
+
+The script picks the `linux_amd64` or `linux_arm64` release archive from
+`uname -m`, verifies it against `checksums.txt`, and installs `coslash` to
+`~/.local/bin` (or `/usr/local/bin` when writable). It needs `curl`, `tar`, and
+`sha256sum` or `shasum`; it never uses `sudo`.
+
+After `coslash connect`, Local keeps running after you log out and starts at
+boot. When your account lingers (or can turn lingering on), Local runs as the
+systemd user service `coslash.service` (`systemctl --user status coslash`).
+Stock Ubuntu does not let an SSH session enable lingering without `sudo`; then
+Local keeps running as a detached process and adds a `crontab` `@reboot`
+entry. To use the systemd service instead, run `sudo loginctl enable-linger
+"$USER"` before connecting. In a container without systemd or cron, run
+`coslash --background` from the entrypoint. The device
+credential is stored in `~/.coslash/hub-credentials/<hub host>` (mode `0600`)
+rather than a desktop keyring, so a reboot or a locked keyring never unpairs
+the host. Logs are in `~/.coslash/logs/coslash.log`.
+
+The service does not read shell profiles. It keeps the `PATH`, `COSLASH_HOME`,
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `GROK_HOME`, `OPENCODE_DB`, and Pi path
+variables set when you connected; reconnect after changing them. To uninstall,
+run `systemctl --user disable --now coslash.service`, delete
+`~/.config/systemd/user/coslash.service` and the `coslash` binary, and remove
+`~/.coslash` if you no longer want its data.
 
 ### Windows
 

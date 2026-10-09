@@ -116,7 +116,10 @@ for command_name in git go node npm make; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
-[[ "$(uname -s)" == Darwin ]] || fail "this installer builds the macOS client only"
+case "$(uname -s)" in
+  Darwin | Linux) ;;
+  *) fail "this installer builds the macOS and Linux client only" ;;
+esac
 git check-ref-format --branch "$branch" >/dev/null 2>&1 || fail "invalid branch name"
 
 go_version="$(go version | sed -n 's/^go version go\([0-9][0-9.]*\).*/\1/p')"
