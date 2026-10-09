@@ -23,8 +23,10 @@ import (
 )
 
 type testCredentialStore struct {
-	mu    sync.Mutex
-	value string
+	mu           sync.Mutex
+	value        string
+	saveFailures int
+	saveAttempts int
 }
 
 func (store *testCredentialStore) Load(context.Context) (string, error) {
@@ -36,6 +38,11 @@ func (store *testCredentialStore) Load(context.Context) (string, error) {
 func (store *testCredentialStore) Save(_ context.Context, value string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	store.saveAttempts++
+	if store.saveFailures > 0 {
+		store.saveFailures--
+		return fmt.Errorf("synthetic credential store failure")
+	}
 	store.value = value
 	return nil
 }
@@ -109,6 +116,27 @@ func TestConnectTerminalFailureLinesAndExitCodes(t *testing.T) {
 		got := printConnectFailure(&stdout, &stderr, connectOptions{hub: "https://hub.coslash.io"}, test.code, "")
 		if got != test.code || stderr.String() != test.want || stdout.Len() != 0 {
 			t.Fatalf("connect failure code=%d line=%q stdout=%q return=%d", test.code, stderr.String(), stdout.String(), got)
+		}
+	}
+}
+
+func TestConnectTerminalPairingStatesAreSanitizedForCLI(t *testing.T) {
+	for _, test := range []struct {
+		code  int
+		state string
+	}{
+		{code: connectExitCredentialStore, state: connectJobCredentialStoreFailed},
+		{code: connectExitRetryable, state: connectJobCheckInRetryable},
+	} {
+		var stdout, stderr bytes.Buffer
+		got := printConnectFailure(&stdout, &stderr, connectOptions{json: true}, test.code, "internal detail")
+		var result struct {
+			State    string `json:"state"`
+			ExitCode int    `json:"exitCode"`
+		}
+		if got != test.code || json.Unmarshal(stdout.Bytes(), &result) != nil || result.State != test.state ||
+			result.ExitCode != test.code || strings.Contains(stdout.String(), "internal detail") || stderr.Len() != 0 {
+			t.Fatal("CLI returned an invalid or unsanitized terminal state")
 		}
 	}
 }
@@ -203,20 +231,24 @@ func TestConnectCodeIsNotLoggedOrPersistedOnClaimFailure(t *testing.T) {
 
 func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		problem    string
-		want       string
-		wantEnsure bool
+		name         string
+		problem      string
+		want         string
+		wantEnsure   bool
+		wantCheckIn  bool
+		saveFailures int
 	}{
-		{name: "connected", want: "connected", wantEnsure: true},
+		{name: "connected", want: connectJobConnected, wantEnsure: true, wantCheckIn: true},
 		{name: "declined", problem: "onboarding_declined", want: "declined"},
 		{name: "expired", problem: "pairing_expired", want: "expired"},
+		{name: "credential-store-failed", want: connectJobCredentialStoreFailed, saveFailures: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("COSLASH_HOME", t.TempDir())
 			var ensureCalls atomic.Int32
 			var polls atomic.Int32
-			credentials := &testCredentialStore{}
+			var checkIns atomic.Int32
+			credentials := &testCredentialStore{saveFailures: test.saveFailures}
 			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 				switch request.URL.Path {
 				case "/v1/device-onboarding-codes/claim":
@@ -233,6 +265,10 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 					}
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = fmt.Fprint(w, `{"deviceId":"device","credential":"saved-credential","tokenType":"Device","scope":"ingest"}`)
+				case "/v4/devices/me/check-in":
+					checkIns.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprint(w, `{"nextCheckInSeconds":60}`)
 				default:
 					t.Errorf("unexpected Hub request %s %s", request.Method, request.URL.Path)
 					http.NotFound(w, request)
@@ -245,6 +281,9 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 			manager.setHubClientBinder(func(client *hubclient.Client) { client.Credentials = credentials })
 			manager.setSyncHooks(syncHookFuncs{ensure: func(*hubclient.Client) error {
 				ensureCalls.Add(1)
+				if checkIns.Load() == 0 {
+					t.Error("sync started before a successful first check-in")
+				}
 				return nil
 			}})
 			id, err := manager.StartConnectCode(hub.URL, "K7QX-29PD")
@@ -273,9 +312,28 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 				t.Fatalf("sync Ensure calls=%d, want %d", got, wantEnsureCalls)
 			}
 			if test.wantEnsure {
-				if value, _ := credentials.Load(context.Background()); value != "saved-credential" {
-					t.Fatalf("saved credential=%q", value)
+				if value, _ := credentials.Load(context.Background()); value == "" {
+					t.Fatal("credential store did not retain the pairing result")
 				}
+			}
+			wantCheckIns := int32(0)
+			if test.wantCheckIn {
+				wantCheckIns = 1
+			}
+			if got := checkIns.Load(); got != wantCheckIns {
+				t.Fatalf("unexpected first check-in count: got %d, want %d", got, wantCheckIns)
+			}
+			wantSaveAttempts := 0
+			if test.saveFailures > 0 {
+				wantSaveAttempts = 3
+			} else if test.wantCheckIn {
+				wantSaveAttempts = 1
+			}
+			credentials.mu.Lock()
+			saveAttempts := credentials.saveAttempts
+			credentials.mu.Unlock()
+			if saveAttempts != wantSaveAttempts {
+				t.Fatal("credential-store retry count was outside the expected bound")
 			}
 		})
 	}
@@ -494,17 +552,21 @@ func TestBackgroundLogRotatesAtFiveMiB(t *testing.T) {
 }
 
 func TestConnectStatusRouteReturnsOnlyState(t *testing.T) {
-	manager := newOnboardingManager("0.1.0")
-	defer manager.Close()
-	manager.connectJobs["job"] = connectJob{state: "connected", updatedAt: time.Now()}
-	api := http.NewServeMux()
-	registerHubRoutes(api, nil, nil, manager)
-	response := httptest.NewRecorder()
-	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hub/onboarding/connect/job", nil))
-	var body map[string]string
-	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &body) != nil ||
-		body["state"] != "connected" || len(body) != 1 {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	for _, state := range []string{connectJobConnected, connectJobRetrying, connectJobCredentialStoreFailed} {
+		t.Run(state, func(t *testing.T) {
+			manager := newOnboardingManager("0.1.0")
+			defer manager.Close()
+			manager.connectJobs["job"] = connectJob{state: state, updatedAt: time.Now()}
+			api := http.NewServeMux()
+			registerHubRoutes(api, nil, nil, manager)
+			response := httptest.NewRecorder()
+			api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hub/onboarding/connect/job", nil))
+			var body map[string]string
+			if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &body) != nil ||
+				body["state"] != state || len(body) != 1 {
+				t.Fatalf("status route returned an invalid state-only response: status=%d", response.Code)
+			}
+		})
 	}
 }
 
