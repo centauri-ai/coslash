@@ -23,13 +23,20 @@ func (s OSKeychain) Load(ctx context.Context) (string, error) {
 	}
 	output, err := command.Output()
 	if err != nil {
-		return "", ErrNotPaired
+		return "", keychainCommandLoadError(ctx)
 	}
 	credential := strings.TrimSpace(string(output))
 	if credential == "" {
 		return "", ErrNotPaired
 	}
 	return credential, nil
+}
+
+func keychainCommandLoadError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return ErrNotPaired
 }
 
 func (s OSKeychain) save(ctx context.Context, credential string) error {
