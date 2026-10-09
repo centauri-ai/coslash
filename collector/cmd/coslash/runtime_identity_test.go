@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestInstallChannelDetector(t *testing.T) {
 	tests := []struct {
@@ -19,6 +22,35 @@ func TestInstallChannelDetector(t *testing.T) {
 				t.Fatalf("install channel=%q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestInstallChannelBuildMetadata(t *testing.T) {
+	for _, test := range []struct {
+		name, goos, detected, metadata, want string
+	}{
+		{name: "branch script at custom macOS path", goos: "darwin", detected: "unknown", metadata: "script", want: "script"},
+		{name: "ordinary copied binary", goos: "darwin", detected: "unknown", want: "unknown"},
+		{name: "metadata is macOS only", goos: "linux", detected: "unknown", metadata: "script", want: "unknown"},
+		{name: "Homebrew path keeps precedence", goos: "darwin", detected: "brew", metadata: "script", want: "brew"},
+		{name: "Windows script keeps precedence", goos: "windows", detected: "windows-script", metadata: "script", want: "windows-script"},
+		{name: "unrecognized metadata", goos: "darwin", detected: "unknown", metadata: "manual", want: "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := installChannelWithBuildMetadata(test.goos, test.detected, test.metadata); got != test.want {
+				t.Fatalf("install channel=%q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestInstallChannelEmbeddedMetadata(t *testing.T) {
+	want := "unknown"
+	if runtime.GOOS == "darwin" && installChannelMetadata == "script" {
+		want = "script"
+	}
+	if got := installChannelWithBuildMetadata(runtime.GOOS, "unknown", installChannelMetadata); got != want {
+		t.Fatalf("embedded install channel=%q, want %q", got, want)
 	}
 }
 
