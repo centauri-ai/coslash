@@ -132,6 +132,7 @@ type Runner struct {
 	checkInRetryUntil   atomic.Int64
 	lastReportedPhase   string
 	lastDiscoveryAt     time.Time
+	activeSince         time.Time
 	logRejectedUntil    time.Time
 }
 
@@ -151,6 +152,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.Queue == nil || r.Backup == nil || r.Hub == nil || r.Discover == nil {
 		return errors.New("v4 sync is not configured")
 	}
+	if r.activeSince.IsZero() {
+		r.activeSince = r.now()
+	}
 	// Retry commands stay open across passes until their session settles.
 	defer func() { syncErr = errors.Join(syncErr, r.finishRetryCommands()) }()
 	binding, err := r.Hub.V4Binding(ctx)
@@ -162,6 +166,11 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	}
 	if err := r.refreshConsent(ctx); err != nil {
 		return err
+	}
+	if r.config.ImportPlan != nil {
+		if err := validateImportPlan(*r.config.ImportPlan); err != nil {
+			return err
+		}
 	}
 	if r.Queue.PolicyBlocked() {
 		return ErrPolicyBlocked
@@ -203,7 +212,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 					return err
 				}
 			} else {
-				count, err := r.Queue.MergePlannedDiscovery(entries, r.now(), *r.config.ImportPlan)
+				count, err := r.Queue.MergePlannedDiscovery(entries, r.now(), *r.config.ImportPlan, r.activeSince)
 				if err != nil {
 					return err
 				}
@@ -253,7 +262,12 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			break
 		}
 	}
-	if err := r.Queue.Merge(discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions), r.now()); err != nil {
+	discovered := discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions)
+	if plan := r.config.ImportPlan; plan != nil {
+		if _, err := r.Queue.MergePlannedDiscovery(discovered, r.now(), *plan, r.activeSince); err != nil {
+			return err
+		}
+	} else if err := r.Queue.Merge(discovered, r.now()); err != nil {
 		return err
 	}
 	if err := r.releaseParked(); err != nil {

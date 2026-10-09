@@ -45,6 +45,8 @@ func windowDuration(window string) (time.Duration, bool) {
 		return 10 * 24 * time.Hour, true
 	case "30d":
 		return 30 * 24 * time.Hour, true
+	case "60d":
+		return 60 * 24 * time.Hour, true
 	case "all":
 		return 0, true
 	default:
@@ -55,7 +57,7 @@ func windowDuration(window string) (time.Duration, bool) {
 // DiscoveryMinActivity returns the requested cutoff for timestamp-indexed
 // discovery sources. Transcript families still need parsing to determine activity.
 func DiscoveryMinActivity(plan *hubclient.V4ImportPlan, now time.Time) int64 {
-	if plan == nil || plan.History {
+	if plan == nil || plan.History && !plan.Backfill || now.IsZero() {
 		return 0
 	}
 	duration, ok := windowDuration(plan.Window)
@@ -70,6 +72,21 @@ func inWindow(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 	return ok && (duration == 0 || entry.Activity >= now.Add(-duration).UnixMilli())
 }
 
+func validateImportPlan(plan hubclient.V4ImportPlan) error {
+	duration, ok := windowDuration(plan.Window)
+	if !ok {
+		return errors.New("invalid import plan window")
+	}
+	extended := plan.Window == "all" || duration > recentWindow
+	if plan.Backfill && (plan.History || duration == 0) || extended && !plan.Backfill && !plan.History || plan.Window == "60d" && plan.History {
+		return errors.New("extended import plan requires an explicit finite backfill or history choice")
+	}
+	if plan.MaxSessionsPerAgent < 0 || plan.MaxSessionsPerAgent > 500 || plan.MaxSessions < 0 {
+		return errors.New("invalid import plan session limit")
+	}
+	return nil
+}
+
 func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 	if entry.Excluded || now.IsZero() {
 		return false
@@ -80,8 +97,8 @@ func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 	if plan.MaxSessionsPerAgent < 0 || plan.MaxSessionsPerAgent > 500 {
 		return false
 	}
-	return isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version ||
-		entry.Activity >= now.UnixMilli() || plan.History || entry.Priority
+	return isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version || entry.Activity >= now.UnixMilli() ||
+		plan.History || plan.Backfill && inWindow(entry, plan, now) || entry.Priority
 }
 
 func isCatchUpEntry(entry Entry, plan hubclient.V4ImportPlan) bool {
@@ -148,27 +165,26 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan) []Entry {
 	return entries
 }
 
-// FreezeCatchUp persists the bounded set selected for one plan version. The
-// timestamp is the plan's start time, so discoveries and live updates that
-// arrive later cannot displace a session already selected for catch-up.
+// FreezeCatchUp persists pre-start sessions selected for one plan version.
 func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.state.PlanStartedAt <= 0 || q.state.Config.ImportPlan == nil || q.state.Config.ImportPlan.Version != plan.Version {
 		return errors.New("cannot freeze catch-up without the current import plan")
 	}
-	if _, ok := windowDuration(plan.Window); !ok {
-		return errors.New("invalid import plan window")
+	if err := validateImportPlan(plan); err != nil {
+		return err
 	}
+	if q.state.CatchUpFrozenVersion == plan.Version && q.state.Phase == "complete" {
+		return nil
+	}
+	backfill := plan.Backfill
 	limit := plan.MaxSessionsPerAgent
-	if limit == 0 {
+	if limit == 0 && !backfill {
 		limit = 30
 	}
-	if limit < 1 || limit > 500 {
+	if limit < 0 || limit > 500 || limit == 0 && !backfill {
 		return errors.New("invalid max sessions per agent")
-	}
-	if plan.MaxSessions < 0 {
-		return errors.New("invalid max sessions")
 	}
 	priorEntries := slices.Clone(q.state.Entries)
 	priorFrozen := q.state.CatchUpFrozenVersion
@@ -212,7 +228,11 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 			}
 			return a.Key < b.Key
 		})
-		for _, index := range indexes[:min(max(0, int(limit)-selected[agent]), len(indexes))] {
+		count := len(indexes)
+		if limit > 0 {
+			count = min(max(0, int(limit)-selected[agent]), len(indexes))
+		}
+		for _, index := range indexes[:count] {
 			q.state.Entries[index].CatchUpPlanVersion = plan.Version
 			changed = true
 		}
