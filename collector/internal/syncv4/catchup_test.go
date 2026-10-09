@@ -227,7 +227,8 @@ func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := catchUpEntry(queue, "backfilled", "codex", started.Add(-40*24*time.Hour))
-	if err := queue.Merge([]Entry{old}, started.Add(-time.Second)); err != nil {
+	revisionOnly := catchUpEntry(queue, "revision-only", "claude", started.Add(-45*24*time.Hour))
+	if err := queue.Merge([]Entry{old, revisionOnly}, started.Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	backfill := hubclient.V4ImportPlan{Version: 1, Window: "60d", Backfill: true}
@@ -237,10 +238,11 @@ func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
 	if err := queue.FreezeCatchUp(backfill); err != nil {
 		t.Fatal(err)
 	}
-	old = queue.Entries()[0]
-	old.RevisionID, old.SyncedActivity, old.SyncedSourceRevision = "rev_backfilled", old.Activity, old.SourceRevision
-	if err := queue.Update(old); err != nil {
-		t.Fatal(err)
+	for _, entry := range queue.Entries() {
+		entry.RevisionID, entry.SyncedActivity, entry.SyncedSourceRevision = "rev_"+entry.Key, entry.Activity, entry.SourceRevision
+		if err := queue.Update(entry); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := queue.SetPhase("complete"); err != nil {
 		t.Fatal(err)
@@ -254,17 +256,30 @@ func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
 	if got := queue.ImportSnapshot(returnedAt).Phase; got != "complete" {
 		t.Fatalf("post-backfill phase = %q, want complete", got)
 	}
-	offline := catchUpEntry(queue, "created-while-offline", "codex", returnedAt.Add(-time.Minute))
-	live := catchUpEntry(queue, "live-after-reset", "codex", returnedAt.Add(time.Minute))
-	if _, err := queue.MergePlannedDiscovery([]Entry{offline, live}, returnedAt.Add(2*time.Minute), livePlan, returnedAt); err != nil {
+	activeSince := returnedAt.Add(time.Hour)
+	offline := catchUpEntry(queue, "created-while-offline", "codex", returnedAt.Add(15*time.Minute))
+	live := catchUpEntry(queue, "live-after-reset", "codex", returnedAt.Add(90*time.Minute))
+	revisionOnly.SourceRevision = "revision-only-updated"
+	if _, err := queue.MergePlannedDiscovery([]Entry{offline, live, revisionOnly}, returnedAt.Add(2*time.Hour), livePlan, activeSince); err != nil {
 		t.Fatal(err)
 	}
 	if err := queue.FreezeCatchUp(livePlan); err != nil {
 		t.Fatal(err)
 	}
 	keys := entryKeys(queue.PlannedEntries(livePlan, returnedAt.Add(2*time.Minute)))
-	if slices.Contains(keys, offline.Key) || !slices.Contains(keys, live.Key) {
-		t.Fatalf("post-backfill live plan = %v; offline session must stay out and new activity must stay in", keys)
+	if slices.Contains(keys, offline.Key) || !slices.Contains(keys, live.Key) || !slices.Contains(keys, revisionOnly.Key) {
+		t.Fatalf("post-backfill live plan = %v; offline session must stay out while live activity and revision-only changes stay in", keys)
+	}
+	planned := queue.PlannedEntries(livePlan, returnedAt.Add(2*time.Hour))
+	for _, entry := range queue.Entries() {
+		if queue.InPlanScope(entry, livePlan) != slices.Contains(keys, entry.Key) {
+			t.Fatalf("in-plan scope disagrees for %s: planned=%v", entry.Key, slices.Contains(keys, entry.Key))
+		}
+	}
+	for _, entry := range planned {
+		if entry.Key == revisionOnly.Key && !pending(entry) {
+			t.Fatal("revision-only source change is not pending")
+		}
 	}
 }
 

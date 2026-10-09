@@ -101,6 +101,14 @@ func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 		plan.History || plan.Backfill && inWindow(entry, plan, now) || entry.Priority
 }
 
+func (q *Queue) inPlanScopeLocked(entry Entry, plan hubclient.V4ImportPlan, startedAt time.Time) bool {
+	if q.state.CatchUpFrozenVersion == plan.Version && q.state.Phase == "complete" && !plan.History && !plan.Backfill {
+		return inScope(entry, plan, startedAt) &&
+			(isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version || entry.Priority)
+	}
+	return inScope(entry, plan, startedAt)
+}
+
 func isCatchUpEntry(entry Entry, plan hubclient.V4ImportPlan) bool {
 	return entry.CatchUpPlanVersion == plan.Version
 }
@@ -126,7 +134,7 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan) []Entry {
 	frozen := q.state.CatchUpFrozenVersion == plan.Version
 	var entries []Entry
 	for _, entry := range q.state.Entries {
-		if frozen && inScope(entry, plan, startedAt) || !frozen && !entry.Excluded && (plan.History || inWindow(entry, plan, startedAt) || entry.Priority) {
+		if frozen && q.inPlanScopeLocked(entry, plan, startedAt) || !frozen && !entry.Excluded && (plan.History || inWindow(entry, plan, startedAt) || entry.Priority) {
 			entries = append(entries, entry)
 		}
 	}
