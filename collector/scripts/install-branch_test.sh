@@ -23,7 +23,7 @@ case "${0##*/}" in
     ;;
   make)
     args=" $* "
-    [[ "$args" == *" INSTALL_CHANNEL=script "* && "$args" == *" release "* && "$args" == *" VERSION=0.0.0 "* ]] || exit 3
+    [[ "$args" == *" INSTALL_CHANNEL=script "* && "$args" == *" BRANCH_BUILD=true "* && "$args" == *" release "* && "$args" == *" VERSION=0.0.0 "* ]] || exit 3
     collector_dir=""
     while (($#)); do
       if [[ "$1" == -C ]]; then collector_dir="$2"; shift 2; else shift; fi

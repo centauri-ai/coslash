@@ -27,6 +27,28 @@ func TestAutomaticUpdateSkipsTheRunningRelease(t *testing.T) {
 	}
 }
 
+func TestAutomaticUpdatesSupported(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		goos        string
+		channel     string
+		branchBuild bool
+		want        bool
+	}{
+		{name: "release macOS script", goos: "darwin", channel: "script", want: true},
+		{name: "release Windows script", goos: "windows", channel: "windows-script", want: true},
+		{name: "branch build reported as script", goos: "darwin", channel: "script", branchBuild: true},
+		{name: "Homebrew", goos: "darwin", channel: "brew"},
+		{name: "unsupported operating system", goos: "linux", channel: "script"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := automaticUpdatesSupported(test.goos, test.channel, test.branchBuild); got != test.want {
+				t.Fatalf("automatic updates supported=%t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestUpdateReplacementKeepsRunnableBackup(t *testing.T) {
 	directory := t.TempDir()
 	target := filepath.Join(directory, "coslash")
