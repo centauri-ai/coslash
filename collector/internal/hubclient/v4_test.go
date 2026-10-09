@@ -75,6 +75,31 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	}
 }
 
+func TestV4CheckInSerializesInstallChannel(t *testing.T) {
+	for _, channel := range []string{"script", "unknown"} {
+		t.Run(channel, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var input struct {
+					InstallChannel string `json:"installChannel"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Fatal(err)
+				}
+				if input.InstallChannel != channel {
+					t.Errorf("check-in install channel=%q, want %q", input.InstallChannel, channel)
+				}
+				io.WriteString(w, `{"configVersion":0,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.0","nextCheckInSeconds":60}`)
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "0.0.5", InstallChannel: channel}
+			if _, err := client.V4CheckIn(context.Background(), V4Queue{}, 0, nil, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestV4RequestDeletesRevokedCredential(t *testing.T) {
 	credentials := &memoryCredentials{}
 	var requests int
