@@ -11,7 +11,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 INSTALL_CHANNEL ?=
 BRANCH_BUILD ?= false
 DIST := dist
-PLATFORMS := darwin/arm64 darwin/amd64
+PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
 EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X main.installChannelMetadata=$(INSTALL_CHANNEL) -X main.branchBuildMetadata=$(BRANCH_BUILD) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
