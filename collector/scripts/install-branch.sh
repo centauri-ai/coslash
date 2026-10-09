@@ -157,7 +157,7 @@ trap '[[ -z "$staged_binary" ]] || rm -f "$staged_binary"; rm -rf "$work_dir"' E
 printf 'Building coSlash Local from branch %s…\n' "$branch"
 git clone --depth 1 --single-branch --branch "$branch" "$repo" "$work_dir/source" >/dev/null
 commit="$(git -C "$work_dir/source" rev-parse --short HEAD)"
-make -C "$work_dir/source/collector" release VERSION=0.0.0
+make -C "$work_dir/source/collector" release VERSION=0.0.0 INSTALL_CHANNEL=script BRANCH_BUILD=true
 
 binary="$work_dir/source/collector/bin/coslash"
 "$binary" connect --help >/dev/null 2>&1 || fail "branch $branch does not include the Hub connect command"

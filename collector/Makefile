@@ -8,11 +8,13 @@ HELPER_ASSETS := internal/remote/helperassets
 FRONTEND := ../frontend
 STAGED := internal/web/dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+INSTALL_CHANNEL ?=
+BRANCH_BUILD ?= false
 DIST := dist
 PLATFORMS := darwin/arm64 darwin/amd64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
-EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
+EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X main.installChannelMetadata=$(INSTALL_CHANNEL) -X main.branchBuildMetadata=$(BRANCH_BUILD) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
 MODELS := internal/session/models.json
 LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
 OPENCODE_MODELS_URL := https://models.opencode.ai/api.json
@@ -152,6 +154,7 @@ run: check-go unstage helper-assets
 		go run -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' $(PKG) --no-open $(ARGS)
 
 test: check-go check-node
+	bash scripts/install-branch_test.sh
 	node internal/vendors/opencode/coslash-plugin.test.mjs
 	node internal/vendors/pi/coslash-extension.test.mjs
 	go test ./...

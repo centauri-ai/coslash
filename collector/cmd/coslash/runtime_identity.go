@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+var installChannelMetadata string
+var branchBuildMetadata string
+
 var checkInVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
 
 func normalizedVersion() string {
@@ -38,7 +41,18 @@ func detectedInstallChannel() string {
 		resolved = realPath
 	}
 	home, _ := os.UserHomeDir()
-	return installChannelForPaths(executable, resolved, home, os.Getenv("LOCALAPPDATA"), runtime.GOOS)
+	channel := installChannelForPaths(executable, resolved, home, os.Getenv("LOCALAPPDATA"), runtime.GOOS)
+	return installChannelWithBuildMetadata(runtime.GOOS, channel, installChannelMetadata)
+}
+
+func installChannelWithBuildMetadata(goos, detected, metadata string) string {
+	if detected != "unknown" {
+		return detected
+	}
+	if goos == "darwin" && metadata == "script" {
+		return "script"
+	}
+	return "unknown"
 }
 
 func installChannelForPaths(executable, resolved, home, localAppData, goos string) string {
