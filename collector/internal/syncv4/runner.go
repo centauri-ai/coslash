@@ -1013,7 +1013,8 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 		return err
 	}
 	manifest := entry.Manifest
-	if manifest == nil {
+	artifacts := curatedArtifacts(prepared)
+	if !matchesCuratedManifest(manifest, artifacts) {
 		built, err := r.manifest(prepared)
 		if err != nil {
 			return err
@@ -1056,7 +1057,8 @@ func (r *Runner) createUpload(ctx context.Context, entry *Entry) error {
 }
 
 func (r *Runner) manifest(prepared *sessionbackupproducer.Prepared) (hubclient.V4Manifest, error) {
-	if len(prepared.Manifest.Artifacts) == 0 || len(prepared.Manifest.Artifacts) > v4MaxArtifacts {
+	artifacts := curatedArtifacts(prepared)
+	if len(artifacts) == 0 || len(artifacts) > v4MaxArtifacts {
 		return hubclient.V4Manifest{}, errors.New("v4 artifact count unsupported")
 	}
 	reader, err := r.Backup.Reader(prepared.BundleID)
@@ -1065,7 +1067,7 @@ func (r *Runner) manifest(prepared *sessionbackupproducer.Prepared) (hubclient.V
 	}
 	manifest := hubclient.V4Manifest{ProducerVersion: prepared.Manifest.Producer.Version}
 	chunks := 0
-	for ordinal, artifact := range prepared.Manifest.Artifacts {
+	for ordinal, artifact := range artifacts {
 		if artifact.ByteLength < 1 {
 			return hubclient.V4Manifest{}, errors.New("v4 empty artifact unsupported")
 		}
@@ -1098,6 +1100,48 @@ func (r *Runner) manifest(prepared *sessionbackupproducer.Prepared) (hubclient.V
 	return manifest, nil
 }
 
+func curatedArtifacts(prepared *sessionbackupproducer.Prepared) []sessionbackupv1.Artifact {
+	if prepared == nil {
+		return nil
+	}
+	artifacts := make([]sessionbackupv1.Artifact, 0, len(prepared.Manifest.Members))
+	for _, artifact := range prepared.Manifest.Artifacts {
+		if artifact.Kind == sessionbackupv1.KindParsedSessionRecord {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	return artifacts
+}
+
+func matchesCuratedManifest(manifest *hubclient.V4Manifest, artifacts []sessionbackupv1.Artifact) bool {
+	if manifest == nil || len(artifacts) == 0 || len(manifest.Artifacts) != len(artifacts) {
+		return false
+	}
+	for ordinal, artifact := range artifacts {
+		wire := manifest.Artifacts[ordinal]
+		if wire.Ordinal != ordinal || wire.Kind != sessionbackupv1.KindParsedSessionRecord ||
+			wire.Bytes != artifact.ByteLength || wire.SHA256 != artifact.SHA256 {
+			return false
+		}
+	}
+	return true
+}
+
+func hasOnlyCuratedArtifacts(manifest *hubclient.V4Manifest) bool {
+	if manifest == nil {
+		return true
+	}
+	if len(manifest.Artifacts) == 0 {
+		return false
+	}
+	for ordinal, artifact := range manifest.Artifacts {
+		if artifact.Ordinal != ordinal || artifact.Kind != sessionbackupv1.KindParsedSessionRecord {
+			return false
+		}
+	}
+	return true
+}
+
 func readChunk(reader *sessionbackupproducer.BundleReader, name string, offset, size int64) ([]byte, error) {
 	if size < 1 || size > chunkBytes {
 		return nil, errors.New("invalid v4 chunk size")
@@ -1125,6 +1169,14 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	}
 	if err := r.entryAllowed(*entry); err != nil {
 		return err
+	}
+	if !hasOnlyCuratedArtifacts(entry.Manifest) {
+		entry.ContentSHA256, entry.ContentBytes, entry.UploadID, entry.SessionID = "", 0, "", ""
+		entry.Manifest = nil
+		entry.Attempt++
+		entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+		entry.FailureCode, entry.LoggedFailure = "", ""
+		return r.Queue.Update(*entry)
 	}
 	if entry.RevisionID != "" {
 		return nil
@@ -1165,8 +1217,9 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	if err != nil {
 		return err
 	}
+	artifacts := curatedArtifacts(prepared)
 	manifest := entry.Manifest
-	if manifest == nil || manifest.ContentSHA256 != entry.ContentSHA256 {
+	if !matchesCuratedManifest(manifest, artifacts) || manifest.ContentSHA256 != entry.ContentSHA256 {
 		return errors.New("v4 spool changed during upload")
 	}
 	var totalBytes, missingBytes int64
@@ -1222,7 +1275,7 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 			if missing.Offset != chunk.Offset || missing.Bytes != chunk.Bytes || missing.SHA256 != chunk.SHA256 {
 				return errors.New("v4 missing chunk does not match spool")
 			}
-			jobs = append(jobs, chunkJob{missing: missing, name: prepared.Manifest.Artifacts[missing.ArtifactOrdinal].LogicalName})
+			jobs = append(jobs, chunkJob{missing: missing, name: artifacts[missing.ArtifactOrdinal].LogicalName})
 		}
 		groupSent, putErr := r.putChunkGroup(ctx, reader, entry.UploadID, jobs)
 		maxCount, maxBytes := hubclient.V4MaxConfirm, int64(chunkBytes)
