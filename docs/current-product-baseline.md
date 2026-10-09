@@ -218,3 +218,16 @@ per-session `in_hub`, `syncing`, `not_in_hub`, or `left_out` states for the UI.
 Hub device revocation deletes the stored credential and changes the Local
 status to disconnected. `COSLASH_V4_SYNC=0` disables local v4 sync;
 `COSLASH_SYNC_POLICY=0` suppresses the `sync-policy/1` capability.
+
+## Linux Local addendum - 2026-10-09
+
+coSlash Local runs on Linux amd64 and arm64 and pairs with Hub like macOS and
+Windows. On a server, the person runs Hub's install command in their own SSH
+session; Hub never receives SSH credentials. Local stores the Hub device
+credential in `$COSLASH_HOME/hub-credentials/<hub host>` (mode `0600`) and
+keeps running after logout through a systemd user service when the account
+lingers, otherwise through a detached process and a `crontab` `@reboot` entry.
+Claude Code, Codex, Cursor, OpenCode, Grok Build, and Pi sessions are
+collected from their XDG locations. Pi and Grok Build synthesis, reviews, and
+launch actions remain unavailable on Linux. See
+`docs/decisions/linux-local-runtime.md`.

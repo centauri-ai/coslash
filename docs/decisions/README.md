@@ -20,6 +20,7 @@ This folder records the load-bearing decisions of coSlash that the code cannot e
 - [Remote collection uses a bounded, stateless helper over the user's own SSH](bounded-ssh-helper-collection.md) - Read if: you change SSH collection, the Linux helper, its install or update, the remote cache, or remote launches.
 - [Agent CLIs that coSlash launches get no inherited context and treat session text as data](hardened-agent-launches.md) - Read if: you change how coSlash starts any agent CLI (synthesis, review, send, resume, start fresh), its arguments, environment, or prompt content.
 - [A session is source plus agent plus session ID, and its revision covers parsed content only](session-identity-and-revisions.md) - Read if: you add a session field, a cache, an API route, or a frontend store that keys or compares sessions, or you change revision computation.
+- [Linux runs the full Local in the person's account with a file credential](linux-local-runtime.md) - Read if: you change Linux startup, the systemd unit or crontab fallback, Hub credential storage, or the Linux install command.
 
 ## Related documents
 
