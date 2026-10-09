@@ -111,6 +111,8 @@ func TestConnectTerminalFailureLinesAndExitCodes(t *testing.T) {
 		{code: connectExitUnreachable, want: "Couldn't reach https://hub.coslash.io. Check your connection and run the command again.\n"},
 		{code: connectExitDeclined, want: "This setup was declined in Hub. Nothing was connected.\n"},
 		{code: connectExitUnsupported, want: "This Hub doesn't support connect codes yet. Use Devices → Add device in Hub.\n"},
+		{code: connectExitCredentialStore, want: "Local could not access the secure credential store. Resolve the system credential store issue and retry.\n"},
+		{code: connectExitCredentialRevoked, want: "Hub revoked this pairing. Start a new connect command in Hub to pair again.\n"},
 	} {
 		var stdout, stderr bytes.Buffer
 		got := printConnectFailure(&stdout, &stderr, connectOptions{hub: "https://hub.coslash.io"}, test.code, "")
@@ -127,6 +129,7 @@ func TestConnectTerminalPairingStatesAreSanitizedForCLI(t *testing.T) {
 	}{
 		{code: connectExitCredentialStore, state: connectJobCredentialStoreFailed},
 		{code: connectExitRetryable, state: connectJobCheckInRetryable},
+		{code: connectExitCredentialRevoked, state: connectJobCredentialRevoked},
 	} {
 		var stdout, stderr bytes.Buffer
 		got := printConnectFailure(&stdout, &stderr, connectOptions{json: true}, test.code, "internal detail")
@@ -312,8 +315,8 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 				t.Fatalf("sync Ensure calls=%d, want %d", got, wantEnsureCalls)
 			}
 			if test.wantEnsure {
-				if value, _ := credentials.Load(context.Background()); value == "" {
-					t.Fatal("credential store did not retain the pairing result")
+				if value, _ := credentials.Load(context.Background()); value != "saved-credential" {
+					t.Fatalf("credential store contains %q, want saved-credential", value)
 				}
 			}
 			wantCheckIns := int32(0)
@@ -336,6 +339,79 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 				t.Fatal("credential-store retry count was outside the expected bound")
 			}
 		})
+	}
+}
+
+func TestRevokedFirstCheckInStopsWithRePairState(t *testing.T) {
+	credentials := &testCredentialStore{value: "saved-credential"}
+	baseURL, _ := url.Parse("https://hub.example")
+	var checkIns atomic.Int32
+	client := &hubclient.Client{
+		BaseURL:     baseURL,
+		Credentials: credentials,
+		HTTP: &http.Client{Transport: onboardingRoundTripper(func(*http.Request) (*http.Response, error) {
+			checkIns.Add(1)
+			return onboardingResponse(http.StatusForbidden, `{"code":"device_revoked"}`), nil
+		})},
+	}
+	manager := newOnboardingManager("0.1.0")
+	defer manager.Close()
+	manager.mu.Lock()
+	manager.connectJobs["job"] = connectJob{state: connectJobCheckingIn}
+	manager.mu.Unlock()
+	var ensureCalls atomic.Int32
+	manager.setSyncHooks(syncHookFuncs{ensure: func(*hubclient.Client) error {
+		ensureCalls.Add(1)
+		return nil
+	}})
+
+	manager.confirmFirstCheckIn(context.Background(), client, "job")
+	if state, _ := manager.ConnectJobState("job"); state != connectJobCredentialRevoked {
+		t.Fatalf("revoked check-in state=%q, want %q", state, connectJobCredentialRevoked)
+	}
+	if value, _ := credentials.Load(context.Background()); value != "" || checkIns.Load() != 1 || ensureCalls.Load() != 1 {
+		t.Fatalf("credential=%q check-ins=%d ensure calls=%d", value, checkIns.Load(), ensureCalls.Load())
+	}
+}
+
+func TestHubInitiatedPairingStopsAndReportsCredentialSaveFailure(t *testing.T) {
+	const attemptID = "10000000-0000-4000-8000-000000000151"
+	credentials := &testCredentialStore{saveFailures: 3}
+	var tokenRequests atomic.Int32
+	baseURL, err := url.Parse("https://hub.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := onboardingRoundTripper(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/v1/device-onboardings/" + attemptID + "/claim":
+			return onboardingResponse(http.StatusCreated, `{"id":"10000000-0000-4000-8000-000000000152","deviceCode":"device-code","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":1}`), nil
+		case "/v1/device-authorizations/token":
+			tokenRequests.Add(1)
+			return onboardingResponse(http.StatusOK, `{"deviceId":"device","credential":"saved-credential","tokenType":"Device","scope":"ingest"}`), nil
+		default:
+			t.Errorf("unexpected Hub request %s %s", request.Method, request.URL.Path)
+			return onboardingResponse(http.StatusNotFound, ""), nil
+		}
+	})
+	client := &hubclient.Client{BaseURL: baseURL, Credentials: credentials, HTTP: &http.Client{Transport: transport}}
+	manager := newOnboardingManager("0.1.0")
+	defer manager.Close()
+
+	var logs bytes.Buffer
+	previousLogOutput := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previousLogOutput)
+	manager.runPairing(context.Background(), client, attemptID, strings.Repeat("A", 43))
+
+	credentials.mu.Lock()
+	saveAttempts := credentials.saveAttempts
+	credentials.mu.Unlock()
+	if saveAttempts != 3 || tokenRequests.Load() != 1 {
+		t.Fatalf("credential save attempts=%d token requests=%d", saveAttempts, tokenRequests.Load())
+	}
+	if !strings.Contains(logs.String(), "could not save the credential to the secure credential store") {
+		t.Fatalf("terminal pairing failure was not reported: %q", logs.String())
 	}
 }
 

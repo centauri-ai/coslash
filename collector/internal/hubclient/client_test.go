@@ -221,7 +221,7 @@ func TestPollPairingRetriesKeychainSaveWithoutExchangingCredentialAgain(t *testi
 		t.Fatal("first credential-store failure was not retryable")
 	}
 	result, err := client.PollPairing(context.Background(), "pair")
-	if err != nil || result.State != PairingStatePaired || credentials.saved == "" ||
+	if err != nil || result.State != PairingStatePaired || credentials.saved != "one-time-secret" ||
 		credentials.attempts != 2 || tokenRequests != 1 {
 		t.Fatal("credential save retry did not complete without a second exchange")
 	}
