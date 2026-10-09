@@ -27,8 +27,7 @@ const maxUpdateAsset = 300 << 20
 
 func updateTarget() (string, error) {
 	channel := detectedInstallChannel()
-	supported := runtime.GOOS == "darwin" && channel == "script" || runtime.GOOS == "windows" && channel == "windows-script"
-	if !supported {
+	if !automaticUpdatesSupported(runtime.GOOS, channel, branchBuildMetadata == "true") {
 		return "", errors.New("automatic updates require a supported script installation")
 	}
 	target, err := os.Executable()
@@ -47,6 +46,10 @@ func updateTarget() (string, error) {
 		return "", errors.New("update target has an unexpected name")
 	}
 	return target, nil
+}
+
+func automaticUpdatesSupported(goos, channel string, branchBuild bool) bool {
+	return !branchBuild && (goos == "darwin" && channel == "script" || goos == "windows" && channel == "windows-script")
 }
 
 func downloadRelease(ctx context.Context, name string, maximum int64) ([]byte, error) {
