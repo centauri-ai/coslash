@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { setTheme, type Theme } from '@/lib/theme';
@@ -69,18 +69,11 @@ export function CoslashPage() {
   const [view, setView] = useState<SessionView>(() => loadSessionViewPreferences().view);
   const [localUpdate, setLocalUpdate] = useState<LocalUpdate | null>(null);
   const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
-  const {
-    sessions,
-    machines,
-    isLoading,
-    loadError,
-    sessionsVersion,
-    retrySessions,
-    refreshSessions,
-  } = useSessions({
-    localWindow: apiWindow,
-    remoteWindow: apiWindow,
-  });
+  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
+    useSessions({
+      localWindow: apiWindow,
+      remoteWindow: apiWindow,
+    });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {
