@@ -83,12 +83,17 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 	}
 	for time.Now().Before(pairing.ExpiresAt) {
 		result, err := client.PollPairing(ctx, pairing.PairingID)
-		if err == nil && result.State == "paired" {
-			m.ensureSync(client)
-			return
-		}
-		if err == nil && result.State == "expired" {
-			return
+		if err == nil {
+			switch result.State {
+			case hubclient.PairingStatePaired:
+				m.ensureSync(client)
+				return
+			case hubclient.PairingStateExpired, hubclient.PairingStateDeclined:
+				return
+			case hubclient.PairingStateCredentialStoreFailed:
+				log.Print("Hub pairing could not save the credential to the secure credential store")
+				return
+			}
 		}
 		if !sleepContext(ctx, interval) {
 			return
