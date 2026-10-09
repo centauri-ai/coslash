@@ -49,6 +49,7 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 		return err
 	}
 	phase, started, rate := r.Queue.Phase()
+	activeSince := r.Queue.ActiveSince()
 	if phase == "" || phase == "awaiting_plan" {
 		phase = "warm_start"
 		if err := r.Queue.SetPhase(phase); err != nil {
@@ -64,7 +65,7 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 		}
 		if r.now().Sub(started) < budget {
 			for _, entry := range r.Queue.PlannedEntries(*plan, r.now()) {
-				if planRecent(entry, *plan, started) && entry.UploadID != "" && entry.RevisionID == "" {
+				if planRecent(entry, *plan, activeSince) && entry.UploadID != "" && entry.RevisionID == "" {
 					return nil
 				}
 			}
@@ -92,6 +93,7 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 
 func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, started time.Time, budget time.Duration, rate float64) error {
 	first := r.Queue.ImportSnapshot(r.now()).ContentSessions == 0
+	activeSince := r.Queue.ActiveSince()
 	attemptedUnknown := map[string]bool{}
 	for {
 		remaining := budget - r.now().Sub(started)
@@ -102,7 +104,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 		entries := r.Queue.PlannedEntries(plan, r.now())
 		contentOrder(entries)
 		for _, entry := range entries {
-			if !planRecent(entry, plan, started) || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
+			if !planRecent(entry, plan, activeSince) || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
 				continue
 			}
 			if entry.ContentBytes <= 0 && !attemptedUnknown[entry.Key] {
@@ -313,7 +315,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 
 func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4ImportPlan) error {
 	started := r.now()
-	planStartedAt := r.Queue.PlanStartedAt()
+	activeSince := r.Queue.ActiveSince()
 	workCtx, cancel := context.WithTimeout(ctx, plannedContentBudget)
 	defer cancel()
 	entries := r.Queue.PlannedEntries(plan, r.now())
@@ -354,11 +356,11 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if r.now().Sub(started) >= plannedContentBudget || workCtx.Err() != nil {
 			return firstErr
 		}
-		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, planStartedAt) && plan.HistoryPaused {
+		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, activeSince) && plan.HistoryPaused {
 			continue
 		}
 		phase := "recent"
-		if !planRecent(entry, plan, planStartedAt) {
+		if !planRecent(entry, plan, activeSince) {
 			phase = "history"
 		}
 		if err := r.Queue.SetPhase(phase); err != nil {
