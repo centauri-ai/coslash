@@ -200,6 +200,16 @@ func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Mana
 func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepared *sessionbackupproducer.Prepared, spool string, source *session.Session, discover bool) {
 	t.Helper()
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	manifestRunner := &Runner{Backup: manager}
+	preparedManifest, err := manifestRunner.manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	totalChunks := 0
+	for _, artifact := range preparedManifest.Artifacts {
+		totalChunks += len(artifact.Chunks)
+	}
+	exerciseResume := totalChunks > 1
 	queueRoot := t.TempDir()
 	queue, err := Open(queueRoot)
 	if err != nil {
@@ -218,7 +228,7 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	createCount, putCount, confirmCount, checkInCount := 0, 0, 0, 0
 	var checkInLogs [][]hubclient.V4LogEntry
 	confirmRequests := 0
-	finalizing, interruptAfterFirst := false, true
+	finalizing, interruptAfterFirst := false, exerciseResume
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Device fixture-device-key" && !strings.HasPrefix(r.URL.Path, "/blob/") {
 			t.Errorf("missing device credential on %s", r.URL.Path)
@@ -244,6 +254,16 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 			}
 			if created.Session.InstallID != installID || created.Session.LocalKeyHash != entry.Key || created.Session.Title != *source.Name || created.Session.Agent != source.Agent {
 				t.Errorf("metadata = %+v", created.Session)
+			}
+			curated := curatedArtifacts(prepared)
+			if len(created.Manifest.Artifacts) != len(curated) {
+				t.Errorf("V4 artifacts = %d, want %d curated records", len(created.Manifest.Artifacts), len(curated))
+			}
+			for ordinal, artifact := range created.Manifest.Artifacts {
+				if ordinal >= len(curated) || artifact.Ordinal != ordinal || artifact.Kind != sessionbackupv1.KindParsedSessionRecord ||
+					artifact.Bytes != curated[ordinal].ByteLength || artifact.SHA256 != curated[ordinal].SHA256 {
+					t.Errorf("V4 artifact %d = %+v, want curated parsed record", ordinal, artifact)
+				}
 			}
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(hubclient.V4Status{UploadID: "upload-1", SessionID: "ses_fixture", State: "open", Missing: missing(created.Manifest, received)})
@@ -336,11 +356,15 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 		return nil, nil
 	},
 		Conditions: func(context.Context) (bool, int, error) { return false, -1, nil }, Now: func() time.Time { return now }}
-	if err := runner.SyncOnce(t.Context()); err == nil {
+	firstErr := runner.SyncOnce(t.Context())
+	if exerciseResume && firstErr == nil {
 		t.Fatal("interrupted upload unexpectedly completed")
 	}
-	if createCount != 1 || putCount != 1 || confirmCount != 1 {
-		t.Fatalf("create=%d put=%d confirm=%d", createCount, putCount, confirmCount)
+	if !exerciseResume && firstErr != nil {
+		t.Fatalf("round-trip upload failed: %v", firstErr)
+	}
+	if createCount != 1 || putCount != min(totalChunks, 1) || confirmCount != putCount {
+		t.Fatalf("create=%d put=%d confirm=%d chunks=%d", createCount, putCount, confirmCount, totalChunks)
 	}
 	interruptAfterFirst = false
 	queue, err = Open(queueRoot)
@@ -367,7 +391,7 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	}
 	// The interrupted pass confirmed the chunk it sent; the resumed pass
 	// confirmed the rest of these small chunks in one batch.
-	if confirmRequests != 2 {
+	if confirmRequests != totalChunks {
 		t.Fatalf("confirm requests=%d for %d chunks", confirmRequests, confirmCount)
 	}
 	if err := runner.SyncOnce(t.Context()); err != nil {
@@ -384,12 +408,14 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	}
 	// The interrupted transfer is reported once, for its Hub session, on the
 	// check-in after it, and never again.
-	if len(checkInLogs[0]) != 0 || len(checkInLogs[1]) != 1 || len(checkInLogs[2]) != 0 || len(checkInLogs[3]) != 0 || len(checkInLogs[4]) != 0 {
-		t.Fatalf("check-in logs=%+v", checkInLogs)
-	}
-	if line := checkInLogs[1][0]; line.SessionID != "ses_fixture" || line.Level != "error" || line.Code != "server_error" ||
-		line.Message != "coSlash Hub could not store this sync." || !line.At.Equal(now.Add(-time.Minute)) {
-		t.Fatalf("interrupted transfer line=%+v", line)
+	if exerciseResume {
+		if len(checkInLogs[0]) != 0 || len(checkInLogs[1]) != 1 || len(checkInLogs[2]) != 0 || len(checkInLogs[3]) != 0 || len(checkInLogs[4]) != 0 {
+			t.Fatalf("check-in logs=%+v", checkInLogs)
+		}
+		if line := checkInLogs[1][0]; line.SessionID != "ses_fixture" || line.Level != "error" || line.Code != "server_error" ||
+			line.Message != "coSlash Hub could not store this sync." || !line.At.Equal(now.Add(-time.Minute)) {
+			t.Fatalf("interrupted transfer line=%+v", line)
+		}
 	}
 }
 
