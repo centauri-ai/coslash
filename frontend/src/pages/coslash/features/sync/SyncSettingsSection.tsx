@@ -80,7 +80,7 @@ export function SyncSettingsSection({
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-semibold">Pause syncing on this computer</span>
               <span className="text-coslash-muted text-xs leading-relaxed">
-                Nothing uploads from this computer until you turn this off. Share to Hub still works.
+                Nothing uploads from this computer until you resume sync. Hub policy still applies.
               </span>
             </div>
           </div>

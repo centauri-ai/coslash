@@ -1,8 +1,27 @@
-import type { ShareDestination } from '@/pages/coslash/features/sharing/model';
 import { isEligibleForSharing, type Session } from '@/pages/coslash/lib/session';
 
 export const FULL_SESSION_PREVIEW_VERSION = 'full-session-preview/v1' as const;
 export const FULL_SESSION_SHARE_VERSION = 'full-session-share/v1' as const;
+
+export type ShareDestination = {
+  workspaceId: string;
+  workspaceName: string;
+  currentMemberCount: number;
+  resultingMemberCount: number;
+  currentApprovedSessionCount: number;
+  historyDisclosure: string;
+  credentialState: 'paired' | 'dormant' | 'revoked';
+  audienceVersion: string;
+};
+
+export type DestinationResult = {
+  contractVersion: 'hub-share/v1';
+  configured: boolean;
+  hubUrl?: string;
+} & (
+  | { state: 'ready'; destination: ShareDestination }
+  | { state: 'signed_out' | 'pairing_required' | 'credential_dormant' | 'credential_revoked'; destination?: never }
+);
 
 export type FullSessionSelection = {
   sourceId: string;
@@ -83,6 +102,18 @@ export type FullSessionShareResult = {
   route?: { hubContractVersion: 'full-session-read/v1'; path: string };
   error?: { code: FullSessionShareError; retryable: boolean };
 };
+
+export function hubRouteURL(hubURL: string, path: string): string {
+  if (!/^\/(?!\/)[^?#]+$/.test(path)) {
+    throw new Error('The Hub route is outside the expected contract.');
+  }
+  const base = new URL(`${hubURL.replace(/\/+$/, '')}/`);
+  const route = new URL(path.slice(1), base);
+  if (route.origin !== base.origin || !route.pathname.startsWith(base.pathname)) {
+    throw new Error('The Hub route is outside the expected contract.');
+  }
+  return route.toString();
+}
 
 export function fullSessionCandidates(sessions: readonly Session[]): Session[] {
   return sessions.filter(

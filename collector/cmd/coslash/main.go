@@ -343,7 +343,7 @@ func main() {
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	shutdownRequests := make(chan struct{}, 1)
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{queue: controller.Queue(), backupManager: backupManager, directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
+		serverServices{queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
 	onboardings.ensureSync(hub)
 	shutdownComplete := make(chan error, 1)
 	var shutdownOnce sync.Once
@@ -467,7 +467,6 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 
 type serverServices struct {
 	queue          *syncv4.Queue
-	backupManager  *sessionbackupproducer.Manager
 	directedStore  *directedhandoff.Store
 	onboardings    *onboardingManager
 	syncController *syncController
@@ -579,9 +578,6 @@ func routesWithOnboarding(
 		query := r.URL.Query()
 		handleSynthesis(w, query.Get("agent"), query.Get("id"), mgr)
 	})
-	api.HandleFunc("POST /api/hub/share-synthesis", func(w http.ResponseWriter, r *http.Request) {
-		handleShareSynthesis(w, r, mgr, settingsStore)
-	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("session") {
 			handleExactDiff(w, r, collector.GetSessionChanges, remoteManager)
@@ -681,13 +677,7 @@ func routesWithOnboarding(
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
-	backupManager := service.backupManager
-	if backupManager == nil {
-		backupManager = sessionbackupproducer.New(sessionbackupproducer.Options{
-			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
-		})
-	}
-	registerHubRoutes(api, hub, remoteManager, backupManager, onboardings)
+	registerHubRoutes(api, hub, remoteManager, onboardings)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 

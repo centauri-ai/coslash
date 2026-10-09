@@ -171,7 +171,7 @@ export function SnapshotPreviewDialog({
           <DialogDescription>
             {previewOnly
               ? `Review the exact, destination-independent payload a future Team share could use for ${detail.name ?? detail.id}.`
-              : `This is the canonical, destination-independent revision for ${detail.name ?? detail.id}. Sharing stays off until you explicitly approve this exact revision in Share to Hub.`}
+              : `This is the canonical, destination-independent revision for ${detail.name ?? detail.id}. This local preview does not send the revision to Hub; session transfer follows the device's V4 sync policy.`}
           </DialogDescription>
         </DialogHeader>
 

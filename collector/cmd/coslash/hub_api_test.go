@@ -132,7 +132,7 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 		},
 	}
 	api := http.NewServeMux()
-	registerHubRoutes(api, client, nil, nil, newOnboardingManager("0.1.0"))
+	registerHubRoutes(api, client, nil, newOnboardingManager("0.1.0"))
 
 	previewRequest := httptest.NewRequest(http.MethodGet, "/api/hub/full-session-preview?source="+record.SourceID+"&agent="+record.Agent+"&id="+record.SessionID+"&revision="+record.RevisionID, nil)
 	previewResponse := httptest.NewRecorder()
@@ -174,4 +174,18 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 
 func hubURL(request *http.Request) string {
 	return "http://" + request.Host
+}
+
+func TestRetiredV3BackupLocalRoutesAreNotRegistered(t *testing.T) {
+	onboardings := newOnboardingManager("0.1.0")
+	defer onboardings.Close()
+	api := http.NewServeMux()
+	registerHubRoutes(api, nil, nil, onboardings)
+	for _, path := range []string{"/api/hub/shares", "/api/hub/backup-previews"} {
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("%s status=%d, want %d", path, response.Code, http.StatusNotFound)
+		}
+	}
 }

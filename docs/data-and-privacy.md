@@ -33,7 +33,7 @@ On macOS, background enrichment does not open project files in Desktop, Document
 | `pi-runtime/` and `pi-history/` | Private process identity, session IDs, exact transcript paths, runtime state, and retained discovery evidence. |
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
-| `session-backups/prepared/` | Verified, private complete Codex, local Claude, OpenCode and Cursor bundles retained while an approved share or enabled v4 sync can resume. |
+| `session-backups/prepared/` | Verified, private session-family bundles retained locally while a V4 sync can resume. |
 | `fingerprints/v1/<agent>/` | The local parse cache: one private file per local transcript, Cursor session or OpenCode family holding the parsed summary already produced for the board (prompts, commands, working directories, edited-file paths and file-change bodies), keyed by file size and modification time so an unchanged source is never parsed twice. It holds no raw transcript rows. Deleting the directory is always safe; `discovery-cursor.json` beside it records where a streamed discovery pass stopped. `COSLASH_SCALE_IMPORT=0` disables the cache. |
 | `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
@@ -87,8 +87,9 @@ parsed product data—including prompts, commands, edited-file paths, working
 directories, subagent detail, and file-change bodies—is transferred and cached
 locally so exact detail remains available after restart or an SSH outage. Claude
 parsed exact details now cross SSH into the private local cache just like Codex;
-raw transcript rows do not. Exact-detail caching, synthesis, and complete backup
-sharing are separate capabilities, and complete backup v1 remains Codex-only.
+raw transcript rows do not. Exact-detail caching, synthesis, and V4 sync are
+separate capabilities. The versioned local session-family producer remains as
+input to V4 sync; Local's manual V3 complete-backup share flow has been removed.
 The cache excludes raw transcript rows, SSH configuration, coSlash credentials,
 sockets, and environment values.
 
@@ -104,8 +105,10 @@ revision; display paths and change IDs are never treated as files to open.
 
 ## Outbound data
 
-Outside an explicitly approved Hub share or explicitly enabled experimental
-v4 sync, the collector does not upload session data itself. A
+The collector does not upload session data just because it reads a local
+transcript. When a paired device's Hub policy allows it, personal V4 sync sends
+session data to Hub; the per-computer pause stops uploads and retries. Local no
+longer offers the manual V3 complete-backup Share to Hub action. A
 separately authorized remote MCP agent may read Hub sessions. If you enable
 synthesis, it passes a bounded set of facts
 to your selected local CLI. These facts can include prompts, recaps, todos,
@@ -145,9 +148,8 @@ response removes the stored credential and marks this computer disconnected.
 `pmset`; on Linux, metered NetworkManager connections and discharging battery
 levels are checked when available. `COSLASH_SYNC_BATTERY_PERCENT` is a local
 override for testing. The per-computer pause setting also stops uploads and
-retries until resumed. The existing explicit Share to Hub flow remains
-available while local sync is paused; automatic personal sync does not enable
-team sharing.
+retries until resumed. Local has no manual complete-backup action that bypasses
+this pause; automatic personal sync does not enable team sharing.
 
 Hub-led device setup sends Local an opaque, expiring launch intent through the
 `coslash:` app handoff. Local claims that intent with Hub, then uses the
@@ -158,55 +160,27 @@ device version, install channel, operating system, capabilities, and empty
 content-free queue state; it does not upload a session or enable team sharing.
 Hub manages device and sync policy; Local also offers a per-computer pause.
 
-## Share preview and approval
+## Local preview and Hub sync
 
-During an active Share to Hub flow, **See what gets shared** builds a local
-`session-backup/v1` bundle for each selected local or SSH Codex session family.
-The frozen bundle contains the raw attributable Codex rollouts and sidecar
-bytes, canonical parsed records, exact file-change bodies, session enrichment,
-and revision-matched persisted synthesis. Previewing does not upload or approve
-anything. For a local Codex session, preview first starts or waits for its
-current Local AI debrief, including for short sessions skipped by automatic
-background synthesis. Upload rejects a reviewed local bundle without that
-revision's debrief, including a request from an older open tab. The v3 Share
-flow continues to block Claude, Cursor, and OpenCode.
-The separate v4 local sync can prepare complete local Claude, OpenCode and
-Cursor families when enabled; Claude SSH remains unsupported there. Neither flow falls
-back to a metadata-only upload.
+The `?team-preview=1` option exposes a clearly labeled, preview-only trigger in
+session details. It shows a local preview and does not approve or upload a
+session.
 
-For opt-in user testing before the Team flow ships, append
-`?team-preview=1` to the local coSlash URL. This reveals a clearly labeled
-preview-only trigger in session details; it does not enable a Team workspace,
-approval, or upload.
+New session transfer from Local uses personal V4 sync under the paired device's
+Hub policy and Local sync settings. Personal sync does not create a workspace
+share link.
 
-The review shows artifact counts by class, the exact total byte count and
-complete-backup SHA-256, the Hub's advertised capacity, and the paired
-destination and audience. Complete backups are not redacted. Raw prompts,
-commands, tool output, paths, environment fragments, and file bodies may
-contain credentials or other secrets and become visible to active members of
-the destination workspace after acceptance.
+This client change removes Local's V3 complete-backup preview and upload path.
+It does not change Hub V3 routes, stored backups, revisions, chunks, existing
+workspace links, or their current URLs. No V3 data migration or deletion takes
+place. The V3 server path remains a compatibility dependency until an owner
+chooses a migration or sunset policy and the supported Local-client rollout
+window has elapsed.
 
-The fixture-backed Share flow is available to source builds with
-`?team-share=1`. It exercises eligibility, destination, selection, exact review,
-partial retry, and Hub route states, but is labeled **NO UPLOAD** and never
-contacts a cloud service. Use `&share-state=signed_out`, `pairing_required`,
-`credential_dormant`, or `credential_revoked` to inspect eligibility states,
-and `&share-result=partial` to inspect retry.
-
-Approval binds the frozen source revision, complete hash and byte count,
-destination workspace and name, audience version and member count, server
-identity, and advertised per-backup, chunk, and workspace capacities. A changed
-source, destination, audience, manifest, or capacity assertion requires a new
-review. Uploads use bounded verified chunks and reconcile server status with
-the same idempotency key. Frozen bundles and their upload identities survive a
-dialog or app restart, so retry reads only the approved spool and never uses
-changed source bytes as upload content. Accepted batch items remain accepted
-while eligible failed items resume only missing chunks.
-
-The older metadata snapshot and single-request full-v2 protocols remain in the
-client for compatibility, but the normal **Share to Hub** action does not use
-them. A Hub without v3 complete-backup support shows an update requirement and
-receives no downgraded payload.
+The local session-family producer and private spool remain in use by V4 sync.
+This change does not redirect the V3 request or payload to a V4 endpoint and
+does not change V4 upload selection. Issue 011's V4 artifact boundary is tracked
+separately.
 
 The library card for an SSH session carries the canonical origin remote when
 `git remote get-url origin` succeeds on that host, and its live status from the
