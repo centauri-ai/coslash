@@ -465,6 +465,10 @@ func (c *Client) V4Status(ctx context.Context, uploadID string) (V4Status, error
 	return result, err
 }
 
+func (c *Client) V4Abort(ctx context.Context, uploadID string) error {
+	return c.v4Request(ctx, http.MethodDelete, "/v4/uploads/"+url.PathEscape(uploadID), nil, nil)
+}
+
 func (c *Client) V4Finalize(ctx context.Context, uploadID string) (V4Status, error) {
 	var result V4Status
 	err := c.v4Request(ctx, http.MethodPost, "/v4/uploads/"+url.PathEscape(uploadID)+"/finalize", struct{}{}, &result)

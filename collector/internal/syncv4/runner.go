@@ -29,10 +29,9 @@ import (
 
 const chunkBytes = 8 << 20
 
-// sync-v4/v2 manifest limits (decision P34-D8). Every artifact stays
-// separate, so a family with one exact change body per file change needs one
-// artifact per change. 8 MiB chunks reach at most v4MaxArtifacts+512 chunks
-// within the 4 GiB family limit.
+// sync-v4/v2 manifest limits (decision P34-D8). Curated manifests include one
+// parsed record per family member. 8 MiB chunks reach at most
+// v4MaxArtifacts+512 chunks within the 4 GiB family limit.
 const (
 	v4MaxArtifacts      = 4096
 	v4MaxArtifactChunks = 256
@@ -1142,6 +1141,45 @@ func hasOnlyCuratedArtifacts(manifest *hubclient.V4Manifest) bool {
 	return true
 }
 
+type uploadAborter interface {
+	V4Abort(context.Context, string) error
+}
+
+func (r *Runner) discardLegacyUpload(ctx context.Context, entry *Entry) error {
+	if entry.UploadID != "" {
+		status, err := r.Hub.V4Status(ctx, entry.UploadID)
+		if err != nil {
+			var problem hubclient.V4Problem
+			if !errors.As(err, &problem) || problem.Code != "not_found" && problem.Code != "upload_expired" {
+				return err
+			}
+		} else {
+			if status.SessionID != entry.SessionID {
+				return errors.New("v4 status changed session identity")
+			}
+			switch status.State {
+			case "open", "finalizing":
+				aborter, ok := r.Hub.(uploadAborter)
+				if !ok {
+					return errors.New("v4 transport cannot abort legacy upload")
+				}
+				if err := aborter.V4Abort(ctx, entry.UploadID); err != nil {
+					return err
+				}
+			case "completed", "failed", "aborted", "expired":
+			default:
+				return errors.New("unknown v4 upload state")
+			}
+		}
+	}
+	entry.ContentSHA256, entry.ContentBytes, entry.UploadID, entry.SessionID = "", 0, "", ""
+	entry.Manifest = nil
+	entry.Attempt++
+	entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+	entry.FailureCode, entry.LoggedFailure = "", ""
+	return r.Queue.Update(*entry)
+}
+
 func readChunk(reader *sessionbackupproducer.BundleReader, name string, offset, size int64) ([]byte, error) {
 	if size < 1 || size > chunkBytes {
 		return nil, errors.New("invalid v4 chunk size")
@@ -1171,12 +1209,7 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 		return err
 	}
 	if !hasOnlyCuratedArtifacts(entry.Manifest) {
-		entry.ContentSHA256, entry.ContentBytes, entry.UploadID, entry.SessionID = "", 0, "", ""
-		entry.Manifest = nil
-		entry.Attempt++
-		entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
-		entry.FailureCode, entry.LoggedFailure = "", ""
-		return r.Queue.Update(*entry)
+		return r.discardLegacyUpload(ctx, entry)
 	}
 	if entry.RevisionID != "" {
 		return nil
