@@ -298,11 +298,12 @@ func (s *revokedCheckInCredentials) captureCleanupContext(ctx context.Context) {
 
 type conditionalRevokedCheckInCredentials struct {
 	*revokedCheckInCredentials
+	deleteErr error
 }
 
 func (s *conditionalRevokedCheckInCredentials) DeleteIfMatches(ctx context.Context, _ string) (bool, error) {
 	s.captureCleanupContext(ctx)
-	return true, nil
+	return s.deleteErr == nil, s.deleteErr
 }
 
 func TestLegacyCheckInBoundsRevokedCredentialCleanup(t *testing.T) {
@@ -329,5 +330,21 @@ func TestLegacyCheckInBoundsRevokedCredentialCleanup(t *testing.T) {
 				t.Fatal("cleanup context was canceled or lacked a 30-second deadline")
 			}
 		})
+	}
+}
+
+func TestLegacyCheckInReportsRevokedCredentialCleanupFailure(t *testing.T) {
+	base, _ := url.Parse("https://hub.example")
+	credentials := &conditionalRevokedCheckInCredentials{
+		revokedCheckInCredentials: &revokedCheckInCredentials{},
+		deleteErr:                 context.DeadlineExceeded,
+	}
+	client := Client{BaseURL: base, Credentials: credentials, HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusForbidden, `{"code":"device_revoked"}`), nil
+	})}}
+
+	_, err := client.CheckIn(context.Background(), "1.2.3")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("check-in error = %v, want cleanup deadline error", err)
 	}
 }
