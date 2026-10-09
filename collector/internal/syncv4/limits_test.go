@@ -79,9 +79,9 @@ func artifactLimitBundle(t *testing.T, artifacts int) (*sessionbackupproducer.Ma
 	return manager, prepared
 }
 
-// One upload carries up to 4,096 artifacts, so a family with one exact change
-// body per file change syncs whole (decision P34-D8).
-func TestV4ManifestCarriesUpToTheArtifactLimit(t *testing.T) {
+// V4's artifact limit applies to curated records, regardless of the number of
+// source artifacts retained in the local prepared bundle.
+func TestV4ManifestFiltersLargePreparedArtifactFamilies(t *testing.T) {
 	if v4MaxArtifacts != 4096 || v4MaxArtifactChunks != 256 || v4MaxManifestChunks != 8192 {
 		t.Fatalf("limits = %d artifacts, %d chunks each, %d chunks", v4MaxArtifacts, v4MaxArtifactChunks, v4MaxManifestChunks)
 	}
@@ -93,14 +93,15 @@ func TestV4ManifestCarriesUpToTheArtifactLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("built the wire manifest for %d artifacts in %s", len(wire.Artifacts), time.Since(started))
-	if len(wire.Artifacts) != v4MaxArtifacts || len(wire.ContentSHA256) != 64 {
+	curated := curatedArtifacts(prepared)
+	if len(prepared.Manifest.Artifacts) != v4MaxArtifacts || len(wire.Artifacts) != len(curated) || len(wire.ContentSHA256) != 64 {
 		t.Fatalf("wire manifest has %d artifacts, content %q", len(wire.Artifacts), wire.ContentSHA256)
 	}
 	for ordinal, artifact := range wire.Artifacts {
-		declared := prepared.Manifest.Artifacts[ordinal]
-		if artifact.Ordinal != ordinal || artifact.Kind != declared.Kind || artifact.Bytes != declared.ByteLength ||
+		declared := curated[ordinal]
+		if artifact.Ordinal != ordinal || artifact.Kind != sessionbackupv1.KindParsedSessionRecord || artifact.Bytes != declared.ByteLength ||
 			artifact.SHA256 != declared.SHA256 || len(artifact.Chunks) != 1 || artifact.Chunks[0].SHA256 != declared.SHA256 {
-			t.Fatalf("artifact %d = %+v, declared %+v", ordinal, artifact, declared)
+			t.Fatalf("artifact %d = %+v, curated record %+v", ordinal, artifact, declared)
 		}
 	}
 
@@ -132,8 +133,19 @@ func TestV4ManifestCarriesUpToTheArtifactLimit(t *testing.T) {
 
 	manager, prepared = artifactLimitBundle(t, v4MaxArtifacts+1)
 	runner = &Runner{Backup: manager}
-	if _, err := runner.manifest(prepared); err == nil || err.Error() != "v4 artifact count unsupported" {
-		t.Fatalf("4,097 artifacts: %v", err)
+	wire, err = runner.manifest(prepared)
+	if err != nil || len(wire.Artifacts) != len(curatedArtifacts(prepared)) {
+		t.Fatalf("4,097 prepared source artifacts produced %d V4 records: %v", len(wire.Artifacts), err)
+	}
+
+	tooManyRecords := &sessionbackupproducer.Prepared{Manifest: sessionbackupv1.Manifest{
+		Artifacts: make([]sessionbackupv1.Artifact, v4MaxArtifacts+1),
+	}}
+	for index := range tooManyRecords.Manifest.Artifacts {
+		tooManyRecords.Manifest.Artifacts[index].Kind = sessionbackupv1.KindParsedSessionRecord
+	}
+	if _, err := (&Runner{}).manifest(tooManyRecords); err == nil || err.Error() != "v4 artifact count unsupported" {
+		t.Fatalf("4,097 curated records: %v", err)
 	}
 }
 
@@ -193,25 +205,20 @@ func (h *limitHub) V4Finalize(context.Context, string) (hubclient.V4Status, erro
 	return hubclient.V4Status{UploadID: "upload-limit", SessionID: "ses_limit", State: "finalizing"}, nil
 }
 
-// Sending a 4,096-artifact upload confirms its chunks 50 at a time, so the
-// Hub answers 82 confirms rather than one per chunk.
-func TestV4TransferConfirmsLargeUploadsInBatches(t *testing.T) {
-	manager, prepared := artifactLimitBundle(t, v4MaxArtifacts)
-	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+// Chunk confirmation remains capped at 50 coordinates per request. Curated
+// records no longer create one upload artifact per exact change body.
+func TestV4ConfirmChunksInBatches(t *testing.T) {
 	hub := &limitHub{t: t, received: map[[2]int]bool{}}
-	runner := &Runner{Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now}
-	wire, err := runner.manifest(prepared)
-	if err != nil {
+	runner := &Runner{Hub: hub}
+	sent := make([]hubclient.V4Missing, 82)
+	for index := range sent {
+		sent[index] = hubclient.V4Missing{ArtifactOrdinal: 0, ChunkOrdinal: index, Bytes: 1, SHA256: "fixture"}
+	}
+	if err := runner.confirmChunks(context.Background(), "upload-limit", sent); err != nil {
 		t.Fatal(err)
 	}
-	hub.manifest = wire
-	entry := Entry{Key: "limit", BundleID: prepared.BundleID, Manifest: &wire, ContentSHA256: wire.ContentSHA256,
-		UploadID: "upload-limit", SessionID: "ses_limit", Activity: 1}
-	if err := runner.transfer(context.Background(), &entry); err != nil {
-		t.Fatal(err)
-	}
-	want := (v4MaxArtifacts + hubclient.V4MaxConfirm - 1) / hubclient.V4MaxConfirm
-	if hub.puts != v4MaxArtifacts || len(hub.received) != v4MaxArtifacts || hub.confirms != want || hub.finalizations != 1 {
-		t.Fatalf("puts=%d confirmed=%d confirms=%d (want %d) finalizations=%d", hub.puts, len(hub.received), hub.confirms, want, hub.finalizations)
+	want := (len(sent) + hubclient.V4MaxConfirm - 1) / hubclient.V4MaxConfirm
+	if hub.confirms != want || len(hub.received) != len(sent) {
+		t.Fatalf("confirmed=%d confirms=%d (want %d)", len(hub.received), hub.confirms, want)
 	}
 }

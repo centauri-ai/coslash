@@ -2,6 +2,8 @@ package syncv4
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -864,18 +866,16 @@ func TestScaleChunkUploadRunsFourInParallel(t *testing.T) {
 	}
 	hub := &parallelHub{planHub: &planHub{}, gate: make(chan struct{})}
 	runner := &Runner{Backup: manager, Hub: hub, scaleEnabled: true, chunkWorkers: 4}
-	manifest, err := runner.manifest(prepared)
-	if err != nil {
-		t.Fatal(err)
+	curated := curatedArtifacts(prepared)
+	body := make([]byte, 1)
+	if n, err := reader.Read(curated[0].LogicalName, 0, body); err != nil || n != len(body) {
+		t.Fatalf("read synthetic record byte: %d, %v", n, err)
 	}
-	jobs := make([]chunkJob, 0, 4)
-	for i, artifact := range manifest.Artifacts {
-		if len(jobs) == 4 {
-			break
-		}
-		chunk := artifact.Chunks[0]
-		jobs = append(jobs, chunkJob{missing: hubclient.V4Missing{ArtifactOrdinal: i, ChunkOrdinal: 0,
-			Offset: chunk.Offset, Bytes: chunk.Bytes, SHA256: chunk.SHA256}, name: prepared.Manifest.Artifacts[i].LogicalName})
+	sum := sha256.Sum256(body)
+	jobs := make([]chunkJob, 4)
+	for i := range jobs {
+		jobs[i] = chunkJob{missing: hubclient.V4Missing{ArtifactOrdinal: 0, ChunkOrdinal: i, Bytes: 1, SHA256: hex.EncodeToString(sum[:])},
+			name: curated[0].LogicalName}
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
