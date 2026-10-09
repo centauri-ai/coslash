@@ -312,7 +312,7 @@ func processCommandLine(pid uint32) (string, error) {
 }
 
 func selectedCursorIDEChat(home string) string {
-	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
+	path := filepath.Join(GlobalStorage(home), "state.vscdb")
 	db, err := openCursorDB(path)
 	if err != nil {
 		return ""

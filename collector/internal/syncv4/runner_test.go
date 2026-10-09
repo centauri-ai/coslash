@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -26,6 +25,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 	_ "modernc.org/sqlite"
 )
@@ -128,10 +128,7 @@ func TestCursorIDEAndCLIV4HTTPRoundTrip(t *testing.T) {
 }
 
 func cursorFixtureIDEStateDB(home string) string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(home, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb")
-	}
-	return filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	return filepath.Join(cursor.GlobalStorage(home), "state.vscdb")
 }
 
 func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Manager, *sessionbackupproducer.Prepared, string) {

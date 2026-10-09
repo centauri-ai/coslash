@@ -16,7 +16,7 @@ func TestCursorGlobalStorageUsesRedirectedAppData(t *testing.T) {
 	roaming := t.TempDir()
 	t.Setenv("APPDATA", roaming)
 	want := filepath.Join(roaming, "Cursor", "User", "globalStorage")
-	if got := cursorGlobalStorage(home); got != want {
-		t.Fatalf("cursorGlobalStorage() = %q, want %q", got, want)
+	if got := GlobalStorage(home); got != want {
+		t.Fatalf("GlobalStorage() = %q, want %q", got, want)
 	}
 }
