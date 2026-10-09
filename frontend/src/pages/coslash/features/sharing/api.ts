@@ -14,7 +14,7 @@ import {
 } from './model';
 
 export type PairingResult = {
-  state: 'pending' | 'paired' | 'expired';
+  state: 'pending' | 'retrying' | 'paired' | 'declined' | 'expired' | 'credential_store_failed';
   pairingId?: string;
   userCode?: string;
   verificationUri?: string;
@@ -89,7 +89,12 @@ function isHubDestination(value: unknown): value is DestinationResult {
 function isPairingResult(value: unknown): value is PairingResult {
   return (
     isRecord(value) &&
-    (value.state === 'pending' || value.state === 'paired' || value.state === 'expired') &&
+    (value.state === 'pending' ||
+      value.state === 'retrying' ||
+      value.state === 'paired' ||
+      value.state === 'declined' ||
+      value.state === 'expired' ||
+      value.state === 'credential_store_failed') &&
     isOptionalString(value.pairingId) &&
     isOptionalString(value.userCode) &&
     isOptionalString(value.verificationUri) &&

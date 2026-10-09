@@ -287,6 +287,8 @@ function findActionButton(root: unknown, label: string): Record<string, unknown>
 describe('complete backup sharing presentation', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    api.beginHubPairing.mockReset();
+    api.pollHubPairing.mockReset();
     api.prepareBackup.mockReset();
     api.shareSynthesisStatus.mockReset();
     vi.unstubAllGlobals();
@@ -369,6 +371,28 @@ describe('complete backup sharing presentation', () => {
     expect(button).not.toBeNull();
     (button!.onClick as () => void)();
     expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces terminal credential-store failures without polling again', async () => {
+    installStorage();
+    vi.useFakeTimers();
+    api.beginHubPairing.mockResolvedValue({ state: 'pending', pairingId: 'pair-1', userCode: '1234-5678' });
+    api.pollHubPairing.mockResolvedValue({ state: 'credential_store_failed' });
+    hooks.reset();
+    const props = shareDialogProps({
+      destinationResult: { contractVersion: 'hub-share/v1', configured: true, state: 'pairing_required' },
+    });
+    let rendered = hooks.render(ShareToHubDialog, props);
+    const begin = findButton(rendered, 'Pair this device');
+    if (!begin || typeof begin.onClick !== 'function') throw new Error('pair button is unavailable');
+    await (begin.onClick as () => Promise<void>)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('Approve code 1234-5678');
+
+    await vi.advanceTimersByTimeAsync(2000);
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('could not save the pairing credential');
+    expect(api.pollHubPairing).toHaveBeenCalledOnce();
   });
 
   it('keeps mixed-agent rows visible while group selection excludes unsupported agents', () => {

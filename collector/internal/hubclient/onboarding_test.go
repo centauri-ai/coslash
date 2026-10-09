@@ -261,3 +261,20 @@ func TestLegacyCheckInReportsNormalizedVersion(t *testing.T) {
 		t.Fatalf("legacy check-in identity = %+v", seen)
 	}
 }
+
+func TestLegacyCheckInDeletesRevokedCredential(t *testing.T) {
+	credentials := &memoryCredentials{}
+	base, _ := url.Parse("https://hub.example")
+	client := Client{BaseURL: base, Credentials: credentials, HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusForbidden, `{"code":"device_revoked"}`), nil
+	})}}
+
+	_, err := client.CheckIn(context.Background(), "1.2.3")
+	var problem V4Problem
+	if !errors.As(err, &problem) || problem.Code != "device_revoked" || !credentials.deleted {
+		t.Fatalf("revoked check-in error=%v deleted=%t", err, credentials.deleted)
+	}
+	if _, err := client.CheckIn(context.Background(), "1.2.3"); !errors.Is(err, ErrCredentialStoreUnavailable) {
+		t.Fatalf("check-in after revocation error=%v, want unavailable credentials", err)
+	}
+}
