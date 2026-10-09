@@ -45,6 +45,20 @@ func TestV4PutChunkUsesSignedURLWithoutDeviceCredential(t *testing.T) {
 	}
 }
 
+func TestV4AbortUsesUploadDeleteRoute(t *testing.T) {
+	base, _ := url.Parse("https://hub.example")
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/v4/uploads/legacy-upload" ||
+			r.Header.Get("Authorization") != "Device credential" {
+			t.Fatalf("abort request = %s %s auth=%q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+		}
+		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+	})}}
+	if err := client.V4Abort(context.Background(), "legacy-upload"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	t.Setenv("COSLASH_SCALE_IMPORT", "1")
 	t.Setenv("COSLASH_V4_SYNC", "1")

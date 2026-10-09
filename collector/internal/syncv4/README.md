@@ -1,6 +1,6 @@
 # Local v4 sync contract
 
-**Identity:** `local-sync-v4/v1`. The wire producer is the verified
+**Identity:** `local-sync-v4/v2`. The wire producer is the verified
 `session-backup/v1` spool. The Hub consumer is `sync-v4/v2` at server
 integration SHA `b39c4e942c9f1c8ed9bc78cc835c773c630f7685`.
 The additive Local check-in and command consumer is `local-device-v4/1`, pinned
@@ -62,11 +62,13 @@ The queue's outer `version` remains 1 so the previous Local can still read
 its old fields and ignore new fields. `scaleVersion: 1` identifies the additive
 plan and listing state.
 
-One upload carries a whole family: 1–4,096 artifacts, each with at most 256
-chunks of 8 MiB, and at most 8,192 chunks in total. Every artifact stays
-separate, so a family with one exact change body per file change syncs
-whole; a larger family is not sent. The spool manifest is decoded once per
-pass, not once per chunk.
+Each upload carries only the family's parsed-session-record artifacts, one per
+member; raw source, exact-change-body, enrichment, and synthesis artifacts stay
+in the verified local spool and are not transferred. The manifest supports
+1–4,096 records, each with at most 256 chunks of 8 MiB, and at most 8,192
+chunks in total. Older queued manifests that include non-record artifacts have
+their open Hub upload aborted before Local replaces them with a curated upload.
+The spool manifest is decoded once per pass, not once per chunk.
 
 The queue is private (`0700` directory and `0600` file, or current-user ACL on
 Windows) and updated by sync plus atomic rename. Check-in reports
