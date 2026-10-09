@@ -18,9 +18,12 @@ type shareFixtureRunner struct {
 	run func(context.Context, string) (session.SessionSynthesis, error)
 }
 
-func (r shareFixtureRunner) Run(ctx context.Context, input string) (session.SessionSynthesis, error) {
-	return r.run(ctx, input)
+func (r shareFixtureRunner) Run(ctx context.Context, input string) (synthesis.RunResult, error) {
+	result, err := r.run(ctx, input)
+	return synthesis.RunResult{Synthesis: result}, err
 }
+
+func (shareFixtureRunner) VendorName() string { return "codex" }
 
 func (shareFixtureRunner) ModelName() string { return "synthetic-model" }
 
@@ -46,7 +49,7 @@ func TestShareSynthesisReadinessGatesBackendAndRevision(t *testing.T) {
 			if test.mutate != nil {
 				test.mutate(&copySession, &copyState)
 			}
-			got := shareSynthesisReadiness(&copySession, test.revision, synthesis.NewManager(nil), copyState)
+			got := shareSynthesisReadiness(&copySession, test.revision, synthesis.NewManager(nil, nil), copyState)
 			if got.State != test.want || got.Synthesis != nil || got.Revision != 123 {
 				t.Fatalf("readiness = %+v, want %s", got, test.want)
 			}
@@ -66,13 +69,13 @@ func TestShareSynthesisReadinessReusesPersistedRevision(t *testing.T) {
 	found := &session.Session{Agent: "codex", ID: "synthetic", LastActivityTime: 123,
 		SessionDetails: session.SessionDetails{Turns: 6}}
 	state := settings.State{Config: settings.Defaults(), Valid: true, Persisted: true}
-	got := shareSynthesisReadiness(found, 123, synthesis.NewManager(nil), state)
+	got := shareSynthesisReadiness(found, 123, synthesis.NewManager(nil, nil), state)
 	if got.State != "ready" || got.GeneratedAt != 456 || got.Model != "synthetic-model" ||
 		got.Synthesis == nil || !reflect.DeepEqual(*got.Synthesis, want) {
 		t.Fatalf("persisted readiness = %+v", got)
 	}
 	found.LastActivityTime = 124
-	if stale := shareSynthesisReadiness(found, 124, synthesis.NewManager(nil), state); stale.State == "ready" {
+	if stale := shareSynthesisReadiness(found, 124, synthesis.NewManager(nil, nil), state); stale.State == "ready" {
 		t.Fatalf("stale synthesis reused: %+v", stale)
 	}
 }
@@ -83,7 +86,7 @@ func TestShareSynthesisReadinessRejectsMissingConfiguredCLI(t *testing.T) {
 		SessionDetails: session.SessionDetails{Turns: 6}}
 	state := settings.State{Config: settings.Defaults(), Valid: true, Persisted: true}
 	state.Config.Synthesis.Enabled = true
-	mgr := synthesis.NewManager(&synthesis.CLIRunner{Bin: "synthetic-missing-cli"})
+	mgr := synthesis.NewManager(&synthesis.CLIRunner{Bin: "synthetic-missing-cli"}, nil)
 	if got := shareSynthesisReadiness(found, 123, mgr, state); got.State != "unavailable" || mgr.Running("codex", "synthetic") {
 		t.Fatalf("missing CLI readiness = %+v", got)
 	}
@@ -101,7 +104,7 @@ func TestShareSynthesisReadinessGeneratesOnceAndWaitsForPersistedRecord(t *testi
 		close(started)
 		<-release
 		return want, nil
-	}})
+	}}, nil)
 	found := &session.Session{Agent: "codex", ID: "synthetic", LastActivityTime: 123,
 		SessionDetails: session.SessionDetails{Turns: 6}}
 	state := settings.State{Config: settings.Defaults(), Valid: true, Persisted: true}
@@ -145,7 +148,7 @@ func TestShareSynthesisReadinessGeneratesShortCodexSession(t *testing.T) {
 	mgr := synthesis.NewManager(shareFixtureRunner{run: func(context.Context, string) (session.SessionSynthesis, error) {
 		defer close(finished)
 		return want, nil
-	}})
+	}}, nil)
 	found := &session.Session{Agent: "codex", ID: "short", LastActivityTime: 123,
 		SessionDetails: session.SessionDetails{Turns: 1}}
 	state := settings.State{Config: settings.Defaults(), Valid: true, Persisted: true}
@@ -169,7 +172,7 @@ func TestShareSynthesisReadinessReportsFailureWithoutRetrying(t *testing.T) {
 	mgr := synthesis.NewManager(shareFixtureRunner{run: func(context.Context, string) (session.SessionSynthesis, error) {
 		calls.Add(1)
 		return session.SessionSynthesis{}, errors.New("synthetic private provider output")
-	}})
+	}}, nil)
 	found := &session.Session{Agent: "codex", ID: "synthetic", LastActivityTime: 123,
 		SessionDetails: session.SessionDetails{Turns: 6}}
 	state := settings.State{Config: settings.Defaults(), Valid: true, Persisted: true}
