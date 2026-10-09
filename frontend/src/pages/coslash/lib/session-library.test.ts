@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { Session } from './session';
 import {
   ALL_REPOSITORIES,
-  eligibleSessionCandidates,
   filterSessionLibrary,
   latestLogicalSessions,
 } from './session-library';
@@ -215,28 +214,4 @@ describe('session library', () => {
     expect(search([row], 'cerulean')).toEqual([]);
   });
 
-  it('exports only eligible local and SSH sessions to the LB-04 handoff', () => {
-    const local = session();
-    const ssh = session({
-      sourceId: 'r_0123456789abcdef',
-      sourceLabel: 'SSH workspace',
-      sourceClass: 'ssh_workspace',
-      logicalSessionId: 'r_0123456789abcdef:claude:two',
-      agent: 'claude',
-      id: 'two',
-    });
-    const privateRemote = session({
-      sourceId: 'r_0123456789abcdef',
-      sourceClass: 'ssh_workspace',
-      logicalSessionId: 'r_0123456789abcdef:codex:private',
-      shareEligibility: 'private',
-    });
-    const offlineRemote = session({
-      sourceId: 'r_0123456789abcdef',
-      sourceClass: 'ssh_workspace',
-      logicalSessionId: 'r_0123456789abcdef:codex:offline',
-      shareEligibility: 'offline',
-    });
-    expect(eligibleSessionCandidates([local, ssh, privateRemote, offlineRemote])).toEqual([local, ssh]);
-  });
 });

@@ -1242,7 +1242,7 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	}
 }
 
-func TestLateHubPairingGetsBackupProducer(t *testing.T) {
+func TestLateHubPairingBindsSessionReaders(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	onboardings := newOnboardingManager("1.2.3")
 	defer onboardings.Close()
@@ -1255,8 +1255,22 @@ func TestLateHubPairingGetsBackupProducer(t *testing.T) {
 		t.Fatal(err)
 	}
 	onboardings.setHubClient(client)
-	if client.Backup == nil {
-		t.Fatal("Hub client paired after startup has no session backup producer")
+	if client.LoadSourceSession == nil || client.LoadFullSession == nil {
+		t.Fatal("Hub client paired after startup has no source-bound session readers")
+	}
+}
+
+func TestRetiredShareSynthesisRouteIsNotRegistered(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	onboardings := newOnboardingManager("1.2.3")
+	defer onboardings.Close()
+	routes := routesWithOnboarding(
+		synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, onboardings,
+	)
+	response := httptest.NewRecorder()
+	routes.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hub/share-synthesis", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want %d", response.Code, http.StatusNotFound)
 	}
 }
 
