@@ -235,7 +235,7 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 	}
 	credential, err := c.Credentials.Load(ctx)
 	if err != nil {
-		return 0, err
+		return 0, ErrCredentialStoreUnavailable
 	}
 	if !clientVersion.MatchString(version) {
 		version = "0.0.0"

@@ -7,6 +7,15 @@ const (
 	PreviewVersion  = "snapshot-preview/v1"
 )
 
+const (
+	PairingStatePending               = "pending"
+	PairingStateRetrying              = "retrying"
+	PairingStatePaired                = "paired"
+	PairingStateDeclined              = "declined"
+	PairingStateExpired               = "expired"
+	PairingStateCredentialStoreFailed = "credential_store_failed"
+)
+
 type Destination struct {
 	WorkspaceID                 string `json:"workspaceId"`
 	WorkspaceName               string `json:"workspaceName"`
