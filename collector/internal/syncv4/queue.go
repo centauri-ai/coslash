@@ -572,6 +572,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 		}
 		if i, ok := index[item.Key]; ok {
 			entry := &q.state.Entries[i]
+			sourceChanged := item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision
 			entry.Recent = entry.Recent || item.Activity >= now.Add(-recentWindow).UnixMilli()
 			wasLive := entry.Live
 			if item.ContentBytes > 0 || entry.ContentBytes == 0 {
@@ -585,7 +586,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.Session = item.Session
 				entry.Listed = false
 			}
-			if item.Activity > entry.Activity || item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision {
+			if item.Activity > entry.Activity || sourceChanged {
 				if item.ContentBytes <= 0 {
 					entry.ContentBytes = 0
 				}
@@ -602,13 +603,13 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.Attempt = 0
 				entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 			}
-			if q.planChangeIsEligible(*entry, now, changePlan, activeSince) {
+			if q.planChangeIsEligible(*entry, now, changePlan, activeSince, sourceChanged) {
 				entry.ChangedPlanVersion = changePlan.Version
 			}
 		} else {
 			item.Recent = item.Activity >= now.Add(-recentWindow).UnixMilli()
 			item.ChangedAt = now.UnixMilli()
-			if q.planChangeIsEligible(item, now, changePlan, activeSince) {
+			if q.planChangeIsEligible(item, now, changePlan, activeSince, false) {
 				item.ChangedPlanVersion = changePlan.Version
 			}
 			index[item.Key] = len(q.state.Entries)
@@ -632,7 +633,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 			if entry.Listed || entry.RevisionID != "" || entry.Excluded || entry.ListRejected || leftOut(entry.Session, q.state.Config.LeaveOut) {
 				continue
 			}
-			if inScope(entry, *plan, startedAt) && (plan.History || plan.Backfill || entry.CatchUpPlanVersion == plan.Version || entry.ChangedPlanVersion == plan.Version || entry.Priority || entry.Activity >= startedAt.UnixMilli()) {
+			if q.inPlanScopeLocked(entry, *plan, startedAt) && (plan.History || plan.Backfill || entry.CatchUpPlanVersion == plan.Version || entry.ChangedPlanVersion == plan.Version || entry.Priority || entry.Activity >= startedAt.UnixMilli()) {
 				pendingListings++
 			}
 		}
@@ -643,7 +644,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 	return pendingListings, nil
 }
 
-func (q *Queue) planChangeIsEligible(entry Entry, now time.Time, plan *hubclient.V4ImportPlan, activeSince time.Time) bool {
+func (q *Queue) planChangeIsEligible(entry Entry, now time.Time, plan *hubclient.V4ImportPlan, activeSince time.Time, sourceChanged bool) bool {
 	current := q.state.Config.ImportPlan
 	if plan == nil || current == nil || current.Version != plan.Version || q.state.PlanStartedAt <= 0 || now.UnixMilli() < q.state.PlanStartedAt {
 		return false
@@ -654,7 +655,7 @@ func (q *Queue) planChangeIsEligible(entry Entry, now time.Time, plan *hubclient
 	if plan.Backfill {
 		return inWindow(entry, *plan, time.UnixMilli(q.state.PlanStartedAt))
 	}
-	return !activeSince.IsZero() && entry.Activity >= activeSince.UnixMilli()
+	return sourceChanged || !activeSince.IsZero() && entry.Activity >= activeSince.UnixMilli()
 }
 
 func (q *Queue) Update(entry Entry) error {
@@ -868,7 +869,7 @@ func (q *Queue) InPlanScope(entry Entry, plan hubclient.V4ImportPlan) bool {
 	if q.state.PlanStartedAt > 0 {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
 	}
-	return inScope(entry, plan, startedAt)
+	return q.inPlanScopeLocked(entry, plan, startedAt)
 }
 
 func pending(entry Entry) bool {
