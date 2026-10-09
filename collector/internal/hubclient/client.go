@@ -19,7 +19,6 @@ import (
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/session"
-	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
 )
@@ -33,17 +32,15 @@ type SourceSessionLoader func(sourceID, agent, sessionID string, revision int64)
 type FullSessionLoader func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error)
 
 type Client struct {
-	BaseURL               *url.URL
-	HTTP                  *http.Client
-	Credentials           CredentialStore
-	DeviceName            string
-	CollectorVersion      string
-	InstallChannel        string
-	LoadSession           SessionLoader
-	LoadSourceSession     SourceSessionLoader
-	LoadFullSession       FullSessionLoader
-	Backup                *sessionbackupproducer.Manager
-	RequireLocalSynthesis bool
+	BaseURL           *url.URL
+	HTTP              *http.Client
+	Credentials       CredentialStore
+	DeviceName        string
+	CollectorVersion  string
+	InstallChannel    string
+	LoadSession       SessionLoader
+	LoadSourceSession SourceSessionLoader
+	LoadFullSession   FullSessionLoader
 
 	pairingMu sync.Mutex
 	pairings  map[string]pairingSecret

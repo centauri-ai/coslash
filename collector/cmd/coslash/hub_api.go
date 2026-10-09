@@ -17,9 +17,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
-	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
-	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 func hubClientFromEnvironment(collectorVersion string) (*hubclient.Client, error) {
@@ -83,12 +81,11 @@ func installChannelFor(goos, executable string) string {
 	return "unknown"
 }
 
-func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, backupManager *sessionbackupproducer.Manager, onboardings *onboardingManager) {
+func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, onboardings *onboardingManager) {
 	bindClient := func(client *hubclient.Client) {
 		if client == nil {
 			return
 		}
-		client.RequireLocalSynthesis = true
 		if remoteManager != nil {
 			client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
 				if sourceID == localSourceID {
@@ -111,7 +108,6 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 				return record, fullsessionexport.Repository{Canonical: canonical, LocalOnly: localOnly}, err
 			}
 		}
-		client.Backup = backupManager
 	}
 	if onboardings != nil {
 		onboardings.setHubClientBinder(bindClient)
@@ -272,50 +268,6 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
-	api.HandleFunc("POST /api/hub/shares", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil {
-			http.Error(w, "Hub server is not configured", http.StatusConflict)
-			return
-		}
-		var input hubclient.BackupShareRequest
-		if err := decodeHubJSON(request.Body, &input); err != nil {
-			http.Error(w, "invalid hub-share/v2 request", http.StatusBadRequest)
-			return
-		}
-		result, err := client.ShareBackups(request.Context(), input)
-		if err != nil {
-			log.Printf("complete-backup share request failed")
-			http.Error(w, "could not share to Hub", http.StatusBadGateway)
-			return
-		}
-		writeJSON(w, result)
-	})
-	api.HandleFunc("POST /api/hub/backup-previews", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil || backupManager == nil {
-			writeJSON(w, hubclient.BackupPreview{AdapterVersion: hubclient.BackupPreviewVersion, State: "incompatible_server",
-				Coverage: sessionbackupproducer.Coverage{Problems: []sessionbackupv1.CaptureProblem{}}, Problem: &hubclient.BackupPreviewProblem{
-					Code: "incompatible_server", Message: "Complete backup sharing is not configured.",
-					Action: "Configure and pair a compatible Hub.", Retryable: false,
-				}})
-			return
-		}
-		var selection sessionbackupproducer.Selection
-		if err := decodeHubJSON(request.Body, &selection); err != nil {
-			http.Error(w, "invalid backup-preview/v1 request", http.StatusBadRequest)
-			return
-		}
-		result, err := client.PrepareBackup(request.Context(), selection)
-		if err != nil {
-			code := "temporary_unavailable"
-			if result.Problem != nil {
-				code = result.Problem.Code
-			}
-			log.Printf("complete-backup preview failed: code=%s", code)
-		}
-		writeJSON(w, result)
 	})
 	api.HandleFunc("GET /api/hub/full-session-preview", func(w http.ResponseWriter, request *http.Request) {
 		client := currentClient()

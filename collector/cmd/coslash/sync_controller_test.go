@@ -121,7 +121,7 @@ func TestPairingStartsSyncWithoutRestart(t *testing.T) {
 	}
 	client := &hubclient.Client{BaseURL: base, Credentials: credentials, HTTP: hub.Client()}
 	api := http.NewServeMux()
-	registerHubRoutes(api, client, nil, nil, onboardings)
+	registerHubRoutes(api, client, nil, onboardings)
 
 	begin := httptest.NewRecorder()
 	api.ServeHTTP(begin, httptest.NewRequest(http.MethodPost, "/api/hub/pairings", nil))
