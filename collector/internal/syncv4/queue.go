@@ -109,6 +109,7 @@ type Queue struct {
 	mu                sync.Mutex
 	path              string
 	state             state
+	activeSince       time.Time
 	currentKey        string
 	currentBytesDone  int64
 	currentBytesTotal int64
@@ -149,7 +150,11 @@ func Open(root string) (*Queue, error) {
 				command.Result = hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "execution_interrupted"}
 			}
 		}
+		// Preserve the prior selected set while reopening listing state for reconciliation.
 		for i := range q.state.Entries {
+			if q.state.Entries[i].Listed && q.state.Config.ImportPlan != nil {
+				q.state.Entries[i].ChangedPlanVersion = q.state.Config.ImportPlan.Version
+			}
 			q.state.Entries[i].Listed = false
 		}
 		q.pruneCommands(time.Now())
@@ -169,6 +174,30 @@ func Open(root string) (*Queue, error) {
 		return nil, err
 	}
 	return q, nil
+}
+
+// SetActiveSince sets the live-update boundary for the current process.
+func (q *Queue) SetActiveSince(at time.Time) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.activeSince = at
+}
+
+func (q *Queue) ActiveSince() time.Time {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	planStartedAt := time.Time{}
+	if q.state.PlanStartedAt > 0 {
+		planStartedAt = time.UnixMilli(q.state.PlanStartedAt)
+	}
+	return q.activeSinceLocked(planStartedAt)
+}
+
+func (q *Queue) activeSinceLocked(planStartedAt time.Time) time.Time {
+	if !q.activeSince.IsZero() {
+		return q.activeSince
+	}
+	return planStartedAt
 }
 
 func storedInventoryHasD60(data []byte) bool {
@@ -799,6 +828,7 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	if q.state.PlanStartedAt > 0 {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
 	}
+	activeSince := q.activeSinceLocked(startedAt)
 	for _, entry := range entries {
 		if entry.Excluded {
 			continue
@@ -807,7 +837,7 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		if planned {
 			recent = inWindow(entry, *plan, startedAt)
 			if q.state.CatchUpFrozenVersion == plan.Version {
-				recent = planRecent(entry, *plan, startedAt)
+				recent = planRecent(entry, *plan, activeSince)
 			}
 		}
 		if recent {

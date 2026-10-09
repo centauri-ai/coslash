@@ -87,8 +87,8 @@ func validateImportPlan(plan hubclient.V4ImportPlan) error {
 	return nil
 }
 
-func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
-	if entry.Excluded || now.IsZero() {
+func inScope(entry Entry, plan hubclient.V4ImportPlan, planStartedAt, activeSince time.Time) bool {
+	if entry.Excluded || planStartedAt.IsZero() || activeSince.IsZero() {
 		return false
 	}
 	if _, ok := windowDuration(plan.Window); !ok {
@@ -97,16 +97,17 @@ func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 	if plan.MaxSessionsPerAgent < 0 || plan.MaxSessionsPerAgent > 500 {
 		return false
 	}
-	return isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version || entry.Activity >= now.UnixMilli() ||
-		plan.History || plan.Backfill && inWindow(entry, plan, now) || entry.Priority
+	return isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version || entry.Activity >= activeSince.UnixMilli() ||
+		plan.History || plan.Backfill && inWindow(entry, plan, planStartedAt) || entry.Priority
 }
 
 func (q *Queue) inPlanScopeLocked(entry Entry, plan hubclient.V4ImportPlan, startedAt time.Time) bool {
+	activeSince := q.activeSinceLocked(startedAt)
 	if q.state.LiveOnlyPlanVersion == plan.Version && !plan.History && !plan.Backfill {
-		return inScope(entry, plan, startedAt) &&
+		return inScope(entry, plan, startedAt, activeSince) &&
 			(isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version || entry.Priority)
 	}
-	return inScope(entry, plan, startedAt)
+	return inScope(entry, plan, startedAt, activeSince)
 }
 
 func isCatchUpEntry(entry Entry, plan hubclient.V4ImportPlan) bool {
@@ -132,6 +133,7 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan) []Entry {
 		return nil
 	}
 	frozen := q.state.CatchUpFrozenVersion == plan.Version
+	activeSince := q.activeSinceLocked(startedAt)
 	var entries []Entry
 	for _, entry := range q.state.Entries {
 		if frozen && q.inPlanScopeLocked(entry, plan, startedAt) || !frozen && !entry.Excluded && (plan.History || inWindow(entry, plan, startedAt) || entry.Priority) {
@@ -145,7 +147,7 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan) []Entry {
 		}
 		aw, bw := inWindow(a, plan, startedAt), inWindow(b, plan, startedAt)
 		if frozen {
-			aw, bw = planRecent(a, plan, startedAt), planRecent(b, plan, startedAt)
+			aw, bw = planRecent(a, plan, activeSince), planRecent(b, plan, activeSince)
 		}
 		if aw != bw {
 			return aw
