@@ -18,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
@@ -48,16 +49,20 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 		deviceName = "coSlash Local"
 	}
 	return &hubclient.Client{
-		BaseURL: baseURL,
-		Credentials: hubclient.OSKeychain{
-			Service: "ai.coslash.hub-device",
-			Account: baseURL.Host,
-		},
+		BaseURL:          baseURL,
+		Credentials:      deviceCredentialStore(runtime.GOOS, baseURL.Host),
 		DeviceName:       deviceName,
 		CollectorVersion: collectorVersion,
 		InstallChannel:   detectedInstallChannel(),
 		LoadSession:      collector.GetSessionForPreview,
 	}, nil
+}
+
+func deviceCredentialStore(goos, host string) hubclient.CredentialStore {
+	if goos == "linux" {
+		return hubclient.FileCredentialStore{Path: filepath.Join(settings.Home(), "hub-credentials", host)}
+	}
+	return hubclient.OSKeychain{Service: "ai.coslash.hub-device", Account: host}
 }
 
 func localInstallChannel() string {
