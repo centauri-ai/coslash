@@ -27,7 +27,8 @@ const maxUpdateAsset = 300 << 20
 
 func updateTarget() (string, error) {
 	channel := detectedInstallChannel()
-	supported := runtime.GOOS == "darwin" && channel == "script" || runtime.GOOS == "windows" && channel == "windows-script"
+	unix := runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+	supported := unix && channel == "script" || runtime.GOOS == "windows" && channel == "windows-script"
 	if !supported {
 		return "", errors.New("automatic updates require a supported script installation")
 	}
@@ -43,7 +44,7 @@ func updateTarget() (string, error) {
 	if err != nil || !info.Mode().IsRegular() {
 		return "", errors.New("update target must be a regular executable")
 	}
-	if runtime.GOOS == "darwin" && filepath.Base(target) != "coslash" || runtime.GOOS == "windows" && !strings.EqualFold(filepath.Base(target), "coslash.exe") {
+	if unix && filepath.Base(target) != "coslash" || runtime.GOOS == "windows" && !strings.EqualFold(filepath.Base(target), "coslash.exe") {
 		return "", errors.New("update target has an unexpected name")
 	}
 	return target, nil
@@ -183,6 +184,16 @@ func downloadReleaseFile(ctx context.Context, name string, maximum int64) (*os.F
 	return file, hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+func updateAssetFor(goos, goarch, release string) (string, string, error) {
+	switch {
+	case (goos == "darwin" || goos == "linux") && (goarch == "arm64" || goarch == "amd64"):
+		return fmt.Sprintf("coslash_%s_%s_%s.tar.gz", release, goos, goarch), "checksums.txt", nil
+	case goos == "windows" && goarch == "amd64":
+		return "coslash-windows-amd64.exe", "checksums-windows.txt", nil
+	}
+	return "", "", errors.New("unsupported update platform")
+}
+
 func prepareAutomaticUpdate(ctx context.Context, prompt syncv4.UpdatePrompt) (string, error) {
 	target, err := updateTarget()
 	if err != nil {
@@ -192,20 +203,9 @@ func prepareAutomaticUpdate(ctx context.Context, prompt syncv4.UpdatePrompt) (st
 		return "", errors.New("invalid recommended update version")
 	}
 	release := "v" + prompt.Version
-	asset, checksums := "", ""
-	switch runtime.GOOS {
-	case "darwin":
-		if runtime.GOARCH != "arm64" && runtime.GOARCH != "amd64" {
-			return "", errors.New("unsupported update architecture")
-		}
-		asset = fmt.Sprintf("coslash_%s_darwin_%s.tar.gz", release, runtime.GOARCH)
-		checksums = "checksums.txt"
-	case "windows":
-		if runtime.GOARCH != "amd64" {
-			return "", errors.New("unsupported update architecture")
-		}
-		asset = "coslash-windows-amd64.exe"
-		checksums = "checksums-windows.txt"
+	asset, checksums, err := updateAssetFor(runtime.GOOS, runtime.GOARCH, release)
+	if err != nil {
+		return "", err
 	}
 	base := releaseBase + release + "/"
 	checksumURL := base + checksums

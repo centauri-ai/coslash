@@ -178,3 +178,25 @@ func TestGracefulShutdownWaitsForInFlightHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUpdateAssetForShippedPlatforms(t *testing.T) {
+	for _, test := range []struct {
+		goos, goarch, asset, checksums string
+	}{
+		{"darwin", "arm64", "coslash_v1.2.3_darwin_arm64.tar.gz", "checksums.txt"},
+		{"darwin", "amd64", "coslash_v1.2.3_darwin_amd64.tar.gz", "checksums.txt"},
+		{"linux", "amd64", "coslash_v1.2.3_linux_amd64.tar.gz", "checksums.txt"},
+		{"linux", "arm64", "coslash_v1.2.3_linux_arm64.tar.gz", "checksums.txt"},
+		{"windows", "amd64", "coslash-windows-amd64.exe", "checksums-windows.txt"},
+	} {
+		asset, checksums, err := updateAssetFor(test.goos, test.goarch, "v1.2.3")
+		if err != nil || asset != test.asset || checksums != test.checksums {
+			t.Errorf("updateAssetFor(%s/%s) = %q, %q, %v", test.goos, test.goarch, asset, checksums, err)
+		}
+	}
+	for _, platform := range [][2]string{{"linux", "386"}, {"linux", "riscv64"}, {"windows", "arm64"}, {"freebsd", "amd64"}} {
+		if _, _, err := updateAssetFor(platform[0], platform[1], "v1.2.3"); err == nil {
+			t.Errorf("updateAssetFor(%s/%s) accepted an unshipped platform", platform[0], platform[1])
+		}
+	}
+}
