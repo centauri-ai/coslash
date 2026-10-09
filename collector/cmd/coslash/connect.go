@@ -20,12 +20,14 @@ import (
 )
 
 const (
-	connectExitOK          = 0
-	connectExitArguments   = 2
-	connectExitInvalid     = 3
-	connectExitUnreachable = 4
-	connectExitDeclined    = 5
-	connectExitUnsupported = 6
+	connectExitOK              = 0
+	connectExitArguments       = 2
+	connectExitInvalid         = 3
+	connectExitUnreachable     = 4
+	connectExitDeclined        = 5
+	connectExitUnsupported     = 6
+	connectExitCredentialStore = 7
+	connectExitRetryable       = 8
 )
 
 var connectSignalContext = func() (context.Context, context.CancelFunc) {
@@ -36,6 +38,20 @@ type connectJob struct {
 	state     string
 	updatedAt time.Time
 }
+
+const (
+	connectJobClaimed                = "claimed"
+	connectJobRetrying               = "retrying"
+	connectJobCheckingIn             = "checking_in"
+	connectJobConnected              = "connected"
+	connectJobDeclined               = "declined"
+	connectJobExpired                = "expired"
+	connectJobCredentialStoreFailed  = "credential_store_failed"
+	connectJobCheckInRetryable       = "check_in_retryable"
+	connectFirstCheckInRetryWindow   = 30 * time.Second
+	connectFirstCheckInRetryInterval = 2 * time.Second
+	maxConnectCredentialLoadFailures = 3
+)
 
 type syncHooks interface {
 	Ensure(*hubclient.Client) error
@@ -165,18 +181,22 @@ func runConnectCLI(stdout, stderr io.Writer, args []string) int {
 			return printConnectFailure(stdout, stderr, opts, connectExitUnreachable, "")
 		}
 		switch status.State {
-		case "connected":
+		case connectJobConnected:
 			if opts.json {
 				writeConnectJSON(stdout, status.State, connectExitOK)
 			} else {
 				fmt.Fprintln(stdout, "✓ Connected. Your recent sessions are syncing to My space.")
 			}
 			return connectExitOK
-		case "declined":
+		case connectJobDeclined:
 			return printConnectFailure(stdout, stderr, opts, connectExitDeclined, "")
-		case "expired":
+		case connectJobExpired:
 			return printConnectFailure(stdout, stderr, opts, connectExitInvalid, "")
-		case "claimed":
+		case connectJobCredentialStoreFailed:
+			return printConnectFailure(stdout, stderr, opts, connectExitCredentialStore, "")
+		case connectJobCheckInRetryable:
+			return printConnectFailure(stdout, stderr, opts, connectExitRetryable, "")
+		case connectJobClaimed, connectJobRetrying, connectJobCheckingIn:
 		default:
 			return printConnectFailure(stdout, stderr, opts, connectExitUnreachable, "")
 		}
@@ -191,7 +211,8 @@ func runConnectCLI(stdout, stderr io.Writer, args []string) int {
 func printConnectFailure(stdout, stderr io.Writer, opts connectOptions, code int, detail string) int {
 	if opts.json {
 		state := map[int]string{connectExitInvalid: "connect_code_invalid", connectExitUnreachable: "unreachable",
-			connectExitDeclined: "declined", connectExitUnsupported: "unsupported"}[code]
+			connectExitDeclined: "declined", connectExitUnsupported: "unsupported",
+			connectExitCredentialStore: connectJobCredentialStoreFailed, connectExitRetryable: connectJobCheckInRetryable}[code]
 		writeConnectJSON(stdout, state, code)
 		return code
 	}
@@ -203,6 +224,10 @@ func printConnectFailure(stdout, stderr io.Writer, opts connectOptions, code int
 		message = "Couldn't reach " + opts.hub + ". Check your connection and run the command again."
 	case connectExitDeclined:
 		message = "This setup was declined in Hub. Nothing was connected."
+	case connectExitCredentialStore:
+		message = "Local could not save the pairing credential to the secure credential store. Resolve the system credential store issue and retry."
+	case connectExitRetryable:
+		message = "Pairing was saved, but the first Hub check-in has not completed. Local will keep retrying; check connection status later."
 	case connectExitUnsupported:
 		message = "This Hub doesn't support connect codes yet. Use Devices → Add device in Hub."
 	default:
@@ -290,7 +315,7 @@ func (m *onboardingManager) StartConnectCode(rawHubURL, code string) (string, er
 	key := "connect/" + jobID
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.mu.Lock()
-	m.connectJobs[jobID] = connectJob{state: "claimed", updatedAt: time.Now()}
+	m.connectJobs[jobID] = connectJob{state: connectJobClaimed, updatedAt: time.Now()}
 	m.active[key] = cancel
 	m.wait.Add(1)
 	m.mu.Unlock()
@@ -312,25 +337,76 @@ func (m *onboardingManager) runConnectApproval(ctx context.Context, client *hubc
 			return
 		}
 		result, err := client.PollPairing(ctx, pairing.PairingID)
-		if err == nil {
+		if err != nil {
+			m.setConnectJobState(jobID, connectJobRetrying)
+		} else {
 			switch result.State {
-			case "paired":
-				m.ensureSync(client)
-				m.setConnectJobState(jobID, "connected")
+			case hubclient.PairingStatePaired:
+				m.setConnectJobState(jobID, connectJobCheckingIn)
+				m.confirmFirstCheckIn(ctx, client, jobID)
 				return
-			case "declined":
-				m.setConnectJobState(jobID, "declined")
+			case hubclient.PairingStateCredentialStoreFailed:
+				m.setConnectJobState(jobID, connectJobCredentialStoreFailed)
 				return
-			case "expired":
-				m.setConnectJobState(jobID, "expired")
+			case hubclient.PairingStateDeclined:
+				m.setConnectJobState(jobID, connectJobDeclined)
 				return
+			case hubclient.PairingStateExpired:
+				m.setConnectJobState(jobID, connectJobExpired)
+				return
+			case hubclient.PairingStateRetrying:
+				m.setConnectJobState(jobID, connectJobRetrying)
+			case hubclient.PairingStatePending:
+				m.setConnectJobState(jobID, connectJobClaimed)
+			default:
+				m.setConnectJobState(jobID, connectJobRetrying)
 			}
 		}
 		if !sleepContext(ctx, interval) {
 			return
 		}
 	}
-	m.setConnectJobState(jobID, "expired")
+	m.setConnectJobState(jobID, connectJobExpired)
+}
+
+func (m *onboardingManager) confirmFirstCheckIn(ctx context.Context, client *hubclient.Client, jobID string) {
+	deadline := time.Now().Add(connectFirstCheckInRetryWindow)
+	delay := connectFirstCheckInRetryInterval
+	storeFailures := 0
+	retryStateSet := false
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, err := client.CheckIn(ctx, m.version); err == nil {
+			m.ensureSync(client)
+			m.setConnectJobState(jobID, connectJobConnected)
+			return
+		} else if errors.Is(err, hubclient.ErrCredentialStoreUnavailable) {
+			storeFailures++
+			if storeFailures >= maxConnectCredentialLoadFailures {
+				m.setConnectJobState(jobID, connectJobCredentialStoreFailed)
+				return
+			}
+		} else {
+			storeFailures = 0
+		}
+		if !retryStateSet && !time.Now().Before(deadline) {
+			m.setConnectJobState(jobID, connectJobCheckInRetryable)
+			retryStateSet = true
+		} else if !retryStateSet {
+			m.setConnectJobState(jobID, connectJobCheckingIn)
+		}
+		if !sleepContext(ctx, delay) {
+			return
+		}
+		if delay < 30*time.Second {
+			delay *= 2
+			if delay > 30*time.Second {
+				delay = 30 * time.Second
+			}
+		}
+	}
 }
 
 func (m *onboardingManager) setConnectJobState(jobID, state string) {
