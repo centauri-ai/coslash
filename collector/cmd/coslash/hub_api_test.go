@@ -53,6 +53,21 @@ func TestInstallChannelForProductionExecutables(t *testing.T) {
 	}
 }
 
+func TestDeviceCredentialStoreUsesPrivateFileOnLinux(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, ok := deviceCredentialStore("linux", "hub.example.test:8443").(hubclient.FileCredentialStore)
+	if !ok || store.Path != filepath.Join(home, "hub-credentials", "hub.example.test:8443") {
+		t.Fatalf("Linux credential store = %#v", store)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		keychain, ok := deviceCredentialStore(goos, "hub.example.test").(hubclient.OSKeychain)
+		if !ok || keychain.Service != "ai.coslash.hub-device" || keychain.Account != "hub.example.test" {
+			t.Fatalf("%s credential store = %#v", goos, keychain)
+		}
+	}
+}
+
 func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) {
 	recordData, err := os.ReadFile(filepath.Join("..", "..", "fullsession", "v1", "testdata", "fixtures", "valid", "codex.json"))
 	if err != nil {
