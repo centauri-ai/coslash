@@ -231,3 +231,16 @@ must follow an approved migrate-or-sunset policy and the owner-defined Local
 client adoption window. A migration must preserve exact artifacts and existing
 link resolution; a sunset must define notice, end date, old-link behavior, and
 data-deletion timing.
+
+## Linux Local addendum - 2026-10-09
+
+coSlash Local runs on Linux amd64 and arm64 and pairs with Hub like macOS and
+Windows. On a server, the person runs Hub's install command in their own SSH
+session; Hub never receives SSH credentials. Local stores the Hub device
+credential in `$COSLASH_HOME/hub-credentials/<hub host>` (mode `0600`) and
+keeps running after logout through a systemd user service when the account
+lingers, otherwise through a detached process and a `crontab` `@reboot` entry.
+Claude Code, Codex, Cursor, OpenCode, Grok Build, and Pi sessions are
+collected from their XDG locations. Pi and Grok Build synthesis, reviews, and
+launch actions remain unavailable on Linux. See
+`docs/decisions/linux-local-runtime.md`.

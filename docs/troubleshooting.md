@@ -39,7 +39,7 @@ the host is offline and leaves its optional helper installed on the host.
 
 ## Pi sessions and runtime status
 
-Pi support is available for local macOS and Windows sessions. Local Pi CLI reviews on both platforms work independently of collection and terminal support. Linux Pi sessions, runtime integration, synthesis, and launch actions are not supported.
+Pi support is available for local macOS and Windows sessions. Local Pi CLI reviews on both platforms work independently of collection and terminal support. On Linux, coSlash collects Pi sessions and installs the runtime extension for live status; Pi synthesis, reviews, and launch actions are not supported there.
 
 Run `coslash doctor` and inspect the Pi source, CLI release, and managed-extension checks. Transcript schema 3 is supported; older and future schemas are skipped with diagnostics. Runtime hooks and terminal launch allow stable Pi releases at least 0.99.1. Pi 0.99.1, 0.99.2, and 1.0.0 are tested baselines; newer releases remain enabled with an untested-release diagnostic. Older releases, prereleases, and unrecognizable versions are excluded. An excluded runtime can have a readable schema-3 transcript while its status stays Unknown. An eligible release still needs valid runtime evidence to establish status.
 
