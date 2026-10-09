@@ -283,10 +283,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
+          - os: darwin
+            arch: arm64
             runner: macos-15
-          - arch: amd64
+          - os: darwin
+            arch: amd64
             runner: macos-15-intel
+          - os: linux
+            arch: amd64
+            runner: ubuntu-24.04
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out coSlash
@@ -298,15 +306,16 @@ jobs:
         with:
           name: release-artifacts
           path: dist
-      - name: Smoke-test ${{ matrix.arch }} package
+      - name: Smoke-test ${{ matrix.os }} ${{ matrix.arch }} package
         env:
           VERSION: ${{ needs.plan.outputs.version }}
+          OS: ${{ matrix.os }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           (cd dist && shasum -a 256 -c checksums.txt)
 
-          stem="coslash_${VERSION}_darwin_${ARCH}"
+          stem="coslash_${VERSION}_${OS}_${ARCH}"
           unpacked="$(mktemp -d)"
           trap 'rm -rf "$unpacked"' EXIT
           tar -xzf "dist/${stem}.tar.gz" -C "$unpacked"
