@@ -10,6 +10,9 @@ import (
 )
 
 func startBackgroundProcess() error {
+	if startSupervisedBackground() {
+		return nil
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return err

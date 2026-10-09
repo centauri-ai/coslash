@@ -151,7 +151,7 @@ func main() {
 		}
 	}
 	runtimeLock, err := acquireRuntimeLock()
-	if opts.background && runtime.GOOS == "darwin" && errors.Is(err, errRuntimeAlreadyRunning) {
+	if opts.background && runtime.GOOS != "windows" && errors.Is(err, errRuntimeAlreadyRunning) {
 		waitContext, stopWaiting := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 		runtimeLock, err = waitForRuntimeLock(waitContext)
 		stopWaiting()
