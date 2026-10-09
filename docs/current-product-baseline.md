@@ -167,3 +167,16 @@ per-session `in_hub`, `syncing`, `not_in_hub`, or `left_out` states for the UI.
 Hub device revocation deletes the stored credential and changes the Local
 status to disconnected. `COSLASH_V4_SYNC=0` disables local v4 sync;
 `COSLASH_SYNC_POLICY=0` suppresses the `sync-policy/1` capability.
+
+## V3 client retirement addendum - 2026-10-09
+
+The Local V3 complete-backup preview and Share to Hub action, its Local upload
+routes, and the V3 upload caller have been removed. The local session-family
+producer and spool remain in use by V4 sync; V4 upload selection is unchanged.
+
+This client change does not remove Hub V3 endpoints, historical backup data, or
+workspace links. No migration or purge has been applied. Server route removal
+must follow an approved migrate-or-sunset policy and the owner-defined Local
+client adoption window. A migration must preserve exact artifacts and existing
+link resolution; a sunset must define notice, end date, old-link behavior, and
+data-deletion timing.

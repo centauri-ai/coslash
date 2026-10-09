@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useReducer, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
 import { waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
@@ -14,30 +14,13 @@ import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-windo
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
 const ACTIVE_REVIEW_REFRESH_INTERVAL_MS = 3_000;
+
 export function remoteRefreshInProgress(machines: MachineFact[]) {
   return machines.some(
     (machine) =>
       !isLocalSource(machine.sourceId) &&
       (machine.refreshing || machine.state === 'connecting' || machine.reason === 'initial_refresh'),
   );
-}
-
-export async function loadShareCandidatesUntilTerminal(
-  fetchPayload: () => Promise<SessionsPayload>,
-  waitForRefresh: () => Promise<unknown>,
-  onRemoteRefresh?: () => void,
-): Promise<SessionsPayload> {
-  let payload = await fetchPayload();
-  let refreshReported = false;
-  while (remoteRefreshInProgress(payload.machines)) {
-    if (!refreshReported) {
-      refreshReported = true;
-      onRemoteRefresh?.();
-    }
-    await waitForRefresh();
-    payload = await fetchPayload();
-  }
-  return payload;
 }
 
 export type FileSelection = {
@@ -102,62 +85,6 @@ export type SessionsQuery = {
   localWindow: TimeWindow;
   remoteWindow: TimeWindow;
 };
-
-export type ShareCandidatesQuery = {
-  enabled: boolean;
-  window: Extract<TimeWindow, '7d' | '30d' | 'all'>;
-};
-
-export type ShareCandidatesLoadStage = 'loading' | 'refreshing' | 'ready' | 'error';
-
-type ShareCandidatesState = {
-  window: ShareCandidatesQuery['window'];
-  sessions: Session[];
-  isLoading: boolean;
-  loadStage: ShareCandidatesLoadStage;
-  loadError: string | null;
-} | null;
-
-type ShareCandidatesAction =
-  | { type: 'start'; window: ShareCandidatesQuery['window'] }
-  | { type: 'refreshing'; window: ShareCandidatesQuery['window'] }
-  | { type: 'success'; window: ShareCandidatesQuery['window']; sessions: Session[] }
-  | { type: 'error'; window: ShareCandidatesQuery['window']; message: string };
-
-export function shareCandidatesReducer(
-  state: ShareCandidatesState,
-  action: ShareCandidatesAction,
-): ShareCandidatesState {
-  switch (action.type) {
-    case 'start':
-      return {
-        window: action.window,
-        sessions: state?.sessions ?? [],
-        isLoading: true,
-        loadStage: 'loading',
-        loadError: null,
-      };
-    case 'refreshing':
-      if (state?.window !== action.window) return state;
-      return { ...state, isLoading: true, loadStage: 'refreshing' };
-    case 'success':
-      return {
-        window: action.window,
-        sessions: action.sessions,
-        isLoading: false,
-        loadStage: 'ready',
-        loadError: null,
-      };
-    case 'error':
-      return {
-        window: action.window,
-        sessions: [],
-        isLoading: false,
-        loadStage: 'error',
-        loadError: action.message,
-      };
-  }
-}
 
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
   if (Array.isArray(body)) {
@@ -238,15 +165,6 @@ export function sessionsRequestPath(query: {
   return encoded === '' ? '/api/sessions' : `/api/sessions?${encoded}`;
 }
 
-export function shareCandidatesRequestPath({
-  enabled,
-  window,
-  now = new Date(),
-}: ShareCandidatesQuery & { now?: Date }): string | null {
-  if (!enabled) return null;
-  const since = timeWindowStart(window, now);
-  return sessionsRequestPath({ localSince: since, remoteSince: since });
-}
 export function diffRequestPath(selection: FileSelection) {
   const params = new URLSearchParams({
     source: selection.sourceId,
@@ -483,72 +401,5 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     retrySessions,
     refreshSessions,
     refreshSessionsNow,
-  };
-}
-
-export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
-  const [state, dispatch] = useReducer(shareCandidatesReducer, null);
-  const [retryCount, setRetryCount] = useState(0);
-
-  useLayoutEffect(() => {
-    const path = shareCandidatesRequestPath({ enabled, window });
-    if (path == null) return;
-    const controller = new AbortController();
-    dispatch({ type: 'start', window });
-
-    const load = async () => {
-      const fetchPayload = async () => {
-        const response = await apiFetch(path, { signal: controller.signal });
-        if (!response.ok) throw new Error(`Share candidates request failed (${response.status})`);
-        return decodeSessionsResponse(await response.json());
-      };
-
-      try {
-        const payload = await loadShareCandidatesUntilTerminal(
-          fetchPayload,
-          () => waitForRemoteRefresh(undefined, controller.signal),
-          () => dispatch({ type: 'refreshing', window }),
-        );
-        if (controller.signal.aborted) return;
-        dispatch({ type: 'success', window, sessions: payload.sessions });
-      } catch (error: unknown) {
-        if (controller.signal.aborted) return;
-        dispatch({
-          type: 'error',
-          window,
-          message:
-            error instanceof ApiAuthenticationError
-              ? error.message
-              : 'CoSlash couldn’t load sessions available to share.',
-        });
-      }
-    };
-    void load();
-
-    return () => controller.abort();
-  }, [enabled, retryCount, window]);
-
-  const retry = () => setRetryCount((current) => current + 1);
-
-  const refresh = async (): Promise<Session[]> => {
-    const path = shareCandidatesRequestPath({ enabled, window });
-    if (path == null) return [];
-    const response = await apiFetch(path);
-    if (!response.ok) throw new Error(`Share candidates request failed (${response.status})`);
-    const payload = decodeSessionsResponse(await response.json());
-    dispatch({ type: 'success', window, sessions: payload.sessions });
-    return payload.sessions;
-  };
-
-  if (!enabled) {
-    return { sessions: [], isLoading: false, loadError: null, loadStage: 'ready' as const, retry, refresh };
-  }
-  return {
-    sessions: state?.sessions ?? [],
-    isLoading: state == null || state.window !== window || state.isLoading,
-    loadError: state?.window === window ? state.loadError : null,
-    loadStage: state?.window === window ? state.loadStage : ('loading' as const),
-    retry,
-    refresh,
   };
 }

@@ -498,7 +498,7 @@ func TestConnectStatusRouteReturnsOnlyState(t *testing.T) {
 	defer manager.Close()
 	manager.connectJobs["job"] = connectJob{state: "connected", updatedAt: time.Now()}
 	api := http.NewServeMux()
-	registerHubRoutes(api, nil, nil, nil, manager)
+	registerHubRoutes(api, nil, nil, manager)
 	response := httptest.NewRecorder()
 	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hub/onboarding/connect/job", nil))
 	var body map[string]string
@@ -512,7 +512,7 @@ func TestConnectAndWakeRoutesRequireLocalToken(t *testing.T) {
 	manager := newOnboardingManager("0.1.0")
 	defer manager.Close()
 	api := http.NewServeMux()
-	registerHubRoutes(api, nil, nil, nil, manager)
+	registerHubRoutes(api, nil, nil, manager)
 	handler := httpsec.Guard{Addr: "127.0.0.1:8787", Token: "local-token"}.Wrap(api)
 	for _, test := range []struct {
 		method string
