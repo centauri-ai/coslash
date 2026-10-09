@@ -1265,7 +1265,7 @@ func TestRetiredShareSynthesisRouteIsNotRegistered(t *testing.T) {
 	onboardings := newOnboardingManager("1.2.3")
 	defer onboardings.Close()
 	routes := routesWithOnboarding(
-		synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, onboardings,
+		synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, onboardings,
 	)
 	response := httptest.NewRecorder()
 	routes.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hub/share-synthesis", nil))
