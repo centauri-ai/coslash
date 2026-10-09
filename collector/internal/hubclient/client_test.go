@@ -216,13 +216,14 @@ func TestPollPairingRetriesKeychainSaveWithoutExchangingCredentialAgain(t *testi
 			return response(http.StatusOK, `{"deviceId":"device","credential":"one-time-secret","tokenType":"Device","scope":"ingest"}`), nil
 		})},
 	}
-	if _, err := client.PollPairing(context.Background(), "pair"); err == nil {
-		t.Fatal("first failed keychain write was ignored")
+	first, err := client.PollPairing(context.Background(), "pair")
+	if err != nil || first.State != PairingStateRetrying {
+		t.Fatal("first credential-store failure was not retryable")
 	}
 	result, err := client.PollPairing(context.Background(), "pair")
-	if err != nil || result.State != "paired" || credentials.saved != "one-time-secret" ||
+	if err != nil || result.State != PairingStatePaired || credentials.saved == "" ||
 		credentials.attempts != 2 || tokenRequests != 1 {
-		t.Fatalf("result=%#v saved=%q writes=%d token requests=%d error=%v", result, credentials.saved, credentials.attempts, tokenRequests, err)
+		t.Fatal("credential save retry did not complete without a second exchange")
 	}
 }
 

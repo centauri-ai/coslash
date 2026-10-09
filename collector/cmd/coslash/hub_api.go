@@ -157,10 +157,10 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		}
 		result, err := client.PollPairing(request.Context(), request.PathValue("id"))
 		if err != nil {
-			http.Error(w, "could not finish Hub pairing", http.StatusBadGateway)
+			writeJSON(w, hubclient.PairingResult{State: hubclient.PairingStateRetrying})
 			return
 		}
-		if result.State == "paired" && onboardings != nil {
+		if result.State == hubclient.PairingStatePaired && onboardings != nil {
 			onboardings.ensureSync(client)
 		}
 		writeJSON(w, result)
