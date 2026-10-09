@@ -166,8 +166,14 @@ credential. The first check-in advertises sync capabilities and reports the
 normalized Local version, install channel, operating system, and content-free
 queue state. A new owner's default Hub policy (version 0) is enough to start.
 Each check-in reports which agents this install has sessions for. It sends
-recent session metadata before content, then imports older history. The Hub
-check-in supplies the current pause, device-off and leave-out policy; if
+recent session metadata before content. With a compatible Hub policy, the
+default plan is recent activity from the last three days, capped at 30
+sessions; older activity is not uploaded automatically. After compatible Hub
+and Local versions are available, a user can explicitly start a 30-day,
+60-day, or all-history import for one device from Hub Settings. Finite cutoffs
+are fixed when the run starts. After completion Local returns to live activity
+and does not catch up sessions created while it was offline. The Hub check-in
+supplies the current pause, device-off and leave-out policy; if
 check-in fails or the policy becomes stale, upload stops. A Hub `device_revoked`
 response removes the stored credential and marks this computer disconnected.
 `COSLASH_V4_SYNC=0` disables Local auto-sync and stops advertising `sync-v4`;

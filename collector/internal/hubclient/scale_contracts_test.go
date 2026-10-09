@@ -15,15 +15,15 @@ import (
 	"testing"
 )
 
-// The fixtures are the scale-contracts/v1 golden files pinned by the server
-// at b1345ed (testdata/scale-contracts-v1/SHA256SUMS); the hashes are
-// repeated here so a silent edit on either side is caught.
+// These scale-contracts/v1 fixtures pin the wire shapes used by the client.
+// The additive d60 and backfill fixtures must stay aligned with the Hub schema.
 var scaleFixtureHashes = map[string]string{
-	"check-in-import-progress.json":         "d960aa5fc7693058d66682736c4e30b4fd8104859f836a60d7aa070caf60b1fd",
-	"check-in-inventory-unknown-agent.json": "3c0fc797e351a2969471149a4ed98dff9dea54501fd519db27616f283a417ce7",
-	"check-in-inventory-with-path.json":     "efe6cb8f2219dfc7bc10bb5c31e98ccab6ddc0a7e66a0409af4009f7f164ea56",
-	"check-in-inventory-with-title.json":    "192a80ca9c5f263bf6b45248ef4b977a7666658288aaa34683e1b0282149f011",
-	"check-in-response-import-plan.json":    "2ac857f153f5ed5861cf05f7e3fdd5faf5659530863a4afa94501e3b570ee025",
+	"check-in-import-progress.json":          "85cb489539e0393d2a99c839367800743430004cafd8d214c11be54cda91d3dc",
+	"check-in-inventory-unknown-agent.json":  "3c0fc797e351a2969471149a4ed98dff9dea54501fd519db27616f283a417ce7",
+	"check-in-inventory-with-path.json":      "efe6cb8f2219dfc7bc10bb5c31e98ccab6ddc0a7e66a0409af4009f7f164ea56",
+	"check-in-inventory-with-title.json":     "192a80ca9c5f263bf6b45248ef4b977a7666658288aaa34683e1b0282149f011",
+	"check-in-response-import-plan.json":     "2ac857f153f5ed5861cf05f7e3fdd5faf5659530863a4afa94501e3b570ee025",
+	"check-in-response-manual-backfill.json": "ea46c150aaffad6b99a79a2f10eb6dd064d04c5be88ab9148f19c5df37361b21",
 }
 
 func readScaleFixture(t *testing.T, name string) []byte {
@@ -76,7 +76,7 @@ func TestDeviceInventoryMirrorsTheGoldenFixture(t *testing.T) {
 	if string(wantJSON) != string(gotJSON) {
 		t.Fatalf("mirror drifts from the fixture:\n%s\n%s", wantJSON, gotJSON)
 	}
-	if inventory.Windows.All.Sessions != 3712 || len(inventory.Agents) != 4 || inventory.Agents[0].Agent != "codex" {
+	if inventory.Windows.All.Sessions != 3712 || inventory.Windows.D60.Sessions != 1100 || len(inventory.Agents) != 4 || inventory.Agents[0].Agent != "codex" {
 		t.Fatalf("decoded inventory = %+v", inventory)
 	}
 }
@@ -101,6 +101,17 @@ func TestV4CheckInResponseCarriesHubCapabilities(t *testing.T) {
 	}
 	if len(response.Capabilities) != 1 || response.Capabilities[0] != CapabilityScaleImport || response.ConfigVersion != 9 {
 		t.Fatalf("response = %+v", response)
+	}
+}
+
+func TestV4CheckInResponseDecodesManualSixtyDayBackfill(t *testing.T) {
+	var response V4CheckIn
+	if err := json.Unmarshal(readScaleFixture(t, "check-in-response-manual-backfill.json"), &response); err != nil {
+		t.Fatal(err)
+	}
+	plan := response.Config.ImportPlan
+	if plan == nil || plan.Window != "60d" || !plan.Backfill || plan.History || plan.MaxSessionsPerAgent != 0 || plan.MaxSessions != 0 {
+		t.Fatalf("manual backfill plan = %+v", plan)
 	}
 }
 

@@ -76,9 +76,9 @@ func TestProgressReportsInventoryOnlyAfterHubAdvertisesScaleImport(t *testing.T)
 	}
 }
 
-func TestQueueWithholdsLegacyInventoryUntilD10Refresh(t *testing.T) {
+func TestQueueWithholdsLegacyInventoryUntilD60Refresh(t *testing.T) {
 	root := t.TempDir()
-	legacy := `{"version":1,"installId":"legacy","entries":[],"inventory":{"scannedAt":"2026-09-29T19:29:52Z","windows":{"d7":{"sessions":7,"bytes":70},"d30":{"sessions":30,"bytes":300},"all":{"sessions":40,"bytes":400}}}}`
+	legacy := `{"version":1,"installId":"legacy","entries":[],"inventory":{"scannedAt":"2026-09-29T19:29:52Z","windows":{"d7":{"sessions":7,"bytes":70},"d10":{"sessions":10,"bytes":100},"d30":{"sessions":30,"bytes":300},"all":{"sessions":40,"bytes":400}}}}`
 	if err := os.WriteFile(filepath.Join(root, "queue.json"), []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -88,16 +88,17 @@ func TestQueueWithholdsLegacyInventoryUntilD10Refresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	if queue.Inventory() != nil {
-		t.Fatal("legacy inventory was exposed before its 10-day bucket was refreshed")
+		t.Fatal("legacy inventory was exposed before its 60-day bucket was refreshed")
 	}
 
 	fresh := hubclient.DeviceInventory{ScannedAt: "2026-10-01T19:29:52Z"}
 	fresh.Windows.D7 = hubclient.InventoryWindow{Sessions: 7, Bytes: 70}
 	fresh.Windows.D10 = hubclient.InventoryWindow{Sessions: 10, Bytes: 100}
+	fresh.Windows.D60 = hubclient.InventoryWindow{Sessions: 40, Bytes: 400}
 	if err := queue.SetInventory(fresh); err != nil {
 		t.Fatal(err)
 	}
-	if got := queue.Inventory(); got == nil || got.Windows.D10 != fresh.Windows.D10 {
+	if got := queue.Inventory(); got == nil || got.Windows.D60 != fresh.Windows.D60 {
 		t.Fatalf("refreshed inventory = %+v", got)
 	}
 }
