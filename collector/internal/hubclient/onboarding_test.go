@@ -278,3 +278,56 @@ func TestLegacyCheckInDeletesRevokedCredential(t *testing.T) {
 		t.Fatalf("check-in after revocation error=%v, want unavailable credentials", err)
 	}
 }
+
+type revokedCheckInCredentials struct {
+	cleanupIsBounded bool
+}
+
+func (*revokedCheckInCredentials) Load(context.Context) (string, error) { return "credential", nil }
+func (*revokedCheckInCredentials) Save(context.Context, string) error   { return nil }
+func (s *revokedCheckInCredentials) Delete(ctx context.Context) error {
+	s.captureCleanupContext(ctx)
+	return nil
+}
+
+func (s *revokedCheckInCredentials) captureCleanupContext(ctx context.Context) {
+	deadline, ok := ctx.Deadline()
+	remaining := time.Until(deadline)
+	s.cleanupIsBounded = ok && ctx.Err() == nil && remaining > 0 && remaining <= 30*time.Second
+}
+
+type conditionalRevokedCheckInCredentials struct {
+	*revokedCheckInCredentials
+}
+
+func (s *conditionalRevokedCheckInCredentials) DeleteIfMatches(ctx context.Context, _ string) (bool, error) {
+	s.captureCleanupContext(ctx)
+	return true, nil
+}
+
+func TestLegacyCheckInBoundsRevokedCredentialCleanup(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		conditional bool
+	}{{name: "delete"}, {name: "delete-if-matches", conditional: true}} {
+		t.Run(testCase.name, func(t *testing.T) {
+			credentials := &revokedCheckInCredentials{}
+			var store CredentialStore = credentials
+			if testCase.conditional {
+				store = &conditionalRevokedCheckInCredentials{revokedCheckInCredentials: credentials}
+			}
+			base, _ := url.Parse("https://hub.example")
+			client := Client{BaseURL: base, Credentials: store, HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return response(http.StatusForbidden, `{"code":"device_revoked"}`), nil
+			})}}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if _, err := client.CheckIn(ctx, "1.2.3"); err == nil {
+				t.Fatal("check-in succeeded with a revoked credential")
+			}
+			if !credentials.cleanupIsBounded {
+				t.Fatal("cleanup context was canceled or lacked a 30-second deadline")
+			}
+		})
+	}
+}
