@@ -134,6 +134,7 @@ func cursorFixtureIDEStateDB(home string) string {
 func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Manager, *sessionbackupproducer.Prepared, string) {
 	t.Helper()
 	home, workspace, spool := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	workspaceJSON, err := json.Marshal(workspace)
 	if err != nil {
 		t.Fatal(err)

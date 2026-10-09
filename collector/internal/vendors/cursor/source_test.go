@@ -89,7 +89,7 @@ func TestGetSessionFactsAppliesMetadataRelationship(t *testing.T) {
 	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	statePath := filepath.Join(GlobalStorage(home), "state.vscdb")
+	statePath := filepath.Join(cursorTestGlobalStorage(t, home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}
