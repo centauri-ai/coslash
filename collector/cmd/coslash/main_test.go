@@ -114,6 +114,13 @@ func TestListenFallsBackOnlyForDefaultPort(t *testing.T) {
 	}
 }
 
+func TestIsAddressInUseRecognizesWindowsSocketError(t *testing.T) {
+	err := &net.OpError{Op: "listen", Net: "tcp", Err: syscall.Errno(10048)}
+	if !isAddressInUse(err) {
+		t.Fatalf("isAddressInUse(%v) = false, want true", err)
+	}
+}
+
 func TestParseOptionsRecordsExplicitPort(t *testing.T) {
 	for _, test := range []struct {
 		args     []string
