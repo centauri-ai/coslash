@@ -150,10 +150,11 @@ func Open(root string) (*Queue, error) {
 				command.Result = hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "execution_interrupted"}
 			}
 		}
-		// Preserve the prior selected set while reopening listing state for reconciliation.
+		// Reconcile non-catch-up selections; frozen catch-up membership has its own marker.
 		for i := range q.state.Entries {
-			if q.state.Entries[i].Listed && q.state.Config.ImportPlan != nil {
-				q.state.Entries[i].ChangedPlanVersion = q.state.Config.ImportPlan.Version
+			if entry := &q.state.Entries[i]; entry.Listed && q.state.Config.ImportPlan != nil &&
+				!isCatchUpEntry(*entry, *q.state.Config.ImportPlan) {
+				entry.ChangedPlanVersion = q.state.Config.ImportPlan.Version
 			}
 			q.state.Entries[i].Listed = false
 		}
