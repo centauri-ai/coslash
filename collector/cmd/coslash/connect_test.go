@@ -271,7 +271,7 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 				case "/v4/devices/me/check-in":
 					checkIns.Add(1)
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = fmt.Fprint(w, `{"nextCheckInSeconds":60}`)
+					_, _ = fmt.Fprint(w, `{"configVersion":1,"config":{"paused":false,"autoUpdate":true,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.0","recommendedVersion":"0.0.0","nextCheckInSeconds":60}`)
 				default:
 					t.Errorf("unexpected Hub request %s %s", request.Method, request.URL.Path)
 					http.NotFound(w, request)
