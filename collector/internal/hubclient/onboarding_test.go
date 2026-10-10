@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -229,13 +228,13 @@ func TestCheckInSendsOnlyContentFreeDeviceStateWithStoredCredential(t *testing.T
 			t.Fatalf("check-in queue=%#v", body["queue"])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"nextCheckInSeconds":60}`))
+		_, _ = w.Write(readT52Fixture(t, "check-in-response-policy.json"))
 	}))
 	defer hub.Close()
 	base, _ := url.Parse(hub.URL)
 	client := Client{BaseURL: base, Credentials: credentials, HTTP: hub.Client()}
 	interval, err := client.CheckIn(context.Background(), "1.2.3")
-	if err != nil || interval != time.Minute {
+	if err != nil || interval != 30*time.Second {
 		t.Fatalf("interval=%s error=%v", interval, err)
 	}
 }
@@ -249,7 +248,7 @@ func TestLegacyCheckInReportsNormalizedVersion(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
 			t.Fatal(err)
 		}
-		io.WriteString(w, `{"nextCheckInSeconds":60}`)
+		_, _ = w.Write(readT52Fixture(t, "check-in-response-policy.json"))
 	}))
 	defer server.Close()
 	base, _ := url.Parse(server.URL)

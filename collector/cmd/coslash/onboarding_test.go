@@ -151,7 +151,7 @@ func TestStartCheckInsAvoidsDuplicatesAndV4Overlap(t *testing.T) {
 	client := &hubclient.Client{
 		BaseURL: baseURL, Credentials: fixedHubCredential("device-credential"),
 		HTTP: &http.Client{Transport: onboardingRoundTripper(func(*http.Request) (*http.Response, error) {
-			return onboardingResponse(http.StatusOK, `{"nextCheckInSeconds":300}`), nil
+			return onboardingResponse(http.StatusOK, `{"configVersion":1,"config":{"paused":false,"autoUpdate":true,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.0","recommendedVersion":"0.0.0","nextCheckInSeconds":300}`), nil
 		})},
 	}
 
@@ -197,7 +197,7 @@ func TestPairingWithV4SyncDisabledKeepsLegacyCheckIn(t *testing.T) {
 			return
 		}
 		requests <- body
-		_, _ = io.WriteString(w, `{"nextCheckInSeconds":300}`)
+		_, _ = io.WriteString(w, `{"configVersion":1,"config":{"paused":false,"autoUpdate":true,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.0","recommendedVersion":"0.0.0","nextCheckInSeconds":300}`)
 	}))
 	defer hub.Close()
 	baseURL, err := url.Parse(hub.URL)
