@@ -20,15 +20,16 @@ import (
 )
 
 const (
-	connectExitOK                = 0
-	connectExitArguments         = 2
-	connectExitInvalid           = 3
-	connectExitUnreachable       = 4
-	connectExitDeclined          = 5
-	connectExitUnsupported       = 6
-	connectExitCredentialStore   = 7
-	connectExitRetryable         = 8
-	connectExitCredentialRevoked = 9
+	connectExitOK                    = 0
+	connectExitArguments             = 2
+	connectExitInvalid               = 3
+	connectExitUnreachable           = 4
+	connectExitDeclined              = 5
+	connectExitUnsupported           = 6
+	connectExitCredentialStore       = 7
+	connectExitRetryable             = 8
+	connectExitCredentialRevoked     = 9
+	connectExitClientVersionRejected = 10
 )
 
 var connectSignalContext = func() (context.Context, context.CancelFunc) {
@@ -50,6 +51,7 @@ const (
 	connectJobCredentialStoreFailed  = "credential_store_failed"
 	connectJobCredentialRevoked      = "credential_revoked"
 	connectJobCheckInRetryable       = "check_in_retryable"
+	connectJobClientVersionRejected  = "client_version_rejected"
 	connectFirstCheckInRetryWindow   = 30 * time.Second
 	connectFirstCheckInRetryInterval = 2 * time.Second
 	maxConnectCredentialLoadFailures = 3
@@ -200,6 +202,8 @@ func runConnectCLI(stdout, stderr io.Writer, args []string) int {
 			return printConnectFailure(stdout, stderr, opts, connectExitCredentialStore, "")
 		case connectJobCredentialRevoked:
 			return printConnectFailure(stdout, stderr, opts, connectExitCredentialRevoked, "")
+		case connectJobClientVersionRejected:
+			return printConnectFailure(stdout, stderr, opts, connectExitClientVersionRejected, "")
 		case connectJobCheckInRetryable:
 			return printConnectFailure(stdout, stderr, opts, connectExitRetryable, "")
 		case connectJobClaimed, connectJobRetrying, connectJobCheckingIn:
@@ -219,7 +223,8 @@ func printConnectFailure(stdout, stderr io.Writer, opts connectOptions, code int
 		state := map[int]string{connectExitInvalid: "connect_code_invalid", connectExitUnreachable: "unreachable",
 			connectExitDeclined: "declined", connectExitUnsupported: "unsupported",
 			connectExitCredentialStore: connectJobCredentialStoreFailed, connectExitRetryable: connectJobCheckInRetryable,
-			connectExitCredentialRevoked: connectJobCredentialRevoked}[code]
+			connectExitCredentialRevoked:     connectJobCredentialRevoked,
+			connectExitClientVersionRejected: connectJobClientVersionRejected}[code]
 		writeConnectJSON(stdout, state, code)
 		return code
 	}
@@ -237,6 +242,8 @@ func printConnectFailure(stdout, stderr io.Writer, opts connectOptions, code int
 		message = "Pairing was saved, but the first Hub check-in has not completed. Local will keep retrying; check connection status later."
 	case connectExitCredentialRevoked:
 		message = "Hub revoked this pairing. Start a new connect command in Hub to pair again."
+	case connectExitClientVersionRejected:
+		message = "Hub rejected this coSlash Local version. Update or rebuild coSlash Local, then it can check in."
 	case connectExitUnsupported:
 		message = "This Hub doesn't support connect codes yet. Use Devices → Add device in Hub."
 	default:
@@ -390,6 +397,9 @@ func (m *onboardingManager) confirmFirstCheckIn(ctx context.Context, client *hub
 		if _, err := client.CheckIn(ctx, m.version); err == nil {
 			m.ensureSync(client)
 			m.setConnectJobState(jobID, connectJobConnected)
+			return
+		} else if errors.Is(err, hubclient.ErrClientVersionRejected) {
+			m.setConnectJobState(jobID, connectJobClientVersionRejected)
 			return
 		} else if errors.Is(err, hubclient.ErrCredentialStoreUnavailable) {
 			storeFailures++

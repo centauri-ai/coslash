@@ -7,7 +7,7 @@ HELPER_DIST := dist/helper
 HELPER_ASSETS := internal/remote/helperassets
 FRONTEND := ../frontend
 STAGED := internal/web/dist
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= $(shell sh scripts/source-version.sh)
 INSTALL_CHANNEL ?=
 BRANCH_BUILD ?= false
 DIST := dist
@@ -155,6 +155,7 @@ run: check-go unstage helper-assets
 
 test: check-go check-node
 	bash scripts/install-branch_test.sh
+	bash scripts/source-version_test.sh
 	node internal/vendors/opencode/coslash-plugin.test.mjs
 	node internal/vendors/pi/coslash-extension.test.mjs
 	go test ./...
