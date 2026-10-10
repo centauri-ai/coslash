@@ -72,7 +72,7 @@ func TestValidateCursorLaunch(t *testing.T) {
 }
 
 func TestListenBindsIPv4Loopback(t *testing.T) {
-	listener, err := listen(0)
+	listener, err := listen(0, false)
 	if err != nil {
 		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
 			t.Skipf("sandbox does not permit opening a loopback listener: %v", err)
@@ -87,6 +87,47 @@ func TestListenBindsIPv4Loopback(t *testing.T) {
 	}
 	if host != "127.0.0.1" {
 		t.Fatalf("listener host = %q, want 127.0.0.1", host)
+	}
+}
+
+func TestListenFallsBackOnlyForDefaultPort(t *testing.T) {
+	held, err := listen(0, false)
+	if err != nil {
+		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+			t.Skipf("sandbox does not permit opening a loopback listener: %v", err)
+		}
+		t.Fatal(err)
+	}
+	defer held.Close()
+	port := held.Addr().(*net.TCPAddr).Port
+
+	if _, err := listen(port, false); err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("explicit port error = %v, want already in use", err)
+	}
+	listener, err := listen(port, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if got := listener.Addr().(*net.TCPAddr); got.Port == port || !got.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("fallback listener = %s, want another 127.0.0.1 port", got)
+	}
+}
+
+func TestParseOptionsRecordsExplicitPort(t *testing.T) {
+	for _, test := range []struct {
+		args     []string
+		explicit bool
+	}{
+		{args: nil},
+		{args: []string{"--background"}},
+		{args: []string{"--port", "8787"}, explicit: true},
+		{args: []string{"--port=0"}, explicit: true},
+	} {
+		opts, err := parseOptions(test.args)
+		if err != nil || opts.portExplicit != test.explicit {
+			t.Fatalf("parseOptions(%q) = %#v, %v; want portExplicit=%t", test.args, opts, err, test.explicit)
+		}
 	}
 }
 
