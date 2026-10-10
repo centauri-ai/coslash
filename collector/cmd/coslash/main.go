@@ -43,6 +43,7 @@ import (
 var version = "dev"
 
 const defaultPort = 8787
+const windowsWSAEADDRINUSE syscall.Errno = 10048
 
 type options struct {
 	port         int
@@ -754,12 +755,12 @@ func remoteHealthFact(manager *remote.Manager) *diagnostics.RemoteHealth {
 func listen(port int, fallback bool) (net.Listener, error) {
 	address := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", address)
-	if err != nil && fallback && errors.Is(err, syscall.EADDRINUSE) {
+	if err != nil && fallback && isAddressInUse(err) {
 		log.Printf("port %d is in use by another process; using a free port instead", port)
 		listener, err = net.Listen("tcp", "127.0.0.1:0")
 	}
 	if err != nil {
-		if errors.Is(err, syscall.EADDRINUSE) {
+		if isAddressInUse(err) {
 			return nil, fmt.Errorf(
 				"port %d is already in use; quit the other process or pass --port",
 				port,
@@ -768,6 +769,10 @@ func listen(port int, fallback bool) (net.Listener, error) {
 		return nil, fmt.Errorf("listen on %s: %w", address, err)
 	}
 	return listener, nil
+}
+
+func isAddressInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, windowsWSAEADDRINUSE)
 }
 
 func unavailable() http.Handler {
