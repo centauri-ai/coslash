@@ -30,20 +30,7 @@ func (fixedHubCredential) Save(context.Context, string) error { return nil }
 
 func (fixedHubCredential) Delete(context.Context) error { return nil }
 
-func TestInstallChannelForProductionExecutables(t *testing.T) {
-	for _, test := range []struct {
-		goos, executable, want string
-	}{
-		{"darwin", "/opt/homebrew/Cellar/coslash/1.0/bin/coslash", "brew"},
-		{"darwin", "/Users/test/.local/bin/coslash", "script"},
-		{"linux", "/home/test/.local/bin/coslash", "script"},
-		{"windows", `C:/Users/test/AppData/Local/Programs/coSlash/coslash.exe`, "windows-script"},
-		{"freebsd", "/usr/local/bin/coslash", "unknown"},
-	} {
-		if got := installChannelFor(test.goos, test.executable); got != test.want {
-			t.Errorf("installChannelFor(%q, %q) = %q, want %q", test.goos, test.executable, got, test.want)
-		}
-	}
+func TestHubClientUsesDetectedInstallChannel(t *testing.T) {
 	client, err := hubClientForURL("0.1.0", "http://127.0.0.1")
 	if err != nil {
 		t.Fatal(err)

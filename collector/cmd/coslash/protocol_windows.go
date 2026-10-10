@@ -43,5 +43,3 @@ func registerProtocolHandler() error {
 	defer command.Close()
 	return command.SetStringValue("", fmt.Sprintf(`"%s" --protocol-url "%%1"`, executable))
 }
-
-func unregisterProtocolHandler() error { return nil }
