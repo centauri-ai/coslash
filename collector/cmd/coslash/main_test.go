@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
-	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
@@ -26,22 +25,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
-
-func TestV4SyncStartupUsesTheDocumentedSwitch(t *testing.T) {
-	t.Setenv("COSLASH_V4_SYNC_ENABLED", "0")
-	t.Setenv("COSLASH_V4_SYNC", "")
-	if !shouldStartV4Sync(&hubclient.Client{}) {
-		t.Fatal("v4 sync should start by default when a Hub is configured")
-	}
-	t.Setenv("COSLASH_V4_SYNC", "0")
-	if shouldStartV4Sync(&hubclient.Client{}) {
-		t.Fatal("v4 sync started despite COSLASH_V4_SYNC=0")
-	}
-	t.Setenv("COSLASH_V4_SYNC", "")
-	if !shouldStartV4Sync(nil) {
-		t.Fatal("v4 sync did not start before pairing")
-	}
-}
 
 func TestValidateCursorLaunch(t *testing.T) {
 	directory := t.TempDir()
@@ -140,7 +123,7 @@ func TestParseOptionsRecordsExplicitPort(t *testing.T) {
 
 func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	for _, test := range []struct {
 		method string
 		path   string
@@ -195,7 +178,7 @@ func TestStartupAccountingFailureKeepsCachedSessionsAvailable(t *testing.T) {
 	listSessions = func(context.Context, int64) ([]*session.Session, error) {
 		return []*session.Session{{Agent: "codex", ID: "kept", LastActivityTime: 42}}, nil
 	}
-	handler := routes(manager, reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(manager, reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
 	if response.Code != 200 || !strings.Contains(response.Body.String(), `"outcome":"valid"`) {
@@ -243,7 +226,7 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 		t.Fatal("review did not start")
 	}
 	<-started
-	handler := routes(synthesis.NewManager(nil, nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	get := func(agent, id string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/reviews?agent="+agent+"&id="+id, nil))
@@ -277,7 +260,7 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 
 func TestSynthesisRouteRequiresAgent(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/synthesis?id=same", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

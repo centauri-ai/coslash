@@ -80,7 +80,7 @@ func TestLocalUpdateRouteUsesDurablePrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
-	routes(nil, nil, nil, nil, nil, serverServices{queue: queue}).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hub/v4-update", nil))
+	routesWithOnboarding(nil, nil, nil, nil, nil, newOnboardingManager(version), serverServices{queue: queue}).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hub/v4-update", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d", response.Code)
 	}
