@@ -19,9 +19,12 @@ For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed
 content revision schedules a fresh capture even when activity time is equal.
 On process restart or import-plan version change, Local re-lists the selected
-families, including locally completed entries. A Hub `existing` result confirms
-stored content; `listed` means the card has no accepted revision, so Local
-clears its cached completion markers and schedules the upload again.
+families, including locally completed entries. Under the bounded default plan,
+rows outside frozen catch-up remain eligible after restart only when their
+activity is at or after the persisted plan start; older pre-existing history is
+not promoted to live updates. A Hub `existing` result confirms stored content;
+`listed` means the card has no accepted revision, so Local clears its cached
+completion markers and schedules the upload again.
 For Claude, one source-tree metadata scan also notices raw transcript and parser
 sidecar changes that leave the parsed card unchanged; the producer verifies
 the exact bytes before upload.
