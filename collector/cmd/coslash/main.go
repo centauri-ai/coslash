@@ -426,10 +426,6 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 	return store
 }
 
-func shouldStartV4Sync(_ *hubclient.Client) bool {
-	return hubclient.V4SyncEnabled()
-}
-
 // runInventory takes the stat-only inventory at startup and every sync
 // interval, records it for check-in, prunes cache entries whose source is
 // gone, and wakes the sync loop once so the first inventory checks in within
@@ -527,17 +523,6 @@ func newServer(
 		server.RegisterOnShutdown(service.directedStore.Shutdown)
 	}
 	return server
-}
-
-func routes(
-	mgr *synthesis.Manager,
-	reviewManager *review.Manager,
-	settingsStore *settings.Store,
-	remoteManager *remote.Manager,
-	hub *hubclient.Client,
-	services ...serverServices,
-) *http.ServeMux {
-	return routesWithOnboarding(mgr, reviewManager, settingsStore, remoteManager, hub, newOnboardingManager(version), services...)
 }
 
 func routesWithOnboarding(

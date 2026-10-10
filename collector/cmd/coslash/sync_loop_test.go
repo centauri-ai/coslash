@@ -26,6 +26,10 @@ type syncLoopWorkerFunc func(context.Context) error
 
 func (f syncLoopWorkerFunc) SyncOnce(ctx context.Context) error { return f(ctx) }
 
+func runV4SyncLoopForTest(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), externalWake ...<-chan struct{}) {
+	runV4SyncLoopWithControl(ctx, runner, queue, wait, newSyncLoopControl(nil), externalWake...)
+}
+
 func (w syncLoopWorker) SyncOnce(ctx context.Context) error {
 	w.started <- ctx
 	<-ctx.Done()
@@ -40,7 +44,7 @@ func TestV4WaitInterruptsActiveSyncForCommands(t *testing.T) {
 	waitStarted := make(chan struct{}, 1)
 	done := make(chan struct{})
 	go func() {
-		runV4SyncLoop(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
 			select {
 			case waitStarted <- struct{}{}:
 			default:
@@ -86,7 +90,7 @@ func TestSyncRequestedRunsCheckInWithinOneSecond(t *testing.T) {
 	waitStarted := make(chan struct{}, 4)
 	done := make(chan struct{})
 	go func() {
-		runV4SyncLoop(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
 			select {
 			case waitStarted <- struct{}{}:
 			default:
@@ -141,7 +145,7 @@ func TestV4WaitKeepsPickingUpCommandsAfterDeferredPass(t *testing.T) {
 			waitStarted := make(chan struct{}, 1)
 			done := make(chan struct{})
 			go func() {
-				runV4SyncLoop(ctx, syncLoopWorkerFunc(func(context.Context) error {
+				runV4SyncLoopForTest(ctx, syncLoopWorkerFunc(func(context.Context) error {
 					passes <- struct{}{}
 					return test.err
 				}), syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
@@ -202,7 +206,7 @@ func TestSyncPausedCodeIdlesWithoutFailure(t *testing.T) {
 	var passes atomic.Int32
 	done := make(chan struct{})
 	go func() {
-		runV4SyncLoop(ctx, syncLoopWorkerFunc(func(context.Context) error {
+		runV4SyncLoopForTest(ctx, syncLoopWorkerFunc(func(context.Context) error {
 			passes.Add(1)
 			return syncv4.ErrPolicyBlocked
 		}), queue, func(ctx context.Context, since int64) (hubclient.V4Wait, error) {
