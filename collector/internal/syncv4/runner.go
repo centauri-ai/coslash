@@ -65,6 +65,9 @@ func DeferReason(err error) string {
 	var problem hubclient.V4Problem
 	switch {
 	case errors.As(err, &problem):
+		if errors.Is(err, ErrStaleConsent) && problem.Code != "device_revoked" && permanentCheckInRejection(problem) {
+			return "hub_rejected:" + problem.Code
+		}
 		return "hub:" + problem.Code
 	case errors.Is(err, ErrPaused):
 		return "paused"
@@ -130,6 +133,7 @@ type Runner struct {
 	waitMu              sync.Mutex
 	lastProgressCheckIn atomic.Int64
 	checkInRetryUntil   atomic.Int64
+	checkInRejections   atomic.Int32
 	lastReportedPhase   string
 	lastDiscoveryAt     time.Time
 	activeSince         time.Time
@@ -692,14 +696,11 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		}
 	}
 	if err != nil {
-		var problem hubclient.V4Problem
-		if errors.As(err, &problem) && problem.RetryAfter > 0 {
-			r.checkInRetryUntil.Store(r.now().Add(problem.RetryAfter).UnixNano())
-		}
+		err = r.recordCheckInFailure(err)
 		r.checkedAt = time.Time{}
 		return fmt.Errorf("%w: %w", ErrStaleConsent, err)
 	}
-	r.checkInRetryUntil.Store(0)
+	r.resetCheckInBackoff()
 	r.lastProgressCheckIn.Store(r.now().UnixNano())
 	if logAccepted && through > 0 {
 		if err := r.Queue.AcknowledgeLog(through); err != nil {
