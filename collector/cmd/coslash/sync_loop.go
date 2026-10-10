@@ -76,10 +76,6 @@ func (control *syncLoopControl) beginPass() {
 	control.mu.Unlock()
 }
 
-func runV4SyncLoop(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), externalWake ...<-chan struct{}) {
-	runV4SyncLoopWithControl(ctx, runner, queue, wait, newSyncLoopControl(nil), externalWake...)
-}
-
 func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), control *syncLoopControl, externalWake ...<-chan struct{}) {
 	var inventoryWake <-chan struct{}
 	if len(externalWake) > 0 {

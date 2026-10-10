@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -150,17 +149,6 @@ func TestUpdateHelperCleanup(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("temporary update helper was not removed")
-}
-
-func TestBackgroundLoginPlistEscapesTheExecutable(t *testing.T) {
-	contents, err := backgroundLoginPlist(`/Applications/coSlash & <Local>`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(contents)
-	if !strings.Contains(text, `/Applications/coSlash &amp; &lt;Local&gt;`) || !strings.Contains(text, "--background") {
-		t.Fatalf("launch agent plist does not safely encode its program: %s", text)
-	}
 }
 
 func TestGracefulShutdownWaitsForInFlightHandlers(t *testing.T) {

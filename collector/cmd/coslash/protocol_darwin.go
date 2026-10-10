@@ -3,7 +3,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -94,5 +93,3 @@ func appleScriptLiteral(value string) string {
 	value = strings.ReplaceAll(value, `"`, `\"`)
 	return `"` + value + `"`
 }
-
-func unsupportedProtocolHandler() error { return errors.New("protocol handler is unavailable") }

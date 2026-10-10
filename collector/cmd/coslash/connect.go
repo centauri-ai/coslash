@@ -60,24 +60,6 @@ type syncHooks interface {
 	RequestPass(string)
 }
 
-type syncHookFuncs struct {
-	ensure func(*hubclient.Client) error
-	pass   func(string)
-}
-
-func (hooks syncHookFuncs) Ensure(client *hubclient.Client) error {
-	if hooks.ensure != nil {
-		return hooks.ensure(client)
-	}
-	return nil
-}
-
-func (hooks syncHookFuncs) RequestPass(reason string) {
-	if hooks.pass != nil {
-		hooks.pass(reason)
-	}
-}
-
 type connectOptions struct {
 	code string
 	hub  string

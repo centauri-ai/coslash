@@ -28,7 +28,3 @@ func validateBrowserURL(rawURL string) error {
 	}
 	return nil
 }
-
-func windowsBrowserCommand(rawURL string) (string, []string) {
-	return "rundll32.exe", []string{"url.dll,FileProtocolHandler", rawURL}
-}

@@ -374,7 +374,7 @@ func TestSynthesisCostVersionHeaderAfterPaidFailure(t *testing.T) {
 	oldList := listSessions
 	t.Cleanup(func() { listSessions = oldList })
 	listSessions = func(context.Context, int64) ([]*session.Session, error) { return nil, nil }
-	handler := routes(manager, reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(manager, reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	getVersion := func() string {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
