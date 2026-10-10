@@ -150,11 +150,13 @@ func Open(root string) (*Queue, error) {
 				command.Result = hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "execution_interrupted"}
 			}
 		}
-		// Reconcile non-catch-up selections; frozen catch-up membership has its own marker.
+		// Reconcile post-start non-catch-up selections; frozen catch-up membership has its own marker.
 		for i := range q.state.Entries {
-			if entry := &q.state.Entries[i]; entry.Listed && q.state.Config.ImportPlan != nil &&
-				!isCatchUpEntry(*entry, *q.state.Config.ImportPlan) {
-				entry.ChangedPlanVersion = q.state.Config.ImportPlan.Version
+			if plan := q.state.Config.ImportPlan; plan != nil {
+				entry := &q.state.Entries[i]
+				if entry.Listed && !isCatchUpEntry(*entry, *plan) && q.state.PlanStartedAt > 0 && entry.Activity >= q.state.PlanStartedAt {
+					entry.ChangedPlanVersion = plan.Version
+				}
 			}
 			q.state.Entries[i].Listed = false
 		}

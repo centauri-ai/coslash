@@ -127,3 +127,100 @@ func TestRestartReconcilesPriorSelectionWithoutImportingOfflineSessions(t *testi
 		}
 	}
 }
+
+func TestRestartBeforeCatchUpFreezeDoesNotExpandRecentPlan(t *testing.T) {
+	started := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	restarted := started.Add(20 * time.Second)
+	plan := hubclient.V4ImportPlan{Version: 2, Window: "3d", MaxSessions: 30, MaxSessionsPerAgent: 30}
+
+	for _, phase := range []string{"warm_start", "listing"} {
+		t.Run(phase, func(t *testing.T) {
+			root := t.TempDir()
+			queue, err := Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries := make([]Entry, 0, 64)
+			for i := 0; i < 44; i++ {
+				entries = append(entries, catchUpEntry(queue, fmt.Sprintf("recent-%03d", i), "codex", started.Add(-time.Duration(i+1)*time.Hour)))
+			}
+			for i := 0; i < 20; i++ {
+				entries = append(entries, catchUpEntry(queue, fmt.Sprintf("history-%03d", i), "codex", started.Add(-72*time.Hour-time.Duration(i+1)*time.Hour)))
+			}
+			if err := queue.Merge(entries, started.Add(-time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 2, Config: hubclient.V4Config{ImportPlan: &plan}}, started); err != nil {
+				t.Fatal(err)
+			}
+			if phase != "warm_start" {
+				if err := queue.SetPhase(phase); err != nil {
+					t.Fatal(err)
+				}
+			}
+			partialListing := 3
+			if phase == "listing" {
+				partialListing = 10
+			}
+			listed := make([]hubclient.V4ListResult, 0, partialListing*2)
+			for _, entry := range append(append([]Entry(nil), entries[:partialListing]...), entries[44:44+partialListing]...) {
+				listed = append(listed, hubclient.V4ListResult{LocalKeyHash: entry.Key, SessionID: "ses_" + entry.Key, State: "listed"})
+			}
+			if err := queue.MarkListedAt(listed, started.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+
+			queue, err = Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			queue.SetActiveSince(restarted)
+			if err := queue.FreezeCatchUp(plan); err != nil {
+				t.Fatal(err)
+			}
+			selected := queue.PlannedEntries(plan, restarted)
+			if len(selected) != 30 {
+				t.Fatalf("restart in %s selected %d sessions, want 30", phase, len(selected))
+			}
+			for _, entry := range selected {
+				if entry.Activity < started.Add(-72*time.Hour).UnixMilli() {
+					t.Fatalf("restart in %s selected history outside the 3-day plan: %s", phase, entry.Key)
+				}
+				if !isCatchUpEntry(entry, plan) {
+					t.Fatalf("restart in %s selected non-catch-up session %s", phase, entry.Key)
+				}
+			}
+
+			hub := &planHub{plan: &plan}
+			runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return restarted }, checkedAt: restarted,
+				config: hubclient.V4Config{ImportPlan: &plan}}
+			if err := runner.listAll(t.Context(), plan); err != nil {
+				t.Fatal(err)
+			}
+			var listedCount int
+			for _, batch := range hub.lists {
+				for _, item := range batch {
+					listedCount++
+					if item.ActivityAt.Before(started.Add(-72 * time.Hour)) {
+						t.Fatalf("restart in %s listed history outside the 3-day plan: %s", phase, item.LocalKeyHash)
+					}
+				}
+			}
+			if listedCount != 30 {
+				t.Fatalf("restart in %s sent %d sessions for listing, want 30", phase, listedCount)
+			}
+			for _, entry := range queue.PlannedEntries(plan, restarted) {
+				entry.RevisionID = "rev-" + entry.Key
+				entry.SyncedActivity = entry.Activity
+				entry.SyncedSourceRevision = entry.SourceRevision
+				if err := queue.Update(entry); err != nil {
+					t.Fatal(err)
+				}
+			}
+			progress := queue.Progress().FirstSync
+			if progress.RecentTotal != 30 || progress.RecentDone != 30 || progress.HistoryState != "off" {
+				t.Fatalf("restart in %s completed plan progress = %+v", phase, progress)
+			}
+		})
+	}
+}
