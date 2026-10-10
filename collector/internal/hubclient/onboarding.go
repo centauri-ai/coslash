@@ -225,10 +225,6 @@ type checkInQueue struct {
 	} `json:"firstSync"`
 }
 
-type checkInResponse struct {
-	NextCheckInSeconds int `json:"nextCheckInSeconds"`
-}
-
 func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, error) {
 	if !c.configured() {
 		return 0, errors.New("Hub server is not configured")
@@ -278,7 +274,9 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 		}
 		return 0, fmt.Errorf("Hub check-in failed: %s", problem.Code)
 	}
-	var result checkInResponse
+	// Hub answers with its full v4 check-in, so decode the shared contract
+	// type: a narrower struct would reject the policy fields it always sends.
+	var result V4CheckIn
 	if err := decodeBounded(response.Body, &result); err != nil || result.NextCheckInSeconds < 1 || result.NextCheckInSeconds > 3600 {
 		return 0, errors.New("Hub returned an invalid check-in response")
 	}
