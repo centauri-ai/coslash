@@ -150,10 +150,13 @@ func Open(root string) (*Queue, error) {
 				command.Result = hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "execution_interrupted"}
 			}
 		}
-		// Preserve the prior selected set while reopening listing state for reconciliation.
+		// Reconcile post-start non-catch-up selections; frozen catch-up membership has its own marker.
 		for i := range q.state.Entries {
-			if q.state.Entries[i].Listed && q.state.Config.ImportPlan != nil {
-				q.state.Entries[i].ChangedPlanVersion = q.state.Config.ImportPlan.Version
+			if plan := q.state.Config.ImportPlan; plan != nil {
+				entry := &q.state.Entries[i]
+				if entry.Listed && !isCatchUpEntry(*entry, *plan) && q.state.PlanStartedAt > 0 && entry.Activity >= q.state.PlanStartedAt {
+					entry.ChangedPlanVersion = plan.Version
+				}
 			}
 			q.state.Entries[i].Listed = false
 		}
@@ -698,7 +701,9 @@ func (q *Queue) planChangeIsEligible(entry Entry, now time.Time, plan *hubclient
 	if plan.Backfill {
 		return inWindow(entry, *plan, time.UnixMilli(q.state.PlanStartedAt))
 	}
-	return sourceChanged || !activeSince.IsZero() && entry.Activity >= activeSince.UnixMilli()
+	sourceInScope := q.state.LiveOnlyPlanVersion == plan.Version || entry.Activity >= q.state.PlanStartedAt
+	return sourceChanged && sourceInScope ||
+		!activeSince.IsZero() && entry.Activity >= activeSince.UnixMilli()
 }
 
 func (q *Queue) Update(entry Entry) error {

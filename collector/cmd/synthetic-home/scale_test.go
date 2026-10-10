@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,8 +16,10 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/inventory"
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -280,6 +285,323 @@ func TestSyntheticHomeInventoryCacheAndStreamedDiscovery(t *testing.T) {
 	}
 	if stats := reopened.Stats(); stats.Stores < 1 || stats.Stores > 3 {
 		t.Fatalf("rebuild parsed %d sources for 3 corrupt entries", stats.Stores)
+	}
+}
+
+func TestDefaultImportPlanStaysBoundedAcrossTwoRestarts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the synthetic home reproduces the macOS and Linux agent layouts")
+	}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	home := t.TempDir()
+	fixture, err := generate(options{out: home, seed: 1010, sessionsPerAgent: 20, now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recent, history int
+	for _, item := range fixture.Sessions {
+		if item.Recent {
+			recent++
+		} else {
+			history++
+		}
+	}
+	if recent < 46 || history < 40 {
+		t.Fatalf("synthetic home has recent=%d history=%d; want at least 46 and 40", recent, history)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	discovered, err := collector.List(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := make(map[string]*session.Session, len(discovered))
+	for _, item := range discovered {
+		byKey[item.Agent+"/"+item.ID] = item
+	}
+	entries := make([]syncv4.Entry, 0, len(fixture.Sessions))
+	for _, item := range fixture.Sessions {
+		key := item.Agent + "/" + item.ID
+		parsed := byKey[key]
+		if parsed == nil {
+			t.Fatalf("synthetic %s session %s was not discovered", item.Agent, item.ID)
+		}
+		entries = append(entries, syncv4.Entry{
+			Key: key, Activity: parsed.LastActivityTime, SourceRevision: parsed.DetailRevision,
+			Session:   hubclient.V4Session{LocalKeyHash: key, Agent: parsed.Agent},
+			Selection: sessionbackupproducer.Selection{SourceKind: "local", SourceID: "local", Agent: parsed.Agent, SessionID: parsed.ID},
+		})
+	}
+
+	root := t.TempDir()
+	queue, err := syncv4.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessions: 30, MaxSessionsPerAgent: 30}
+	activeSince := now.Add(time.Minute)
+	queue.SetActiveSince(activeSince)
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{
+		ConfigVersion: 1, Capabilities: []string{hubclient.CapabilityScaleImport},
+		Config: hubclient.V4Config{ImportPlan: &plan},
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	assertSelection := func(stage string, at time.Time) []syncv4.Entry {
+		t.Helper()
+		if err := queue.FreezeCatchUp(plan); err != nil {
+			t.Fatal(err)
+		}
+		selected := queue.PlannedEntries(plan, at)
+		if len(selected) > 30 {
+			details := make([]string, 0, len(selected))
+			for _, entry := range selected {
+				details = append(details, fmt.Sprintf("%s(activity=%s catchup=%d changed=%d)", entry.Key,
+					time.UnixMilli(entry.Activity).UTC().Format(time.RFC3339), entry.CatchUpPlanVersion, entry.ChangedPlanVersion))
+			}
+			t.Fatalf("%s selected %d sessions, want at most 30: %s", stage, len(selected), strings.Join(details, ", "))
+		}
+		cutoff := now.Add(-72 * time.Hour).UnixMilli()
+		for _, entry := range selected {
+			if entry.Activity < cutoff {
+				t.Fatalf("%s selected %s outside the three-day window", stage, entry.Key)
+			}
+		}
+		return selected
+	}
+	markListed := func(selected []syncv4.Entry, at time.Time) {
+		t.Helper()
+		results := make([]hubclient.V4ListResult, 0, len(selected))
+		for i, entry := range selected {
+			results = append(results, hubclient.V4ListResult{
+				LocalKeyHash: entry.Key, SessionID: fmt.Sprintf("synthetic-session-%03d", i), State: "existing",
+			})
+		}
+		if err := queue.MarkListedAt(results, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	markUploaded := func(selected []syncv4.Entry) {
+		t.Helper()
+		for i, entry := range selected {
+			entry.RevisionID = fmt.Sprintf("synthetic-revision-%03d", i)
+			entry.SyncedActivity = entry.Activity
+			entry.SyncedSourceRevision = entry.SourceRevision
+			if err := queue.Update(entry); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	for start, restart := 0, 0; start < len(entries); start += 8 {
+		end := min(start+8, len(entries))
+		at := activeSince.Add(time.Duration(start) * time.Second)
+		if _, err := queue.MergePlannedDiscovery(entries[start:end], at, plan, activeSince); err != nil {
+			t.Fatal(err)
+		}
+		selected := assertSelection(fmt.Sprintf("discovery batch %d", start/8+1), at)
+		markListed(selected, at)
+		if restart < 2 && start/8 == restart {
+			markUploaded(selected[:len(selected)/2])
+			queue, err = syncv4.Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			activeSince = now.Add(time.Duration(restart+2) * time.Hour)
+			queue.SetActiveSince(activeSince)
+			assertSelection(fmt.Sprintf("restart %d", restart+1), activeSince)
+			restart++
+		}
+	}
+	selected := assertSelection("completed discovery", activeSince)
+	if len(selected) != 30 {
+		t.Fatalf("completed discovery selected %d sessions, want 30 from the synthetic recent corpus", len(selected))
+	}
+	markUploaded(selected)
+	progress := queue.Progress()
+	if progress.FirstSync.RecentDone != 30 || progress.FirstSync.RecentTotal != 30 || progress.FirstSync.HistoryState != "off" {
+		t.Fatalf("completed recent-only import progress = %+v", progress.FirstSync)
+	}
+}
+
+type warmRestartHub struct {
+	plan       *hubclient.V4ImportPlan
+	creates    int
+	lists      [][]hubclient.V4ListItem
+	cancel     context.CancelFunc
+	cancelAt   int
+	advanceNow func()
+}
+
+func (*warmRestartHub) V4Binding(context.Context) (string, error) {
+	return strings.Repeat("a", 64), nil
+}
+
+func (h *warmRestartHub) V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult, []string, []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+	return hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: []string{hubclient.CapabilityScaleImport},
+		Config: hubclient.V4Config{ImportPlan: h.plan}}, nil
+}
+
+func (h *warmRestartHub) V4Create(_ context.Context, _ hubclient.V4Create) (hubclient.V4Status, error) {
+	h.creates++
+	if h.creates == h.cancelAt {
+		h.advanceNow()
+		h.cancel()
+	}
+	return hubclient.V4Status{SessionID: fmt.Sprintf("session-%03d", h.creates), State: "completed",
+		RevisionID: fmt.Sprintf("revision-%03d", h.creates)}, nil
+}
+
+func (*warmRestartHub) V4Status(context.Context, string) (hubclient.V4Status, error) {
+	return hubclient.V4Status{}, errors.New("unexpected status request")
+}
+
+func (*warmRestartHub) V4PutChunk(context.Context, string, hubclient.V4Missing, io.Reader) error {
+	return errors.New("unexpected chunk upload")
+}
+
+func (*warmRestartHub) V4Confirm(context.Context, string, ...hubclient.V4Missing) (hubclient.V4Status, error) {
+	return hubclient.V4Status{}, errors.New("unexpected confirmation")
+}
+
+func (*warmRestartHub) V4Finalize(context.Context, string) (hubclient.V4Status, error) {
+	return hubclient.V4Status{}, errors.New("unexpected finalization")
+}
+
+func (h *warmRestartHub) V4ListBatch(ctx context.Context, items []hubclient.V4ListItem) ([]hubclient.V4ListResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	h.lists = append(h.lists, append([]hubclient.V4ListItem(nil), items...))
+	results := make([]hubclient.V4ListResult, len(items))
+	for i, item := range items {
+		results[i] = hubclient.V4ListResult{LocalKeyHash: item.LocalKeyHash, SessionID: "session-" + item.LocalKeyHash, State: "listed"}
+	}
+	return results, nil
+}
+
+func TestRunnerReopenDuringWarmStartKeepsDefaultPlanBounded(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the synthetic home reproduces the macOS and Linux agent layouts")
+	}
+	started := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	home := t.TempDir()
+	if _, err := generate(options{out: home, seed: 1013, sessionsPerAgent: 20, now: started}); err != nil {
+		t.Fatal(err)
+	}
+	coslashHome := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("COSLASH_HOME", coslashHome)
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessions: 30, MaxSessionsPerAgent: 30, WarmStartSeconds: 30}
+	now := started
+	queue, err := syncv4.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCtx, stopFirst := context.WithCancel(t.Context())
+	firstHub := &warmRestartHub{plan: plan, cancel: stopFirst, cancelAt: 3, advanceNow: func() { now = started.Add(28 * time.Second) }}
+	backup := sessionbackupproducer.New(sessionbackupproducer.Options{
+		Root:      filepath.Join(coslashHome, "session-backups", "prepared"),
+		LocalHome: func() (string, error) { return home, nil },
+	})
+	restartPass := false
+	discoverBatches := func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
+		sessions, err := collector.List(ctx, 0)
+		if err != nil {
+			return err
+		}
+		if restartPass {
+			// Re-discovery can observe a changed content revision without making
+			// an older session eligible for this history-off plan.
+			cutoff := started.Add(-72 * time.Hour).UnixMilli()
+			for _, item := range sessions {
+				if item.LastActivityTime < cutoff {
+					item.DetailRevision += "-reopened"
+				}
+			}
+		}
+		for start := 0; start < len(sessions); start += 64 {
+			if err := visit(syncv4.DiscoveryBatch{Sessions: sessions[start:min(start+64, len(sessions))]}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	firstRunner := &syncv4.Runner{Queue: queue, Backup: backup, Hub: firstHub,
+		Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+		DiscoverBatches:   discoverBatches,
+		RequireImportPlan: true, Now: func() time.Time { return now }}
+	firstErr := firstRunner.SyncOnce(firstCtx)
+	if firstErr == nil {
+		t.Fatal("first process kept running after the warm-start interruption")
+	}
+	if firstHub.creates != 3 {
+		t.Fatalf("first process completed %d uploads before interruption, want 3 (error: %v)", firstHub.creates, firstErr)
+	}
+	completed := 0
+	for _, entry := range queue.Entries() {
+		if entry.RevisionID != "" {
+			completed++
+		}
+	}
+	if completed != 3 {
+		t.Fatalf("persisted completed uploads = %d, want 3", completed)
+	}
+	if elapsed := now.Sub(started); elapsed >= 30*time.Second {
+		t.Fatalf("process stopped after %s, outside the 30-second warm-start window", elapsed)
+	}
+
+	// Drop the first runner and queue without calling any shutdown hook. The next
+	// process must use only the atomically persisted queue under COSLASH_HOME.
+	firstRunner, queue = nil, nil
+	restartedAt := started.Add(28 * time.Second)
+	now = restartedAt
+	restartPass = true
+	queue, err = syncv4.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !queue.PlanStartedAt().Equal(started) {
+		t.Fatalf("reopened plan start = %s, want %s", queue.PlanStartedAt(), started)
+	}
+	_, persistedConfig, _ := queue.Policy()
+	if persisted := persistedConfig.ImportPlan; persisted == nil || persisted.Window != "3d" || persisted.History ||
+		persisted.MaxSessions != 30 || persisted.MaxSessionsPerAgent != 30 || persisted.WarmStartSeconds != 30 {
+		t.Fatalf("reopened import plan = %+v, want default 3d / 30 / history off / warm start 30", persisted)
+	}
+	queue.SetActiveSince(restartedAt)
+	secondHub := &warmRestartHub{plan: plan}
+	secondRunner := &syncv4.Runner{Queue: queue, Backup: backup, Hub: secondHub,
+		Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+		DiscoverBatches:   discoverBatches,
+		RequireImportPlan: true, Now: func() time.Time { return now }}
+	restartErr := secondRunner.SyncOnce(t.Context())
+	if len(secondHub.lists) == 0 {
+		t.Fatalf("reopened runner did not list the selected sessions: %v", restartErr)
+	}
+
+	var listed []hubclient.V4ListItem
+	for _, batch := range secondHub.lists {
+		listed = append(listed, batch...)
+	}
+	if len(listed) > 30 {
+		t.Fatalf("restart listed %d sessions, want at most 30", len(listed))
+	}
+	cutoff := started.Add(-72 * time.Hour)
+	for _, item := range listed {
+		if item.ActivityAt.Before(cutoff) {
+			t.Fatalf("restart listed %s outside the three-day window: %s", item.LocalKeyHash, item.ActivityAt)
+		}
 	}
 }
 
