@@ -115,16 +115,14 @@ func (r *Runner) ProgressCheckIn(ctx context.Context) (changed bool, retryAfter 
 	})
 	response, err := r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), nil)
 	if err != nil {
+		err = r.recordCheckInFailure(err)
 		var problem hubclient.V4Problem
 		if errors.As(err, &problem) {
-			if problem.RetryAfter > 0 {
-				r.checkInRetryUntil.Store(r.now().Add(problem.RetryAfter).UnixNano())
-			}
 			return false, problem.RetryAfter, err
 		}
 		return false, 0, err
 	}
-	r.checkInRetryUntil.Store(0)
+	r.resetCheckInBackoff()
 	r.lastProgressCheckIn.Store(r.now().UnixNano())
 	return response.ConfigVersion != version || len(response.Commands) > 0 || response.UpdateRequired ||
 		!slices.Contains(response.Capabilities, hubclient.CapabilityScaleImport), 0, nil
