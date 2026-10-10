@@ -113,6 +113,7 @@ func TestConnectTerminalFailureLinesAndExitCodes(t *testing.T) {
 		{code: connectExitUnsupported, want: "This Hub doesn't support connect codes yet. Use Devices → Add device in Hub.\n"},
 		{code: connectExitCredentialStore, want: "Local could not access the secure credential store. Resolve the system credential store issue and retry.\n"},
 		{code: connectExitCredentialRevoked, want: "Hub revoked this pairing. Start a new connect command in Hub to pair again.\n"},
+		{code: connectExitClientVersionRejected, want: "Hub rejected this coSlash Local version. Update or rebuild coSlash Local, then it can check in.\n"},
 	} {
 		var stdout, stderr bytes.Buffer
 		got := printConnectFailure(&stdout, &stderr, connectOptions{hub: "https://hub.coslash.io"}, test.code, "")
@@ -130,6 +131,7 @@ func TestConnectTerminalPairingStatesAreSanitizedForCLI(t *testing.T) {
 		{code: connectExitCredentialStore, state: connectJobCredentialStoreFailed},
 		{code: connectExitRetryable, state: connectJobCheckInRetryable},
 		{code: connectExitCredentialRevoked, state: connectJobCredentialRevoked},
+		{code: connectExitClientVersionRejected, state: connectJobClientVersionRejected},
 	} {
 		var stdout, stderr bytes.Buffer
 		got := printConnectFailure(&stdout, &stderr, connectOptions{json: true}, test.code, "internal detail")
@@ -371,6 +373,33 @@ func TestRevokedFirstCheckInStopsWithRePairState(t *testing.T) {
 	}
 	if value, _ := credentials.Load(context.Background()); value != "" || checkIns.Load() != 1 || ensureCalls.Load() != 1 {
 		t.Fatalf("credential=%q check-ins=%d ensure calls=%d", value, checkIns.Load(), ensureCalls.Load())
+	}
+}
+
+func TestRejectedClientVersionStopsFirstCheckInRetries(t *testing.T) {
+	credentials := &testCredentialStore{value: "saved-credential"}
+	baseURL, _ := url.Parse("https://hub.example")
+	var checkIns atomic.Int32
+	client := &hubclient.Client{
+		BaseURL:     baseURL,
+		Credentials: credentials,
+		HTTP: &http.Client{Transport: onboardingRoundTripper(func(*http.Request) (*http.Response, error) {
+			checkIns.Add(1)
+			return onboardingResponse(http.StatusBadRequest, `{"code":"invalid_query","detail":"clientVersion must be valid SemVer"}`), nil
+		})},
+	}
+	manager := newOnboardingManager("0.2.0-122-g06c5ddc3-dirty")
+	defer manager.Close()
+	manager.mu.Lock()
+	manager.connectJobs["job"] = connectJob{state: connectJobCheckingIn}
+	manager.mu.Unlock()
+
+	manager.confirmFirstCheckIn(context.Background(), client, "job")
+	if state, _ := manager.ConnectJobState("job"); state != connectJobClientVersionRejected {
+		t.Fatalf("rejected-version check-in state=%q, want %q", state, connectJobClientVersionRejected)
+	}
+	if checkIns.Load() != 1 {
+		t.Fatalf("check-in attempts=%d, want one non-retryable request", checkIns.Load())
 	}
 }
 

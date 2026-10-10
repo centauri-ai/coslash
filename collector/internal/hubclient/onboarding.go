@@ -22,8 +22,9 @@ var (
 )
 
 var (
-	ErrConnectCodeInvalid = errors.New("connect_code_invalid")
-	ErrConnectUnsupported = errors.New("connect_unsupported")
+	ErrConnectCodeInvalid    = errors.New("connect_code_invalid")
+	ErrConnectUnsupported    = errors.New("connect_unsupported")
+	ErrClientVersionRejected = errors.New("client_version_rejected")
 )
 
 func ValidConnectCode(code string) bool { return connectCode.MatchString(code) }
@@ -233,7 +234,7 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 	if err != nil {
 		return 0, ErrCredentialStoreUnavailable
 	}
-	if !clientVersion.MatchString(version) {
+	if len(version) > 128 || !clientVersion.MatchString(version) {
 		version = "0.0.0"
 	}
 	input := checkInRequest{ClientVersion: version, Capabilities: localCapabilities(), OS: runtime.GOOS,
@@ -271,6 +272,9 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 				return 0, errors.Join(revoked, fmt.Errorf("delete revoked Hub credential: %w", deleteErr))
 			}
 			return 0, revoked
+		}
+		if problem.Code == "invalid_query" && strings.Contains(problem.Detail, "clientVersion") {
+			return 0, errors.Join(ErrClientVersionRejected, problem)
 		}
 		return 0, fmt.Errorf("Hub check-in failed: %s", problem.Code)
 	}
