@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,8 +14,10 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/inventory"
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -280,6 +283,147 @@ func TestSyntheticHomeInventoryCacheAndStreamedDiscovery(t *testing.T) {
 	}
 	if stats := reopened.Stats(); stats.Stores < 1 || stats.Stores > 3 {
 		t.Fatalf("rebuild parsed %d sources for 3 corrupt entries", stats.Stores)
+	}
+}
+
+func TestDefaultImportPlanStaysBoundedAcrossTwoRestarts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the synthetic home reproduces the macOS and Linux agent layouts")
+	}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	home := t.TempDir()
+	fixture, err := generate(options{out: home, seed: 1010, sessionsPerAgent: 20, now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recent, history int
+	for _, item := range fixture.Sessions {
+		if item.Recent {
+			recent++
+		} else {
+			history++
+		}
+	}
+	if recent < 46 || history < 40 {
+		t.Fatalf("synthetic home has recent=%d history=%d; want at least 46 and 40", recent, history)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	discovered, err := collector.List(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := make(map[string]*session.Session, len(discovered))
+	for _, item := range discovered {
+		byKey[item.Agent+"/"+item.ID] = item
+	}
+	entries := make([]syncv4.Entry, 0, len(fixture.Sessions))
+	for _, item := range fixture.Sessions {
+		key := item.Agent + "/" + item.ID
+		parsed := byKey[key]
+		if parsed == nil {
+			t.Fatalf("synthetic %s session %s was not discovered", item.Agent, item.ID)
+		}
+		entries = append(entries, syncv4.Entry{
+			Key: key, Activity: parsed.LastActivityTime, SourceRevision: parsed.DetailRevision,
+			Session:   hubclient.V4Session{LocalKeyHash: key, Agent: parsed.Agent},
+			Selection: sessionbackupproducer.Selection{SourceKind: "local", SourceID: "local", Agent: parsed.Agent, SessionID: parsed.ID},
+		})
+	}
+
+	root := t.TempDir()
+	queue, err := syncv4.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessions: 30, MaxSessionsPerAgent: 30}
+	activeSince := now.Add(time.Minute)
+	queue.SetActiveSince(activeSince)
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{
+		ConfigVersion: 1, Capabilities: []string{hubclient.CapabilityScaleImport},
+		Config: hubclient.V4Config{ImportPlan: &plan},
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	assertSelection := func(stage string, at time.Time) []syncv4.Entry {
+		t.Helper()
+		if err := queue.FreezeCatchUp(plan); err != nil {
+			t.Fatal(err)
+		}
+		selected := queue.PlannedEntries(plan, at)
+		if len(selected) > 30 {
+			details := make([]string, 0, len(selected))
+			for _, entry := range selected {
+				details = append(details, fmt.Sprintf("%s(activity=%s catchup=%d changed=%d)", entry.Key,
+					time.UnixMilli(entry.Activity).UTC().Format(time.RFC3339), entry.CatchUpPlanVersion, entry.ChangedPlanVersion))
+			}
+			t.Fatalf("%s selected %d sessions, want at most 30: %s", stage, len(selected), strings.Join(details, ", "))
+		}
+		cutoff := now.Add(-72 * time.Hour).UnixMilli()
+		for _, entry := range selected {
+			if entry.Activity < cutoff {
+				t.Fatalf("%s selected %s outside the three-day window", stage, entry.Key)
+			}
+		}
+		return selected
+	}
+	markListed := func(selected []syncv4.Entry, at time.Time) {
+		t.Helper()
+		results := make([]hubclient.V4ListResult, 0, len(selected))
+		for i, entry := range selected {
+			results = append(results, hubclient.V4ListResult{
+				LocalKeyHash: entry.Key, SessionID: fmt.Sprintf("synthetic-session-%03d", i), State: "existing",
+			})
+		}
+		if err := queue.MarkListedAt(results, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	markUploaded := func(selected []syncv4.Entry) {
+		t.Helper()
+		for i, entry := range selected {
+			entry.RevisionID = fmt.Sprintf("synthetic-revision-%03d", i)
+			entry.SyncedActivity = entry.Activity
+			entry.SyncedSourceRevision = entry.SourceRevision
+			if err := queue.Update(entry); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	for start, restart := 0, 0; start < len(entries); start += 8 {
+		end := min(start+8, len(entries))
+		at := activeSince.Add(time.Duration(start) * time.Second)
+		if _, err := queue.MergePlannedDiscovery(entries[start:end], at, plan, activeSince); err != nil {
+			t.Fatal(err)
+		}
+		selected := assertSelection(fmt.Sprintf("discovery batch %d", start/8+1), at)
+		markListed(selected, at)
+		if restart < 2 && start/8 == restart {
+			markUploaded(selected[:len(selected)/2])
+			queue, err = syncv4.Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			activeSince = now.Add(time.Duration(restart+2) * time.Hour)
+			queue.SetActiveSince(activeSince)
+			assertSelection(fmt.Sprintf("restart %d", restart+1), activeSince)
+			restart++
+		}
+	}
+	selected := assertSelection("completed discovery", activeSince)
+	if len(selected) != 30 {
+		t.Fatalf("completed discovery selected %d sessions, want 30 from the synthetic recent corpus", len(selected))
+	}
+	markUploaded(selected)
+	progress := queue.Progress()
+	if progress.FirstSync.RecentDone != 30 || progress.FirstSync.RecentTotal != 30 || progress.FirstSync.HistoryState != "off" {
+		t.Fatalf("completed recent-only import progress = %+v", progress.FirstSync)
 	}
 }
 
