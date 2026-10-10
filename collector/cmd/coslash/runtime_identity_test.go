@@ -61,6 +61,7 @@ func TestNormalizedVersion(t *testing.T) {
 		name, input, allowDev, want string
 	}{
 		{name: "release prefix", input: "v1.2.3", want: "1.2.3"},
+		{name: "git describe source build", input: "0.2.0-122-g06c5ddc3-dirty", want: "0.2.0-122-g06c5ddc3-dirty"},
 		{name: "prerelease and metadata", input: "1.2.3-rc.1+build.9", want: "1.2.3-rc.1+build.9"},
 		{name: "development fallback", input: "dev", want: "0.0.0"},
 		{name: "development opt in", input: "dev", allowDev: "1", want: "0.0.0-dev"},
