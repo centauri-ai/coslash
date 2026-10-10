@@ -261,6 +261,51 @@ func TestLegacyCheckInReportsNormalizedVersion(t *testing.T) {
 	}
 }
 
+func TestLegacyCheckInReportsGitDescribeVersion(t *testing.T) {
+	const version = "0.2.0-122-g06c5ddc3-dirty"
+	var seen checkInRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write(readT52Fixture(t, "check-in-response-policy.json"))
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{saved: "device-credential"}, HTTP: server.Client()}
+	if _, err := client.CheckIn(context.Background(), version); err != nil {
+		t.Fatal(err)
+	}
+	if seen.ClientVersion != version {
+		t.Fatalf("git describe check-in version=%q, want %q", seen.ClientVersion, version)
+	}
+}
+
+func TestCheckInClassifiesRejectedClientVersion(t *testing.T) {
+	for _, test := range []struct {
+		name, detail string
+		wantRejected bool
+	}{
+		{name: "version field", detail: "clientVersion must be valid SemVer", wantRejected: true},
+		{name: "other field", detail: "queue.pending is invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, `{"code":"invalid_query","detail":%q}`, test.detail)
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{saved: "device-credential"}, HTTP: server.Client()}
+			_, err := client.CheckIn(context.Background(), "1.2.3")
+			if errors.Is(err, ErrClientVersionRejected) != test.wantRejected {
+				t.Fatalf("check-in error=%v, rejected=%t; want rejected=%t", err, errors.Is(err, ErrClientVersionRejected), test.wantRejected)
+			}
+		})
+	}
+}
+
 func TestLegacyCheckInDeletesRevokedCredential(t *testing.T) {
 	credentials := &memoryCredentials{}
 	base, _ := url.Parse("https://hub.example")
