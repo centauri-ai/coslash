@@ -701,7 +701,9 @@ func (q *Queue) planChangeIsEligible(entry Entry, now time.Time, plan *hubclient
 	if plan.Backfill {
 		return inWindow(entry, *plan, time.UnixMilli(q.state.PlanStartedAt))
 	}
-	return sourceChanged || !activeSince.IsZero() && entry.Activity >= activeSince.UnixMilli()
+	sourceInScope := q.state.LiveOnlyPlanVersion == plan.Version || entry.Activity >= q.state.PlanStartedAt
+	return sourceChanged && sourceInScope ||
+		!activeSince.IsZero() && entry.Activity >= activeSince.UnixMilli()
 }
 
 func (q *Queue) Update(entry Entry) error {
