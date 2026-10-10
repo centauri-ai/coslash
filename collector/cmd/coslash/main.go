@@ -45,10 +45,11 @@ var version = "dev"
 const defaultPort = 8787
 
 type options struct {
-	port        int
-	noOpen      bool
-	background  bool
-	showVersion bool
+	port         int
+	portExplicit bool
+	noOpen       bool
+	background   bool
+	showVersion  bool
 }
 
 func gracefulShutdown(server *http.Server, grace time.Duration) error {
@@ -77,6 +78,7 @@ func parseOptions(arguments []string) (options, error) {
 	if err := flags.Parse(arguments); err != nil {
 		return options{}, err
 	}
+	flags.Visit(func(set *flag.Flag) { opts.portExplicit = opts.portExplicit || set.Name == "port" })
 	// 0 asks the kernel for a free port; the bound one is logged at startup.
 	if opts.port < 0 || opts.port > 65535 {
 		return options{}, fmt.Errorf("--port must be between 0 and 65535, got %d", opts.port)
@@ -250,7 +252,7 @@ func main() {
 
 	// Bind before opening the browser, so a port conflict is an error the user
 	// reads rather than a browser tab pointed at nothing.
-	listener, err := listen(opts.port)
+	listener, err := listen(opts.port, !opts.portExplicit)
 	if err != nil {
 		log.Fatalf("coslash: %v", err)
 	}
@@ -746,9 +748,16 @@ func remoteHealthFact(manager *remote.Manager) *diagnostics.RemoteHealth {
 	return remoteHealth
 }
 
-func listen(port int) (net.Listener, error) {
+// listen binds the loopback API. With fallback, a default port held by another
+// process, such as a second user's Local on a shared server, gives way to any
+// free port: the CLI finds Local through the runtime descriptor, not the port.
+func listen(port int, fallback bool) (net.Listener, error) {
 	address := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", address)
+	if err != nil && fallback && errors.Is(err, syscall.EADDRINUSE) {
+		log.Printf("port %d is in use by another process; using a free port instead", port)
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
 		if errors.Is(err, syscall.EADDRINUSE) {
 			return nil, fmt.Errorf(

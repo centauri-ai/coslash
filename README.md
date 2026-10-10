@@ -128,14 +128,16 @@ The script picks the `linux_amd64` or `linux_arm64` release archive from
 After `coslash connect`, Local keeps running after you log out and starts at
 boot. When your account lingers (or can turn lingering on), Local runs as the
 systemd user service `coslash.service` (`systemctl --user status coslash`).
-Stock Ubuntu does not let an SSH session enable lingering without `sudo`; then
+If the system does not let an SSH session enable lingering without `sudo`,
 Local keeps running as a detached process and adds a `crontab` `@reboot`
 entry. To use the systemd service instead, run `sudo loginctl enable-linger
 "$USER"` before connecting. In a container without systemd or cron, run
 `coslash --background` from the entrypoint. The device
 credential is stored in `~/.coslash/hub-credentials/<hub host>` (mode `0600`)
 rather than a desktop keyring, so a reboot or a locked keyring never unpairs
-the host. Logs are in `~/.coslash/logs/coslash.log`.
+the host. Logs are in `~/.coslash/logs/coslash.log`. On a shared server each
+account connects its own Local; if another account's Local already uses port
+8787, yours listens on a free loopback port instead.
 
 The service does not read shell profiles. It keeps the `PATH`, `COSLASH_HOME`,
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `GROK_HOME`, `OPENCODE_DB`, and Pi path
