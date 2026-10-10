@@ -1,6 +1,7 @@
 package syncv4
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -194,6 +195,21 @@ func TestRestartBeforeCatchUpFreezeDoesNotExpandRecentPlan(t *testing.T) {
 			hub := &planHub{plan: &plan}
 			runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return restarted }, checkedAt: restarted,
 				config: hubclient.V4Config{ImportPlan: &plan}}
+			var oldHistory Entry
+			foundOldHistory := false
+			for _, entry := range queue.Entries() {
+				if entry.Key == "history-000" {
+					oldHistory = entry
+					foundOldHistory = true
+					break
+				}
+			}
+			if !foundOldHistory {
+				t.Fatal("older history fixture was missing after restart")
+			}
+			if err := runner.ensureCreated(t.Context(), &oldHistory); !errors.Is(err, ErrPaused) || hub.creates != 0 {
+				t.Fatalf("restart in %s created older history: err=%v creates=%d", phase, err, hub.creates)
+			}
 			if err := runner.listAll(t.Context(), plan); err != nil {
 				t.Fatal(err)
 			}
