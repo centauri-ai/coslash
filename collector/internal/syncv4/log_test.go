@@ -489,6 +489,7 @@ func TestLogTheHubWouldRefuseDoesNotStopCheckIn(t *testing.T) {
 		}
 		return 0
 	})
+	now = now.Add(time.Minute)
 	runner.Hub = client
 	if err := runner.refreshConsent(t.Context()); err != nil {
 		t.Fatalf("refused log stopped sync: %v", err)
