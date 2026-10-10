@@ -108,6 +108,10 @@ The command wait request continues while Local runs, including during an
 upload, a pause, and a failed pass. A changed policy or queued command wakes
 check-in promptly. Retryable session failures wait 1, 5, 15, then 60 minutes
 between attempts; failures parked for the same source stay parked.
+Permanent Hub 4xx check-in rejections back off for 1, 2, 4, 8, 16, 32, then
+60 minutes. A successful check-in resets that delay; other check-in errors
+continue to use their existing heartbeat, credential, and `Retry-After`
+policies.
 Leave-outs are checked locally and at Hub create/finalize. Raw paths and
 transcript text never enter sync logs.
 
