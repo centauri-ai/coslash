@@ -64,6 +64,7 @@ func TestFailuresMapToTheHubsClosedLogCodes(t *testing.T) {
 		{"hub too large", hubclient.V4Problem{Code: "too_large"}, "too_large"},
 		{"hub body too large", hubclient.V4Problem{Code: "request_too_large"}, "too_large"},
 		{"hub space", hubclient.V4Problem{Code: "space_full"}, "space_full"},
+		{"hub idempotency conflict", hubclient.V4Problem{Code: "idempotency_conflict", HTTPStatus: 409}, "idempotency_conflict"},
 		{"hub checksum", hubclient.V4Problem{Code: "hash_mismatch"}, "hash_mismatch"},
 		{"hub update", hubclient.V4Problem{Code: "client_update_required"}, "client_update_required"},
 		{"hub expired", hubclient.V4Problem{Code: "upload_expired"}, "upload_expired"},
