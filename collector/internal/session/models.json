@@ -497,6 +497,12 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 1.4E-7
   },
+  "amazon.nova-premier-v1:0": {
+    "cache_read_input_token_cost": 6.25E-7,
+    "input_cost_per_token": 0.0000025,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000125
+  },
   "amazon.nova-pro-v1:0": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 8E-7,
@@ -504,14 +510,14 @@
     "output_cost_per_token": 0.0000032
   },
   "amazon.titan-text-express-v1": {
-    "input_cost_per_token": 0.0000013,
+    "input_cost_per_token": 2E-7,
     "max_input_tokens": 42000,
-    "output_cost_per_token": 0.0000017
+    "output_cost_per_token": 6E-7
   },
   "amazon.titan-text-lite-v1": {
-    "input_cost_per_token": 3E-7,
+    "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 42000,
-    "output_cost_per_token": 4E-7
+    "output_cost_per_token": 2E-7
   },
   "amazon.titan-text-premier-v1:0": {
     "input_cost_per_token": 5E-7,
@@ -793,10 +799,10 @@
     "output_cost_per_token": 1.5E-7
   },
   "apac.amazon.nova-2-lite-v1:0": {
-    "cache_read_input_token_cost": 8.25E-8,
-    "input_cost_per_token": 3.3E-7,
+    "cache_read_input_token_cost": 9.9E-8,
+    "input_cost_per_token": 3.96E-7,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.00000275
+    "output_cost_per_token": 0.000003311
   },
   "apac.amazon.nova-2-pro-preview-20251202-v1:0": {
     "cache_read_input_token_cost": 3.4375E-7,
@@ -3450,14 +3456,14 @@
     "output_cost_per_token": 0.000015
   },
   "bedrock/moonshotai.kimi-k2-thinking": {
-    "input_cost_per_token": 7.3E-7,
+    "input_cost_per_token": 6E-7,
     "max_input_tokens": 262144,
-    "output_cost_per_token": 0.00000303
+    "output_cost_per_token": 0.0000025
   },
   "bedrock/moonshotai.kimi-k2.5": {
     "input_cost_per_token": 6E-7,
     "max_input_tokens": 262144,
-    "output_cost_per_token": 0.00000303
+    "output_cost_per_token": 0.000003
   },
   "bedrock/sa-east-1/deepseek.v3.2": {
     "input_cost_per_token": 7.4E-7,
@@ -3769,9 +3775,9 @@
     "output_cost_per_token": 0.00000384
   },
   "bedrock/us-gov-west-1/amazon.titan-text-express-v1": {
-    "input_cost_per_token": 0.0000013,
+    "input_cost_per_token": 8E-7,
     "max_input_tokens": 42000,
-    "output_cost_per_token": 0.0000017
+    "output_cost_per_token": 0.0000016
   },
   "bedrock/us-gov-west-1/amazon.titan-text-lite-v1": {
     "input_cost_per_token": 3E-7,
@@ -6200,10 +6206,10 @@
     "output_cost_per_token": 0.00000396
   },
   "eu.amazon.nova-2-lite-v1:0": {
-    "cache_read_input_token_cost": 8.25E-8,
-    "input_cost_per_token": 3.3E-7,
+    "cache_read_input_token_cost": 1.0725E-7,
+    "input_cost_per_token": 4.29E-7,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.00000275
+    "output_cost_per_token": 0.000003597
   },
   "eu.amazon.nova-2-pro-preview-20251202-v1:0": {
     "cache_read_input_token_cost": 3.4375E-7,
@@ -13874,6 +13880,26 @@
     "input_cost_per_token": 0,
     "max_input_tokens": 8192,
     "output_cost_per_token": 0
+  },
+  "scaledown/classify": {
+    "input_cost_per_token": 5E-8,
+    "output_cost_per_token": 0.0
+  },
+  "scaledown/compress": {
+    "input_cost_per_token": 5E-8,
+    "output_cost_per_token": 0.0
+  },
+  "scaledown/decisions": {
+    "input_cost_per_token": 5E-8,
+    "output_cost_per_token": 0.0
+  },
+  "scaledown/extract": {
+    "input_cost_per_token": 5E-8,
+    "output_cost_per_token": 0.0
+  },
+  "scaledown/summarize": {
+    "input_cost_per_token": 5E-8,
+    "output_cost_per_token": 0.0
   },
   "scaleway/deepseek-v4-flash-0731": {
     "cache_read_input_token_cost": 8E-8,
