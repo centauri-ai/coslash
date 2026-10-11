@@ -46,6 +46,7 @@ var logMessages = map[string]string{
 	"hash_mismatch":                  "Uploaded data did not match its checksum.",
 	"space_full":                     "The space is full.",
 	"malformed_artifact":             "The session data could not be read.",
+	"idempotency_conflict":           "This session key already has different data.",
 }
 
 // hubLogCode maps a failure the queue recorded (code, and the error when the

@@ -44,6 +44,20 @@ type rateLimitedCreateHub struct {
 	finalized int
 }
 
+type idempotencyConflictHub struct {
+	*planHub
+	creates map[string]int
+}
+
+func (h *idempotencyConflictHub) V4Create(_ context.Context, request hubclient.V4Create) (hubclient.V4Status, error) {
+	key := request.Session.LocalKeyHash
+	h.creates[key]++
+	if key == "conflict" {
+		return hubclient.V4Status{}, hubclient.V4Problem{Code: "idempotency_conflict", HTTPStatus: 409}
+	}
+	return hubclient.V4Status{SessionID: "ses_" + key, State: "completed", RevisionID: "revision_" + key}, nil
+}
+
 type freshDuringPassHub struct {
 	*planHub
 	onCreate func() error
@@ -114,6 +128,62 @@ func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
 		}
 	}
 	t.Fatal("fresh session was not listed on the next boundary within the budget")
+}
+
+func TestPlannedIdempotencyConflictParksOneRevisionAndContinuesQueue(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, prepared, _ := fixtureBundle(t)
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	q.SetActiveSince(now)
+	hub := &idempotencyConflictHub{planHub: &planHub{plan: &plan}, creates: map[string]int{}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+		scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}, Version: "0.0.5"}
+	manifest, err := runner.manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentBytes := int64(0)
+	for _, artifact := range manifest.Artifacts {
+		contentBytes += artifact.Bytes
+	}
+	makeEntry := func(key string) Entry {
+		return Entry{Key: key, Selection: prepared.Selection, Session: hubclient.V4Session{InstallID: q.InstallID(), Agent: "codex", LocalKeyHash: key},
+			Activity: now.UnixMilli(), SourceRevision: "source-" + key, SessionID: "ses_" + key, Listed: true,
+			BundleID: prepared.BundleID, Manifest: &manifest, ContentSHA256: manifest.ContentSHA256, ContentBytes: contentBytes}
+	}
+	if err := q.Merge([]Entry{makeEntry("conflict"), makeEntry("healthy")}, now); err != nil {
+		t.Fatal(err)
+	}
+	var problem hubclient.V4Problem
+	if err := runner.syncPlannedContent(t.Context(), plan); !errors.As(err, &problem) || problem.Code != "idempotency_conflict" {
+		t.Fatalf("first pass error = %v, want idempotency_conflict", err)
+	}
+	entries := map[string]Entry{}
+	for _, entry := range q.Entries() {
+		entries[entry.Key] = entry
+	}
+	conflicted, healthy := entries["conflict"], entries["healthy"]
+	if conflicted.ParkedVersion != runner.Version || conflicted.FailureCode != "idempotency_conflict" || conflicted.BundleID != "" ||
+		healthy.RevisionID == "" || healthy.FailureCode != "" || hub.creates["conflict"] != 1 || hub.creates["healthy"] != 1 {
+		t.Fatalf("queue after first pass conflict=%+v healthy=%+v creates=%v", conflicted, healthy, hub.creates)
+	}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if hub.creates["conflict"] != 1 || hub.creates["healthy"] != 1 {
+		t.Fatalf("parked revision retried or healthy session reopened: creates=%v", hub.creates)
+	}
 }
 
 func TestPlannedContentClassifiesHubDeadlineAsServerError(t *testing.T) {

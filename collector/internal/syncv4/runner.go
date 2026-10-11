@@ -538,8 +538,8 @@ func (r *Runner) failed(entry *Entry, failure error) error {
 	return r.Queue.Update(*entry)
 }
 
-// parkedCodes are Hub upload failures that repeat for the same bytes.
-var parkedCodes = map[string]bool{"malformed_artifact": true, "too_large": true}
+// parkedCodes are Hub upload failures that repeat for the same bytes or key.
+var parkedCodes = map[string]bool{"malformed_artifact": true, "too_large": true, "idempotency_conflict": true}
 
 // repeats reports a failure that the same source would hit again: a
 // preparation problem none of which is retryable, or a Hub rejection of the

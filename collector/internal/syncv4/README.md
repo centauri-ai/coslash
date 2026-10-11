@@ -117,6 +117,9 @@ Permanent Hub 4xx check-in rejections back off for 1, 2, 4, 8, 16, 32, then
 60 minutes. A successful check-in resets that delay; other check-in errors
 continue to use their existing heartbeat, credential, and `Retry-After`
 policies.
+An `idempotency_conflict` parks the failing revision so check-ins cannot loop
+on it; a source change or Local version update can release it. The worker
+continues with other queued sessions.
 Leave-outs are checked locally and at Hub create/finalize. Raw paths and
 transcript text never enter sync logs.
 
