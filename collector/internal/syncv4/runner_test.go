@@ -687,6 +687,7 @@ func TestDeterministicFailuresParkUntilLocalChanges(t *testing.T) {
 		{notRetryable, "unreadable_source", true},
 		{retryable, "unreadable_source", false},
 		{hubclient.V4Problem{Code: "malformed_artifact"}, "malformed_artifact", true},
+		{hubclient.V4Problem{Code: "idempotency_conflict", HTTPStatus: 409}, "idempotency_conflict", true},
 		{hubclient.V4Problem{Code: "rate_limited"}, "rate_limited", false},
 		{errors.New("network down"), "server_error", false},
 	} {
