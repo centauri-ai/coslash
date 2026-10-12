@@ -61,8 +61,6 @@ group-changes:
 replacers:
   - search: '/^- (feat|fix|docs|test|chore|refactor|perf|build|ci|style|revert)(\([^)]*\))?!?: /gm'
     replace: "- "
-  - search: '/^- ([a-z])/gm'
-    replace: '- \u$1'
   - search: '/ \[@[\w-]+\[bot\]\]\([^)]*\)/g'
     replace: ""
 
