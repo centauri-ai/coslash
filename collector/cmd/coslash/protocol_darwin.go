@@ -10,30 +10,44 @@ import (
 	"strings"
 )
 
-const macProtocolBundleName = "coSlash Local Pairing Handler.app"
+const (
+	macProtocolBundleName = "coSlash Local Pairing Handler.app"
+	macProtocolBundleID   = "io.coslash.local.pairing-handler"
+	launchServicesTool    = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+)
 
-func registerProtocolHandler() error {
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	executable, err = filepath.Abs(executable)
-	if err != nil {
-		return err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
+type darwinProtocolHandlerBackend struct{}
+
+func newProtocolHandlerBackend() protocolHandlerBackend { return darwinProtocolHandlerBackend{} }
+
+func (darwinProtocolHandlerBackend) Register(executable, home string, previous protocolHandlerRecord) (string, error) {
 	parent := filepath.Join(home, "Library", "Application Support", "coSlash Local")
 	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return err
+		return "", err
 	}
 	bundle := filepath.Join(parent, macProtocolBundleName)
 	marker := filepath.Join(bundle, "Contents", "Resources", "coslash-executable")
-	if contents, err := os.ReadFile(marker); err == nil && string(contents) == executable {
-		return exec.Command("/usr/bin/open", "-a", bundle).Run()
+	contents, readErr := os.ReadFile(marker)
+	if readErr != nil || string(contents) != executable {
+		if err := writeMacProtocolBundle(parent, bundle, executable); err != nil {
+			return "", err
+		}
 	}
+	if err := exec.Command("/usr/bin/open", "-a", bundle).Run(); err != nil {
+		return "", err
+	}
+	if err := unregisterPreviousProtocolHandler(previous.Path, bundle, func(path string) error {
+		if filepath.Base(path) != macProtocolBundleName {
+			return fmt.Errorf("refusing to unregister unexpected previous protocol handler path %q", path)
+		}
+		return unregisterMacProtocolBundle(path)
+	}); err != nil {
+		return "", fmt.Errorf("unregister previous protocol handler: %w", err)
+	}
+	return bundle, nil
+}
+
+func writeMacProtocolBundle(parent, bundle, executable string) error {
 	work, err := os.MkdirTemp(parent, ".coslash-handler-")
 	if err != nil {
 		return err
@@ -55,7 +69,7 @@ func registerProtocolHandler() error {
 <plist version="1.0"><dict>
 <key>CFBundleDevelopmentRegion</key><string>English</string>
 <key>CFBundleExecutable</key><string>applet</string>
-<key>CFBundleIdentifier</key><string>io.coslash.local.pairing-handler</string>
+<key>CFBundleIdentifier</key><string>` + macProtocolBundleID + `</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 <key>CFBundleName</key><string>coSlash Local Pairing Handler</string>
 <key>CFBundlePackageType</key><string>APPL</string>
@@ -76,16 +90,173 @@ func registerProtocolHandler() error {
 	if err := os.WriteFile(filepath.Join(resources, "coslash-executable"), []byte(executable), 0o600); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(bundle); err != nil {
-		return err
+	backup := ""
+	if _, err := os.Stat(bundle); err == nil {
+		backup, err = os.MkdirTemp(parent, ".coslash-handler-backup-")
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(backup); err != nil {
+			return err
+		}
+		if err := os.Rename(bundle, backup); err != nil {
+			return err
+		}
 	}
 	if err := os.Rename(app, bundle); err != nil {
+		if backup != "" {
+			_ = os.Rename(backup, bundle)
+		}
 		return err
 	}
-	if err := exec.Command("/usr/bin/open", "-a", bundle).Run(); err != nil {
-		return err
+	if backup != "" {
+		_ = os.RemoveAll(backup)
 	}
 	return nil
+}
+
+func (darwinProtocolHandlerBackend) Status(executable, home string) (protocolHandlerRegistration, error) {
+	handlers, err := registeredMacProtocolHandlers(home)
+	if err != nil {
+		return protocolHandlerRegistration{}, err
+	}
+	current := filepath.Join(home, "Library", "Application Support", "coSlash Local", macProtocolBundleName)
+	var foundCurrent *protocolHandlerRegistration
+	for _, handler := range handlers {
+		if filepath.Base(handler.Path) != macProtocolBundleName {
+			continue
+		}
+		registeredExecutable := readMacProtocolExecutable(handler.Path)
+		registration := protocolHandlerRegistration{Registered: true, Executable: registeredExecutable, Path: handler.Path}
+		if sameProtocolHandlerPath(handler.Path, current) && sameExecutablePath(registeredExecutable, executable) {
+			foundCurrent = &registration
+			continue
+		}
+		if registration.Executable == "" {
+			registration.Executable = handler.Path
+		}
+		return registration, nil
+	}
+	if foundCurrent != nil {
+		return *foundCurrent, nil
+	}
+	return protocolHandlerRegistration{}, nil
+}
+
+func (darwinProtocolHandlerBackend) StaleHandlers(_ string, home string) ([]string, error) {
+	handlers, err := registeredMacProtocolHandlers(home)
+	if err != nil {
+		return nil, err
+	}
+	current := filepath.Join(home, "Library", "Application Support", "coSlash Local", macProtocolBundleName)
+	seen := make(map[string]struct{})
+	var stale []string
+	for _, handler := range handlers {
+		if filepath.Base(handler.Path) != macProtocolBundleName {
+			continue
+		}
+		_, statErr := os.Stat(handler.Path)
+		if sameProtocolHandlerPath(handler.Path, current) && !os.IsNotExist(statErr) {
+			continue
+		}
+		if _, exists := seen[handler.Path]; exists {
+			continue
+		}
+		seen[handler.Path] = struct{}{}
+		stale = append(stale, handler.Path)
+	}
+	return stale, nil
+}
+
+func (darwinProtocolHandlerBackend) Unregister(path string) error {
+	if filepath.Base(path) != macProtocolBundleName {
+		return fmt.Errorf("refusing to unregister unexpected protocol handler path %q", path)
+	}
+	return unregisterMacProtocolBundle(path)
+}
+
+type launchServicesHandler struct {
+	Path          string
+	ClaimsCoslash bool
+}
+
+func registeredMacProtocolHandlers(home string) ([]launchServicesHandler, error) {
+	output, err := exec.Command(launchServicesTool, "-dump").Output()
+	if err != nil {
+		return nil, fmt.Errorf("read LaunchServices registrations: %w", err)
+	}
+	parsed := parseLaunchServicesDump(string(output))
+	for index := range parsed {
+		if strings.HasPrefix(parsed[index].Path, "~/") {
+			parsed[index].Path = filepath.Join(home, strings.TrimPrefix(parsed[index].Path, "~/"))
+		}
+		parsed[index].Path = filepath.Clean(parsed[index].Path)
+	}
+	return parsed, nil
+}
+
+func parseLaunchServicesDump(dump string) []launchServicesHandler {
+	var handlers []launchServicesHandler
+	var current *launchServicesHandler
+	finish := func() {
+		if current != nil && current.Path != "" && current.ClaimsCoslash {
+			handlers = append(handlers, *current)
+		}
+	}
+	for _, line := range strings.Split(dump, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "bundle id:") {
+			finish()
+			current = &launchServicesHandler{}
+			continue
+		}
+		if current == nil {
+			continue
+		}
+		if strings.HasPrefix(lower, "path:") {
+			current.Path = cleanLaunchServicesValue(trimmed[len("path:"):])
+			continue
+		}
+		for _, key := range []string{"claimed schemes:", "scheme:", "bindings:"} {
+			if strings.HasPrefix(lower, key) && containsCoslashScheme(trimmed[len(key):]) {
+				current.ClaimsCoslash = true
+				break
+			}
+		}
+	}
+	finish()
+	return handlers
+}
+
+func cleanLaunchServicesValue(value string) string {
+	value = strings.TrimSpace(value)
+	if index := strings.Index(value, " (0x"); index >= 0 {
+		value = value[:index]
+	}
+	return strings.Trim(value, "\"'")
+}
+
+func containsCoslashScheme(value string) bool {
+	for _, field := range strings.Fields(value) {
+		field = strings.Trim(field, "\"'()[]{}<>,;:")
+		if strings.EqualFold(field, "coslash") {
+			return true
+		}
+	}
+	return false
+}
+
+func readMacProtocolExecutable(bundle string) string {
+	contents, err := os.ReadFile(filepath.Join(bundle, "Contents", "Resources", "coslash-executable"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(contents))
+}
+
+func unregisterMacProtocolBundle(path string) error {
+	return exec.Command(launchServicesTool, "-u", path).Run()
 }
 
 func appleScriptLiteral(value string) string {
