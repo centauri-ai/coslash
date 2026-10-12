@@ -16,7 +16,7 @@ import (
 	backup "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
-func (manager *Manager) captureOpenCode(ctx context.Context, staging string, selection Selection) (*Prepared, error) {
+func (manager *Manager) captureOpenCode(ctx context.Context, staging string, selection Selection, home string) (*Prepared, error) {
 	captured, err := opencode.CaptureFamilyContext(ctx, selection.SessionID)
 	if err != nil {
 		switch {
@@ -43,6 +43,9 @@ func (manager *Manager) captureOpenCode(ctx context.Context, staging string, sel
 	}
 	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentOpenCode, vendors.LocalReadSource, captured.Parsed, vendors.EmptySessionMetadata())
 	if err != nil {
+		return nil, captureFailure(backup.ProblemInvalid, backup.KindParsedSessionRecord, false)
+	}
+	if err := sanitizeRecordFilePaths(records, home); err != nil {
 		return nil, captureFailure(backup.ProblemInvalid, backup.KindParsedSessionRecord, false)
 	}
 	if len(records) != len(captured.Rows) || len(records) > backup.MaxMembers {
