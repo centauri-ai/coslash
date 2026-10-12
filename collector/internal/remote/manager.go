@@ -516,6 +516,7 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 		Transport:   TransportSFTP,
 	}
 	if err != nil {
+		LogSSHFailure("ssh.test", err)
 		reason := classifyError(err)
 		health.State = StateError
 		health.Complete = false
