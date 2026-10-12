@@ -208,7 +208,7 @@ func TestPlannedCheckInErrorTakesPrecedenceOverUploadError(t *testing.T) {
 
 	err = runner.runPlannedAndReport(t.Context())
 	var problem hubclient.V4Problem
-	if !errors.As(err, &problem) || problem.Code != "unauthorized" || DeferReason(err) != "hub:unauthorized" || !strings.Contains(err.Error(), "too_large") {
+	if !errors.As(err, &problem) || problem.Code != "unauthorized" || DeferReason(err) != "rejected" || !strings.Contains(err.Error(), "too_large") {
 		t.Fatalf("sync error = %v, defer reason = %q; want check-in unauthorized", err, DeferReason(err))
 	}
 }
