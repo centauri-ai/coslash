@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -134,6 +135,44 @@ func (c *Client) onboardingDeviceFacts() onboardingDeviceFacts {
 	return facts
 }
 
+func (c *Client) postOnboardingClaim(ctx context.Context, path string, body, legacyBody []byte) (*http.Response, *Problem, error) {
+	newRequest := func(body []byte) (*http.Request, error) {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(path), bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		request.Header.Set("Content-Type", "application/json")
+		return request, nil
+	}
+
+	request, err := newRequest(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	response, err := c.httpClient().Do(request)
+	if err != nil {
+		return nil, nil, err
+	}
+	if response.StatusCode != http.StatusBadRequest {
+		return response, nil, nil
+	}
+	problem := readProblem(response)
+	if problem.Code != "invalid_request" {
+		return response, &problem, nil
+	}
+	_ = response.Body.Close()
+	slog.Info("Hub doesn't accept device details yet; connecting without them.")
+	request, err = newRequest(legacyBody)
+	if err != nil {
+		return nil, nil, err
+	}
+	response, err = c.httpClient().Do(request)
+	if err != nil {
+		return nil, nil, err
+	}
+	return response, nil, nil
+}
+
 func (c *Client) BeginOnboardingPairing(ctx context.Context, attemptID, launchIntent string) (PairingResult, error) {
 	if !c.configured() || !onboardingUUID.MatchString(attemptID) || !launchToken.MatchString(launchIntent) {
 		return PairingResult{}, errors.New("Hub onboarding is not configured")
@@ -145,19 +184,23 @@ func (c *Client) BeginOnboardingPairing(ctx context.Context, attemptID, launchIn
 	if err != nil {
 		return PairingResult{}, errors.New("could not prepare Hub onboarding")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.endpoint("/v1/device-onboardings/"+url.PathEscape(attemptID)+"/claim"), bytes.NewReader(body))
+	legacyBody, err := json.Marshal(struct {
+		LaunchIntent string `json:"launchIntent"`
+		DeviceName   string `json:"deviceName"`
+	}{LaunchIntent: launchIntent, DeviceName: c.DeviceName})
 	if err != nil {
 		return PairingResult{}, errors.New("could not prepare Hub onboarding")
 	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.httpClient().Do(request)
+	response, problem, err := c.postOnboardingClaim(ctx, "/v1/device-onboardings/"+url.PathEscape(attemptID)+"/claim", body, legacyBody)
 	if err != nil {
 		return PairingResult{}, errors.New("Hub could not receive the Local pairing request")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
-		problem := readProblem(response)
+		if problem == nil {
+			decoded := readProblem(response)
+			problem = &decoded
+		}
 		return PairingResult{}, fmt.Errorf("Hub could not start pairing: %s", problem.Code)
 	}
 	var authorization onboardingClaimResponse
@@ -190,19 +233,23 @@ func (c *Client) ClaimOnboardingCode(ctx context.Context, code string) (PairingR
 	if err != nil {
 		return PairingResult{}, errors.New("could not prepare Hub onboarding")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.endpoint("/v1/device-onboarding-codes/claim"), bytes.NewReader(body))
+	legacyBody, err := json.Marshal(struct {
+		ConnectCode string `json:"connectCode"`
+		DeviceName  string `json:"deviceName"`
+	}{ConnectCode: strings.ToUpper(code), DeviceName: c.DeviceName})
 	if err != nil {
 		return PairingResult{}, errors.New("could not prepare Hub onboarding")
 	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.httpClient().Do(request)
+	response, problem, err := c.postOnboardingClaim(ctx, "/v1/device-onboarding-codes/claim", body, legacyBody)
 	if err != nil {
 		return PairingResult{}, errors.New("Hub could not receive the Local pairing request")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
-		problem := readProblem(response)
+		if problem == nil {
+			decoded := readProblem(response)
+			problem = &decoded
+		}
 		if response.StatusCode == http.StatusNotFound {
 			if problem.Code == "connect_code_invalid" {
 				return PairingResult{}, ErrConnectCodeInvalid
