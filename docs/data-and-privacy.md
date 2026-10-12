@@ -263,4 +263,4 @@ normalized last-good cache and any optional helper; it does not change Linux.
 offline. It deliberately leaves any previously installed helper in place on the
 remote machine.
 
-To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names.
+To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names. The CLI report includes the configured Hub origin, device name and ID, and content-free sync failure codes.

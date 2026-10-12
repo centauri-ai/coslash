@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log"
 	"sync"
@@ -152,6 +153,8 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 	}
 
 	authFailures := 0
+	var lastLocalError [32]byte
+	hasLastLocalError := false
 	for ctx.Err() == nil {
 		control.beginPass()
 		passContext, cancel := context.WithCancel(ctx)
@@ -204,7 +207,20 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			continue
 		}
 		if err != nil && ctx.Err() == nil {
-			log.Printf("v4 sync deferred: %s", syncv4.DeferReason(err))
+			reason := syncv4.DeferReason(err)
+			shouldLog := true
+			if reason == "local_error" {
+				fingerprint := sha256.Sum256([]byte(err.Error()))
+				shouldLog = !hasLastLocalError || fingerprint != lastLocalError
+				lastLocalError, hasLastLocalError = fingerprint, true
+			} else {
+				hasLastLocalError = false
+			}
+			if shouldLog {
+				log.Printf("v4 sync deferred: %s", reason)
+			}
+		} else if err == nil {
+			hasLastLocalError = false
 		}
 		if credentialRetry(err) {
 			authFailures++
