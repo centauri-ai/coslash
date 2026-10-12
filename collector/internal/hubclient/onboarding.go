@@ -128,7 +128,7 @@ type onboardingDeviceFacts struct {
 
 func (c *Client) onboardingDeviceFacts() onboardingDeviceFacts {
 	facts := onboardingDeviceFacts{DeviceName: c.DeviceName, OS: runtime.GOOS, Arch: runtime.GOARCH}
-	if len(c.CollectorVersion) <= 128 && clientVersion.MatchString(c.CollectorVersion) {
+	if validClientVersion(c.CollectorVersion) {
 		facts.Version = c.CollectorVersion
 	}
 	return facts
