@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -99,12 +100,13 @@ func TestBeginOnboardingPairingKeepsAuthorizationMaterialInsideLocal(t *testing.
 	}))
 	defer hub.Close()
 	base, _ := url.Parse(hub.URL)
-	client := Client{BaseURL: base, Credentials: credentials, DeviceName: "Nia’s Mac", HTTP: hub.Client()}
+	client := Client{BaseURL: base, Credentials: credentials, DeviceName: "Nia’s Mac", CollectorVersion: "0.2.0-x", HTTP: hub.Client()}
 	pairing, err := client.BeginOnboardingPairing(context.Background(), attempt, intent)
 	if err != nil || pairing.State != "pending" || pairing.UserCode != "" || pairing.PairingID != "10000000-0000-4000-8000-000000000152" {
 		t.Fatalf("pairing=%#v error=%v", pairing, err)
 	}
-	if claimBody["launchIntent"] != intent || claimBody["deviceName"] != "Nia’s Mac" || len(claimBody) != 2 {
+	if claimBody["launchIntent"] != intent || claimBody["deviceName"] != "Nia’s Mac" ||
+		claimBody["os"] != runtime.GOOS || claimBody["arch"] != runtime.GOARCH || claimBody["version"] != "0.2.0-x" || len(claimBody) != 5 {
 		t.Fatalf("claim body=%#v", claimBody)
 	}
 	client.pairingMu.Lock()
@@ -112,6 +114,15 @@ func TestBeginOnboardingPairingKeepsAuthorizationMaterialInsideLocal(t *testing.
 	client.pairingMu.Unlock()
 	if !ok || secret.deviceCode != "private-device-code" || secret.credential != "" {
 		t.Fatalf("local pairing secret=%#v found=%t", secret, ok)
+	}
+}
+
+func TestOnboardingDeviceFactsOmitsUnknownOrInvalidVersion(t *testing.T) {
+	for _, version := range []string{"", "not-a-version"} {
+		facts := (&Client{CollectorVersion: version}).onboardingDeviceFacts()
+		if facts.OS != runtime.GOOS || facts.Arch != runtime.GOARCH || facts.Version != "" {
+			t.Fatalf("version=%q device facts=%#v", version, facts)
+		}
 	}
 }
 
@@ -131,12 +142,13 @@ func TestClaimOnboardingCodeKeepsCodeAndAuthorizationMaterialInMemory(t *testing
 	}))
 	defer hub.Close()
 	base, _ := url.Parse(hub.URL)
-	client := Client{BaseURL: base, Credentials: credentials, DeviceName: "Nia’s Mac", HTTP: hub.Client()}
+	client := Client{BaseURL: base, Credentials: credentials, DeviceName: "Nia’s Mac", CollectorVersion: "0.2.0-x", HTTP: hub.Client()}
 	pairing, err := client.ClaimOnboardingCode(context.Background(), "k7qx-29pd")
 	if err != nil || pairing.State != "pending" || pairing.PairingID != "10000000-0000-4000-8000-000000000152" {
 		t.Fatalf("pairing=%#v error=%v", pairing, err)
 	}
-	if claimBody["connectCode"] != "K7QX-29PD" || claimBody["deviceName"] != "Nia’s Mac" || len(claimBody) != 2 {
+	if claimBody["connectCode"] != "K7QX-29PD" || claimBody["deviceName"] != "Nia’s Mac" ||
+		claimBody["os"] != runtime.GOOS || claimBody["arch"] != runtime.GOARCH || claimBody["version"] != "0.2.0-x" || len(claimBody) != 5 {
 		t.Fatalf("claim body=%#v", claimBody)
 	}
 	client.pairingMu.Lock()
