@@ -246,7 +246,7 @@ var cliCommandHelp = []struct {
 	{"handoff", "print a session handoff", "coslash handoff <agent>:<session>"},
 	{"send", "start an agent with a session handoff", sendUsage()},
 	{"review", "review a session with another agent", reviewHelp()},
-	{"doctor", "check local setup and Hub sync health", "coslash doctor [--json]"},
+	{"doctor", "check local setup and Hub sync health", "coslash doctor [--json] [--fix-links [--yes]]"},
 	{"status", "show the same sync health as doctor", "coslash status [--json]"},
 	{"mcp", "configure the Hub MCP server", mcpUsage},
 	{"version", "print the Local version", "coslash version"},
@@ -325,7 +325,7 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		case "review":
 			fmt.Fprintln(stdout, reviewHelp())
 		case "doctor":
-			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
+			fmt.Fprintln(stdout, "usage: coslash doctor [--json] [--fix-links [--yes]]")
 		case "status":
 			fmt.Fprintln(stdout, "usage: coslash status [--json]")
 		case "mcp":
