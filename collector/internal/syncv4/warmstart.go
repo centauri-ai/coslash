@@ -427,7 +427,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 	planned := r.Queue.PlannedEntries(plan, r.now())
 	allPlannedSettled := true
 	for _, entry := range planned {
-		if pending(entry) && entry.ParkedVersion == "" {
+		if pending(entry) && entry.ParkedVersion == "" && !entry.ListRejected {
 			allPlannedSettled = false
 			break
 		}
@@ -436,7 +436,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		return r.Queue.SetPhase("complete")
 	}
 	for _, entry := range planned {
-		if !pending(entry) || entry.ParkedVersion != "" {
+		if !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected {
 			continue
 		}
 		recent := planRecent(entry, plan, activeSince)

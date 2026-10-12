@@ -259,6 +259,40 @@ func TestPrioritizedRetryKeepsPlannedPhaseIncomplete(t *testing.T) {
 	}
 }
 
+func TestPrioritizedListRejectedEntryDoesNotKeepHistoryActive(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", History: false}
+	entry := Entry{Key: "rejected", Activity: now.Add(-10 * 24 * time.Hour).UnixMilli(), Priority: true,
+		Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "rejected"}}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.MarkListedAt([]hubclient.V4ListResult{{LocalKeyHash: entry.Key, State: "rejected", Code: "invalid_item"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &Runner{Queue: queue, Now: func() time.Time { return now }}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := queue.Phase(); phase != "complete" || runner.ImportActive() {
+		t.Fatalf("phase = %q, active = %t; want settled work", phase, runner.ImportActive())
+	}
+}
+
 func TestPlannedIdempotencyConflictParksOneRevisionAndContinuesQueue(t *testing.T) {
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	q, err := Open(t.TempDir())
