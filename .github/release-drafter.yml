@@ -24,6 +24,7 @@ categories:
 
   - title: Dependencies
     exclusive: true
+    collapse-after: 0
     when:
       label: dependencies
 
@@ -49,8 +50,21 @@ categories:
   - type: version-resolver
     semver-increment: patch
 
-change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+category-template: "### $TITLE"
+change-template: "- $TITLE ($NUMBERS) $AUTHORS"
 change-title-escapes: '\<*_&'
+
+group-changes:
+  - pattern: '/^Refresh the (?<group>model table) from LiteLLM$/'
+    title-template: "Refresh model prices and context limits from LiteLLM"
+
+replacers:
+  - search: '/^- (feat|fix|docs|test|chore|refactor|perf|build|ci|style|revert)(\([^)]*\))?!?: /gm'
+    replace: "- "
+  - search: '/^- ([a-z])/gm'
+    replace: '- \u$1'
+  - search: '/ \[@[\w-]+\[bot\]\]\([^)]*\)/g'
+    replace: ""
 
 template: |
   ## What's Changed
@@ -64,10 +78,12 @@ template: |
   ### macOS
 
   ```sh
+  curl -fsSL https://coslash.io/install.sh | bash
+  # or
   brew install centauri-ai/tap/coslash
   ```
 
-  Already tapped? `brew upgrade coslash`.
+  Already installed? Run the same `curl` command again, or `brew upgrade coslash`.
 
   The `.tar.gz` assets below are for manual installs:
 
@@ -83,7 +99,7 @@ template: |
   "${ASSET%.tar.gz}/coslash"
   ```
 
-  Substitute the release version and architecture. The binaries are unsigned and unnotarized, so macOS may warn about an archive downloaded through a browser; the Homebrew install above is not affected.
+  Substitute the release version and architecture. The binaries are unsigned and unnotarized, so macOS may warn about an archive downloaded through a browser; the `curl` and Homebrew installs above are not affected.
 
   ### Windows 11 (amd64)
 
