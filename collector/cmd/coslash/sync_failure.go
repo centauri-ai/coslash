@@ -10,7 +10,9 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
-func hubFailureView(origin string, failure *syncv4.HubContactFailure, now time.Time, retryInterval time.Duration) (*diagnostics.HubFailure, bool) {
+const hubFailureNoticeAfter = time.Minute
+
+func hubFailureView(origin string, failure *syncv4.HubContactFailure, now time.Time) (*diagnostics.HubFailure, bool) {
 	if failure == nil {
 		return nil, false
 	}
@@ -28,7 +30,10 @@ func hubFailureView(origin string, failure *syncv4.HubContactFailure, now time.T
 	}
 	sentence := fmt.Sprintf("Hub: %s %s since %s (%d attempts) — %s", verb, host,
 		time.UnixMilli(failure.SinceMs).In(time.Local).Format("15:04"), failure.Attempts, message)
-	active := now.Sub(time.UnixMilli(failure.SinceMs)) > retryInterval
+	// The advertised idle cadence can be as long as 15 minutes. It controls
+	// normal check-ins, but a missed contact should be visible after the
+	// one-minute minimum retry interval.
+	active := now.Sub(time.UnixMilli(failure.SinceMs)) > hubFailureNoticeAfter
 	return &diagnostics.HubFailure{
 		Host: host, Cause: failure.Cause, SinceMs: failure.SinceMs, Attempts: failure.Attempts,
 		Sentence: sentence, RawError: failure.RawError,

@@ -298,9 +298,7 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 		var problem V4Problem
 		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&problem)
 		problem.HTTPStatus = response.StatusCode
-		if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds > 0 {
-			problem.RetryAfter = time.Duration(seconds) * time.Second
-		}
+		problem.RetryAfter = parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
 		if problem.Code == "" {
 			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
 		}
@@ -315,6 +313,19 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 		return json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(result)
 	}
 	return nil
+}
+
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+		if seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		return 0
+	}
+	if retryAt, err := http.ParseTime(value); err == nil && retryAt.After(now) {
+		return retryAt.Sub(now)
+	}
+	return 0
 }
 
 // V4CheckIn reports the device state and returns the Hub's current policy.
