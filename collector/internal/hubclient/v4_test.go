@@ -266,18 +266,32 @@ func TestV4ImportEveryPhaseMatchesGoldenPayloadShape(t *testing.T) {
 }
 
 func TestV4CheckInRetainsRetryAfter(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Retry-After", "60")
-		w.WriteHeader(http.StatusTooManyRequests)
-		io.WriteString(w, `{"code":"rate_limited"}`)
-	}))
-	defer server.Close()
-	base, _ := url.Parse(server.URL)
-	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
-	_, err := client.V4CheckIn(context.Background(), V4Queue{}, 0, nil, nil, nil)
-	var problem V4Problem
-	if !errors.As(err, &problem) || problem.Code != "rate_limited" || problem.RetryAfter != time.Minute {
-		t.Fatalf("rate limit = %v", err)
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", "60")
+				w.WriteHeader(status)
+				io.WriteString(w, `{"code":"rate_limited"}`)
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
+			_, err := client.V4CheckIn(context.Background(), V4Queue{}, 0, nil, nil, nil)
+			var problem V4Problem
+			if !errors.As(err, &problem) || problem.HTTPStatus != status || problem.RetryAfter != time.Minute {
+				t.Fatalf("retry-after problem = %+v, err=%v", problem, err)
+			}
+		})
+	}
+}
+
+func TestParseRetryAfterSupportsHTTPDate(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	if got := parseRetryAfter(now.Add(30*time.Second).Format(http.TimeFormat), now); got != 30*time.Second {
+		t.Fatalf("HTTP-date Retry-After = %s, want 30s", got)
+	}
+	if got := parseRetryAfter(now.Add(-time.Second).Format(http.TimeFormat), now); got != 0 {
+		t.Fatalf("past Retry-After = %s, want 0", got)
 	}
 }
 

@@ -121,6 +121,26 @@ func TestCheckInRejectionBackoffCapsAtOneHour(t *testing.T) {
 	}
 }
 
+func TestExplicitRetryBypassesCheckInDeadlineAndRestartsBackoff(t *testing.T) {
+	runner := &Runner{Now: func() time.Time { return time.Unix(1_792_000_000, 0) }}
+	if err := runner.recordCheckInFailure(hubclient.V4Problem{Code: "rate_limited", RetryAfter: time.Minute}); err == nil {
+		t.Fatal("rate limit was not returned")
+	}
+	if runner.checkInRetryUntil.Load() == 0 {
+		t.Fatal("rate limit did not set a local retry deadline")
+	}
+	runner.BypassRetryBackoff()
+	if runner.checkInRetryUntil.Load() != 0 || runner.checkInRejections.Load() != 0 {
+		t.Fatalf("explicit retry retained backoff: until=%d rejections=%d", runner.checkInRetryUntil.Load(), runner.checkInRejections.Load())
+	}
+	if err := runner.recordCheckInFailure(hubclient.V4Problem{Code: "invalid_query", HTTPStatus: http.StatusBadRequest}); err == nil {
+		t.Fatal("permanent rejection was not returned")
+	}
+	if got := time.Unix(0, runner.checkInRetryUntil.Load()).Sub(runner.now()); got != time.Minute {
+		t.Fatalf("first retry after explicit bypass = %s, want one minute", got)
+	}
+}
+
 func TestRetryableCheckInFailuresKeepTheHeartbeatCadence(t *testing.T) {
 	for _, problem := range []hubclient.V4Problem{
 		{Code: "unauthorized", HTTPStatus: http.StatusUnauthorized},

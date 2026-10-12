@@ -19,7 +19,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
 
-func TestSyncStatusFailureJSONAndRetryInterval(t *testing.T) {
+func TestSyncStatusFailureActivatesAfterOneMinuteAndIncludesBoolean(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	previousLocation := time.Local
 	time.Local = time.UTC
@@ -36,10 +36,10 @@ func TestSyncStatusFailureJSONAndRetryInterval(t *testing.T) {
 		queue: queue, connected: true,
 		client: &hubclient.Client{BaseURL: &url.URL{Scheme: "https", Host: "hub.example.test"}},
 	}
-	if status := controller.statusAt(since.Add(queue.NextCheckInDelay())); status.HubFailureActive {
+	if status := controller.statusAt(since.Add(hubFailureNoticeAfter)); status.HubFailureActive {
 		t.Fatal("failure became active at exactly one retry interval")
 	}
-	status := controller.statusAt(since.Add(queue.NextCheckInDelay() + time.Nanosecond))
+	status := controller.statusAt(since.Add(hubFailureNoticeAfter + time.Nanosecond))
 	if !status.HubFailureActive || status.LastFailure == nil || status.LastFailure.Cause != hubclient.FailureConnect {
 		t.Fatalf("stale failure status = %+v", status)
 	}
@@ -77,7 +77,7 @@ func TestSyncStatusRouteIsTokenGuardedAndContentFree(t *testing.T) {
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &body) != nil {
 		t.Fatalf("authorized status request = %d %s", response.Code, response.Body.String())
 	}
-	if len(body) != 4 || body["state"] == nil || body["hubOrigin"] == nil || body["sessions"] == nil || body["sessionFailures"] == nil {
+	if len(body) != 5 || body["state"] == nil || body["hubOrigin"] == nil || body["sessions"] == nil || body["sessionFailures"] == nil || string(body["hubFailureActive"]) != "false" {
 		t.Fatalf("status response keys = %v", body)
 	}
 }
@@ -86,8 +86,8 @@ func TestSyncRetryRouteIsTokenGuardedAndStartsImmediatePass(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	onboardings := newOnboardingManager("1.2.3")
 	defer onboardings.Close()
-	wake := make(chan struct{}, 1)
-	controller := &syncController{connected: true, wake: wake}
+	retryWake := make(chan struct{}, 1)
+	controller := &syncController{connected: true, retryWake: retryWake}
 	handler := httpsec.Guard{Addr: "127.0.0.1:8787", Token: "local-secret"}.Wrap(routesWithOnboarding(
 		synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil,
 		onboardings, serverServices{syncController: controller},
@@ -108,7 +108,7 @@ func TestSyncRetryRouteIsTokenGuardedAndStartsImmediatePass(t *testing.T) {
 		t.Fatalf("authorized retry status = %d %s", response.Code, response.Body.String())
 	}
 	select {
-	case <-wake:
+	case <-retryWake:
 	default:
 		t.Fatal("retry request did not wake the sync loop")
 	}
