@@ -9,7 +9,28 @@ describe('decodeSyncStatus', () => {
         hubOrigin: 'https://Hub.Example.test:443',
         sessions: {},
       }),
-    ).toEqual({ state: 'connected_idle', hubOrigin: 'https://hub.example.test', sessions: {} });
+    ).toEqual({
+      state: 'connected_idle',
+      hubOrigin: 'https://hub.example.test',
+      sessions: {},
+      sessionFailures: {},
+    });
+  });
+
+  it('preserves parked failure codes separately from in-flight session states', () => {
+    expect(
+      decodeSyncStatus({
+        state: 'connected_idle',
+        hubOrigin: '',
+        sessions: { 'local:claude:one': 'parked_failed', 'local:claude:two': 'syncing' },
+        sessionFailures: { 'local:claude:one': 'unreadable_source' },
+      }),
+    ).toEqual({
+      state: 'connected_idle',
+      hubOrigin: '',
+      sessions: { 'local:claude:one': 'parked_failed', 'local:claude:two': 'syncing' },
+      sessionFailures: { 'local:claude:one': 'unreadable_source' },
+    });
   });
 
   it('decodes a content-free Hub failure streak', () => {

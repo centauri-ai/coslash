@@ -319,9 +319,9 @@ export function SettingsDialog({
             {mode === 'full-settings' ? 'Settings' : 'Choose how coSlash handles synthesis'}
           </DialogTitle>
           <DialogDescription className="flex items-center gap-1.5 text-xs">
-            <span>Machine-wide.</span>
+            <span>Settings file:</span>
             <code className="bg-coslash-soft rounded-md px-1.5 py-0.5 font-mono text-[11px]">
-              ~/.coslash/settings.json
+              {response?.settingsPath ?? 'Settings path unavailable'}
             </code>
           </DialogDescription>
         </DialogHeader>

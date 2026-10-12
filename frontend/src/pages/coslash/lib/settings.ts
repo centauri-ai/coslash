@@ -48,6 +48,7 @@ export type TerminalOption = {
 
 export type SettingsResponse = {
   settings: CoslashSettings;
+  settingsPath?: string;
   persisted: boolean;
   valid: boolean;
   error?: string;
@@ -90,9 +91,13 @@ export function decodeSettingsResponse(value: unknown): SettingsResponse {
     throw new Error('Invalid settings response');
   }
   const settingsRaw = raw.settings as Record<string, unknown>;
+  if (raw.settingsPath != null && typeof raw.settingsPath !== 'string') {
+    throw new Error('Invalid settings response');
+  }
   const response = value as SettingsResponse;
   return {
     ...response,
+    settingsPath: typeof raw.settingsPath === 'string' ? raw.settingsPath : undefined,
     settings: {
       ...response.settings,
       remote: decodeRemoteHostSettings(settingsRaw.remote),

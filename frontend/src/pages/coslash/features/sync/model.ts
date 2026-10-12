@@ -22,6 +22,7 @@ export function syncMode(state: SyncState): SyncMode {
 }
 
 export function chipOf(mode: SyncMode, state: SessionSyncState, manualUpload = false): SyncChipState {
+  if (state === 'parked_failed' && !manualUpload) return 'parked_failed';
   if (mode === 'none' || mode === 'revoked') return 'none';
   if (state === 'left_out') return 'left_out';
   if (state === 'in_hub') return 'in_hub';
@@ -36,6 +37,8 @@ export function chipLabel(state: SyncChipState): string {
       return 'In Hub';
     case 'syncing':
       return 'Syncing…';
+    case 'parked_failed':
+      return "Didn't sync";
     case 'left_out':
       return 'Left out';
     case 'none':
@@ -43,6 +46,22 @@ export function chipLabel(state: SyncChipState): string {
     default:
       return 'Not in Hub';
   }
+}
+
+export function syncFailureDescription(failureCode?: string): string {
+  const cause =
+    failureCode === 'unreadable_source'
+      ? "coSlash Local couldn't read the session file."
+      : failureCode === 'too_large'
+        ? 'The session is too large to sync.'
+        : failureCode === 'malformed_artifact'
+          ? 'Hub could not read the session data.'
+          : failureCode === 'idempotency_conflict'
+            ? 'Hub found conflicting session data.'
+            : failureCode === 'server_error'
+              ? 'Hub could not sync the session.'
+              : "coSlash Local couldn't sync the session.";
+  return `${cause} Syncs again when the session changes.`;
 }
 
 export function syncHeader(status: SyncStatus): { label: string; href: string | null; linked: boolean } {
