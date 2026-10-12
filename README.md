@@ -299,8 +299,9 @@ Read [Data and privacy](docs/data-and-privacy.md) before you point coSlash at se
 | `coslash handoff <agent>:<session>` | Print the handoff Markdown for a selector from `coslash sessions`. |
 | `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [message]` | Start the target agent in the working directory of the session, with the handoff and an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
 | `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor\|pi\|grok` | Start a review of a local session with an installed agent. |
-| `coslash doctor` / `coslash status` | Check session sources, agent CLIs, local storage, and Hub sync health. |
-| `coslash doctor --json` / `coslash status --json` | Print the same diagnostics as JSON, including Hub origin, pairing, last check-in, and content-free queue counts. |
+| `coslash doctor` / `coslash status` | Check session sources, agent CLIs, local storage, Hub sync health, and the `coslash:` link handler. |
+| `coslash doctor --json` / `coslash status --json` | Print the same diagnostics as JSON, including Hub origin, pairing, last check-in, content-free queue counts, and link-handler state. |
+| `coslash doctor --fix-links [--yes]` | On macOS, list stale URL handlers; add `--yes` to unregister the listed bundles. |
 
 `sessions`, `handoff`, `send`, and `review` need the app to be running. Results go to standard output. Failures write `Error: <message>` to standard error and exit non-zero. The commands find the access token of the running app locally and never print it.
 

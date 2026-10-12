@@ -189,7 +189,7 @@ func main() {
 		log.Fatalf("coslash: %v", err)
 	}
 	defer runtimeLock.Close()
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || runtime.GOOS == "linux" {
 		if err := registerProtocolHandler(); err != nil {
 			log.Printf("Hub app launch handoff is unavailable; return to Hub and use the install/open recovery steps")
 		}
@@ -753,7 +753,9 @@ func routesWithOnboarding(
 		handleRemoteHelperSetup(w, r, remoteManager)
 	})
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
+		snapshot := diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager))
+		addProtocolHandlerDoctorCheck(snapshot)
+		writeJSON(w, snapshot)
 	})
 	registerHubRoutes(api, hub, remoteManager, onboardings)
 	mux.Handle("/api", api)

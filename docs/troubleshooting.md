@@ -1,6 +1,15 @@
 # Troubleshooting
 
-Start with `coslash doctor` (or `coslash status`). It checks session sources, agent CLIs, storage, and Hub sync health, including pending, failing, and parked queue counts. Use `coslash doctor --json` for a report; it includes the Hub origin and device identity but no session titles or content. Check the terminal where coSlash started for logs.
+Start with `coslash doctor` (or `coslash status`). It checks session sources, agent CLIs, storage, Hub sync health, and which coSlash Local copy handles `coslash:` links. Hub sync health includes pending, failing, and parked queue counts. Use `coslash doctor --json` for a report; it includes the Hub origin, device identity, and link-handler state but no session titles or content. Check the terminal where coSlash started for logs.
+
+## coSlash links open the wrong Local copy
+
+Run `coslash doctor` and check **Open coSlash Local link**. A healthy registration
+reports `registered (this copy)`. If it points at another executable, restart
+the current Local so it can update the per-user handler. On macOS, run
+`coslash doctor --fix-links` to list old or missing coSlash handler bundles.
+Review the paths, then run `coslash doctor --fix-links --yes` to unregister the
+listed bundles. The command does not remove bundle files.
 
 ## Sessions are missing
 

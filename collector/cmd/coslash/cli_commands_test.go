@@ -517,7 +517,7 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
 		{"send", sendUsage() + "\n"},
 		{"review", reviewHelp() + "\n"},
-		{"doctor", "usage: coslash doctor [--json]\n"},
+		{"doctor", "usage: coslash doctor [--json] [--fix-links [--yes]]\n"},
 	} {
 		for _, flag := range []string{"--help", "-h"} {
 			var stdout, stderr bytes.Buffer

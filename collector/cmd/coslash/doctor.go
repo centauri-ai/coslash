@@ -34,6 +34,8 @@ func runDoctorCommand(stdout, stderr io.Writer, args []string, command string) i
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	jsonOutput := flags.Bool("json", false, "print the diagnostics snapshot as JSON")
+	fixLinks := flags.Bool("fix-links", false, "list stale coSlash URL handlers and optionally unregister them")
+	yes := flags.Bool("yes", false, "apply the --fix-links plan")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -41,14 +43,32 @@ func runDoctorCommand(stdout, stderr io.Writer, args []string, command string) i
 		return 2
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintf(stderr, "usage: coslash %s [--json]\n", command)
+		fmt.Fprintf(stderr, "usage: coslash %s [--json]", command)
+		if command == "doctor" {
+			fmt.Fprint(stderr, " [--fix-links [--yes]]")
+		}
+		fmt.Fprintln(stderr)
 		return 2
+	}
+	if command != "doctor" && (*fixLinks || *yes) {
+		fmt.Fprintln(stderr, "usage: coslash status [--json]")
+		return 2
+	}
+	if *yes && !*fixLinks || *jsonOutput && *fixLinks {
+		fmt.Fprintln(stderr, "usage: coslash doctor [--json] [--fix-links [--yes]]")
+		return 2
+	}
+	if *fixLinks {
+		if code := planProtocolHandlerCleanup(stdout, stderr, *yes); code != 0 {
+			return code
+		}
 	}
 	logOutput := log.Writer()
 	log.SetOutput(io.Discard)
 	ctx := context.Background()
 	snapshot := diagnostics.CollectWithHub(ctx, version, true, collectDoctorHub(ctx))
 	log.SetOutput(logOutput)
+	addProtocolHandlerDoctorCheck(snapshot)
 	if *jsonOutput {
 		if err := json.NewEncoder(stdout).Encode(snapshot); err != nil {
 			fmt.Fprintf(stderr, "write diagnostics: %v\n", err)
@@ -133,6 +153,21 @@ func buildDoctorHubHealth(ctx context.Context, client doctorHubClient, origin, d
 		PolicyKnown: queue.PolicyKnown, Pending: queue.Pending, Failing: queue.Failing,
 		Parked: queue.Parked, TopFailureCodes: failures,
 	}
+}
+
+func addProtocolHandlerDoctorCheck(snapshot *diagnostics.Snapshot) {
+	state := protocolHandlerState()
+	status := diagnostics.StatusWarn
+	fix := "Restart coSlash Local to register the link handler."
+	if state == "registered (this copy)" {
+		status = diagnostics.StatusOK
+		fix = ""
+	} else if strings.HasPrefix(state, "registered to another copy at ") {
+		fix = "Run `coslash doctor --fix-links` to review stale handlers."
+	}
+	snapshot.Checks = append(snapshot.Checks, diagnostics.Check{
+		ID: "protocol-handler", Title: "Open coSlash Local link", Status: status, Detail: state, Fix: fix,
+	})
 }
 
 func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
