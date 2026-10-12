@@ -674,6 +674,47 @@ func TestEmptyPlanMovesThroughListingToComplete(t *testing.T) {
 	}
 }
 
+func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", History: false, MaxSessionsPerAgent: 30}
+	activity := now.UnixMilli()
+	entries := []Entry{
+		{Key: "synced", Activity: activity, RevisionID: "revision-synced", SyncedActivity: activity,
+			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "synced", Agent: "codex"}},
+		{Key: "parked", Activity: activity, ParkedVersion: "0.0.5", FailureCode: "unreadable_source",
+			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "parked", Agent: "codex"}},
+	}
+	if err := q.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	q.SetActiveSince(now)
+	if err := q.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	progress := q.Progress().FirstSync
+	if progress.RecentDone != 2 || progress.RecentTotal != 2 || progress.HistoryState != "off" {
+		t.Fatalf("settled live-only progress = %+v", progress)
+	}
+
+	runner := &Runner{Queue: q, Now: func() time.Time { return now }}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := q.Phase(); phase != "complete" {
+		t.Fatalf("phase = %s, want complete", phase)
+	}
+}
+
 type warmOrderHub struct {
 	*planHub
 	events []string
