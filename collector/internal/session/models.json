@@ -9970,12 +9970,12 @@
   },
   "meta.llama4-maverick-17b-instruct-v1:0": {
     "input_cost_per_token": 2.4E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 1000000,
     "output_cost_per_token": 9.7E-7
   },
   "meta.llama4-scout-17b-instruct-v1:0": {
     "input_cost_per_token": 1.7E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 10000000,
     "output_cost_per_token": 6.6E-7
   },
   "meta/muse-spark-1.1": {
@@ -14960,12 +14960,12 @@
   },
   "us.meta.llama4-maverick-17b-instruct-v1:0": {
     "input_cost_per_token": 2.4E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 1000000,
     "output_cost_per_token": 9.7E-7
   },
   "us.meta.llama4-scout-17b-instruct-v1:0": {
     "input_cost_per_token": 1.7E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 10000000,
     "output_cost_per_token": 6.6E-7
   },
   "us.mistral.pixtral-large-2502-v1:0": {
@@ -15048,7 +15048,7 @@
   },
   "us.writer.palmyra-x5-v1:0": {
     "input_cost_per_token": 6E-7,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 128000,
     "output_cost_per_token": 0.000006
   },
   "us.xai.grok-4.6": {
@@ -16626,7 +16626,7 @@
   },
   "writer.palmyra-x5-v1:0": {
     "input_cost_per_token": 6E-7,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 128000,
     "output_cost_per_token": 0.000006
   },
   "xai/grok-4.20": {
