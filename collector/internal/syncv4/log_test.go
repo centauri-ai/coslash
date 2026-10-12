@@ -150,6 +150,54 @@ func TestFailureBeforeTheHubSessionExistsIsLoggedForTheDevice(t *testing.T) {
 	}
 }
 
+func TestListingAddsSessionIDToPreviouslyLoggedFailureOnce(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, entry := logQueue(t, t.TempDir(), "", now)
+	runner := Runner{Queue: queue, Version: "0.0.5", Now: func() time.Time { return now }}
+	if err := runner.recordFailure(&entry, preparationProblem(sessionbackupv1.ProblemInvalid, false)); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := queue.PendingLog(now)
+	if len(before) != 1 || before[0].SessionID != "" || before[0].Code != "malformed_artifact" {
+		t.Fatalf("pre-listing log=%+v", before)
+	}
+
+	result := hubclient.V4ListResult{LocalKeyHash: entry.Key, SessionID: "ses_listed", State: "listed"}
+	if err := queue.MarkListedAt([]hubclient.V4ListResult{result}, now); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := queue.PendingLog(now)
+	if len(after) != 2 || after[1].SessionID != "ses_listed" || after[1].Code != "malformed_artifact" || !after[1].Parked {
+		t.Fatalf("post-listing log=%+v", after)
+	}
+	if got := queue.Entries()[0]; got.LoggedFailure != "malformed_artifact ses_listed" || got.ParkedVersion != "0.0.5" {
+		t.Fatalf("listed failure state=%+v", got)
+	}
+	if err := queue.MarkListedAt([]hubclient.V4ListResult{result}, now); err != nil {
+		t.Fatal(err)
+	}
+	afterRepeat, _ := queue.PendingLog(now)
+	if len(afterRepeat) != 2 {
+		t.Fatalf("repeated listing appended another failure: %+v", afterRepeat)
+	}
+}
+
+func TestListingDoesNotRelogFailureAlreadyBoundToHubSession(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, entry := logQueue(t, t.TempDir(), "ses_already", now)
+	runner := Runner{Queue: queue, Version: "0.0.5", Now: func() time.Time { return now }}
+	if err := runner.recordFailure(&entry, preparationProblem(sessionbackupv1.ProblemInvalid, false)); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.MarkListedAt([]hubclient.V4ListResult{{LocalKeyHash: entry.Key, SessionID: "ses_already", State: "existing"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	lines, _ := queue.PendingLog(now)
+	if len(lines) != 1 || lines[0].SessionID != "ses_already" || lines[0].Code != "malformed_artifact" {
+		t.Fatalf("listing duplicated an already-bound failure: %+v", lines)
+	}
+}
+
 // Lines without a session differ only in time, so unsent ones collapse to one
 // per code; session lines never collapse.
 func TestUnsentDeviceLinesCollapsePerCode(t *testing.T) {

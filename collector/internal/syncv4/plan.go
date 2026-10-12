@@ -351,6 +351,9 @@ func (q *Queue) MarkListedAt(results []hubclient.V4ListResult, now time.Time) er
 			}
 			entry.ListRejected = true
 		}
+		if result.State == "listed" || result.State == "existing" {
+			q.appendListedFailure(entry, now)
+		}
 	}
 	q.state.LastProgressAt = now.UnixMilli()
 	if err := q.save(); err != nil {
