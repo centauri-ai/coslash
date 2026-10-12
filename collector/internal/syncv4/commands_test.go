@@ -268,7 +268,7 @@ func TestCommandErrorSSHCodes(t *testing.T) {
 			})
 		}
 	}
-	for _, reason := range []remote.Reason{"", remote.ReasonHelperMissing, remote.ReasonHelperIncompatible} {
+	for _, reason := range []remote.Reason{"", remote.ReasonHelperMissing, remote.ReasonHelperIncompatible, remote.ReasonHelperInstallation} {
 		if got := commandError(&SSHCommandError{Reason: &reason, Install: true}); got != "connector_install_failed" {
 			t.Fatalf("install %q code = %q", reason, got)
 		}
