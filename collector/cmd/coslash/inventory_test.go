@@ -136,6 +136,34 @@ func TestRunInventorySchedulesShortRetryForFreshSessionFile(t *testing.T) {
 	}
 }
 
+func TestInventorySettleRetryUsesScanWindow(t *testing.T) {
+	scannedAt := time.UnixMilli(1_800_000_000_000)
+	scanDuration := time.Second
+	tests := []struct {
+		name      string
+		modTimeMs int64
+		wantRetry bool
+	}{
+		{name: "recent before scan", modTimeMs: scannedAt.Add(-time.Second).UnixMilli(), wantRetry: true},
+		{name: "modified during scan", modTimeMs: scannedAt.Add(500 * time.Millisecond).UnixMilli(), wantRetry: true},
+		{name: "future after scan", modTimeMs: scannedAt.Add(2 * time.Second).UnixMilli()},
+		{name: "older than settle window", modTimeMs: scannedAt.Add(-inventorySettleRetryDelay).UnixMilli()},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := &inventory.Snapshot{
+				ScannedAt: scannedAt,
+				Duration:  scanDuration,
+				Files:     []inventory.File{{ModTimeMs: test.modTimeMs}},
+			}
+			gotRetry := inventorySettleRetry(snapshot) > 0
+			if gotRetry != test.wantRetry {
+				t.Fatalf("retry = %t, want %t", gotRetry, test.wantRetry)
+			}
+		})
+	}
+}
+
 func TestRunInventoryWakesSyncLoopWhenAnOlderSessionChanges(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
