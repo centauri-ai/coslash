@@ -121,9 +121,6 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 	if err != nil || len(records) != len(plan.Files) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
-	if err := sanitizeRecordFilePaths(records, handle.Home); err != nil {
-		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
-	}
 	byID := make(map[string]fullsessionv1.Record, len(records))
 	for _, record := range records {
 		if _, exists := byID[record.SessionID]; exists || plan.Files[record.SessionID] == nil ||
@@ -148,7 +145,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 		revision := hashStrings(rawEvidence[id])
 		sourceRevisions = append(sourceRevisions, id+":"+revision)
 		members = append(members, sessionbackupv1.Member{MemberID: id, ParentMemberID: record.ParentSessionID, SourceRevision: revision})
-		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, localOnly, handle.Enrichment[id], sessionbackupv1.SynthesisRecord{}); err != nil {
+		if err := writes.addProcessed(ctx, record, handle.Home, selection.SourceKind, repository, localOnly, handle.Enrichment[id], sessionbackupv1.SynthesisRecord{}); err != nil {
 			return nil, processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 		}
 	}
