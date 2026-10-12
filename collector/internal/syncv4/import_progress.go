@@ -130,9 +130,17 @@ func (r *Runner) ProgressCheckIn(ctx context.Context) (changed bool, retryAfter 
 
 func (r *Runner) runPlannedAndReport(ctx context.Context) error {
 	err := r.runPlanned(ctx)
-	if (err == nil || errors.Is(err, ErrPaused)) && ctx.Err() == nil &&
-		r.Queue.ImportSnapshot(r.now()).Phase != r.lastReportedPhase {
-		return errors.Join(err, r.refreshConsent(ctx))
+	if ctx.Err() == nil {
+		now := r.now()
+		phaseChanged := r.Queue.ImportSnapshot(now).Phase != r.lastReportedPhase
+		pendingLogs := false
+		if !now.Before(r.logRejectedUntil) {
+			lines, _ := r.Queue.PendingLog(now)
+			pendingLogs = len(lines) > 0
+		}
+		if pendingLogs || (err == nil || errors.Is(err, ErrPaused)) && phaseChanged {
+			return errors.Join(err, r.refreshConsent(ctx))
+		}
 	}
 	return err
 }
