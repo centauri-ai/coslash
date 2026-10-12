@@ -45,9 +45,6 @@ func (manager *Manager) captureOpenCode(ctx context.Context, staging string, sel
 	if err != nil {
 		return nil, captureFailure(backup.ProblemInvalid, backup.KindParsedSessionRecord, false)
 	}
-	if err := sanitizeRecordFilePaths(records, home); err != nil {
-		return nil, captureFailure(backup.ProblemInvalid, backup.KindParsedSessionRecord, false)
-	}
 	if len(records) != len(captured.Rows) || len(records) > backup.MaxMembers {
 		return nil, captureFailure(backup.ProblemUnattributable, backup.KindParsedSessionRecord, false)
 	}
@@ -87,7 +84,7 @@ func (manager *Manager) captureOpenCode(ctx context.Context, staging string, sel
 		revision := writes.evidence[name].SHA256
 		members = append(members, backup.Member{MemberID: record.SessionID, ParentMemberID: record.ParentSessionID, SourceRevision: revision})
 		sourceRevisions = append(sourceRevisions, record.SessionID+":"+revision)
-		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, repositoryLocalOnly, remote.BackupSessionEnrichment{}, backup.SynthesisRecord{}); err != nil {
+		if err := writes.addProcessed(ctx, record, home, selection.SourceKind, repository, repositoryLocalOnly, remote.BackupSessionEnrichment{}, backup.SynthesisRecord{}); err != nil {
 			return nil, processedCaptureFailure(err, "")
 		}
 	}
