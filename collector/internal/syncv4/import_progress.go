@@ -139,7 +139,7 @@ func (r *Runner) runPlannedAndReport(ctx context.Context) error {
 			pendingLogs = len(lines) > 0
 		}
 		if pendingLogs || (err == nil || errors.Is(err, ErrPaused)) && phaseChanged {
-			return errors.Join(err, r.refreshConsent(ctx))
+			return errors.Join(r.refreshConsent(ctx), err)
 		}
 	}
 	return err
