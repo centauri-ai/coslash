@@ -42,7 +42,7 @@ type syncLoopWorkerFunc func(context.Context) error
 
 func (f syncLoopWorkerFunc) SyncOnce(ctx context.Context) error { return f(ctx) }
 
-func runV4SyncLoopForTest(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), externalWake ...<-chan struct{}) {
+func runV4SyncLoopForTest(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), externalWake ...chan struct{}) {
 	runV4SyncLoopWithControl(ctx, runner, queue, wait, newSyncLoopControl(nil), externalWake...)
 }
 
@@ -153,12 +153,14 @@ func TestV4WaitInterruptsActiveSyncForCommands(t *testing.T) {
 	}
 }
 
-func TestSyncRequestedRunsCheckInWithinOneSecond(t *testing.T) {
+func TestSyncRequestedTriggersInventoryBeforeTheNextPass(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	worker := syncLoopWorker{started: make(chan context.Context, 3)}
 	request := make(chan hubclient.V4Wait, 1)
 	waitStarted := make(chan struct{}, 4)
+	inventoryWake := make(chan struct{}, 1)
+	inventoryRequest := make(chan struct{}, 1)
 	done := make(chan struct{})
 	go func() {
 		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
@@ -172,7 +174,7 @@ func TestSyncRequestedRunsCheckInWithinOneSecond(t *testing.T) {
 			case <-ctx.Done():
 				return hubclient.V4Wait{}, ctx.Err()
 			}
-		})
+		}, inventoryWake, nil, inventoryRequest)
 		close(done)
 	}()
 	select {
@@ -185,21 +187,36 @@ func TestSyncRequestedRunsCheckInWithinOneSecond(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("long-poll wait did not start")
 	}
-	requestedAt := time.Now()
 	request <- hubclient.V4Wait{SyncRequested: true}
 	select {
-	case <-worker.started:
-		if elapsed := time.Since(requestedAt); elapsed > time.Second {
-			t.Fatalf("sync-now pass started after %s", elapsed)
-		}
+	case <-inventoryRequest:
 	case <-time.After(time.Second):
-		t.Fatal("sync-now did not start a check-in pass within one second")
+		t.Fatal("sync-now did not request a fresh inventory within one second")
+	}
+	inventoryWake <- struct{}{}
+	select {
+	case <-worker.started:
+	case <-time.After(time.Second):
+		t.Fatal("inventory completion did not start a sync pass")
 	}
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("sync loop did not stop")
+	}
+}
+
+func TestSyncRequestedInventoryIsDebounced(t *testing.T) {
+	now := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC)
+	if got := inventoryRequestDebounceDelay(time.Time{}, now); got != 0 {
+		t.Fatalf("first inventory request delay = %s, want 0", got)
+	}
+	if got := inventoryRequestDebounceDelay(now, now.Add(syncNowInventoryDebounce-time.Second)); got != time.Second {
+		t.Fatalf("request inside debounce window delay = %s, want 1s", got)
+	}
+	if got := inventoryRequestDebounceDelay(now, now.Add(syncNowInventoryDebounce)); got != 0 {
+		t.Fatalf("request at debounce boundary delay = %s, want 0", got)
 	}
 }
 

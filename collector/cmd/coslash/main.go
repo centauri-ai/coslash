@@ -301,15 +301,17 @@ func main() {
 	inventoryTracker := &inventory.Tracker{}
 	var controller *syncController
 	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retryWake chan struct{}) {
+		var inventoryRequest chan struct{}
 		if fingerprints != nil {
-			go runInventory(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
+			inventoryRequest = make(chan struct{}, 1)
+			go runInventoryWithRequests(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
 				current := onboardings.currentHubClient()
 				if current == nil || current.Credentials == nil {
 					return false
 				}
 				credential, err := current.Credentials.Load(ctx)
 				return err == nil && credential != ""
-			})
+			}, inventoryRequest)
 		}
 		syncHub := currentHubTransport{current: onboardings.currentHubClient, queue: queue}
 		runner := &syncv4.Runner{
@@ -356,7 +358,7 @@ func main() {
 			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
 		})
 		go runActivePoller(syncContext, "", loopControl)
-		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, syncHub.V4Wait, loopControl, wake, retryWake)
+		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, syncHub.V4Wait, loopControl, wake, retryWake, inventoryRequest)
 	}, func() bool { return settingsStore.State().Config.SyncPaused })
 	if err != nil {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
@@ -439,35 +441,41 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 
 // runInventory takes the stat-only inventory at startup and every sync
 // interval, records it for check-in, prunes cache entries whose source is
-// gone, and wakes the sync loop when a source file changes.
+// gone, and wakes discovery when sources change or a requested refresh finishes.
 func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool) {
-	runInventoryWithInterval(ctx, fingerprints, queue, wake, tracker, paired, 5*time.Minute)
+	runInventoryWithRequests(ctx, fingerprints, queue, wake, tracker, paired, nil)
 }
 
 func runInventoryWithInterval(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration) {
-	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context) bool {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(interval):
-			return true
-		}
+	runInventoryWithIntervalAndRequests(ctx, fingerprints, queue, wake, tracker, paired, interval, nil)
+}
+
+func runInventoryWithRequests(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, requests <-chan struct{}) {
+	runInventoryWithIntervalAndRequests(ctx, fingerprints, queue, wake, tracker, paired, 5*time.Minute, requests)
+}
+
+func runInventoryWithIntervalAndRequests(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration, requests <-chan struct{}) {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context, retryAfter time.Duration, lastRequest time.Time) (bool, bool, bool) {
+		return waitForInventory(ctx, interval, retryAfter, requests, lastRequest)
 	}, nil)
 }
 
 func runInventoryWithTicks(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, ticks <-chan struct{}, scanComplete chan<- struct{}) {
-	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context) bool {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context, _ time.Duration, _ time.Time) (bool, bool, bool) {
 		select {
 		case <-ctx.Done():
-			return false
+			return false, false, false
 		case <-ticks:
-			return true
+			return true, false, false
 		}
 	}, scanComplete)
 }
 
-func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, wait func(context.Context) bool, scanComplete chan<- struct{}) {
+func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, wait func(context.Context, time.Duration, time.Time) (bool, bool, bool), scanComplete chan<- struct{}) {
 	var previous *inventory.Snapshot
+	var lastRequest time.Time
+	forceDiscovery := false
+	var continueScan, requested bool
 	for {
 		if !paired(ctx) {
 			select {
@@ -496,7 +504,7 @@ func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerpr
 			} else if removed > 0 {
 				log.Printf("parse cache: pruned %d entries", removed)
 			}
-			if inventorySourcesChanged(previous, snapshot) {
+			if forceDiscovery || inventorySourcesChanged(previous, snapshot) {
 				select {
 				case wake <- struct{}{}:
 				default:
@@ -511,8 +519,77 @@ func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerpr
 				return
 			}
 		}
-		if !wait(ctx) {
+		retryAfter := inventorySettleRetry(snapshot)
+		continueScan, forceDiscovery, requested = wait(ctx, retryAfter, lastRequest)
+		if !continueScan {
 			return
+		}
+		if requested {
+			lastRequest = time.Now()
+		}
+	}
+}
+
+const inventorySettleRetryDelay = 30 * time.Second
+
+func inventorySettleRetry(snapshot *inventory.Snapshot) time.Duration {
+	if snapshot == nil {
+		return 0
+	}
+	cutoff := snapshot.ScannedAt.Add(-inventorySettleRetryDelay).UnixMilli()
+	for _, file := range snapshot.Files {
+		if file.ModTimeMs > cutoff {
+			return inventorySettleRetryDelay
+		}
+	}
+	return 0
+}
+
+func inventoryRequestDebounceDelay(lastRequest, now time.Time) time.Duration {
+	if lastRequest.IsZero() || !now.Before(lastRequest.Add(syncNowInventoryDebounce)) {
+		return 0
+	}
+	return lastRequest.Add(syncNowInventoryDebounce).Sub(now)
+}
+
+func waitForInventory(ctx context.Context, interval, retryAfter time.Duration, requests <-chan struct{}, lastRequest time.Time) (continueScan, forceDiscovery, requested bool) {
+	intervalTimer := time.NewTimer(interval)
+	defer intervalTimer.Stop()
+	var retryTimer *time.Timer
+	var retryC <-chan time.Time
+	if retryAfter > 0 {
+		retryTimer = time.NewTimer(retryAfter)
+		retryC = retryTimer.C
+		defer retryTimer.Stop()
+	}
+	requestC := requests
+	var debounceTimer *time.Timer
+	var debounceC <-chan time.Time
+	defer func() {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+	}()
+	pendingRequest := false
+	for {
+		select {
+		case <-ctx.Done():
+			return false, false, false
+		case <-intervalTimer.C:
+			return true, pendingRequest, pendingRequest
+		case <-retryC:
+			return true, true, pendingRequest
+		case <-requestC:
+			if delay := inventoryRequestDebounceDelay(lastRequest, time.Now()); delay > 0 {
+				pendingRequest = true
+				requestC = nil
+				debounceTimer = time.NewTimer(delay)
+				debounceC = debounceTimer.C
+				continue
+			}
+			return true, true, true
+		case <-debounceC:
+			return true, true, true
 		}
 	}
 }
