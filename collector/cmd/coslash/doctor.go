@@ -96,7 +96,7 @@ func buildDoctorHubHealth(ctx context.Context, client doctorHubClient, origin, d
 		cancel()
 		paired = err == nil
 	}
-	if queue.LastCheckInResult == "hub:device_revoked" || queue.LastCheckInResult == "hub_rejected:device_revoked" {
+	if queue.LastCheckInResult == "not_paired" || queue.LastCheckInResult == "hub:device_revoked" || queue.LastCheckInResult == "hub_rejected:device_revoked" {
 		paired = false
 	}
 	state := "off"
@@ -184,6 +184,9 @@ func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
 			paired = "yes"
 		}
 		fmt.Fprintf(w, "Device: %s\nPaired: %s\n", device, paired)
+		if snapshot.Hub.LastCheckInResult == "not_paired" || snapshot.Hub.LastCheckInResult == "hub:device_revoked" || snapshot.Hub.LastCheckInResult == "hub_rejected:device_revoked" {
+			fmt.Fprintln(w, "Connection: Not connected: removed from Hub; run coslash connect to add it again")
+		}
 		checkIn := "never"
 		if snapshot.Hub.LastCheckInAtMs != nil {
 			age := time.Since(time.UnixMilli(*snapshot.Hub.LastCheckInAtMs))
