@@ -291,7 +291,7 @@ func (q *Queue) RecordCheckIn(at time.Time, result string) error {
 }
 
 func safeCheckInResult(value string) string {
-	if value == "ok" || value == "hub_unreachable" || value == "consent_unavailable" || value == "paused" || value == "local_error" {
+	if value == "ok" || value == "hub_unreachable" || value == "consent_unavailable" || value == "paused" || value == "local_error" || value == "not_paired" {
 		return value
 	}
 	for _, prefix := range []string{"hub:", "hub_rejected:"} {

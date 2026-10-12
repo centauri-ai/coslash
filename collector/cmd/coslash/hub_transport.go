@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"time"
@@ -113,5 +114,12 @@ func (transport currentHubTransport) V4Wait(ctx context.Context, since int64) (h
 	if err != nil {
 		return hubclient.V4Wait{}, err
 	}
-	return client.V4Wait(ctx, since)
+	result, err := client.V4Wait(ctx, since)
+	var problem hubclient.V4Problem
+	if transport.queue != nil && errors.As(err, &problem) && (problem.Code == "device_revoked" || problem.Code == "not_paired") {
+		if saveErr := transport.queue.RecordCheckIn(time.Now(), "not_paired"); saveErr != nil {
+			log.Printf("record Hub check-in status: %v", saveErr)
+		}
+	}
+	return result, err
 }

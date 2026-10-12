@@ -631,9 +631,9 @@ func TestDeferReasonIsClosedAndContentFree(t *testing.T) {
 	}
 }
 
-// A failed check-in keeps the Hub's code, so a removed device is reported as
-// such and not as a consent problem.
-func TestFailedCheckInKeepsTheHubCode(t *testing.T) {
+// A failed check-in identifies a removed device as unpaired, not as a consent
+// problem.
+func TestFailedCheckInMapsRevocationToNotPaired(t *testing.T) {
 	queue, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -641,7 +641,7 @@ func TestFailedCheckInKeepsTheHubCode(t *testing.T) {
 	client, _ := checkInServer(t, func(int, []byte) int { return http.StatusForbidden })
 	runner := Runner{Queue: queue, Hub: client, Now: time.Now}
 	err = runner.refreshConsent(t.Context())
-	if !errors.Is(err, ErrStaleConsent) || DeferReason(err) != "hub:device_revoked" {
+	if !errors.Is(err, ErrStaleConsent) || DeferReason(err) != "not_paired" {
 		t.Fatalf("revoked check-in err=%v reason=%q", err, DeferReason(err))
 	}
 }
