@@ -537,8 +537,9 @@ func inventorySettleRetry(snapshot *inventory.Snapshot) time.Duration {
 		return 0
 	}
 	cutoff := snapshot.ScannedAt.Add(-inventorySettleRetryDelay).UnixMilli()
+	scanEnd := snapshot.ScannedAt.Add(snapshot.Duration).UnixMilli()
 	for _, file := range snapshot.Files {
-		if file.ModTimeMs > cutoff {
+		if file.ModTimeMs > cutoff && file.ModTimeMs <= scanEnd {
 			return inventorySettleRetryDelay
 		}
 	}
