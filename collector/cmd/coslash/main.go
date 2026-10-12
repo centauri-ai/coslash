@@ -570,6 +570,13 @@ func routesWithOnboarding(
 		}
 		writeJSON(w, service.syncController.Status())
 	})
+	api.HandleFunc("POST /api/sync/retry", func(w http.ResponseWriter, _ *http.Request) {
+		if service.syncController == nil || !service.syncController.RetryNow() {
+			writeAPIError(w, http.StatusConflict, "sync_unavailable", "Hub sync is not available")
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}

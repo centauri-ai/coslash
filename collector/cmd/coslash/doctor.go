@@ -126,9 +126,10 @@ func buildDoctorHubHealth(ctx context.Context, client doctorHubClient, origin, d
 		at := queue.LastCheckInAt.UnixMilli()
 		checkInAt = &at
 	}
+	lastFailure, _ := hubFailureView(origin, queue.LastHubFailure, time.Now(), 0)
 	return &diagnostics.HubSync{
 		Origin: origin, DeviceName: deviceName, DeviceID: queue.InstallID, Paired: paired,
-		LastCheckInAtMs: checkInAt, LastCheckInResult: lastResult, SyncState: state,
+		LastCheckInAtMs: checkInAt, LastCheckInResult: lastResult, LastFailure: lastFailure, SyncState: state,
 		PolicyKnown: queue.PolicyKnown, Pending: queue.Pending, Failing: queue.Failing,
 		Parked: queue.Parked, TopFailureCodes: failures,
 	}
@@ -197,6 +198,10 @@ func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
 			}
 		}
 		fmt.Fprintf(w, "Last check-in: %s (%s)\n", checkIn, snapshot.Hub.LastCheckInResult)
+		if failure := snapshot.Hub.LastFailure; failure != nil {
+			fmt.Fprintln(w, failure.Sentence)
+			fmt.Fprintf(w, "Raw error: %s\n", failure.RawError)
+		}
 		fmt.Fprintf(w, "Sync: %s\nQueue: pending %d, failing %d, parked %d\n", snapshot.Hub.SyncState, snapshot.Hub.Pending, snapshot.Hub.Failing, snapshot.Hub.Parked)
 		if len(snapshot.Hub.TopFailureCodes) > 0 {
 			codes := make([]string, 0, len(snapshot.Hub.TopFailureCodes))

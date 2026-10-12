@@ -20,10 +20,17 @@ func (client fakeDoctorHubClient) V4Binding(context.Context) (string, error) {
 }
 
 func TestDoctorHubSectionReportsPairingQueueAndLastCheckIn(t *testing.T) {
-	checkedAt := time.Now().Add(-2 * time.Minute)
+	previousLocation := time.Local
+	time.Local = time.UTC
+	t.Cleanup(func() { time.Local = previousLocation })
+	checkedAt := time.Date(2026, 10, 12, 8, 10, 0, 0, time.UTC)
 	health := syncv4.HealthSnapshot{
 		InstallID: "synthetic-device-id", PolicyKnown: true, HubPaused: true,
 		LastCheckInAt: &checkedAt, LastCheckInResult: "hub_unreachable",
+		LastHubFailure: &syncv4.HubContactFailure{
+			Cause: "connect", SinceMs: time.Date(2026, 10, 12, 8, 12, 0, 0, time.UTC).UnixMilli(),
+			Attempts: 14, RawError: "dial tcp: i/o timeout",
+		},
 		Pending: 3, Failing: 2, Parked: 1,
 		TopFailureCodes: []syncv4.FailureCodeCount{{Code: "too_large", Count: 2}},
 	}
@@ -33,7 +40,7 @@ func TestDoctorHubSectionReportsPairingQueueAndLastCheckIn(t *testing.T) {
 	}
 	var text bytes.Buffer
 	renderDoctor(&text, &diagnostics.Snapshot{Version: "test", Hub: hub})
-	for _, want := range []string{"Hub\n", "Origin: https://hub.example.test", "Paired: yes", "Sync: paused", "pending 3, failing 2, parked 1", "too_large (2)", "hub_unreachable"} {
+	for _, want := range []string{"Hub\n", "Origin: https://hub.example.test", "Paired: yes", "Sync: paused", "pending 3, failing 2, parked 1", "too_large (2)", "hub_unreachable", "Hub: can't connect to hub.example.test since 08:12 (14 attempts) — Connection timed out. Check your network, VPN or proxy.", "Raw error: dial tcp: i/o timeout"} {
 		if !strings.Contains(text.String(), want) {
 			t.Fatalf("doctor output omitted %q: %s", want, text.String())
 		}
@@ -44,6 +51,10 @@ func TestDoctorHubSectionReportsPairingQueueAndLastCheckIn(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "title") || strings.Contains(string(encoded), "summary") {
 		t.Fatalf("Hub health leaked session content: %s", encoded)
+	}
+	wantJSON := `{"origin":"https://hub.example.test","deviceName":"synthetic-host","deviceId":"synthetic-device-id","paired":true,"lastCheckInAtMs":1791792600000,"lastCheckInResult":"hub_unreachable","lastFailure":{"host":"hub.example.test","cause":"connect","sinceMs":1791792720000,"attempts":14,"sentence":"Hub: can't connect to hub.example.test since 08:12 (14 attempts) — Connection timed out. Check your network, VPN or proxy.","rawError":"dial tcp: i/o timeout"},"syncState":"paused","policyKnown":true,"pending":3,"failing":2,"parked":1,"topFailureCodes":[{"code":"too_large","count":2}]}`
+	if string(encoded) != wantJSON {
+		t.Fatalf("doctor Hub JSON = %s, want %s", encoded, wantJSON)
 	}
 }
 

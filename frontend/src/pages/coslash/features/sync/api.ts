@@ -11,10 +11,23 @@ export type SyncState =
 
 export type SessionSyncState = 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out';
 
+export type HubFailureCause = 'dns' | 'connect' | 'tls' | 'proxy' | 'hub_unavailable' | 'rejected';
+
+export type HubFailureStatus = {
+  host: string;
+  cause: HubFailureCause;
+  sinceMs: number;
+  attempts: number;
+  sentence: string;
+  rawError: string;
+};
+
 export type SyncStatus = {
   state: SyncState;
   hubOrigin: string;
   sessions: Record<string, SessionSyncState>;
+  lastFailure?: HubFailureStatus;
+  hubFailureActive?: boolean;
 };
 
 export type SyncStatusLoad = 'loading' | 'ready' | 'error';
@@ -30,6 +43,14 @@ const SYNC_STATES = new Set<SyncState>([
 ]);
 
 const SESSION_STATES = new Set<SessionSyncState>(['in_hub', 'syncing', 'not_in_hub', 'left_out']);
+const HUB_FAILURE_CAUSES = new Set<HubFailureCause>([
+  'dns',
+  'connect',
+  'tls',
+  'proxy',
+  'hub_unavailable',
+  'rejected',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value != null && !Array.isArray(value);
@@ -72,11 +93,51 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
     if (!SESSION_STATES.has(state as SessionSyncState)) throw new Error('Invalid sync status');
     sessions[key] = state as SessionSyncState;
   }
-  return { state: value.state as SyncState, hubOrigin, sessions };
+  let lastFailure: HubFailureStatus | undefined;
+  if (value.lastFailure !== undefined) {
+    if (
+      !isRecord(value.lastFailure) ||
+      typeof value.lastFailure.host !== 'string' ||
+      typeof value.lastFailure.cause !== 'string' ||
+      !HUB_FAILURE_CAUSES.has(value.lastFailure.cause as HubFailureCause) ||
+      typeof value.lastFailure.sinceMs !== 'number' ||
+      !Number.isFinite(value.lastFailure.sinceMs) ||
+      typeof value.lastFailure.attempts !== 'number' ||
+      !Number.isInteger(value.lastFailure.attempts) ||
+      value.lastFailure.attempts < 1 ||
+      typeof value.lastFailure.sentence !== 'string' ||
+      typeof value.lastFailure.rawError !== 'string'
+    ) {
+      throw new Error('Invalid sync status');
+    }
+    lastFailure = {
+      host: value.lastFailure.host,
+      cause: value.lastFailure.cause as HubFailureCause,
+      sinceMs: value.lastFailure.sinceMs,
+      attempts: value.lastFailure.attempts,
+      sentence: value.lastFailure.sentence,
+      rawError: value.lastFailure.rawError,
+    };
+  }
+  if (value.hubFailureActive !== undefined && typeof value.hubFailureActive !== 'boolean') {
+    throw new Error('Invalid sync status');
+  }
+  return {
+    state: value.state as SyncState,
+    hubOrigin,
+    sessions,
+    ...(lastFailure ? { lastFailure } : {}),
+    ...(typeof value.hubFailureActive === 'boolean' ? { hubFailureActive: value.hubFailureActive } : {}),
+  };
 }
 
 export async function loadSyncStatus(signal?: AbortSignal): Promise<SyncStatus> {
   const response = await apiFetch('/api/sync/status', { signal });
   if (!response.ok) throw new Error('Sync status is unavailable');
   return decodeSyncStatus((await response.json()) as unknown);
+}
+
+export async function retrySyncNow(): Promise<void> {
+  const response = await apiFetch('/api/sync/retry', { method: 'POST' });
+  if (!response.ok) throw new Error('Hub sync could not be retried.');
 }

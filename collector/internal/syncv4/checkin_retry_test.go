@@ -67,7 +67,7 @@ func TestRejectedCheckInBackoffBoundsRequestsAndResetsAfterSuccess(t *testing.T)
 				if problem.RetryAfter != wantBackoff {
 					t.Fatalf("attempt %d retry-after = %s, want %s", wantRequests, problem.RetryAfter, wantBackoff)
 				}
-				if wantRequests == 1 && DeferReason(err) != "hub_rejected:invalid_query" {
+				if wantRequests == 1 && DeferReason(err) != hubclient.FailureRejected {
 					t.Fatalf("visible rejection reason = %q", DeferReason(err))
 				}
 
