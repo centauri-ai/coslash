@@ -58,7 +58,8 @@ export type ShareEligibility =
 
 export type Session = {
   sourceId: string;
-  hubSyncChip?: 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out' | 'none';
+  hubSyncChip?: 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out' | 'parked_failed' | 'none';
+  hubSyncFailureCode?: string;
   sourceLabel: string;
   /** Stable across a remote alias rename. Never contains host or path data. */
   sourceClass?: SourceClass;
@@ -556,7 +557,7 @@ export function sumTokens(
 
 export function getTotalTokens(tokens: Session['tokens']): number | null {
   if (Object.keys(tokens).length === 0) return null;
-  return Object.values(tokens).reduce(
+  const total = Object.values(tokens).reduce(
     (sum, modelTokens) =>
       sum +
       modelTokens.input_tokens +
@@ -566,6 +567,7 @@ export function getTotalTokens(tokens: Session['tokens']): number | null {
       modelTokens.cache_read_input_tokens,
     0,
   );
+  return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
 type Accounting = Pick<
@@ -584,7 +586,7 @@ export function sessionTotalTokens(session: Omit<Accounting, 'cost' | 'costUnava
   if (session.tokensUnavailable) return null;
   const values = accountingTokens(session);
   if (!values.length) return session.tokensKnown ? 0 : null;
-  return values.reduce(
+  const total = values.reduce(
     (total, value) =>
       total +
       value.input_tokens +
@@ -594,10 +596,13 @@ export function sessionTotalTokens(session: Omit<Accounting, 'cost' | 'costUnava
       value.cache_read_input_tokens,
     0,
   );
+  return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
 export function sessionCost(session: Pick<Accounting, 'cost' | 'costUnavailable'>): number | null {
-  return session.costUnavailable ? null : session.cost;
+  return session.costUnavailable || session.cost == null || !Number.isFinite(session.cost) || session.cost < 0
+    ? null
+    : session.cost;
 }
 
 export type SessionReadiness = {

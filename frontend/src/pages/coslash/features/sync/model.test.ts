@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionSyncState, SyncState, SyncStatus } from './api';
-import { chipLabel, chipOf, syncHeader, syncMode, syncSettingsView } from './model';
+import { chipLabel, chipOf, syncFailureDescription, syncHeader, syncMode, syncSettingsView } from './model';
 import designCases from './testdata/design-cases.json';
 
 const stateByMode: Record<string, SyncState> = {
@@ -82,5 +82,17 @@ describe('stale Hub contact status', () => {
 
     expect(syncHeader(status).label).toMatch(/^Can't reach Hub · since /);
     expect(syncHeader({ ...status, hubFailureActive: false }).label).toBe('Auto-sync on · managed in Hub');
+  });
+});
+
+describe('parked sync failures', () => {
+  it('keeps a parked failure distinct from in-flight syncing in every mode', () => {
+    expect(chipOf('on', 'parked_failed')).toBe('parked_failed');
+    expect(chipOf('off', 'parked_failed')).toBe('parked_failed');
+    expect(chipOf('none', 'syncing')).toBe('none');
+    expect(chipLabel('parked_failed')).toBe("Didn't sync");
+    expect(syncFailureDescription('unreadable_source')).toBe(
+      "coSlash Local couldn't read the session file. Syncs again when the session changes.",
+    );
   });
 });

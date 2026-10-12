@@ -872,11 +872,12 @@ type availableReviewer struct {
 }
 
 type settingsResponse struct {
-	Settings  settings.Config `json:"settings"`
-	Persisted bool            `json:"persisted"`
-	Valid     bool            `json:"valid"`
-	Error     string          `json:"error,omitempty"`
-	Options   struct {
+	Settings     settings.Config `json:"settings"`
+	SettingsPath string          `json:"settingsPath"`
+	Persisted    bool            `json:"persisted"`
+	Valid        bool            `json:"valid"`
+	Error        string          `json:"error,omitempty"`
+	Options      struct {
 		SynthesisBackends []availableBackend  `json:"synthesisBackends"`
 		Terminals         []availableTerminal `json:"terminals"`
 		Reviewers         []availableReviewer `json:"reviewers"`
@@ -885,10 +886,11 @@ type settingsResponse struct {
 
 func writeSettings(ctx context.Context, w http.ResponseWriter, state settings.State) {
 	response := settingsResponse{
-		Settings:  state.Config,
-		Persisted: state.Persisted,
-		Valid:     state.Valid,
-		Error:     state.Error,
+		Settings:     state.Config,
+		SettingsPath: settings.Path(),
+		Persisted:    state.Persisted,
+		Valid:        state.Valid,
+		Error:        state.Error,
 	}
 	for _, option := range settings.BackendOptions() {
 		_, err := exec.LookPath(settings.BackendExecutable(option.ID))

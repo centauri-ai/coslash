@@ -665,12 +665,13 @@ func (q *Queue) LogSequence() int64 {
 	return q.state.LogSeq
 }
 
-// SessionStates returns local session identities and their Hub membership
-// state without exposing session content or server identifiers.
-func (q *Queue) SessionStates() map[string]string {
+// SessionStatus returns local session identities, their Hub membership state,
+// and parked failure codes without exposing session content or server IDs.
+func (q *Queue) SessionStatus() (map[string]string, map[string]string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	states := make(map[string]string, len(q.state.Entries))
+	failures := make(map[string]string, len(q.state.Entries))
 	for _, entry := range q.state.Entries {
 		selection := entry.Selection
 		if selection.SourceID == "" || selection.Agent == "" || selection.SessionID == "" {
@@ -680,7 +681,12 @@ func (q *Queue) SessionStates() map[string]string {
 		switch {
 		case entry.Excluded:
 			states[key] = "left_out"
-		case pending(entry) && (entry.BundleID != "" || entry.UploadID != "" || entry.SessionID != ""):
+		case entry.ParkedVersion != "":
+			states[key] = "parked_failed"
+			if entry.FailureCode != "" {
+				failures[key] = entry.FailureCode
+			}
+		case q.currentKey == entry.Key:
 			states[key] = "syncing"
 		case entry.RevisionID != "":
 			states[key] = "in_hub"
@@ -688,6 +694,13 @@ func (q *Queue) SessionStates() map[string]string {
 			states[key] = "not_in_hub"
 		}
 	}
+	return states, failures
+}
+
+// SessionStates returns session membership states for callers that do not need
+// the additional failure details.
+func (q *Queue) SessionStates() map[string]string {
+	states, _ := q.SessionStatus()
 	return states
 }
 

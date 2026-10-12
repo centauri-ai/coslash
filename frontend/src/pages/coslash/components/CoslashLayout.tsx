@@ -76,7 +76,6 @@ import {
   sessionCost,
   sessionKey,
   sessionReadiness,
-  sessionsForAggregates,
   sessionTotalTokens,
   STATUS_ORDER,
   STATUSES,
@@ -286,7 +285,7 @@ function detectedGroup(session: Session): Group {
 }
 
 function formatTokens(value: number | null): string {
-  if (value == null) return '—';
+  if (value == null || !Number.isFinite(value) || value < 0) return '—';
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
   if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
   return String(value);
@@ -407,8 +406,7 @@ function InlineSpinner() {
 }
 
 function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boolean }) {
-  const aggregate = sessionsForAggregates(sessions);
-  const unpriced = aggregate.filter(
+  const unpriced = sessions.filter(
     (session) => sessionCost(session) == null || session.unpricedModels.length > 0,
   );
   return (
@@ -417,17 +415,17 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
       <strong className="flex items-center gap-1 font-[650]">
         {isLoading ? <InlineSpinner /> : sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
       </strong>
-      <span className="text-coslash-muted">active in this scope</span>
+      <span className="text-coslash-muted">in this scope</span>
       <span className="text-coslash-muted">·</span>
       <span className="text-coslash-muted flex items-center gap-1">
-        {isLoading ? <InlineSpinner /> : formatTokens(tokenTotal(aggregate))} tokens
+        {isLoading ? <InlineSpinner /> : formatTokens(tokenTotal(sessions))} tokens
       </span>
       <span className="text-coslash-muted">·</span>
       {isLoading ? (
         <InlineSpinner />
       ) : (
         <UnpricedModelWarning unpriced={unpriced.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(sumKnown(aggregate.map(sessionCost)))}
+          {formatEstimatedCost(sumKnown(sessions.map(sessionCost)))}
         </UnpricedModelWarning>
       )}
       {!isLoading && unpriced.length > 0 && (
@@ -443,7 +441,6 @@ function FacetRow({ label, count, selected, icon, indicator, status, onClick }: 
     <div
       className={cn(styles.facet, 'relative gap-1.5', {
         'bg-coslash-tint text-coslash-accent-ink font-semibold': selected,
-        'opacity-55': count === 0 && !selected,
       })}
     >
       {/* Stretched over the row, so the whole row still toggles the facet. */}
@@ -529,7 +526,7 @@ function CoslashHeader({
     <>
       <div className={styles.header}>
         <div className="flex min-w-0 items-center gap-3.5">
-          <span aria-label="coSlash">
+          <span role="img" aria-label="coSlash">
             <img src="/brand/coslash-logo.svg" alt="" className="w-[104px] dark:hidden" />
             <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden w-[104px] dark:block" />
           </span>
@@ -699,7 +696,9 @@ function SessionRow({
           >
             {sessionTitle(session)}
           </button>
-          {isLocalSession(session) && session.hubSyncChip && <SyncChip state={session.hubSyncChip} />}
+          {isLocalSession(session) && session.hubSyncChip && (
+            <SyncChip state={session.hubSyncChip} failureCode={session.hubSyncFailureCode} />
+          )}
         </div>
         <span
           className={cn(
@@ -997,7 +996,7 @@ function SessionListView({
         const open = openSections[status];
         const limit = sectionLimits[status] ?? (compact ? 12 : 5);
         const shown = open ? rows.slice(0, limit) : [];
-        const aggregate = sessionsForAggregates(rows);
+        const aggregate = rows;
         return (
           <tbody key={status}>
             <tr>

@@ -19,6 +19,7 @@ type syncStatus struct {
 	State            string                  `json:"state"`
 	HubOrigin        string                  `json:"hubOrigin"`
 	Sessions         map[string]string       `json:"sessions"`
+	SessionFailures  map[string]string       `json:"sessionFailures"`
 	LastFailure      *diagnostics.HubFailure `json:"lastFailure,omitempty"`
 	HubFailureActive bool                    `json:"hubFailureActive,omitempty"`
 }
@@ -182,7 +183,9 @@ func (c *syncController) statusAt(now time.Time) syncStatus {
 	c.mu.RLock()
 	client, connected, revoked := c.client, c.connected, c.revoked
 	c.mu.RUnlock()
-	status := syncStatus{State: "not_connected", Sessions: map[string]string{}}
+	status := syncStatus{
+		State: "not_connected", Sessions: map[string]string{}, SessionFailures: map[string]string{},
+	}
 	if client != nil && client.BaseURL != nil {
 		status.HubOrigin = client.BaseURL.Scheme + "://" + client.BaseURL.Host
 	}
@@ -205,7 +208,7 @@ func (c *syncController) statusAt(now time.Time) syncStatus {
 		return status
 	}
 	_, config, _ := c.queue.Policy()
-	status.Sessions = c.queue.SessionStates()
+	status.Sessions, status.SessionFailures = c.queue.SessionStatus()
 	activeSession := false
 	for _, state := range status.Sessions {
 		if state == "syncing" {

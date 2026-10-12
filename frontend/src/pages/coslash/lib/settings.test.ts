@@ -20,6 +20,7 @@ it('decodes installed reviewer options', () => {
     },
     persisted: true,
     valid: true,
+    settingsPath: '/custom/coslash/settings.json',
     options: {
       synthesisBackends: [],
       terminals: [],
@@ -27,6 +28,7 @@ it('decodes installed reviewer options', () => {
     },
   });
   expect(response.options.reviewers).toEqual([{ id: 'codex', label: 'Codex', available: true }]);
+  expect(response.settingsPath).toBe('/custom/coslash/settings.json');
 });
 
 it('defaults missing reviewer options for older servers', () => {
