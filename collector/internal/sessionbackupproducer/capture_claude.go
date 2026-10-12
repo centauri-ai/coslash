@@ -181,6 +181,9 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	if err != nil || len(records) > len(memberIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
 	}
+	if err := sanitizeRecordFilePaths(records, handle.Home); err != nil {
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+	}
 	recordByID := make(map[string]fullsessionv1.Record, len(records))
 	for _, record := range records {
 		if !memberIDs[record.SessionID] || recordByID[record.SessionID].SessionID != "" {

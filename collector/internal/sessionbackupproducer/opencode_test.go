@@ -120,6 +120,28 @@ func TestOpenCodeCompleteRoundTripAndDedupe(t *testing.T) {
 	}
 }
 
+func TestOpenCodeBackupSanitizesAbsoluteFileEditPaths(t *testing.T) {
+	db := openCodeBackupDB(t)
+	diffs := `[{"file":"/tmp/src/main.go","additions":1,"deletions":0,"status":"added"},{"file":"/Users/alice/.config/editor.json","additions":2,"deletions":1,"status":"modified"}]`
+	if _, err := db.Exec(`UPDATE session SET summary_diffs = ? WHERE id = 'root'`, diffs); err != nil {
+		t.Fatal(err)
+	}
+	spool := t.TempDir()
+	prepared, err := New(Options{Root: spool, LocalHome: func() (string, error) { return "/Users/alice", nil }}).Prepare(t.Context(), Selection{
+		SourceKind: backup.SourceLocal, SourceID: "local", Agent: vendors.AgentOpenCode, SessionID: "root",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, edit := range readProcessedRecord(t, spool, prepared, "root").Session.FileEdits {
+		paths[edit.Path] = true
+	}
+	if !paths["src/main.go"] || !paths["~/.config/editor.json"] {
+		t.Fatalf("sanitized OpenCode paths = %#v", paths)
+	}
+}
+
 func TestOpenCodeUnattributableRowsCannotComplete(t *testing.T) {
 	db := openCodeBackupDB(t)
 	if _, err := db.Exec(`UPDATE message SET data = '{invalid' WHERE session_id = 'root'`); err != nil {
