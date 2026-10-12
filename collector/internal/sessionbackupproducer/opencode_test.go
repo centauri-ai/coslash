@@ -3,6 +3,7 @@ package sessionbackupproducer
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -122,12 +123,35 @@ func TestOpenCodeCompleteRoundTripAndDedupe(t *testing.T) {
 
 func TestOpenCodeBackupSanitizesAbsoluteFileEditPaths(t *testing.T) {
 	db := openCodeBackupDB(t)
-	diffs := `[{"file":"/tmp/src/main.go","additions":1,"deletions":0,"status":"added"},{"file":"/Users/alice/.config/editor.json","additions":2,"deletions":1,"status":"modified"}]`
-	if _, err := db.Exec(`UPDATE session SET summary_diffs = ? WHERE id = 'root'`, diffs); err != nil {
+	home, workspace := t.TempDir(), t.TempDir()
+	homeFile := filepath.Join(home, ".config", "editor.json")
+	if err := os.MkdirAll(filepath.Dir(homeFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(homeFile, []byte("setting"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(homeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffs, err := json.Marshal([]struct {
+		File      string `json:"file"`
+		Additions int    `json:"additions"`
+		Deletions int    `json:"deletions"`
+		Status    string `json:"status"`
+	}{
+		{File: filepath.Join(workspace, "src", "main.go"), Additions: 1, Status: "added"},
+		{File: homeFile, Additions: 2, Deletions: 1, Status: "modified"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE session SET directory = ?, summary_diffs = ? WHERE id = 'root'`, workspace, string(diffs)); err != nil {
 		t.Fatal(err)
 	}
 	spool := t.TempDir()
-	prepared, err := New(Options{Root: spool, LocalHome: func() (string, error) { return "/Users/alice", nil }}).Prepare(t.Context(), Selection{
+	prepared, err := New(Options{Root: spool, LocalHome: func() (string, error) { return home, nil }}).Prepare(t.Context(), Selection{
 		SourceKind: backup.SourceLocal, SourceID: "local", Agent: vendors.AgentOpenCode, SessionID: "root",
 	})
 	if err != nil {
@@ -139,6 +163,24 @@ func TestOpenCodeBackupSanitizesAbsoluteFileEditPaths(t *testing.T) {
 	}
 	if !paths["src/main.go"] || !paths["~/.config/editor.json"] {
 		t.Fatalf("sanitized OpenCode paths = %#v", paths)
+	}
+	foundTimestamp := false
+	for _, artifact := range prepared.Manifest.Artifacts {
+		if artifact.MemberID != "root" || artifact.Kind != backup.KindSessionEnrichment {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(spool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		enrichment, err := backup.DecodeEnrichment(data)
+		if err != nil || enrichment.LastEditAtMs == nil || *enrichment.LastEditAtMs != info.ModTime().UnixMilli() {
+			t.Fatalf("home file last edit timestamp = %#v, %v; want %d", enrichment.LastEditAtMs, err, info.ModTime().UnixMilli())
+		}
+		foundTimestamp = true
+	}
+	if !foundTimestamp {
+		t.Fatal("root session enrichment is missing")
 	}
 }
 
