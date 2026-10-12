@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -908,9 +909,38 @@ func (r *Runner) commandSessionAllowed(id string) bool {
 	return false
 }
 
+type SSHCommandError struct {
+	Reason  *remote.Reason
+	Install bool
+}
+
+func (err *SSHCommandError) Error() string { return "SSH command failed" }
+
 func commandError(err error) string {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return "command_cancelled"
+	}
+	var sshErr *SSHCommandError
+	if errors.As(err, &sshErr) {
+		reason := remote.Reason("")
+		if sshErr.Reason != nil {
+			reason = *sshErr.Reason
+		}
+		switch reason {
+		case remote.ReasonAuthentication:
+			return "ssh_auth_failed"
+		case remote.ReasonConnectionFailed, remote.ReasonRefreshTimeout:
+			return "ssh_unreachable"
+		case remote.ReasonHostKeyChanged:
+			return "ssh_host_key_changed"
+		case remote.ReasonHostKeyConfirmation:
+			return "ssh_host_key_unknown"
+		case remote.ReasonSFTPUnavailable:
+			return "ssh_sftp_unavailable"
+		}
+		if sshErr.Install {
+			return "connector_install_failed"
+		}
 	}
 	return "command_failed"
 }

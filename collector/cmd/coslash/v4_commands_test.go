@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
@@ -152,5 +156,38 @@ func TestLocalUpdateRouteUsesDurablePrompt(t *testing.T) {
 	}
 	if !prompt.Available || !prompt.Required || prompt.DownloadURL != "https://download.example/app" {
 		t.Fatalf("prompt=%+v", prompt)
+	}
+}
+
+func TestSSHCommandPreservesAuthenticationFailure(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	relay := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir()), Open: func(context.Context, string, remote.OpenOptions) (*remote.Session, error) {
+		return nil, errors.New("Permission denied (publickey). /private/key user@host\n\x1b[31m")
+	}})
+	err := v4CommandRunner(nil, nil, relay)(context.Background(), hubclient.V4Command{Type: "ssh.test", Payload: json.RawMessage(`{"hostId":"host-one","alias":"agent-box"}`)})
+	var failure *syncv4.SSHCommandError
+	if !errors.As(err, &failure) || failure.Reason == nil || *failure.Reason != remote.ReasonAuthentication {
+		t.Fatalf("SSH command error = %v, want classified authentication failure", err)
+	}
+	if !strings.Contains(output.String(), "Permission denied (publickey)") || strings.Contains(output.String(), "/private/key") || strings.Contains(output.String(), "user@host") || strings.Contains(output.String(), "\x1b") {
+		t.Fatalf("unsafe or missing SSH diagnostic: %q", output.String())
+	}
+}
+
+func TestSSHInstallPreservesHelperFailure(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	if err := local.Save(settings.Defaults()); err != nil {
+		t.Fatal(err)
+	}
+	relay := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir())})
+	err := v4CommandRunner(nil, local, relay)(context.Background(), hubclient.V4Command{Type: "ssh.install", Payload: json.RawMessage(`{"hostId":"host-one","alias":"agent-box"}`)})
+	var failure *syncv4.SSHCommandError
+	if !errors.As(err, &failure) || !failure.Install || failure.Reason == nil || *failure.Reason != remote.ReasonHelperMissing {
+		t.Fatalf("SSH install error = %v, want helper missing", err)
 	}
 }

@@ -370,6 +370,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	}
 	document, err := provider.LoadMetadata(ctx)
 	if err != nil {
+		LogSSHFailure("ssh.install", err)
 		manager.mu.Lock()
 		status := unavailableHelperStatus(err)
 		manager.helper = &status
@@ -379,6 +380,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	}
 	lifecycle, err := factory(config.SSHAlias)
 	if err != nil {
+		LogSSHFailure("ssh.install", err)
 		manager.mu.Lock()
 		status := unavailableHelperStatus(err)
 		manager.helper = &status
@@ -395,6 +397,9 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 			activeLifecycle = retryLifecycle
 		}
 	}
+	if result.Reason != nil {
+		LogSSHFailure("ssh.install", result.Reason)
+	}
 	manager.mu.Lock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
 		health := manager.healthLocked(manager.lastRequestedMs)
@@ -405,6 +410,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	manager.helper = &status
 	if result.CanExecute {
 		if err := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); err != nil {
+			LogSSHFailure("ssh.install", err)
 			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
 			manager.helper = &status
 			manager.helperTarget = nil

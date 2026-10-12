@@ -1,10 +1,13 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1321,4 +1324,27 @@ func waitUntil(t *testing.T, ready func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("timed out waiting for condition")
+}
+
+func TestSetupLogsUnderlyingSSHFailure(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	host, _, content := lifecycleFixture(t)
+	host.installErr = wrapSSHError(errors.New("installer exited"), "Permission denied (publickey). /private/key user@host")
+	manager := NewManager(Options{
+		Cache: NewCache(t.TempDir()), ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+		LifecycleFactory:   func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+		ResetControlMaster: func(string) {}, HelperInstallationAvailable: true,
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetupHelperForAlias(context.Background(), "agent-box", Consent{Install: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "installer exited") || !strings.Contains(output.String(), "Permission denied (publickey)") || strings.Contains(output.String(), "/private/key") || strings.Contains(output.String(), "user@host") {
+		t.Fatalf("unsafe or missing install diagnostic: %q", output.String())
+	}
 }
