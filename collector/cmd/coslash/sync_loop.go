@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ type v4SyncState interface {
 	NextRetryDelay() time.Duration
 	NextCheckInDelay() time.Duration
 	Progress() hubclient.V4Queue
+	LastHubFailure() *syncv4.HubContactFailure
 }
 
 type syncLoopControl struct {
@@ -30,6 +32,68 @@ type syncLoopControl struct {
 	mu     sync.Mutex
 	idle   bool
 	paused func() bool
+}
+
+const (
+	transportRetryInitial = 2 * time.Second
+	transportRetryMax     = time.Minute
+)
+
+type transportRetryBackoff struct{ failures int }
+
+func (backoff *transportRetryBackoff) delay(err error) time.Duration {
+	if err == nil {
+		backoff.failures = 0
+		return 0
+	}
+	if !retryableHubContact(err) {
+		return 0
+	}
+	backoff.failures++
+	delay := jitteredTransportRetryDelay(backoff.failures)
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && problem.RetryAfter > delay {
+		delay = problem.RetryAfter
+	}
+	return delay
+}
+
+func (backoff *transportRetryBackoff) reset() { backoff.failures = 0 }
+
+func retryableHubContact(err error) bool {
+	failure, ok := hubclient.ClassifyHubFailure(err)
+	if !ok {
+		return false
+	}
+	switch failure.Cause {
+	case hubclient.FailureDNS, hubclient.FailureConnect, hubclient.FailureTLS,
+		hubclient.FailureProxy, hubclient.FailureHubUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+func transportRetryBase(attempt int) time.Duration {
+	delay := transportRetryInitial
+	for attempt > 1 && delay < transportRetryMax {
+		delay *= 2
+		attempt--
+	}
+	return min(delay, transportRetryMax)
+}
+
+func jitteredTransportRetryDelay(attempt int) time.Duration {
+	delay := transportRetryBase(attempt)
+	spread := delay / 5
+	jitter := time.Duration(rand.Int63n(int64(spread*2+1))) - spread
+	return min(max(delay+jitter, time.Second), transportRetryMax)
+}
+
+func bypassRetryBackoff(runner v4SyncWorker) {
+	if bypasser, ok := runner.(interface{ BypassRetryBackoff() }); ok {
+		bypasser.BypassRetryBackoff()
+	}
 }
 
 func newSyncLoopControl(paused func() bool) *syncLoopControl {
@@ -79,15 +143,28 @@ func (control *syncLoopControl) beginPass() {
 
 func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), control *syncLoopControl, externalWake ...<-chan struct{}) {
 	var inventoryWake <-chan struct{}
+	var retryWake <-chan struct{}
 	if len(externalWake) > 0 {
 		inventoryWake = externalWake[0]
+	}
+	if len(externalWake) > 1 {
+		retryWake = externalWake[1]
 	}
 	policyWake := make(chan struct{}, 1)
 	var policyMu sync.Mutex
 	blockedPolicyVersion := int64(-1)
 	go func() {
 		authFailures := 0
+		transportBackoff := transportRetryBackoff{}
 		for ctx.Err() == nil {
+			if queue.LastHubFailure() != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+				continue
+			}
 			version, _, _ := queue.Policy()
 			result, err := wait(ctx, version)
 			if ctx.Err() != nil {
@@ -108,18 +185,27 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 				policyMu.Unlock()
 			}
 			delay := 100 * time.Millisecond
+			retrySync := false
 			if credentialRetry(err) {
 				authFailures++
 				delay = credentialRetryDelay(authFailures)
+			} else if retryableHubContact(err) {
+				delay = transportBackoff.delay(err)
+				retrySync = true
 			} else if err != nil {
+				transportBackoff.reset()
 				delay = time.Second
 			} else {
 				authFailures = 0
+				transportBackoff.reset()
 			}
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(delay):
+				if retrySync {
+					control.wakeIfIdle()
+				}
 			}
 		}
 	}()
@@ -131,6 +217,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 			var retryAt time.Time
+			transportBackoff := transportRetryBackoff{}
 			for {
 				select {
 				case <-ctx.Done():
@@ -140,11 +227,22 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 				if !reporter.ImportActive() || time.Now().Before(retryAt) {
 					continue
 				}
-				changed, retryAfter, err := reporter.ProgressCheckIn(ctx)
-				if err != nil {
-					retryAt = time.Now().Add(max(10*time.Second, retryAfter))
+				if queue.LastHubFailure() != nil {
+					control.wakeIfIdle()
+					retryAt = time.Now().Add(time.Minute)
 					continue
 				}
+				changed, retryAfter, err := reporter.ProgressCheckIn(ctx)
+				if err != nil {
+					if retryableHubContact(err) {
+						retryAt = time.Now().Add(transportBackoff.delay(err))
+					} else {
+						transportBackoff.reset()
+						retryAt = time.Now().Add(max(10*time.Second, retryAfter))
+					}
+					continue
+				}
+				transportBackoff.reset()
 				if changed {
 					control.signal()
 				}
@@ -153,6 +251,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 	}
 
 	authFailures := 0
+	transportBackoff := transportRetryBackoff{}
 	var lastLocalError [32]byte
 	hasLastLocalError := false
 	hasLoggedNotPaired := false
@@ -174,6 +273,13 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			<-done
 			control.setIdle(true)
 			requestDiscovery(runner)
+			continue
+		case <-retryWake:
+			cancel()
+			<-done
+			control.setIdle(true)
+			transportBackoff.reset()
+			bypassRetryBackoff(runner)
 			continue
 		case <-ctx.Done():
 			cancel()
@@ -201,6 +307,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			case <-ctx.Done():
 				return
 			case <-policyWake:
+			case <-retryWake:
+				transportBackoff.reset()
+				bypassRetryBackoff(runner)
 			}
 			policyMu.Lock()
 			blockedPolicyVersion = -1
@@ -249,6 +358,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		} else if err == nil {
 			authFailures = 0
 		}
+		if err == nil || !retryableHubContact(err) {
+			transportBackoff.reset()
+		}
 		terminalResult := false
 		if err == nil || errors.Is(err, syncv4.ErrPaused) {
 			for _, result := range queue.Results() {
@@ -262,6 +374,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			continue
 		}
 		delay := syncv4.NextSyncDelay(err, queue.InFlight(), queue.NextCheckInDelay())
+		if retryableHubContact(err) {
+			delay = transportBackoff.delay(err)
+		}
 		if credentialRetry(err) {
 			delay = credentialRetryDelay(authFailures)
 		}
@@ -285,6 +400,10 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		case <-control.wake:
 		case <-inventoryWake:
 			requestDiscovery(runner)
+		case <-retryWake:
+			transportBackoff.reset()
+			bypassRetryBackoff(runner)
+			continue
 		case <-time.After(delay):
 		}
 	}

@@ -247,7 +247,7 @@ var cliCommandHelp = []struct {
 	{"send", "start an agent with a session handoff", sendUsage()},
 	{"review", "review a session with another agent", reviewHelp()},
 	{"doctor", "check local setup and Hub sync health", "coslash doctor [--json] [--fix-links [--yes]]"},
-	{"status", "show the same sync health as doctor", "coslash status [--json]"},
+	{"status", "show sync health and optionally retry Hub sync", "coslash status [--json] [--retry]"},
 	{"mcp", "configure the Hub MCP server", mcpUsage},
 	{"version", "print the Local version", "coslash version"},
 }
@@ -271,7 +271,7 @@ func printCLIHelp(w io.Writer) {
 
 func printCommandHelp(w io.Writer, name string) bool {
 	if name == "status" {
-		fmt.Fprintln(w, "usage: coslash status [--json]")
+		fmt.Fprintln(w, "usage: coslash status [--json] [--retry]")
 		return true
 	}
 	for _, command := range cliCommandHelp {
@@ -327,7 +327,7 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		case "doctor":
 			fmt.Fprintln(stdout, "usage: coslash doctor [--json] [--fix-links [--yes]]")
 		case "status":
-			fmt.Fprintln(stdout, "usage: coslash status [--json]")
+			fmt.Fprintln(stdout, "usage: coslash status [--json] [--retry]")
 		case "mcp":
 			fmt.Fprintln(stdout, mcpUsage)
 		default:

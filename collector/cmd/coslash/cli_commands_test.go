@@ -555,8 +555,28 @@ func TestRootHelpVersionAndUnknownCommand(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := runCLI(&stdout, &stderr, []string{"help", "status"}); code != 0 || stdout.String() != "usage: coslash status [--json]\n" || stderr.Len() != 0 {
+	if code := runCLI(&stdout, &stderr, []string{"help", "status"}); code != 0 || stdout.String() != "usage: coslash status [--json] [--retry]\n" || stderr.Len() != 0 {
 		t.Fatalf("status help: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestStatusRetryRequestsImmediateLocalSync(t *testing.T) {
+	retried := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/sync/retry" || r.Header.Get("X-Coslash-Token") != "secret" {
+			t.Fatalf("retry request = %s %s token=%q", r.Method, r.URL.Path, r.Header.Get("X-Coslash-Token"))
+		}
+		retried = true
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	t.Setenv("COSLASH_V4_SYNC", "0")
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(&stdout, &stderr, []string{"status", "--retry", "--json"})
+	if !retried || stdout.Len() == 0 || code == 2 {
+		t.Fatalf("status --retry: retried=%t code=%d stdout=%q stderr=%q", retried, code, stdout.String(), stderr.String())
 	}
 }
 

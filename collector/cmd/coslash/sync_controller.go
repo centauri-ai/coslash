@@ -13,7 +13,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
-type syncLoopStarter func(context.Context, *syncv4.Queue, *hubclient.Client, chan struct{})
+type syncLoopStarter func(context.Context, *syncv4.Queue, *hubclient.Client, chan struct{}, chan struct{})
 
 type syncStatus struct {
 	State            string                  `json:"state"`
@@ -21,7 +21,7 @@ type syncStatus struct {
 	Sessions         map[string]string       `json:"sessions"`
 	SessionFailures  map[string]string       `json:"sessionFailures"`
 	LastFailure      *diagnostics.HubFailure `json:"lastFailure,omitempty"`
-	HubFailureActive bool                    `json:"hubFailureActive,omitempty"`
+	HubFailureActive bool                    `json:"hubFailureActive"`
 }
 
 type syncController struct {
@@ -38,6 +38,7 @@ type syncController struct {
 	cancel     context.CancelFunc
 	done       chan struct{}
 	wake       chan struct{}
+	retryWake  chan struct{}
 	passActive atomic.Bool
 }
 
@@ -121,16 +122,17 @@ func (c *syncController) Ensure(client *hubclient.Client) error {
 	loopContext, stop := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	wake := make(chan struct{}, 1)
-	c.cancel, c.done, c.wake = stop, done, wake
+	retryWake := make(chan struct{}, 1)
+	c.cancel, c.done, c.wake, c.retryWake = stop, done, wake, retryWake
 	c.passActive.Store(false)
 	c.mu.Unlock()
 	go func() {
 		defer close(done)
-		c.startLoop(loopContext, c.queue, client, wake)
+		c.startLoop(loopContext, c.queue, client, wake, retryWake)
 		c.passActive.Store(false)
 		c.mu.Lock()
 		if c.done == done {
-			c.cancel, c.done, c.wake = nil, nil, nil
+			c.cancel, c.done, c.wake, c.retryWake = nil, nil, nil, nil
 		}
 		c.mu.Unlock()
 	}()
@@ -143,7 +145,7 @@ func (c *syncController) RequestPass(_ string) {
 
 func (c *syncController) RetryNow() bool {
 	c.mu.RLock()
-	connected, wake := c.connected, c.wake
+	connected, wake := c.connected, c.retryWake
 	c.mu.RUnlock()
 	if !connected || wake == nil {
 		return false
@@ -190,7 +192,7 @@ func (c *syncController) statusAt(now time.Time) syncStatus {
 		status.HubOrigin = client.BaseURL.Scheme + "://" + client.BaseURL.Host
 	}
 	if c.queue != nil {
-		status.LastFailure, status.HubFailureActive = hubFailureView(status.HubOrigin, c.queue.LastHubFailure(), now, c.queue.NextCheckInDelay())
+		status.LastFailure, status.HubFailureActive = hubFailureView(status.HubOrigin, c.queue.LastHubFailure(), now)
 	}
 	if revoked {
 		status.State = "disconnected"

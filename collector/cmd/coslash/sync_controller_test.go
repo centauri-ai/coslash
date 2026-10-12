@@ -160,7 +160,7 @@ func TestStartupWithStoredCredentialStartsSync(t *testing.T) {
 	started := make(chan struct{}, 1)
 	stopped := make(chan struct{}, 1)
 	var starts atomic.Int32
-	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _ chan struct{}) {
+	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
 		starts.Add(1)
 		started <- struct{}{}
 		<-ctx.Done()
@@ -183,7 +183,7 @@ func TestStartupWithStoredCredentialStartsSync(t *testing.T) {
 func TestEnsureIsIdempotent(t *testing.T) {
 	started := make(chan struct{}, 1)
 	var starts atomic.Int32
-	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _ chan struct{}) {
+	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
 		starts.Add(1)
 		started <- struct{}{}
 		<-ctx.Done()
@@ -226,7 +226,7 @@ func (revokedSyncWorker) SyncOnce(context.Context) error {
 func TestRevokedCredentialIsDeletedAndCallsStop(t *testing.T) {
 	stopped := make(chan struct{}, 1)
 	credentials := &syncTestCredentials{value: "revoked-device-credential"}
-	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _ chan struct{}) {
+	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
 		<-ctx.Done()
 		stopped <- struct{}{}
 	}, nil)
@@ -253,7 +253,7 @@ func TestRevokedCredentialIsDeletedAndCallsStop(t *testing.T) {
 func TestStaleRevocationPreservesReplacementCredential(t *testing.T) {
 	stopped := make(chan struct{}, 1)
 	credentials := &syncTestCredentials{value: "old-device-credential"}
-	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _ chan struct{}) {
+	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
 		<-ctx.Done()
 		stopped <- struct{}{}
 	}, nil)
