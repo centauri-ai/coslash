@@ -847,13 +847,13 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		}
 		if recent {
 			progress.FirstSync.RecentTotal++
-			if !pending(entry) {
+			if !pending(entry) || entry.ParkedVersion != "" {
 				progress.FirstSync.RecentDone++
 			}
-		} else if pending(entry) && (plan == nil || plan.History || plan.Backfill) {
+		} else if pending(entry) && entry.ParkedVersion == "" && (plan == nil || plan.History || plan.Backfill) {
 			progress.FirstSync.HistoryState = "syncing"
 		}
-		if pending(entry) {
+		if pending(entry) && entry.ParkedVersion == "" {
 			progress.Pending++
 		}
 		// rate_limited is the Hub's active-upload back-pressure, not a failure.

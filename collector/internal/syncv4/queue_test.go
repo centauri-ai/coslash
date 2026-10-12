@@ -288,6 +288,35 @@ func TestProgressDoesNotCountBackPressureAsFailing(t *testing.T) {
 	}
 }
 
+func TestProgressCountsParkedRecentFailuresAsDone(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := make([]Entry, 3)
+	for i := range entries {
+		entries[i] = Entry{Key: fmt.Sprintf("parked-%d", i), Activity: now.UnixMilli(), FailureCode: "unreadable_source",
+			ParkedVersion: "0.0.5", Session: hubclient.V4Session{Agent: "codex"}}
+	}
+	if err := queue.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	progress := queue.Progress()
+	if progress.Pending != 0 || progress.Failing != 3 || progress.FirstSync.RecentDone != 3 || progress.FirstSync.RecentTotal != 3 {
+		t.Fatalf("all parked failures should finish recent first sync: %+v", progress)
+	}
+
+	if err := queue.Merge([]Entry{{Key: "retryable", Activity: now.UnixMilli(), FailureCode: "server_error",
+		Session: hubclient.V4Session{Agent: "claude"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	progress = queue.Progress()
+	if progress.Pending != 1 || progress.Failing != 4 || progress.FirstSync.RecentDone != 3 || progress.FirstSync.RecentTotal != 4 {
+		t.Fatalf("retryable failure was treated as complete: %+v", progress)
+	}
+}
+
 func TestProgressUsesImportPlanOnlyWhenScaleImportIsActive(t *testing.T) {
 	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", MaxSessions: 1}
 	for _, test := range []struct {
