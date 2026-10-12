@@ -119,11 +119,29 @@ type onboardingClaimResponse struct {
 	IntervalSeconds int       `json:"intervalSeconds"`
 }
 
+type onboardingDeviceFacts struct {
+	DeviceName string `json:"deviceName"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
+	Version    string `json:"version,omitempty"`
+}
+
+func (c *Client) onboardingDeviceFacts() onboardingDeviceFacts {
+	facts := onboardingDeviceFacts{DeviceName: c.DeviceName, OS: runtime.GOOS, Arch: runtime.GOARCH}
+	if len(c.CollectorVersion) <= 128 && clientVersion.MatchString(c.CollectorVersion) {
+		facts.Version = c.CollectorVersion
+	}
+	return facts
+}
+
 func (c *Client) BeginOnboardingPairing(ctx context.Context, attemptID, launchIntent string) (PairingResult, error) {
 	if !c.configured() || !onboardingUUID.MatchString(attemptID) || !launchToken.MatchString(launchIntent) {
 		return PairingResult{}, errors.New("Hub onboarding is not configured")
 	}
-	body, err := json.Marshal(map[string]string{"launchIntent": launchIntent, "deviceName": c.DeviceName})
+	body, err := json.Marshal(struct {
+		LaunchIntent string `json:"launchIntent"`
+		onboardingDeviceFacts
+	}{LaunchIntent: launchIntent, onboardingDeviceFacts: c.onboardingDeviceFacts()})
 	if err != nil {
 		return PairingResult{}, errors.New("could not prepare Hub onboarding")
 	}
@@ -165,7 +183,10 @@ func (c *Client) ClaimOnboardingCode(ctx context.Context, code string) (PairingR
 	if !c.configured() || !ValidConnectCode(code) {
 		return PairingResult{}, errors.New("invalid connect code")
 	}
-	body, err := json.Marshal(map[string]string{"connectCode": strings.ToUpper(code), "deviceName": c.DeviceName})
+	body, err := json.Marshal(struct {
+		ConnectCode string `json:"connectCode"`
+		onboardingDeviceFacts
+	}{ConnectCode: strings.ToUpper(code), onboardingDeviceFacts: c.onboardingDeviceFacts()})
 	if err != nil {
 		return PairingResult{}, errors.New("could not prepare Hub onboarding")
 	}
