@@ -123,8 +123,8 @@ func TestParseOptionsRecordsExplicitPort(t *testing.T) {
 
 func TestStartupAccessInstructionsGiveARecoveryPathWithoutLoggingTheToken(t *testing.T) {
 	instructions := startupAccessInstructions()
-	if !strings.Contains(instructions, "Devices › this computer › Open") || !strings.Contains(instructions, "run coslash in Terminal") {
-		t.Fatalf("startup instructions = %q, missing a supported recovery path", instructions)
+	if instructions != "run coslash in Terminal to open coSlash Local" {
+		t.Fatalf("startup instructions = %q, want the supported Terminal recovery path", instructions)
 	}
 	if strings.Contains(instructions, "#t=") {
 		t.Fatalf("startup instructions include a token fragment: %q", instructions)
