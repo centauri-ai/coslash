@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,6 +24,7 @@ func (syncLoopQueue) InFlight() int                               { return 0 }
 func (syncLoopQueue) NextRetryDelay() time.Duration               { return 0 }
 func (syncLoopQueue) NextCheckInDelay() time.Duration             { return 60 * time.Second }
 func (syncLoopQueue) Progress() hubclient.V4Queue                 { return hubclient.V4Queue{} }
+func (syncLoopQueue) LastHubFailure() *syncv4.HubContactFailure   { return nil }
 
 type fastSyncLoopQueue struct{ syncLoopQueue }
 
@@ -200,6 +203,106 @@ func TestSyncRequestedRunsCheckInWithinOneSecond(t *testing.T) {
 	}
 }
 
+func TestTransportRetryBackoffScheduleResetCapAndRetryAfter(t *testing.T) {
+	for _, test := range []struct {
+		attempt int
+		want    time.Duration
+	}{{1, 2 * time.Second}, {2, 4 * time.Second}, {3, 8 * time.Second}, {4, 16 * time.Second},
+		{5, 32 * time.Second}, {6, time.Minute}, {7, time.Minute}, {100, time.Minute}} {
+		if got := transportRetryBase(test.attempt); got != test.want {
+			t.Errorf("transportRetryBase(%d) = %s, want %s", test.attempt, got, test.want)
+		}
+	}
+	err := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	backoff := transportRetryBackoff{}
+	for attempt, want := range []time.Duration{2 * time.Second, 4 * time.Second} {
+		got := backoff.delay(err)
+		spread := want / 5
+		if got < want-spread || got > want+spread {
+			t.Fatalf("jittered retry %d = %s, outside %s..%s", attempt+1, got, want-spread, want+spread)
+		}
+	}
+	if got := backoff.delay(nil); got != 0 || backoff.failures != 0 {
+		t.Fatalf("success reset = delay %s, failures %d", got, backoff.failures)
+	}
+	if got := backoff.delay(err); got < 1600*time.Millisecond || got > 2400*time.Millisecond {
+		t.Fatalf("retry after success = %s, want first-step jitter", got)
+	}
+	if got := backoff.delay(hubclient.V4Problem{Code: "maintenance", HTTPStatus: 503, RetryAfter: 90 * time.Second}); got != 90*time.Second {
+		t.Fatalf("Retry-After delay = %s, want 90s", got)
+	}
+	if !retryableHubContact(hubclient.V4Problem{Code: "maintenance", HTTPStatus: 503}) || !retryableHubContact(err) {
+		t.Fatal("transport failure was not retryable")
+	}
+	if got := jitteredTransportRetryDelay(100); got < 48*time.Second || got > time.Minute {
+		t.Fatalf("capped jitter = %s, want 48s..60s", got)
+	}
+	if !retryableHubContact(hubclient.V4Problem{Code: "rate_limited", HTTPStatus: http.StatusTooManyRequests}) {
+		t.Fatal("429 was not treated as retryable")
+	}
+	if retryableHubContact(hubclient.V4Problem{Code: "device_removed", HTTPStatus: 403}) {
+		t.Fatal("permanent Hub rejection was treated as a transport failure")
+	}
+}
+
+type retryBypassWorker struct {
+	calls       atomic.Int32
+	bypasses    atomic.Int32
+	firstFailed chan struct{}
+	secondStart chan struct{}
+}
+
+func (worker *retryBypassWorker) SyncOnce(ctx context.Context) error {
+	switch worker.calls.Add(1) {
+	case 1:
+		close(worker.firstFailed)
+		return &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	case 2:
+		close(worker.secondStart)
+		<-ctx.Done()
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func (worker *retryBypassWorker) BypassRetryBackoff() { worker.bypasses.Add(1) }
+
+func TestExplicitRetryBypassesTransportBackoffOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker := &retryBypassWorker{firstFailed: make(chan struct{}), secondStart: make(chan struct{})}
+	retryWake := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		}, nil, retryWake)
+		close(done)
+	}()
+	select {
+	case <-worker.firstFailed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial failed pass did not run")
+	}
+	retryWake <- struct{}{}
+	select {
+	case <-worker.secondStart:
+	case <-time.After(time.Second):
+		t.Fatal("explicit retry did not bypass the backoff")
+	}
+	if worker.bypasses.Load() != 1 {
+		t.Fatalf("backoff bypass calls = %d, want 1", worker.bypasses.Load())
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("sync loop did not stop")
+	}
+}
+
 func TestV4WaitKeepsPickingUpCommandsAfterDeferredPass(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -302,11 +405,12 @@ type policyVersionQueue struct{ version atomic.Int64 }
 func (q *policyVersionQueue) Policy() (int64, hubclient.V4Config, string) {
 	return q.version.Load(), hubclient.V4Config{}, ""
 }
-func (*policyVersionQueue) Results() []hubclient.V4CommandResult { return nil }
-func (*policyVersionQueue) InFlight() int                        { return 0 }
-func (*policyVersionQueue) NextRetryDelay() time.Duration        { return 0 }
-func (*policyVersionQueue) NextCheckInDelay() time.Duration      { return 60 * time.Second }
-func (*policyVersionQueue) Progress() hubclient.V4Queue          { return hubclient.V4Queue{} }
+func (*policyVersionQueue) Results() []hubclient.V4CommandResult      { return nil }
+func (*policyVersionQueue) InFlight() int                             { return 0 }
+func (*policyVersionQueue) NextRetryDelay() time.Duration             { return 0 }
+func (*policyVersionQueue) NextCheckInDelay() time.Duration           { return 60 * time.Second }
+func (*policyVersionQueue) Progress() hubclient.V4Queue               { return hubclient.V4Queue{} }
+func (*policyVersionQueue) LastHubFailure() *syncv4.HubContactFailure { return nil }
 
 func TestSyncPausedCodeIdlesWithoutFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

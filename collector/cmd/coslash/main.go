@@ -300,7 +300,7 @@ func main() {
 	onboardings := newOnboardingManager(collectorVersion)
 	inventoryTracker := &inventory.Tracker{}
 	var controller *syncController
-	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake chan struct{}) {
+	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retryWake chan struct{}) {
 		if fingerprints != nil {
 			go runInventory(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
 				current := onboardings.currentHubClient()
@@ -356,7 +356,7 @@ func main() {
 			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
 		})
 		go runActivePoller(syncContext, "", loopControl)
-		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, syncHub.V4Wait, loopControl, wake)
+		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, syncHub.V4Wait, loopControl, wake, retryWake)
 	}, func() bool { return settingsStore.State().Config.SyncPaused })
 	if err != nil {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)

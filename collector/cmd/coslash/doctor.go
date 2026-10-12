@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -34,6 +35,10 @@ func runDoctorCommand(stdout, stderr io.Writer, args []string, command string) i
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	jsonOutput := flags.Bool("json", false, "print the diagnostics snapshot as JSON")
+	retry := new(bool)
+	if command == "status" {
+		retry = flags.Bool("retry", false, "request an immediate Hub sync")
+	}
 	fixLinks := flags.Bool("fix-links", false, "list stale coSlash URL handlers and optionally unregister them")
 	yes := flags.Bool("yes", false, "apply the --fix-links plan")
 	if err := flags.Parse(args); err != nil {
@@ -44,6 +49,9 @@ func runDoctorCommand(stdout, stderr io.Writer, args []string, command string) i
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintf(stderr, "usage: coslash %s [--json]", command)
+		if command == "status" {
+			fmt.Fprint(stderr, " [--retry]")
+		}
 		if command == "doctor" {
 			fmt.Fprint(stderr, " [--fix-links [--yes]]")
 		}
@@ -51,7 +59,7 @@ func runDoctorCommand(stdout, stderr io.Writer, args []string, command string) i
 		return 2
 	}
 	if command != "doctor" && (*fixLinks || *yes) {
-		fmt.Fprintln(stderr, "usage: coslash status [--json]")
+		fmt.Fprintln(stderr, "usage: coslash status [--json] [--retry]")
 		return 2
 	}
 	if *yes && !*fixLinks || *jsonOutput && *fixLinks {
@@ -61,6 +69,17 @@ func runDoctorCommand(stdout, stderr io.Writer, args []string, command string) i
 	if *fixLinks {
 		if code := planProtocolHandlerCleanup(stdout, stderr, *yes); code != 0 {
 			return code
+		}
+	}
+	if *retry {
+		client, err := newLocalAPIClient()
+		if err != nil {
+			fmt.Fprintf(stderr, "retry Hub sync: %v\n", err)
+			return 1
+		}
+		if _, err := client.request(http.MethodPost, "/api/sync/retry", nil); err != nil {
+			fmt.Fprintf(stderr, "retry Hub sync: %v\n", err)
+			return 1
 		}
 	}
 	logOutput := log.Writer()
@@ -146,7 +165,7 @@ func buildDoctorHubHealth(ctx context.Context, client doctorHubClient, origin, d
 		at := queue.LastCheckInAt.UnixMilli()
 		checkInAt = &at
 	}
-	lastFailure, _ := hubFailureView(origin, queue.LastHubFailure, time.Now(), 0)
+	lastFailure, _ := hubFailureView(origin, queue.LastHubFailure, time.Now())
 	return &diagnostics.HubSync{
 		Origin: origin, DeviceName: deviceName, DeviceID: queue.InstallID, Paired: paired,
 		LastCheckInAtMs: checkInAt, LastCheckInResult: lastResult, LastFailure: lastFailure, SyncState: state,

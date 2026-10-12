@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { SyncStatus } from './api';
+import { decodeSyncStatus, type SyncStatus } from './api';
 import { SyncChip } from './SyncChip';
 import { SyncHeader } from './SyncHeader';
 
@@ -37,6 +37,21 @@ describe('SyncChip', () => {
     expect(markup).toContain('role="alert"');
     expect(markup).toContain('Connection timed out. Check your network, VPN or proxy.');
     expect(markup).toContain('Raw error: dial tcp: i/o timeout');
+    expect(markup).toContain('Retry now');
+  });
+
+  it('renders the warning from the Local sync-status API response JSON', () => {
+    const status = decodeSyncStatus(
+      JSON.parse(
+        `{"state":"connected_idle","hubOrigin":"https://localhost:18180","sessions":{},"sessionFailures":{},"lastFailure":{"host":"localhost:18180","cause":"connect","sinceMs":1791792720000,"attempts":242,"sentence":"Hub: can't connect to localhost:18180 since 08:12 (242 attempts) — Connection refused. Check your network, VPN or proxy.","rawError":"dial tcp: connect: connection refused"},"hubFailureActive":true}`,
+      ),
+    );
+    const markup = renderToStaticMarkup(
+      <SyncHeader status={status} loaded onSettings={() => undefined} onRetry={async () => undefined} />,
+    );
+
+    expect(markup).toContain('Can&#x27;t reach Hub · since');
+    expect(markup).toContain('Connection refused. Check your network, VPN or proxy.');
     expect(markup).toContain('Retry now');
   });
 
