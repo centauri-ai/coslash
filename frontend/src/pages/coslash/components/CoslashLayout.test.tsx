@@ -263,6 +263,21 @@ describe('CoslashLayout', () => {
     expect(renderLayout()).not.toContain('opacity-55');
   });
 
+  it('keeps the In Hub pill text above 4.5:1 contrast in both themes', () => {
+    const css = readFileSync(new URL('../../../index.css', import.meta.url), 'utf8');
+    const light = css.match(/:root\s*\{([^}]*)\}/)?.[1];
+    const dark = css.match(/\.dark\s*\{([^}]*)\}/)?.[1];
+    if (!light || !dark) throw new Error('Could not find success theme tokens');
+
+    const lightContrast = contrastRatio(
+      cssColor(light, '--success-fg'),
+      cssColor(light, '--success-bg'),
+    );
+    const darkContrast = contrastRatio(cssColor(dark, '--success-fg'), cssColor(dark, '--success-bg'));
+    expect(lightContrast).toBeGreaterThanOrEqual(4.5);
+    expect(darkContrast).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('offers agent facets for the vendors present, not the reviewer CLIs installed', () => {
     const markup = renderLayout({
       sessions: [

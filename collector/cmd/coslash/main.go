@@ -45,7 +45,7 @@ const defaultPort = 8787
 const windowsWSAEADDRINUSE syscall.Errno = 10048
 
 func startupAccessInstructions() string {
-	return "open coSlash Local from Hub (Devices › this computer › Open) or run coslash in Terminal"
+	return "run coslash in Terminal to open coSlash Local"
 }
 
 type options struct {
