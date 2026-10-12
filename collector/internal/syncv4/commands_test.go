@@ -3,6 +3,8 @@ package syncv4
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 )
 
 func TestCommandRedeliveryAndMonotonicPolicySurviveRestart(t *testing.T) {
@@ -234,5 +237,48 @@ func TestRetryResultFollowsTheSessionOutcome(t *testing.T) {
 	}
 	if len(runner.retryCommands) != 0 {
 		t.Fatalf("settled retries still open: %v", runner.retryCommands)
+	}
+}
+
+func TestCommandErrorSSHCodes(t *testing.T) {
+	cases := []struct {
+		reason remote.Reason
+		want   string
+	}{
+		{remote.ReasonAuthentication, "ssh_auth_failed"},
+		{remote.ReasonConnectionFailed, "ssh_unreachable"},
+		{remote.ReasonRefreshTimeout, "ssh_unreachable"},
+		{remote.ReasonHostKeyChanged, "ssh_host_key_changed"},
+		{remote.ReasonHostKeyConfirmation, "ssh_host_key_unknown"},
+		{remote.ReasonSFTPUnavailable, "ssh_sftp_unavailable"},
+		{remote.ReasonInvalidData, "command_failed"},
+		{remote.Reason("future_reason"), "command_failed"},
+	}
+	for _, tc := range cases {
+		for _, install := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/install=%t", tc.reason, install), func(t *testing.T) {
+				want := tc.want
+				if install && want == "command_failed" {
+					want = "connector_install_failed"
+				}
+				err := fmt.Errorf("wrapped: %w", &SSHCommandError{Reason: &tc.reason, Install: install})
+				if got := commandError(err); got != want {
+					t.Fatalf("code = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+	for _, reason := range []remote.Reason{"", remote.ReasonHelperMissing, remote.ReasonHelperIncompatible} {
+		if got := commandError(&SSHCommandError{Reason: &reason, Install: true}); got != "connector_install_failed" {
+			t.Fatalf("install %q code = %q", reason, got)
+		}
+	}
+	for _, err := range []error{context.Canceled, context.DeadlineExceeded} {
+		if got := commandError(fmt.Errorf("wrapped: %w", err)); got != "command_cancelled" {
+			t.Fatalf("cancellation code = %q", got)
+		}
+	}
+	if got := commandError(errors.New("Permission denied (publickey)")); got != "command_failed" {
+		t.Fatalf("unclassified code = %q", got)
 	}
 }
