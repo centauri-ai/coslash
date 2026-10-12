@@ -54,6 +54,7 @@ describe('decodeSyncStatus', () => {
       state: 'connected_idle',
       hubOrigin: 'https://hub.example.test',
       sessions: {},
+      sessionFailures: {},
       lastFailure: {
         host: 'hub.example.test',
         cause: 'connect',
