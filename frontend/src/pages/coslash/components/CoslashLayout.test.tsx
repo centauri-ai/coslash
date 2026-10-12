@@ -269,10 +269,7 @@ describe('CoslashLayout', () => {
     const dark = css.match(/\.dark\s*\{([^}]*)\}/)?.[1];
     if (!light || !dark) throw new Error('Could not find success theme tokens');
 
-    const lightContrast = contrastRatio(
-      cssColor(light, '--success-fg'),
-      cssColor(light, '--success-bg'),
-    );
+    const lightContrast = contrastRatio(cssColor(light, '--success-fg'), cssColor(light, '--success-bg'));
     const darkContrast = contrastRatio(cssColor(dark, '--success-fg'), cssColor(dark, '--success-bg'));
     expect(lightContrast).toBeGreaterThanOrEqual(4.5);
     expect(darkContrast).toBeGreaterThanOrEqual(4.5);
