@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
@@ -91,6 +92,35 @@ func TestWindowsUnreadableSourceUsesNativeGuidance(t *testing.T) {
 	if strings.Contains(check.Fix, "ls -la") || !strings.Contains(check.Fix, "Windows account") {
 		t.Fatalf("fix = %q, want Windows access guidance", check.Fix)
 	}
+}
+
+func TestReadableButMalformedCodexRolloutPointsToHubFailureList(t *testing.T) {
+	check := sourceCheck(Source{
+		Agent: "codex", Label: "Codex", Root: "/synthetic/.codex/sessions",
+		State: SourceUnreadable, Error: "invalid transcript data: first row type \"event_msg\" is not session_meta",
+	}, "darwin")
+	if check.Status != StatusFail || !strings.Contains(check.Detail, "readable but could not be parsed") || !strings.Contains(check.Fix, "Didn't sync") || strings.Contains(check.Fix, "ls -la") {
+		t.Fatalf("Codex malformed rollout check = %+v", check)
+	}
+}
+
+func TestPiExtensionCheckAppearsOnlyWhenPiIsDetected(t *testing.T) {
+	if !vendors.PiCollectionSupported() {
+		t.Skip("Pi extension integration is unsupported on this platform")
+	}
+	snapshot := &Snapshot{Platform: Platform{OS: runtime.GOOS}}
+	for _, check := range derive(snapshot) {
+		if check.ID == "pi.extension" {
+			t.Fatal("Pi extension check appeared without a Pi CLI or ~/.pi")
+		}
+	}
+	snapshot.piDetected = true
+	for _, check := range derive(snapshot) {
+		if check.ID == "pi.extension" {
+			return
+		}
+	}
+	t.Fatal("Pi extension check missing when Pi is detected")
 }
 
 func TestCursorIDEExecutableFindsApplicationBundle(t *testing.T) {

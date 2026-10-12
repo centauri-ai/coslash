@@ -169,7 +169,7 @@ path does not use the manual pairing code screen or enable team sharing.
 
 coSlash needs at least one local agent session to read. If it finds none, it shows a checklist of every source that it looked at. Take one turn in a supported agent in a repo, then run the checks again. `coslash doctor` prints the same diagnostics in the terminal.
 
-Pi needs a managed extension for live status, which coSlash installs on startup. Restart running Pi processes after that. For Pi versions, custom session directories, and status details, see [Troubleshooting](docs/troubleshooting.md#pi-sessions-and-runtime-status).
+When Pi is installed, coSlash manages an extension for live status. Restart running Pi processes after an extension update. For Pi versions, custom session directories, and status details, see [Troubleshooting](docs/troubleshooting.md#pi-sessions-and-runtime-status).
 
 ### Linux sessions over SSH
 
@@ -293,12 +293,14 @@ Read [Data and privacy](docs/data-and-privacy.md) before you point coSlash at se
 | `coslash --port N` | Use another loopback port. |
 | `coslash --no-open` | Do not open the browser. |
 | `coslash --version` | Print the version. |
+| `coslash --help` / `coslash help` | List the CLI commands and their purpose. |
+| `coslash version` | Print the version. |
 | `coslash sessions [query] --json` | List local sessions as JSON. The query filters by title, repository, branch, or agent. An exact session ID or `<agent>:<session>` selector returns only that session. |
 | `coslash handoff <agent>:<session>` | Print the handoff Markdown for a selector from `coslash sessions`. |
 | `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [message]` | Start the target agent in the working directory of the session, with the handoff and an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
 | `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor\|pi\|grok` | Start a review of a local session with an installed agent. |
-| `coslash doctor` | Check session sources, agent CLIs, and local storage. |
-| `coslash doctor --json` | Print the same diagnostics as JSON, as a shareable report. |
+| `coslash doctor` / `coslash status` | Check session sources, agent CLIs, local storage, and Hub sync health. |
+| `coslash doctor --json` / `coslash status --json` | Print the same diagnostics as JSON, including Hub origin, pairing, last check-in, and content-free queue counts. |
 
 `sessions`, `handoff`, `send`, and `review` need the app to be running. Results go to standard output. Failures write `Error: <message>` to standard error and exit non-zero. The commands find the access token of the running app locally and never print it.
 

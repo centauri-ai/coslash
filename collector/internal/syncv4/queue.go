@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,6 +72,8 @@ type state struct {
 	CatchUpFrozenVersion int64              `json:"catchUpFrozenVersion,omitempty"`
 	LiveOnlyPlanVersion  int64              `json:"liveOnlyPlanVersion,omitempty"`
 	NextCheckInSeconds   int                `json:"nextCheckInSeconds,omitempty"`
+	LastCheckInAtMs      int64              `json:"lastCheckInAtMs,omitempty"`
+	LastCheckInResult    string             `json:"lastCheckInResult,omitempty"`
 	Phase                string             `json:"phase,omitempty"`
 	RateBytesSec         float64            `json:"rateBytesSec,omitempty"`
 	RateSamples          int                `json:"rateSamples,omitempty"`
@@ -241,6 +244,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
 		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
+		q.state.LastCheckInAtMs, q.state.LastCheckInResult = 0, ""
 		q.state.Config = hubclient.V4Config{}
 		q.state.PlanStartedAt, q.state.Phase = 0, ""
 		q.state.LiveOnlyPlanVersion = 0
@@ -268,6 +272,43 @@ func (q *Queue) PolicyBlocked() bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.state.PolicyBlocked
+}
+
+func (q *Queue) RecordCheckIn(at time.Time, result string) error {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	result = safeCheckInResult(result)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	previousAt, previousResult := q.state.LastCheckInAtMs, q.state.LastCheckInResult
+	q.state.LastCheckInAtMs, q.state.LastCheckInResult = at.UnixMilli(), result
+	if err := q.save(); err != nil {
+		q.state.LastCheckInAtMs, q.state.LastCheckInResult = previousAt, previousResult
+		return err
+	}
+	return nil
+}
+
+func safeCheckInResult(value string) string {
+	if value == "ok" || value == "hub_unreachable" || value == "consent_unavailable" || value == "paused" || value == "local_error" {
+		return value
+	}
+	for _, prefix := range []string{"hub:", "hub_rejected:"} {
+		if strings.HasPrefix(value, prefix) {
+			code := strings.TrimPrefix(value, prefix)
+			if len(code) == 0 || len(code) > 64 {
+				return "failed"
+			}
+			for _, char := range code {
+				if !(char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '_' || char == '-') {
+					return "failed"
+				}
+			}
+			return prefix + code
+		}
+	}
+	return "failed"
 }
 
 func (q *Queue) SetPolicyBlocked() error {
@@ -550,6 +591,12 @@ func (q *Queue) Entries() []Entry {
 		return entries[i].Key < entries[j].Key
 	})
 	return entries
+}
+
+func (q *Queue) LogSequence() int64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.state.LogSeq
 }
 
 // SessionStates returns local session identities and their Hub membership

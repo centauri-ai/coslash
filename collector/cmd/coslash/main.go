@@ -35,7 +35,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
@@ -111,6 +110,8 @@ func main() {
 	}
 	if !protocolRequest && len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "help", "version", "status", "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
+			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		case "ssh-auth":
 			if len(os.Args) != 3 {
 				log.Fatal("coslash ssh-auth requires one attempt ID")
@@ -127,12 +128,18 @@ func main() {
 			}
 			fmt.Println("SSH authentication ready; return to coSlash.")
 			return
-		case "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
-			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		case "update-apply":
 			runUpdateApply(os.Args[2:])
 			return
+		default:
+			if os.Args[1] != "" && os.Args[1][0] != '-' {
+				os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
+			}
 		}
+	}
+	if !protocolRequest && len(arguments) > 0 && (arguments[0] == "--help" || arguments[0] == "-h") {
+		printCLIHelp(os.Stdout)
+		return
 	}
 
 	opts, err := parseOptions(arguments)
@@ -197,7 +204,7 @@ func main() {
 			vendors.SetParseCache(fingerprints)
 		}
 	}
-	if err := pi.EnsureExtension(); err != nil {
+	if err := ensurePiExtensionIfDetected(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
 	if err := opencode.EnsurePlugin(); err != nil {
@@ -300,7 +307,7 @@ func main() {
 				return err == nil && credential != ""
 			})
 		}
-		syncHub := currentHubTransport{current: onboardings.currentHubClient}
+		syncHub := currentHubTransport{current: onboardings.currentHubClient, queue: queue}
 		runner := &syncv4.Runner{
 			Version: collectorVersion,
 			Queue:   queue, Backup: backupManager, Hub: syncHub,
