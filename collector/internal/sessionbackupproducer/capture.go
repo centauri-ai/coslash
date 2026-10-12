@@ -68,7 +68,11 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 	}()
 
 	if selection.Agent == vendors.AgentOpenCode {
-		prepared, err := manager.captureOpenCode(ctx, staging, selection)
+		home, homeErr := manager.localHome()
+		if homeErr != nil || home == "" {
+			return problem(selection, sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindParsedSessionRecord, true)
+		}
+		prepared, err := manager.captureOpenCode(ctx, staging, selection, home)
 		if err != nil {
 			var captureErr *captureError
 			if errors.As(err, &captureErr) {
@@ -382,6 +386,9 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	}
 	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentCodex, frozenSource, parsed, metadata)
 	if err != nil {
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+	}
+	if err := sanitizeRecordFilePaths(records, handle.Home); err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
 	if selection.SourceKind == sessionbackupv1.SourceLocal && manager.synthesis != nil {
