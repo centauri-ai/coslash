@@ -39,4 +39,23 @@ describe('SyncChip', () => {
     expect(markup).toContain('Raw error: dial tcp: i/o timeout');
     expect(markup).toContain('Retry now');
   });
+
+  it('keeps the spinner for in-flight work', () => {
+    const markup = renderToStaticMarkup(<SyncChip state="syncing" />);
+
+    expect(markup).toContain('Syncing…');
+    expect(markup).toContain('animate-spin');
+  });
+
+  it('shows a parked failure with its cause and retry hint, without a spinner', () => {
+    const markup = renderToStaticMarkup(
+      <SyncChip state="parked_failed" failureCode="unreadable_source" />,
+    ).replaceAll('&#x27;', "'");
+
+    expect(markup).toContain("Didn't sync");
+    expect(markup).toContain("coSlash Local couldn't read the session file.");
+    expect(markup).toContain('Syncs again when the session changes.');
+    expect(markup).toContain('class="sr-only"');
+    expect(markup).not.toContain('animate-spin');
+  });
 });

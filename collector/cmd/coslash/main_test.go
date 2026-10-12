@@ -121,6 +121,16 @@ func TestParseOptionsRecordsExplicitPort(t *testing.T) {
 	}
 }
 
+func TestStartupAccessInstructionsGiveARecoveryPathWithoutLoggingTheToken(t *testing.T) {
+	instructions := startupAccessInstructions()
+	if !strings.Contains(instructions, "Devices › this computer › Open") || !strings.Contains(instructions, "run coslash in Terminal") {
+		t.Fatalf("startup instructions = %q, missing a supported recovery path", instructions)
+	}
+	if strings.Contains(instructions, "#t=") {
+		t.Fatalf("startup instructions include a token fragment: %q", instructions)
+	}
+}
+
 func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
@@ -893,6 +903,23 @@ func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("body %s: status = %d, want %d", body, response.Code, http.StatusBadRequest)
 		}
+	}
+}
+
+func TestWriteSettingsReportsConfiguredSettingsPath(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "custom-coslash-home")
+	t.Setenv("COSLASH_HOME", home)
+	response := httptest.NewRecorder()
+	writeSettings(context.Background(), response, settings.State{Config: settings.Defaults(), Valid: true})
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := body["settingsPath"], filepath.Join(home, "settings.json"); got != want {
+		t.Fatalf("settingsPath = %#v, want %q", got, want)
 	}
 }
 

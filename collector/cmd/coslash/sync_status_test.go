@@ -47,7 +47,7 @@ func TestSyncStatusFailureJSONAndRetryInterval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantJSON := `{"state":"connected_idle","hubOrigin":"https://hub.example.test","sessions":{},"lastFailure":{"host":"hub.example.test","cause":"connect","sinceMs":1791792720000,"attempts":1,"sentence":"Hub: can't connect to hub.example.test since 08:12 (1 attempts) — Connection timed out. Check your network, VPN or proxy.","rawError":"dial tcp: i/o timeout"},"hubFailureActive":true}`
+	wantJSON := `{"state":"connected_idle","hubOrigin":"https://hub.example.test","sessions":{},"sessionFailures":{},"lastFailure":{"host":"hub.example.test","cause":"connect","sinceMs":1791792720000,"attempts":1,"sentence":"Hub: can't connect to hub.example.test since 08:12 (1 attempts) — Connection timed out. Check your network, VPN or proxy.","rawError":"dial tcp: i/o timeout"},"hubFailureActive":true}`
 	if string(encoded) != wantJSON {
 		t.Fatalf("sync status JSON = %s, want %s", encoded, wantJSON)
 	}
@@ -77,7 +77,7 @@ func TestSyncStatusRouteIsTokenGuardedAndContentFree(t *testing.T) {
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &body) != nil {
 		t.Fatalf("authorized status request = %d %s", response.Code, response.Body.String())
 	}
-	if len(body) != 3 || body["state"] == nil || body["hubOrigin"] == nil || body["sessions"] == nil {
+	if len(body) != 4 || body["state"] == nil || body["hubOrigin"] == nil || body["sessions"] == nil || body["sessionFailures"] == nil {
 		t.Fatalf("status response keys = %v", body)
 	}
 }

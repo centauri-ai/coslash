@@ -216,7 +216,9 @@ function BoardCard({
               {session.sourceLabel}
             </span>
           )}
-          {isLocalSession(session) && session.hubSyncChip && <SyncChip state={session.hubSyncChip} />}
+          {isLocalSession(session) && session.hubSyncChip && (
+            <SyncChip state={session.hubSyncChip} failureCode={session.hubSyncFailureCode} />
+          )}
         </div>
         <span className="text-meta shrink-0 font-[650] whitespace-nowrap tabular-nums">
           <UnpricedModelWarning unpriced={session.unpricedModels}>

@@ -76,24 +76,32 @@ func TestRepositoryLeaveOutWildcardMatchesOneRepository(t *testing.T) {
 	}
 }
 
-func TestQueueSessionStatesDistinguishHubAndPendingSessions(t *testing.T) {
+func TestQueueSessionStatusDistinguishesHubInFlightBackoffAndParkedSessions(t *testing.T) {
 	selectSession := func(id string) sessionbackupproducer.Selection {
 		return sessionbackupproducer.Selection{SourceID: "local", Agent: "codex", SessionID: id}
 	}
-	queue := &Queue{state: state{Entries: []Entry{
+	queue := &Queue{currentKey: "syncing", state: state{Entries: []Entry{
 		{Key: "in-hub", Selection: selectSession("in-hub"), Activity: 4, SyncedActivity: 4, RevisionID: "revision"},
 		{Key: "syncing", Selection: selectSession("syncing"), Activity: 5, BundleID: "bundle", UploadID: "upload"},
 		{Key: "not-in-hub", Selection: selectSession("not-in-hub"), Activity: 6},
 		{Key: "left-out", Selection: selectSession("left-out"), Activity: 7, Excluded: true},
+		{Key: "parked", Selection: selectSession("parked"), Activity: 8, ParkedVersion: "0.2.0", FailureCode: "unreadable_source"},
+		{Key: "backoff", Selection: selectSession("backoff"), Activity: 9, BundleID: "backoff-bundle", UploadID: "backoff-upload"},
 	}}}
 	want := map[string]string{
 		"local:codex:in-hub":     "in_hub",
 		"local:codex:syncing":    "syncing",
 		"local:codex:not-in-hub": "not_in_hub",
 		"local:codex:left-out":   "left_out",
+		"local:codex:parked":     "parked_failed",
+		"local:codex:backoff":    "not_in_hub",
 	}
-	if got := queue.SessionStates(); !reflect.DeepEqual(got, want) {
+	got, failures := queue.SessionStatus()
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("session states=%v, want %v", got, want)
+	}
+	if want := map[string]string{"local:codex:parked": "unreadable_source"}; !reflect.DeepEqual(failures, want) {
+		t.Fatalf("session failures=%v, want %v", failures, want)
 	}
 }
 
