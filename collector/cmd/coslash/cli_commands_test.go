@@ -532,6 +532,34 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	}
 }
 
+func TestRootHelpVersionAndUnknownCommand(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"help"}} {
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(&stdout, &stderr, args); code != 0 || stderr.Len() != 0 {
+			t.Fatalf("%v: code=%d stderr=%q", args, code, stderr.String())
+		}
+		for _, want := range []string{"connect", "sessions", "doctor", "status", "mcp", "version", "check local setup and Hub sync health"} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("%v help omitted %q: %s", args, want, stdout.String())
+			}
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"version"}); code != 0 || stdout.String() != version+"\n" || stderr.Len() != 0 {
+		t.Fatalf("version: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runCLI(&stdout, &stderr, []string{"unknown"}); code != 2 || !strings.Contains(stderr.String(), "unknown command") || !strings.Contains(stderr.String(), "doctor") {
+		t.Fatalf("unknown command: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runCLI(&stdout, &stderr, []string{"help", "status"}); code != 0 || stdout.String() != "usage: coslash status [--json]\n" || stderr.Len() != 0 {
+		t.Fatalf("status help: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 // A command that parses reaches app discovery, which fails first without a running app.
 func TestPluginSkillCommandsParse(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())

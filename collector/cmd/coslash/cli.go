@@ -236,9 +236,77 @@ func reviewHelp() string {
 	return reviewUsage() + " | coslash review status <agent>:<session> --json"
 }
 
+var cliCommandHelp = []struct {
+	name        string
+	description string
+	usage       string
+}{
+	{"connect", "pair this Local with Hub", "coslash connect <code> --hub <origin> [--json]"},
+	{"sessions", "list local sessions as JSON", sessionsUsage()},
+	{"handoff", "print a session handoff", "coslash handoff <agent>:<session>"},
+	{"send", "start an agent with a session handoff", sendUsage()},
+	{"review", "review a session with another agent", reviewHelp()},
+	{"doctor", "check local setup and Hub sync health", "coslash doctor [--json]"},
+	{"status", "show the same sync health as doctor", "coslash status [--json]"},
+	{"mcp", "configure the Hub MCP server", mcpUsage},
+	{"version", "print the Local version", "coslash version"},
+}
+
+func printCLIHelp(w io.Writer) {
+	fmt.Fprintln(w, "Usage: coslash [options]")
+	fmt.Fprintln(w, "       coslash <command> [arguments]")
+	fmt.Fprintln(w, "       coslash help [command]")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Options:")
+	fmt.Fprintln(w, "  --background  run coSlash Local in the background")
+	fmt.Fprintln(w, "  --no-open     do not open a browser on startup")
+	fmt.Fprintln(w, "  --port N      serve on a loopback port; 0 picks a free port")
+	fmt.Fprintln(w, "  --version     print the Local version")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Commands:")
+	for _, command := range cliCommandHelp {
+		fmt.Fprintf(w, "  %-10s %s\n", command.name, command.description)
+	}
+}
+
+func printCommandHelp(w io.Writer, name string) bool {
+	if name == "status" {
+		fmt.Fprintln(w, "usage: coslash status [--json]")
+		return true
+	}
+	for _, command := range cliCommandHelp {
+		if command.name == name {
+			fmt.Fprintln(w, command.usage)
+			return true
+		}
+	}
+	return false
+}
+
 func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 0 {
+		printCLIHelp(stdout)
+		return 0
+	}
+	if args[0] == "help" {
+		if len(args) == 1 {
+			printCLIHelp(stdout)
+			return 0
+		}
+		if len(args) == 2 && printCommandHelp(stdout, args[1]) {
+			return 0
+		}
+		fmt.Fprintf(stderr, "coslash: unknown help topic %q\n", args[1])
+		printCLIHelp(stderr)
 		return 2
+	}
+	if args[0] == "--help" || args[0] == "-h" {
+		printCLIHelp(stdout)
+		return 0
+	}
+	if args[0] == "version" {
+		fmt.Fprintln(stdout, version)
+		return 0
 	}
 	if len(args) == 3 && args[0] == "review" && args[1] == "status" && (args[2] == "--help" || args[2] == "-h") {
 		fmt.Fprintln(stdout, "usage: coslash review status <agent>:<session> --json")
@@ -258,6 +326,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 			fmt.Fprintln(stdout, reviewHelp())
 		case "doctor":
 			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
+		case "status":
+			fmt.Fprintln(stdout, "usage: coslash status [--json]")
 		case "mcp":
 			fmt.Fprintln(stdout, mcpUsage)
 		default:
@@ -279,9 +349,13 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		err = runReview(stdout, args[1:])
 	case "doctor":
 		return runDoctor(stdout, stderr, args[1:])
+	case "status":
+		return runStatus(stdout, stderr, args[1:])
 	case "mcp":
 		err = runMCP(stdout, args[1:])
 	default:
+		fmt.Fprintf(stderr, "coslash: unknown command %q\n", args[0])
+		printCLIHelp(stderr)
 		return 2
 	}
 	if err != nil {
