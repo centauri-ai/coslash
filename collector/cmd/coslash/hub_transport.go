@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"io"
+	"log"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
 type currentHubTransport struct {
 	current func() *hubclient.Client
+	queue   *syncv4.Queue
 }
 
 func (transport currentHubTransport) client() (*hubclient.Client, error) {
@@ -30,12 +34,22 @@ func (transport currentHubTransport) V4Binding(ctx context.Context) (string, err
 	return client.V4Binding(ctx)
 }
 
-func (transport currentHubTransport) V4CheckIn(ctx context.Context, queue hubclient.V4Queue, appliedConfigVersion int64, results []hubclient.V4CommandResult, agentsFound []string, log []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+func (transport currentHubTransport) V4CheckIn(ctx context.Context, queue hubclient.V4Queue, appliedConfigVersion int64, results []hubclient.V4CommandResult, agentsFound []string, logEntries []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
 	client, err := transport.client()
 	if err != nil {
 		return hubclient.V4CheckIn{}, err
 	}
-	return client.V4CheckIn(ctx, queue, appliedConfigVersion, results, agentsFound, log)
+	result, err := client.V4CheckIn(ctx, queue, appliedConfigVersion, results, agentsFound, logEntries)
+	if transport.queue != nil {
+		status := "ok"
+		if err != nil {
+			status = syncv4.DeferReason(err)
+		}
+		if saveErr := transport.queue.RecordCheckIn(time.Now(), status); saveErr != nil {
+			log.Printf("record Hub check-in status: %v", saveErr)
+		}
+	}
+	return result, err
 }
 
 func (transport currentHubTransport) V4Create(ctx context.Context, input hubclient.V4Create) (hubclient.V4Status, error) {

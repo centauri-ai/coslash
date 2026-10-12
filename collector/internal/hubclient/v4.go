@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -561,7 +562,7 @@ func isLoopback(host string) bool {
 func (c *Client) v4ProxyChunk(ctx context.Context, uploadID string, missing V4Missing, body io.Reader) error {
 	firstChunk := missing.ArtifactOrdinal == 0 && missing.ChunkOrdinal == 0
 	if firstChunk {
-		log.Printf("v4 upload: sending first chunk through Hub proxy")
+		slog.Debug("v4 upload: sending first chunk through Hub proxy")
 	}
 	credential, err := c.Credentials.Load(ctx)
 	if err != nil {
@@ -587,7 +588,7 @@ func (c *Client) v4ProxyChunk(ctx context.Context, uploadID string, missing V4Mi
 	}
 	defer response.Body.Close()
 	if firstChunk || response.StatusCode != http.StatusNoContent {
-		log.Printf("v4 upload: Hub proxy returned HTTP %d", response.StatusCode)
+		slog.Debug("v4 upload: Hub proxy returned HTTP", "status", response.StatusCode)
 	}
 	if response.StatusCode != http.StatusNoContent {
 		var problem V4Problem

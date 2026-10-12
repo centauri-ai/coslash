@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,6 +66,9 @@ func DeferReason(err error) string {
 	var problem hubclient.V4Problem
 	switch {
 	case errors.As(err, &problem):
+		if problem.HTTPStatus >= 500 {
+			return "hub_unreachable"
+		}
 		if errors.Is(err, ErrStaleConsent) && problem.Code != "device_revoked" && permanentCheckInRejection(problem) {
 			return "hub_rejected:" + problem.Code
 		}
@@ -72,9 +76,24 @@ func DeferReason(err error) string {
 	case errors.Is(err, ErrPaused):
 		return "paused"
 	case errors.Is(err, ErrStaleConsent):
+		if hubUnavailable(err) {
+			return "hub_unreachable"
+		}
 		return "consent_unavailable"
 	}
+	if hubUnavailable(err) {
+		return "hub_unreachable"
+	}
 	return "local_error"
+}
+
+func hubUnavailable(err error) bool {
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && problem.HTTPStatus >= 500 {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError)
 }
 
 // NextSyncDelay is the wait before the next pass: busyRetry after the Hub's
