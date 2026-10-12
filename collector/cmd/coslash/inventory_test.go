@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -10,10 +12,36 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/inventory"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 )
+
+type inventorySyncHub struct{}
+
+func (inventorySyncHub) V4Binding(context.Context) (string, error) {
+	return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil
+}
+func (inventorySyncHub) V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult, []string, []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+	return hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: []string{}}, Capabilities: []string{"scale-import/v1"}, NextCheckInSeconds: 300}, nil
+}
+func (inventorySyncHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
+	return hubclient.V4Status{}, errors.New("unexpected create")
+}
+func (inventorySyncHub) V4Status(context.Context, string) (hubclient.V4Status, error) {
+	return hubclient.V4Status{}, errors.New("unexpected status")
+}
+func (inventorySyncHub) V4PutChunk(context.Context, string, hubclient.V4Missing, io.Reader) error {
+	return errors.New("unexpected chunk upload")
+}
+func (inventorySyncHub) V4Confirm(context.Context, string, ...hubclient.V4Missing) (hubclient.V4Status, error) {
+	return hubclient.V4Status{}, errors.New("unexpected confirm")
+}
+func (inventorySyncHub) V4Finalize(context.Context, string) (hubclient.V4Status, error) {
+	return hubclient.V4Status{}, errors.New("unexpected finalize")
+}
 
 func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	home := t.TempDir()
@@ -165,6 +193,138 @@ func TestRunInventoryWakesSyncLoopWhenAnOlderSessionChanges(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("inventory loop did not stop on cancellation")
+	}
+}
+
+func TestInventoryWakeRefreshesOlderSessionInOneScan(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	projects := filepath.Join(claude.ProjectsRoot(home), "p")
+	if err := os.MkdirAll(projects, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const id = "11111111-2222-3333-4444-555555555555"
+	transcript := filepath.Join(projects, id+".jsonl")
+	oldTurns := "{\"sessionId\":\"" + id + "\",\"uuid\":\"old-user\",\"cwd\":\"/repo\",\"timestamp\":\"2026-10-11T10:00:00Z\",\"type\":\"user\",\"message\":{\"content\":\"old prompt\"}}\n" +
+		"{\"sessionId\":\"" + id + "\",\"uuid\":\"old-assistant\",\"parentUuid\":\"old-user\",\"cwd\":\"/repo\",\"timestamp\":\"2026-10-11T10:01:00Z\",\"type\":\"assistant\",\"message\":{\"content\":\"old response\"}}\n"
+	if err := os.WriteFile(transcript, []byte(oldTurns), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fingerprints, err := syncv4.OpenFingerprints(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	vendors.SetParseCache(fingerprints)
+	t.Cleanup(func() { vendors.SetParseCache(nil) })
+	queue, err := syncv4.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	discoveredActivity := make(chan int64, 8)
+	runner := &syncv4.Runner{
+		Queue:    queue,
+		Backup:   sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}),
+		Hub:      inventorySyncHub{},
+		Discover: func(context.Context) ([]*session.Session, error) { return nil, nil },
+	}
+	runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
+		for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{BatchFamilies: 8}) {
+			if err != nil {
+				return err
+			}
+			if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes}); err != nil {
+				return err
+			}
+			for _, item := range batch.Sessions {
+				if item.Agent == "claude" && item.ID == id {
+					discoveredActivity <- item.LastActivityTime
+				}
+			}
+		}
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	inventoryWake := make(chan struct{}, 1)
+	ticks := make(chan struct{})
+	scanned := make(chan struct{})
+	inventoryDone := make(chan struct{})
+	go func() {
+		defer close(inventoryDone)
+		runInventoryWithTicks(ctx, fingerprints, queue, inventoryWake, &inventory.Tracker{}, func(context.Context) bool { return true }, ticks, scanned)
+	}()
+	<-scanned
+	select {
+	case <-inventoryWake: // Discard startup's initial discovery request.
+	default:
+		t.Fatal("initial inventory did not wake the sync loop")
+	}
+
+	controller := &syncController{}
+	worker := controller.observed(runner, nil)
+	syncDone := make(chan struct{})
+	go func() {
+		defer close(syncDone)
+		runV4SyncLoopForTest(ctx, worker, queue, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		}, inventoryWake)
+	}()
+	oldActivity := time.Date(2026, 10, 11, 10, 1, 0, 0, time.UTC).UnixMilli()
+	select {
+	case got := <-discoveredActivity:
+		if got != oldActivity {
+			t.Fatalf("initial session activity = %d, want %d", got, oldActivity)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("initial sync did not discover the older session")
+	}
+	if entries := queue.Entries(); len(entries) != 1 || entries[0].Activity != oldActivity {
+		t.Fatalf("initial queue entries = %+v, want the older session at %d", entries, oldActivity)
+	}
+	initialInventory := queue.Inventory()
+
+	newTurns := "{\"sessionId\":\"" + id + "\",\"uuid\":\"new-user\",\"parentUuid\":\"old-assistant\",\"cwd\":\"/repo\",\"timestamp\":\"2026-10-12T10:00:00Z\",\"type\":\"user\",\"message\":{\"content\":\"new prompt\"}}\n" +
+		"{\"sessionId\":\"" + id + "\",\"uuid\":\"new-assistant\",\"parentUuid\":\"new-user\",\"cwd\":\"/repo\",\"timestamp\":\"2026-10-12T10:01:00Z\",\"type\":\"assistant\",\"message\":{\"content\":\"new response\"}}\n"
+	file, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(newTurns); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ticks <- struct{}{}
+	<-scanned
+	if current := queue.Inventory(); current == nil || initialInventory == nil || current.Bytes <= initialInventory.Bytes {
+		t.Fatalf("inventory after transcript growth = %+v, want more than %+v", current, initialInventory)
+	}
+	updatedActivity := time.Date(2026, 10, 12, 10, 1, 0, 0, time.UTC).UnixMilli()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case got := <-discoveredActivity:
+			if got != updatedActivity {
+				continue
+			}
+			entries := queue.Entries()
+			if len(entries) != 1 || entries[0].Activity != updatedActivity {
+				t.Fatalf("queue after one changed-source wake = %+v, want activity %d", entries, updatedActivity)
+			}
+			cancel()
+			<-syncDone
+			<-inventoryDone
+			return
+		case <-deadline:
+			t.Fatalf("first changed-source inventory wake did not update activity; queue = %+v", queue.Entries())
+		}
 	}
 }
 
