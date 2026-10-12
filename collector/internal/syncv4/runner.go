@@ -61,11 +61,16 @@ func Busy(err error) bool {
 }
 
 // DeferReason names why a pass stopped, without session content: a Hub
-// problem code, a local pause or consent state, or local_error.
+// problem code, the not-paired state, a local pause or consent state, or local_error.
 func DeferReason(err error) string {
 	var problem hubclient.V4Problem
 	switch {
+	case errors.Is(err, hubclient.ErrNotPaired):
+		return "not_paired"
 	case errors.As(err, &problem):
+		if problem.Code == "device_revoked" || problem.Code == "not_paired" {
+			return "not_paired"
+		}
 		if problem.HTTPStatus >= 500 {
 			return "hub_unreachable"
 		}
