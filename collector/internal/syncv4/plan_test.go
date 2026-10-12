@@ -19,6 +19,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 type planHub struct {
@@ -27,6 +28,8 @@ type planHub struct {
 	creates      int
 	lists        [][]hubclient.V4ListItem
 	checks       int
+	checkInQueue []hubclient.V4Queue
+	checkInLogs  [][]hubclient.V4LogEntry
 	checkInErr   error
 	results      []hubclient.V4CommandResult
 	retryLists   int
@@ -128,6 +131,50 @@ func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
 		}
 	}
 	t.Fatal("fresh session was not listed on the next boundary within the budget")
+}
+
+func TestPlannedSyncReportsParkedListedFailureAndProgressPromptly(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("awaiting_plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "unreadable", Activity: now.UnixMilli(), SourceRevision: "source-1",
+		Session: hubclient.V4Session{Agent: "claude"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry := queue.Entries()[0]
+	hub := &planHub{}
+	runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return now }, Version: "0.0.5",
+		scaleSupported: true, lastReportedPhase: "awaiting_plan"}
+	if err := runner.recordFailure(&entry, preparationProblem(sessionbackupv1.ProblemInvalid, false)); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.MarkListedAt([]hubclient.V4ListResult{{LocalKeyHash: entry.Key, SessionID: "ses_unreadable", State: "listed"}}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runner.runPlannedAndReport(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if hub.checks != 1 || len(hub.checkInQueue) != 1 || len(hub.checkInLogs) != 1 {
+		t.Fatalf("check-ins=%d queue=%d logs=%d", hub.checks, len(hub.checkInQueue), len(hub.checkInLogs))
+	}
+	progress := hub.checkInQueue[0]
+	if progress.Pending != 0 || progress.Failing != 1 || progress.FirstSync.RecentDone != 1 || progress.FirstSync.RecentTotal != 1 {
+		t.Fatalf("reported queue progress=%+v", progress)
+	}
+	lines := hub.checkInLogs[0]
+	if len(lines) != 2 || lines[0].SessionID != "" || lines[1].SessionID != "ses_unreadable" || lines[1].Code != "malformed_artifact" {
+		t.Fatalf("reported failure lines=%+v", lines)
+	}
+	if pending, _ := queue.PendingLog(now); len(pending) != 0 {
+		t.Fatalf("successful same-pass check-in left pending logs: %+v", pending)
+	}
 }
 
 func TestPlannedIdempotencyConflictParksOneRevisionAndContinuesQueue(t *testing.T) {
@@ -315,8 +362,10 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 }
 
 func (*planHub) V4Binding(context.Context) (string, error) { return strings.Repeat("a", 64), nil }
-func (h *planHub) V4CheckIn(_ context.Context, _ hubclient.V4Queue, _ int64, results []hubclient.V4CommandResult, _ []string, _ []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+func (h *planHub) V4CheckIn(_ context.Context, queue hubclient.V4Queue, _ int64, results []hubclient.V4CommandResult, _ []string, log []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
 	h.checks++
+	h.checkInQueue = append(h.checkInQueue, queue)
+	h.checkInLogs = append(h.checkInLogs, append([]hubclient.V4LogEntry(nil), log...))
 	h.results = append([]hubclient.V4CommandResult(nil), results...)
 	if h.checkInErr != nil {
 		return hubclient.V4CheckIn{}, h.checkInErr
