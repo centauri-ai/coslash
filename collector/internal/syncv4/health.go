@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
@@ -19,10 +20,18 @@ type HealthSnapshot struct {
 	HubDeviceOff      bool
 	LastCheckInAt     *time.Time
 	LastCheckInResult string
+	LastHubFailure    *HubContactFailure
 	Pending           int
 	Failing           int
 	Parked            int
 	TopFailureCodes   []FailureCodeCount
+}
+
+type HubContactFailure struct {
+	Cause    string `json:"cause"`
+	SinceMs  int64  `json:"sinceMs"`
+	Attempts int    `json:"attempts"`
+	RawError string `json:"rawError"`
 }
 
 type FailureCodeCount struct {
@@ -51,6 +60,10 @@ func ReadHealth(root string) (HealthSnapshot, error) {
 		HubPaused: saved.Config.Paused, HubDeviceOff: saved.Config.DeviceOff,
 		LastCheckInResult: saved.LastCheckInResult,
 		TopFailureCodes:   []FailureCodeCount{},
+	}
+	if saved.LastHubFailure != nil && validHubContactFailure(*saved.LastHubFailure) {
+		failure := *saved.LastHubFailure
+		health.LastHubFailure = &failure
 	}
 	if health.LastCheckInResult != "" {
 		health.LastCheckInResult = safeCheckInResult(health.LastCheckInResult)
@@ -92,6 +105,16 @@ func ReadHealth(root string) (HealthSnapshot, error) {
 		health.TopFailureCodes = health.TopFailureCodes[:3]
 	}
 	return health, nil
+}
+
+func validHubContactFailure(failure HubContactFailure) bool {
+	switch failure.Cause {
+	case hubclient.FailureDNS, hubclient.FailureConnect, hubclient.FailureTLS, hubclient.FailureProxy,
+		hubclient.FailureHubUnavailable, hubclient.FailureRejected:
+	default:
+		return false
+	}
+	return failure.SinceMs > 0 && failure.Attempts > 0 && len(failure.RawError) <= 240
 }
 
 // IsMissingHealth reports the ordinary first-run case without hiding an

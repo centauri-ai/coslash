@@ -12,6 +12,57 @@ describe('decodeSyncStatus', () => {
     ).toEqual({ state: 'connected_idle', hubOrigin: 'https://hub.example.test', sessions: {} });
   });
 
+  it('decodes a content-free Hub failure streak', () => {
+    expect(
+      decodeSyncStatus({
+        state: 'connected_idle',
+        hubOrigin: 'https://hub.example.test',
+        sessions: {},
+        lastFailure: {
+          host: 'hub.example.test',
+          cause: 'connect',
+          sinceMs: 1791792720000,
+          attempts: 14,
+          sentence:
+            "Hub: can't connect to hub.example.test since 08:12 (14 attempts) — Connection timed out.",
+          rawError: 'dial tcp: i/o timeout',
+        },
+        hubFailureActive: true,
+      }),
+    ).toEqual({
+      state: 'connected_idle',
+      hubOrigin: 'https://hub.example.test',
+      sessions: {},
+      lastFailure: {
+        host: 'hub.example.test',
+        cause: 'connect',
+        sinceMs: 1791792720000,
+        attempts: 14,
+        sentence: "Hub: can't connect to hub.example.test since 08:12 (14 attempts) — Connection timed out.",
+        rawError: 'dial tcp: i/o timeout',
+      },
+      hubFailureActive: true,
+    });
+  });
+
+  it('rejects unknown Hub failure causes', () => {
+    expect(() =>
+      decodeSyncStatus({
+        state: 'connected_idle',
+        hubOrigin: 'https://hub.example.test',
+        sessions: {},
+        lastFailure: {
+          host: 'hub.example.test',
+          cause: 'unknown',
+          sinceMs: 1,
+          attempts: 1,
+          sentence: 'failure',
+          rawError: 'error',
+        },
+      }),
+    ).toThrow('Invalid sync status');
+  });
+
   it.each(['https://hub.example.test/path', 'https://user@hub.example.test', 'ftp://hub.example.test'])(
     'rejects a non-origin Hub URL: %s',
     (hubOrigin) => {

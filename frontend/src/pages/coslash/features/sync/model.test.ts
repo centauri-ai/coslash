@@ -62,3 +62,25 @@ describe('disabled sync status', () => {
     );
   });
 });
+
+describe('stale Hub contact status', () => {
+  it('switches the header chip to a warning after the retry interval', () => {
+    const status: SyncStatus = {
+      state: 'connected_idle',
+      hubOrigin: 'https://hub.example.test',
+      sessions: {},
+      lastFailure: {
+        host: 'hub.example.test',
+        cause: 'connect',
+        sinceMs: new Date(2026, 9, 12, 8, 12).getTime(),
+        attempts: 14,
+        sentence: "Hub: can't connect to hub.example.test since 08:12 (14 attempts) — Connection timed out.",
+        rawError: 'dial tcp: i/o timeout',
+      },
+      hubFailureActive: true,
+    };
+
+    expect(syncHeader(status).label).toMatch(/^Can't reach Hub · since /);
+    expect(syncHeader({ ...status, hubFailureActive: false }).label).toBe('Auto-sync on · managed in Hub');
+  });
+});

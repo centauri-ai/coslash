@@ -3,6 +3,9 @@ package syncv4
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,5 +61,60 @@ func TestReadHealthReportsQueueFailuresWithoutChangingQueueFile(t *testing.T) {
 	}
 	if bytes.Contains(encoded, []byte("synthetic private title")) {
 		t.Fatal("health reported session title")
+	}
+}
+
+func TestHubContactFailureStreakPersistsChangesAndResetsOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	})
+	start := time.Date(2026, 10, 12, 8, 12, 0, 0, time.UTC)
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	if changed, err := queue.RecordHubContact(start, refused); err != nil || !changed {
+		t.Fatalf("first failure changed=%t err=%v", changed, err)
+	}
+	if changed, err := queue.RecordHubContact(start.Add(time.Minute), refused); err != nil || changed {
+		t.Fatalf("repeated failure changed=%t err=%v", changed, err)
+	}
+	failure := queue.LastHubFailure()
+	if failure == nil || failure.Cause != hubclient.FailureConnect || failure.SinceMs != start.UnixMilli() || failure.Attempts != 2 {
+		t.Fatalf("failure streak = %+v", failure)
+	}
+
+	unavailable := hubclient.V4Problem{Code: "maintenance", HTTPStatus: 503}
+	if changed, err := queue.RecordHubContact(start.Add(2*time.Minute), unavailable); err != nil || !changed {
+		t.Fatalf("changed cause changed=%t err=%v", changed, err)
+	}
+	if changed, err := queue.RecordHubContact(start.Add(3*time.Minute), unavailable); err != nil || changed {
+		t.Fatalf("repeated changed cause changed=%t err=%v", changed, err)
+	}
+	failure = queue.LastHubFailure()
+	if failure == nil || failure.Cause != hubclient.FailureHubUnavailable || failure.SinceMs != start.Add(2*time.Minute).UnixMilli() || failure.Attempts != 2 {
+		t.Fatalf("changed-cause streak = %+v", failure)
+	}
+	health, err := ReadHealth(root)
+	if err != nil || health.LastHubFailure == nil || *health.LastHubFailure != *failure {
+		t.Fatalf("persisted failure = %+v, err=%v", health.LastHubFailure, err)
+	}
+	if changed, err := queue.RecordHubContact(start.Add(4*time.Minute), nil); err != nil || !changed {
+		t.Fatalf("success reset changed=%t err=%v", changed, err)
+	}
+	if queue.LastHubFailure() != nil {
+		t.Fatalf("success did not clear failure streak: %+v", queue.LastHubFailure())
+	}
+	wantLogs := "Hub contact failed: cause=connect\nHub contact failed: cause=hub_unavailable\nHub contact recovered: cause=ok\n"
+	if output.String() != wantLogs {
+		t.Fatalf("transition logs = %q, want %q", output.String(), wantLogs)
 	}
 }

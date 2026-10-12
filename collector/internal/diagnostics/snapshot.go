@@ -63,12 +63,23 @@ type HubSync struct {
 	Paired            bool               `json:"paired"`
 	LastCheckInAtMs   *int64             `json:"lastCheckInAtMs,omitempty"`
 	LastCheckInResult string             `json:"lastCheckInResult"`
+	LastFailure       *HubFailure        `json:"lastFailure,omitempty"`
 	SyncState         string             `json:"syncState"`
 	PolicyKnown       bool               `json:"policyKnown"`
 	Pending           int                `json:"pending"`
 	Failing           int                `json:"failing"`
 	Parked            int                `json:"parked"`
 	TopFailureCodes   []FailureCodeCount `json:"topFailureCodes"`
+}
+
+type HubFailure struct {
+	Host     string `json:"host"`
+	Cause    string `json:"cause"`
+	SinceMs  int64  `json:"sinceMs"`
+	Attempts int    `json:"attempts"`
+	Sentence string `json:"sentence"`
+	RawError string `json:"rawError"`
+	Active   bool   `json:"active,omitempty"`
 }
 
 type FailureCodeCount struct {

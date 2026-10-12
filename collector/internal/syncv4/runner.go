@@ -71,16 +71,16 @@ func DeferReason(err error) string {
 		if problem.Code == "device_revoked" || problem.Code == "not_paired" {
 			return "not_paired"
 		}
-		if problem.HTTPStatus >= 500 {
-			return "hub_unreachable"
-		}
-		if errors.Is(err, ErrStaleConsent) && problem.Code != "device_revoked" && permanentCheckInRejection(problem) {
-			return "hub_rejected:" + problem.Code
-		}
-		return "hub:" + problem.Code
 	case errors.Is(err, ErrPaused):
 		return "paused"
-	case errors.Is(err, ErrStaleConsent):
+	}
+	if failure, ok := hubclient.ClassifyHubFailure(err); ok {
+		return failure.Cause
+	}
+	if errors.As(err, &problem) {
+		return "hub:" + problem.Code
+	}
+	if errors.Is(err, ErrStaleConsent) {
 		if hubUnavailable(err) {
 			return "hub_unreachable"
 		}
