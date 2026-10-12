@@ -428,11 +428,13 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 
 // runInventory takes the stat-only inventory at startup and every sync
 // interval, records it for check-in, prunes cache entries whose source is
-// gone, and wakes the sync loop once so the first inventory checks in within
-// seconds of pairing.
+// gone, and wakes the sync loop when a source file changes.
 func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool) {
-	const interval = 5 * time.Minute
-	first := true
+	runInventoryWithInterval(ctx, fingerprints, queue, wake, tracker, paired, 5*time.Minute)
+}
+
+func runInventoryWithInterval(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration) {
+	var previous *inventory.Snapshot
 	for {
 		if !paired(ctx) {
 			select {
@@ -461,13 +463,13 @@ func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue 
 			} else if removed > 0 {
 				log.Printf("parse cache: pruned %d entries", removed)
 			}
-			if first {
-				first = false
+			if inventorySourcesChanged(previous, snapshot) {
 				select {
 				case wake <- struct{}{}:
 				default:
 				}
 			}
+			previous = snapshot
 		}
 		select {
 		case <-ctx.Done():
@@ -475,6 +477,28 @@ func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue 
 		case <-time.After(interval):
 		}
 	}
+}
+
+func inventorySourcesChanged(previous, current *inventory.Snapshot) bool {
+	if previous == nil || current == nil || previous.Skipped != current.Skipped || len(previous.Files) != len(current.Files) || len(previous.Missing) != len(current.Missing) {
+		return true
+	}
+	for i := range previous.Missing {
+		if previous.Missing[i] != current.Missing[i] {
+			return true
+		}
+	}
+	files := make(map[string]inventory.File, len(previous.Files))
+	for _, file := range previous.Files {
+		files[file.Agent+"\x00"+file.Path] = file
+	}
+	for _, file := range current.Files {
+		prior, ok := files[file.Agent+"\x00"+file.Path]
+		if !ok || prior.Size != file.Size || prior.ModTimeMs != file.ModTimeMs {
+			return true
+		}
+	}
+	return false
 }
 
 func newProductionRemoteManager() (*remote.Manager, error) {
