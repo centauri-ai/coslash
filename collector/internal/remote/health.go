@@ -1,7 +1,9 @@
 package remote
 
 import (
+	"log"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -156,4 +158,21 @@ func genericErrorCopy(reason Reason) string {
 	default:
 		return "remote refresh failed"
 	}
+}
+
+// LogSSHFailure keeps bounded, redacted process diagnostics in the Local log.
+func LogSSHFailure(operation string, err error) {
+	text := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, err.Error()+" "+sshErrorStderr(err))
+	fields := strings.Fields(text)
+	for i, field := range fields {
+		if strings.Contains(field, "://") {
+			fields[i] = "[redacted]"
+		}
+	}
+	log.Printf("%s failed: %s", operation, redactDiagnostic(strings.Join(fields, " ")))
 }

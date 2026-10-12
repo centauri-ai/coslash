@@ -17,7 +17,12 @@ import (
 )
 
 func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.Manager) func(context.Context, hubclient.V4Command) error {
-	return func(ctx context.Context, command hubclient.V4Command) error {
+	return func(ctx context.Context, command hubclient.V4Command) (commandErr error) {
+		defer func() {
+			if commandErr != nil && (command.Type == "ssh.test" || command.Type == "ssh.install") {
+				remote.LogSSHFailure(command.Type, commandErr)
+			}
+		}()
 		var payload struct {
 			SessionID string `json:"sessionId"`
 			Mode      string `json:"mode"`
@@ -69,7 +74,7 @@ func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.M
 				return err
 			}
 			if health.State != remote.StateOK {
-				return errors.New("SSH test failed")
+				return &syncv4.SSHCommandError{Reason: health.Reason}
 			}
 			return nil
 		case "ssh.install":
@@ -84,7 +89,11 @@ func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.M
 				return err
 			}
 			if health.Helper == nil || !health.Helper.Compatible {
-				return errors.New("SSH connector install failed")
+				reason := health.Reason
+				if health.Helper != nil {
+					reason = health.Helper.Reason
+				}
+				return &syncv4.SSHCommandError{Reason: reason, Install: true}
 			}
 			return nil
 		default:
