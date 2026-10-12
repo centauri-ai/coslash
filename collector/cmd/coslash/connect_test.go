@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -197,7 +198,8 @@ func TestConnectClaimStoresOnlyHubOriginAndStartsApprovalPolling(t *testing.T) {
 	if state, ok := manager.ConnectJobState(id); !ok || state != "claimed" {
 		t.Fatalf("connect state=%q found=%t", state, ok)
 	}
-	if claimBody["connectCode"] != "K7QX-29PD" || claimBody["deviceName"] == "" || len(claimBody) != 2 {
+	if claimBody["connectCode"] != "K7QX-29PD" || claimBody["deviceName"] == "" ||
+		claimBody["os"] != runtime.GOOS || claimBody["arch"] != runtime.GOARCH || claimBody["version"] != "0.1.0" || len(claimBody) != 5 {
 		t.Fatalf("claim body=%#v", claimBody)
 	}
 	savedHub, err := os.ReadFile(filepath.Join(home, storedHubURLFilename))
