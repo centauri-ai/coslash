@@ -1251,6 +1251,13 @@ func limitedResultReason(result refreshOutcome) *Reason {
 }
 
 func classifyError(err error) Reason {
+	if reason := classifyKnownError(err); reason != "" {
+		return reason
+	}
+	return ReasonConnectionFailed
+}
+
+func classifyKnownError(err error) Reason {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return ReasonRefreshTimeout
@@ -1296,7 +1303,7 @@ func classifyError(err error) Reason {
 		strings.Contains(message, "decode") {
 		return ReasonInvalidData
 	}
-	return ReasonConnectionFailed
+	return ""
 }
 
 func retryBackoff(failures int) time.Duration {
