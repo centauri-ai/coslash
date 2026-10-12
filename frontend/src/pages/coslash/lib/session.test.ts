@@ -5,6 +5,7 @@ import {
   canResumeSession,
   environmentFact,
   freshLaunchDisabledHint,
+  getTotalTokens,
   getModality,
   getSessionVendors,
   LOCAL_SOURCE_ID,
@@ -16,6 +17,7 @@ import {
   sessionReadiness,
   sessionsForAggregates,
   sessionShareEligibility,
+  sessionTotalTokens,
   sumKnown,
   withLocalSourceDefaults,
   type Session,
@@ -134,6 +136,23 @@ describe('sumKnown', () => {
     expect(sumKnown([10_000, null])).toBeNull();
     expect(sumKnown([10_000, 2_000])).toBe(12_000);
     expect(sumKnown([])).toBeNull();
+  });
+});
+
+describe('token totals', () => {
+  it('returns unknown when a negative counter is masked by another counter', () => {
+    const tokens = {
+      model: {
+        input_tokens: -500,
+        output_tokens: 1000,
+        cache_creation_input_tokens: 0,
+        cache_creation_1h_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    };
+
+    expect(getTotalTokens(tokens)).toBeNull();
+    expect(sessionTotalTokens({ tokens })).toBeNull();
   });
 });
 

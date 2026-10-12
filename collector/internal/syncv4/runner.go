@@ -1030,6 +1030,10 @@ func cwdLabel(workingDirectory string) string {
 }
 
 func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
+	if r.Queue != nil {
+		r.Queue.SetCurrent(entry.Key, 0, 0)
+		defer r.Queue.SetCurrent("", 0, 0)
+	}
 	if err := r.ensureConsent(ctx); err != nil {
 		return err
 	}
