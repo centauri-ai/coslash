@@ -26,6 +26,14 @@ func claudeFixture(t *testing.T) (string, string, string, Selection) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspaceFileJSON, err := json.Marshal(filepath.Join(workspace, "src", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeFileJSON, err := json.Marshal(filepath.Join(home, ".config", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	rootID := "11111111-2222-3333-4444-555555555555"
 	dir := filepath.Join(claude.ProjectsRoot(home), "project")
 	rootFile := filepath.Join(dir, rootID+".jsonl")
@@ -33,7 +41,9 @@ func claudeFixture(t *testing.T) (string, string, string, Selection) {
 	if err := os.MkdirAll(filepath.Dir(childFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	root := []byte(`{"sessionId":"` + rootID + `","type":"user","timestamp":"2026-09-20T12:00:00Z","cwd":` + string(workspaceJSON) + `,"message":{"content":"hello"}}` + "\n")
+	root := []byte(`{"sessionId":"` + rootID + `","type":"user","timestamp":"2026-09-20T12:00:00Z","cwd":` + string(workspaceJSON) + `,"message":{"content":"hello"}}` + "\n" +
+		`{"sessionId":"` + rootID + `","type":"assistant","timestamp":"2026-09-20T12:00:02Z","toolUseResult":{"filePath":` + string(workspaceFileJSON) + `,"type":"create","content":"package main\n"}}` + "\n" +
+		`{"sessionId":"` + rootID + `","type":"assistant","timestamp":"2026-09-20T12:00:03Z","toolUseResult":{"filePath":` + string(homeFileJSON) + `,"type":"create","content":"setting\n"}}` + "\n")
 	child := []byte(`{"sessionId":"agent-one","type":"user","timestamp":"2026-09-20T12:00:01Z","cwd":` + string(workspaceJSON) + `,"message":{"content":"child task"}}` + "\n")
 	for file, data := range map[string][]byte{rootFile: root, childFile: child, filepath.Join(filepath.Dir(childFile), "agent-one.meta.json"): []byte(`{"description":"Child work","toolUseId":"spawn-one"}`)} {
 		if err := os.WriteFile(file, data, 0o600); err != nil {
@@ -78,6 +88,15 @@ func TestClaudeCompleteLocalFamilyRevisionAndLastGood(t *testing.T) {
 				record, err := fullsessionv1.Decode(data)
 				if err != nil || record.Session.Branch != nil {
 					t.Fatalf("nullable parsed branch = %#v, %v", record.Session.Branch, err)
+				}
+				if artifact.MemberID == selection.SessionID {
+					paths := map[string]bool{}
+					for _, edit := range record.Session.FileEdits {
+						paths[edit.Path] = true
+					}
+					if !paths["src/main.go"] || !paths["~/.config/settings.json"] {
+						t.Fatalf("sanitized Claude paths = %#v", paths)
+					}
 				}
 			}
 		}

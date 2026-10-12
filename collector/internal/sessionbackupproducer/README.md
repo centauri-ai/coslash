@@ -27,6 +27,12 @@ manifests are mode `0600`. Local OpenCode projects family-attributed SQLite rows
 and parses them in one read transaction. A source write observed during
 preparation blocks completion.
 
+Before a processed record is frozen for upload, absolute file-edit paths inside
+the recorded working directory become repository-relative. Paths elsewhere
+under the source home become `~/…`; paths outside both are reduced to their
+final path component. This applies across supported readers and the sanitized
+paths determine the record revision. Windows drive paths use the same rules.
+
 The Codex producer scans both `.codex/sessions` and `.codex/archived_sessions`, and
 reads only the attributable rows of `.codex/session_index.jsonl`. It does not
 open a Codex database, helper/cache implementation files, credentials, or

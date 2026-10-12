@@ -121,6 +121,9 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 	if err != nil || len(records) != len(plan.Files) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
+	if err := sanitizeRecordFilePaths(records, handle.Home); err != nil {
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+	}
 	byID := make(map[string]fullsessionv1.Record, len(records))
 	for _, record := range records {
 		if _, exists := byID[record.SessionID]; exists || plan.Files[record.SessionID] == nil ||

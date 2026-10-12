@@ -25,10 +25,18 @@ func cursorIDEStateDB(home string) string {
 }
 
 func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string) {
+	return writeCursorBackupFixtureWithEdit(t, lane, false)
+}
+
+func writeCursorBackupFixtureWithEdit(t *testing.T, lane string, includeEdit bool) (string, string, string) {
 	t.Helper()
 	home, workspace := t.TempDir(), t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filePathJSON, err := json.Marshal(filepath.Join(workspace, "src", "main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,8 +45,11 @@ func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string
 		t.Fatal(err)
 	}
 	data := []byte(`{"role":"user","message":{"content":[{"type":"text","text":"Build this"}]}}` + "\n" +
-		`{"role":"assistant","message":{"content":[{"type":"text","text":"Done"}]}}` + "\n" +
-		`{"type":"turn_ended","status":"success"}` + "\n")
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"Done"}]}}` + "\n")
+	if includeEdit {
+		data = append(data, []byte(`{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"path":`+string(filePathJSON)+`,"contents":"package main\n"}}]}}`+"\n")...)
+	}
+	data = append(data, []byte(`{"type":"turn_ended","status":"success"}`+"\n")...)
 	if err := os.WriteFile(transcript, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +114,7 @@ func TestCursorBackupFixturesIsolateXDGConfig(t *testing.T) {
 func TestCursorLocalCompleteBundleRoundTripsIDEAndCLI(t *testing.T) {
 	for _, lane := range []string{"cursor-ide", "cursor-cli"} {
 		t.Run(lane, func(t *testing.T) {
-			home, _, _ := writeCursorBackupFixture(t, lane)
+			home, _, _ := writeCursorBackupFixtureWithEdit(t, lane, true)
 			spool := t.TempDir()
 			manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
 				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
@@ -135,6 +146,9 @@ func TestCursorLocalCompleteBundleRoundTripsIDEAndCLI(t *testing.T) {
 					record, decodeErr := fullsessionv1.Decode(data)
 					if decodeErr != nil || record.Session.Entrypoint == nil || *record.Session.Entrypoint != lane {
 						t.Fatalf("entrypoint = %#v, %v", record.Session.Entrypoint, decodeErr)
+					}
+					if len(record.Session.FileEdits) != 1 || record.Session.FileEdits[0].Path != "src/main.go" {
+						t.Fatalf("sanitized Cursor paths = %#v", record.Session.FileEdits)
 					}
 				case sessionbackupv1.KindRawMetadataRows:
 					metadataRows = true
