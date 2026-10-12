@@ -107,6 +107,55 @@ func TestClaudeV4HTTPRoundTrip(t *testing.T) {
 	runV4HTTPResume(t, manager, prepared, spool, "Fixture Claude", false)
 }
 
+type blockedCreateTransport struct {
+	Transport
+	started chan struct{}
+	release chan struct{}
+}
+
+func (transport *blockedCreateTransport) V4Create(ctx context.Context, _ hubclient.V4Create) (hubclient.V4Status, error) {
+	close(transport.started)
+	select {
+	case <-transport.release:
+		return hubclient.V4Status{UploadID: "upload-preparing", SessionID: "ses_preparing", State: "open"}, nil
+	case <-ctx.Done():
+		return hubclient.V4Status{}, ctx.Err()
+	}
+}
+
+func TestEnsureCreatedReportsSessionAsSyncingDuringCreate(t *testing.T) {
+	manager, prepared, _ := fixtureBundle(t)
+	manifest, err := (&Runner{Backup: manager}).manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := prepared.Selection
+	entry := Entry{Key: localKey(selection.SourceID, selection.Agent, selection.SessionID), Selection: selection,
+		Session: hubclient.V4Session{Agent: selection.Agent}, Activity: 1, BundleID: prepared.BundleID,
+		Manifest: &manifest, ContentSHA256: manifest.ContentSHA256}
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &blockedCreateTransport{started: make(chan struct{}), release: make(chan struct{})}
+	runner := &Runner{Queue: queue, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now}
+	done := make(chan error, 1)
+	go func() { done <- runner.ensureCreated(t.Context(), &entry) }()
+	<-hub.started
+	statusKey := selection.SourceID + ":" + selection.Agent + ":" + selection.SessionID
+	if got := queue.SessionStates()[statusKey]; got != "syncing" {
+		t.Fatalf("session state during Hub create = %q, want syncing", got)
+	}
+	close(hub.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepared *sessionbackupproducer.Prepared, spool, name string, discover bool) {
 	t.Helper()
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
