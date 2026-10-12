@@ -78,6 +78,11 @@ func classifyLifecycleError(err error) Reason {
 	case errors.Is(err, ErrHelperRollback):
 		return ReasonHelperRollback
 	case errors.Is(err, ErrHelperInstallation):
+		switch reason := classifyKnownError(err); reason {
+		case ReasonAuthentication, ReasonConnectionFailed, ReasonRefreshTimeout,
+			ReasonHostKeyChanged, ReasonHostKeyConfirmation, ReasonSFTPUnavailable:
+			return reason
+		}
 		return ReasonHelperInstallation
 	default:
 		return classifyHelperError(err)
