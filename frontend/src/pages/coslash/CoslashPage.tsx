@@ -107,8 +107,13 @@ export function CoslashPage() {
     () =>
       latestLogicalSessions(sessions).map((session) => {
         if (!isLocalSession(session) || !syncStatusState.hasStatus) return session;
-        const state = syncStatus.sessions[sessionKey(session)] ?? 'not_in_hub';
-        return { ...session, hubSyncChip: chipOf(syncMode(syncStatus.state), state) };
+        const key = sessionKey(session);
+        const state = syncStatus.sessions[key] ?? 'not_in_hub';
+        return {
+          ...session,
+          hubSyncChip: chipOf(syncMode(syncStatus.state), state),
+          hubSyncFailureCode: syncStatus.sessionFailures?.[key],
+        };
       }),
     [sessions, syncStatus, syncStatusState.hasStatus],
   );

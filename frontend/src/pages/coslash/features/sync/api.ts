@@ -9,7 +9,7 @@ export type SyncState =
   | 'disconnected'
   | 'update_required';
 
-export type SessionSyncState = 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out';
+export type SessionSyncState = 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out' | 'parked_failed';
 
 export type HubFailureCause = 'dns' | 'connect' | 'tls' | 'proxy' | 'hub_unavailable' | 'rejected';
 
@@ -28,6 +28,7 @@ export type SyncStatus = {
   sessions: Record<string, SessionSyncState>;
   lastFailure?: HubFailureStatus;
   hubFailureActive?: boolean;
+  sessionFailures?: Record<string, string>;
 };
 
 export type SyncStatusLoad = 'loading' | 'ready' | 'error';
@@ -42,7 +43,13 @@ const SYNC_STATES = new Set<SyncState>([
   'update_required',
 ]);
 
-const SESSION_STATES = new Set<SessionSyncState>(['in_hub', 'syncing', 'not_in_hub', 'left_out']);
+const SESSION_STATES = new Set<SessionSyncState>([
+  'in_hub',
+  'syncing',
+  'not_in_hub',
+  'left_out',
+  'parked_failed',
+]);
 const HUB_FAILURE_CAUSES = new Set<HubFailureCause>([
   'dns',
   'connect',
@@ -93,6 +100,14 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
     if (!SESSION_STATES.has(state as SessionSyncState)) throw new Error('Invalid sync status');
     sessions[key] = state as SessionSyncState;
   }
+  const sessionFailures: Record<string, string> = {};
+  if (value.sessionFailures != null) {
+    if (!isRecord(value.sessionFailures)) throw new Error('Invalid sync status');
+    for (const [key, code] of Object.entries(value.sessionFailures)) {
+      if (typeof code !== 'string') throw new Error('Invalid sync status');
+      sessionFailures[key] = code;
+    }
+  }
   let lastFailure: HubFailureStatus | undefined;
   if (value.lastFailure !== undefined) {
     if (
@@ -126,6 +141,7 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
     state: value.state as SyncState,
     hubOrigin,
     sessions,
+    sessionFailures,
     ...(lastFailure ? { lastFailure } : {}),
     ...(typeof value.hubFailureActive === 'boolean' ? { hubFailureActive: value.hubFailureActive } : {}),
   };

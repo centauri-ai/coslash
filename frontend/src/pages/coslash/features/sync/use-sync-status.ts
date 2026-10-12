@@ -3,9 +3,13 @@ import { loadSyncStatus, type SyncStatus, type SyncStatusLoad } from './api';
 
 const POLL_INTERVAL_MS = 10_000;
 
+function sameRecord(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) => left[key] === right[key]);
+}
+
 export function sameStatus(left: SyncStatus, right: SyncStatus): boolean {
-  const leftKeys = Object.keys(left.sessions);
-  const rightKeys = Object.keys(right.sessions);
   const leftFailure = left.lastFailure;
   const rightFailure = right.lastFailure;
   const sameFailure =
@@ -23,13 +27,18 @@ export function sameStatus(left: SyncStatus, right: SyncStatus): boolean {
     left.hubOrigin === right.hubOrigin &&
     left.hubFailureActive === right.hubFailureActive &&
     sameFailure &&
-    leftKeys.length === rightKeys.length &&
-    leftKeys.every((key) => left.sessions[key] === right.sessions[key])
+    sameRecord(left.sessions, right.sessions) &&
+    sameRecord(left.sessionFailures ?? {}, right.sessionFailures ?? {})
   );
 }
 
 export function useSyncStatus() {
-  const [status, setStatus] = useState<SyncStatus>({ state: 'not_connected', hubOrigin: '', sessions: {} });
+  const [status, setStatus] = useState<SyncStatus>({
+    state: 'not_connected',
+    hubOrigin: '',
+    sessions: {},
+    sessionFailures: {},
+  });
   const [loadState, setLoadState] = useState<SyncStatusLoad>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasStatus, setHasStatus] = useState(false);

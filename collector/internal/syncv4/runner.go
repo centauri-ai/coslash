@@ -1263,6 +1263,10 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	if entry.RevisionID != "" {
 		return nil
 	}
+	if r.Queue != nil {
+		r.Queue.SetCurrent(entry.Key, 0, 0)
+		defer r.Queue.SetCurrent("", 0, 0)
+	}
 	status, err := r.Hub.V4Status(ctx, entry.UploadID)
 	if err != nil {
 		return err
@@ -1314,7 +1318,6 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	currentDone := max(0, totalBytes-missingBytes)
 	if r.Queue != nil {
 		r.Queue.SetCurrent(entry.Key, currentDone, totalBytes)
-		defer r.Queue.SetCurrent("", 0, 0)
 	}
 	if err := r.setRetryProgress(entry.SessionID, "uploading", currentDone, totalBytes); err != nil {
 		return err

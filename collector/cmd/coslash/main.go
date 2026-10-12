@@ -44,6 +44,10 @@ var version = "dev"
 const defaultPort = 8787
 const windowsWSAEADDRINUSE syscall.Errno = 10048
 
+func startupAccessInstructions() string {
+	return "open coSlash Local from Hub (Devices › this computer › Open) or run coslash in Terminal"
+}
+
 type options struct {
 	port         int
 	portExplicit bool
@@ -281,10 +285,10 @@ func main() {
 		}
 	}()
 	accessURL := baseURL + "/#t=" + token
-	log.Printf("listening on %s", baseURL)
+	log.Printf("listening on %s; %s", baseURL, startupAccessInstructions())
 	if !opts.noOpen {
 		if err := openBrowser(accessURL); err != nil {
-			log.Printf("could not open a browser (%v); use the URL above", err)
+			log.Printf("could not open a browser (%v); %s", err, startupAccessInstructions())
 		}
 	}
 	guard := httpsec.Guard{Addr: listener.Addr().String(), Token: token}
