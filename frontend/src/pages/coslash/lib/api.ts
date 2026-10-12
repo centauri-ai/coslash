@@ -1,5 +1,5 @@
 export const API_AUTHENTICATION_MESSAGE =
-  'This link expired. Open coSlash Local from Hub (Devices › this computer › Open) or run coslash in Terminal.';
+  'This link expired. Run coslash in Terminal to open coSlash Local.';
 
 const TOKEN_STORAGE_KEY = 'coslash-api-token';
 
