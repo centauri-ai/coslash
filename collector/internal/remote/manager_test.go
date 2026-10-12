@@ -1348,3 +1348,41 @@ func TestSetupLogsUnderlyingSSHFailure(t *testing.T) {
 		t.Fatalf("unsafe or missing install diagnostic: %q", output.String())
 	}
 }
+
+func TestSetupPreservesInstallerSSHReasons(t *testing.T) {
+	cases := []struct {
+		message string
+		reason  Reason
+	}{
+		{"Permission denied (publickey)", ReasonAuthentication},
+		{"Connection reset by peer", ReasonConnectionFailed},
+		{"Connection refused", ReasonConnectionFailed},
+		{"i/o timeout", ReasonRefreshTimeout},
+		{"REMOTE HOST IDENTIFICATION HAS CHANGED", ReasonHostKeyChanged},
+		{"Host key verification failed", ReasonHostKeyConfirmation},
+		{"SFTP subsystem unavailable", ReasonSFTPUnavailable},
+		{"No space left on device", ReasonHelperInstallation},
+		{"installer exited", ReasonHelperInstallation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.message, func(t *testing.T) {
+			host, _, content := lifecycleFixture(t)
+			host.installErr = wrapSSHError(errors.New("installer exited"), tc.message)
+			manager := NewManager(Options{
+				Cache: NewCache(t.TempDir()), ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+				LifecycleFactory:   func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+				ResetControlMaster: func(string) {}, HelperInstallationAvailable: true,
+			})
+			if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+				t.Fatal(err)
+			}
+			health, err := manager.SetupHelperForAlias(context.Background(), "agent-box", Consent{Install: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if health.Helper == nil || health.Helper.Compatible || health.Helper.Reason == nil || *health.Helper.Reason != tc.reason {
+				t.Fatalf("helper = %+v, want failure reason %q", health.Helper, tc.reason)
+			}
+		})
+	}
+}
