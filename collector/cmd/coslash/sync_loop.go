@@ -35,8 +35,9 @@ type syncLoopControl struct {
 }
 
 const (
-	transportRetryInitial = 2 * time.Second
-	transportRetryMax     = time.Minute
+	transportRetryInitial    = 2 * time.Second
+	transportRetryMax        = time.Minute
+	syncNowInventoryDebounce = 30 * time.Second
 )
 
 type transportRetryBackoff struct{ failures int }
@@ -141,14 +142,18 @@ func (control *syncLoopControl) beginPass() {
 	control.mu.Unlock()
 }
 
-func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), control *syncLoopControl, externalWake ...<-chan struct{}) {
+func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), control *syncLoopControl, externalWake ...chan struct{}) {
 	var inventoryWake <-chan struct{}
 	var retryWake <-chan struct{}
+	var inventoryRequest chan<- struct{}
 	if len(externalWake) > 0 {
 		inventoryWake = externalWake[0]
 	}
 	if len(externalWake) > 1 {
 		retryWake = externalWake[1]
+	}
+	if len(externalWake) > 2 {
+		inventoryRequest = externalWake[2]
 	}
 	policyWake := make(chan struct{}, 1)
 	var policyMu sync.Mutex
@@ -156,6 +161,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 	go func() {
 		authFailures := 0
 		transportBackoff := transportRetryBackoff{}
+		syncRequestPending := false
 		for ctx.Err() == nil {
 			if queue.LastHubFailure() != nil {
 				select {
@@ -172,6 +178,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			}
 			if err == nil {
 				policyMu.Lock()
+				if !result.SyncRequested {
+					syncRequestPending = false
+				}
 				blockedAt := blockedPolicyVersion
 				switch {
 				case blockedAt >= 0 && result.ConfigVersion > blockedAt:
@@ -179,8 +188,18 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 					case policyWake <- struct{}{}:
 					default:
 					}
-				case blockedAt < 0 && (result.Changed || result.CommandsAvailable || result.SyncRequested):
-					control.signal()
+				case blockedAt < 0:
+					if result.Changed || result.CommandsAvailable {
+						control.signal()
+					}
+					if result.SyncRequested && !syncRequestPending {
+						syncRequestPending = true
+						if inventoryRequest == nil {
+							control.signal()
+						} else {
+							requestInventory(inventoryRequest)
+						}
+					}
 				}
 				policyMu.Unlock()
 			}
@@ -406,6 +425,16 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			continue
 		case <-time.After(delay):
 		}
+	}
+}
+
+func requestInventory(request chan<- struct{}) {
+	if request == nil {
+		return
+	}
+	select {
+	case request <- struct{}{}:
+	default:
 	}
 }
 

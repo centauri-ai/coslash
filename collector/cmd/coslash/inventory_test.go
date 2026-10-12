@@ -84,6 +84,58 @@ func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	}
 }
 
+func TestRunInventorySchedulesShortRetryForFreshSessionFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	transcript := filepath.Join(claude.ProjectsRoot(home), "synthetic", "session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcript, []byte("synthetic session still being written\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fingerprints, err := syncv4.OpenFingerprints(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err := syncv4.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scheduledRetry time.Duration
+	wake := make(chan struct{}, 2)
+	scanned := make(chan struct{}, 2)
+	waits := 0
+	runInventoryWithSchedule(t.Context(), fingerprints, queue, wake, &inventory.Tracker{}, func(context.Context) bool { return true }, func(_ context.Context, retryAfter time.Duration, _ time.Time) (bool, bool, bool) {
+		if waits == 0 {
+			scheduledRetry = retryAfter
+			waits++
+			return true, true, false
+		}
+		return false, false, false
+	}, scanned)
+	if scheduledRetry != inventorySettleRetryDelay {
+		t.Fatalf("retry after fresh source = %s, want %s", scheduledRetry, inventorySettleRetryDelay)
+	}
+	if waits != 1 {
+		t.Fatalf("inventory retries = %d, want one short retry", waits)
+	}
+	for range 2 {
+		select {
+		case <-scanned:
+		default:
+			t.Fatal("settle retry did not run a second inventory")
+		}
+		select {
+		case <-wake:
+		default:
+			t.Fatal("settle retry did not wake discovery")
+		}
+	}
+}
+
 func TestRunInventoryWakesSyncLoopWhenAnOlderSessionChanges(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
