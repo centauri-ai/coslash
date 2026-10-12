@@ -425,7 +425,10 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		return firstErr
 	}
 	snapshot := r.Queue.ImportSnapshot(r.now())
-	if snapshot.ContentSessions == snapshot.TotalSessions {
+	firstSync := r.Queue.Progress().FirstSync
+	recentSettled := firstSync.RecentDone == firstSync.RecentTotal
+	historySettled := firstSync.HistoryState == "off" || firstSync.HistoryState == "complete"
+	if snapshot.ContentSessions == snapshot.TotalSessions || recentSettled && historySettled {
 		return r.Queue.SetPhase("complete")
 	}
 	if plan.HistoryPaused {
