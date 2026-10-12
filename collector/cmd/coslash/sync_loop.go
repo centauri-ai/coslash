@@ -210,7 +210,12 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		if err != nil && (ctx.Err() == nil || syncv4.DeferReason(err) == "not_paired") {
 			reason := syncv4.DeferReason(err)
 			shouldLog := true
-			if reason == "not_paired" {
+			if _, contactFailure := hubclient.ClassifyHubFailure(err); contactFailure {
+				// The transport logs only when the classified contact cause changes.
+				shouldLog = false
+				hasLoggedNotPaired = false
+				hasLastLocalError = false
+			} else if reason == "not_paired" {
 				shouldLog = !hasLoggedNotPaired
 				hasLoggedNotPaired = true
 				hasLastLocalError = false

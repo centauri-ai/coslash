@@ -41,6 +41,7 @@ func (transport currentHubTransport) V4CheckIn(ctx context.Context, queue hubcli
 		return hubclient.V4CheckIn{}, err
 	}
 	result, err := client.V4CheckIn(ctx, queue, appliedConfigVersion, results, agentsFound, logEntries)
+	transport.recordHubContact(err)
 	if transport.queue != nil {
 		status := "ok"
 		if err != nil {
@@ -58,7 +59,9 @@ func (transport currentHubTransport) V4Create(ctx context.Context, input hubclie
 	if err != nil {
 		return hubclient.V4Status{}, err
 	}
-	return client.V4Create(ctx, input)
+	result, err := client.V4Create(ctx, input)
+	transport.recordHubContact(err)
+	return result, err
 }
 
 func (transport currentHubTransport) V4Status(ctx context.Context, uploadID string) (hubclient.V4Status, error) {
@@ -66,7 +69,9 @@ func (transport currentHubTransport) V4Status(ctx context.Context, uploadID stri
 	if err != nil {
 		return hubclient.V4Status{}, err
 	}
-	return client.V4Status(ctx, uploadID)
+	result, err := client.V4Status(ctx, uploadID)
+	transport.recordHubContact(err)
+	return result, err
 }
 
 func (transport currentHubTransport) V4Abort(ctx context.Context, uploadID string) error {
@@ -74,7 +79,9 @@ func (transport currentHubTransport) V4Abort(ctx context.Context, uploadID strin
 	if err != nil {
 		return err
 	}
-	return client.V4Abort(ctx, uploadID)
+	err = client.V4Abort(ctx, uploadID)
+	transport.recordHubContact(err)
+	return err
 }
 
 func (transport currentHubTransport) V4PutChunk(ctx context.Context, uploadID string, missing hubclient.V4Missing, body io.Reader) error {
@@ -82,7 +89,9 @@ func (transport currentHubTransport) V4PutChunk(ctx context.Context, uploadID st
 	if err != nil {
 		return err
 	}
-	return client.V4PutChunk(ctx, uploadID, missing, body)
+	err = client.V4PutChunk(ctx, uploadID, missing, body)
+	transport.recordHubContact(err)
+	return err
 }
 
 func (transport currentHubTransport) V4Confirm(ctx context.Context, uploadID string, missing ...hubclient.V4Missing) (hubclient.V4Status, error) {
@@ -90,7 +99,9 @@ func (transport currentHubTransport) V4Confirm(ctx context.Context, uploadID str
 	if err != nil {
 		return hubclient.V4Status{}, err
 	}
-	return client.V4Confirm(ctx, uploadID, missing...)
+	result, err := client.V4Confirm(ctx, uploadID, missing...)
+	transport.recordHubContact(err)
+	return result, err
 }
 
 func (transport currentHubTransport) V4Finalize(ctx context.Context, uploadID string) (hubclient.V4Status, error) {
@@ -98,7 +109,9 @@ func (transport currentHubTransport) V4Finalize(ctx context.Context, uploadID st
 	if err != nil {
 		return hubclient.V4Status{}, err
 	}
-	return client.V4Finalize(ctx, uploadID)
+	result, err := client.V4Finalize(ctx, uploadID)
+	transport.recordHubContact(err)
+	return result, err
 }
 
 func (transport currentHubTransport) V4ListBatch(ctx context.Context, items []hubclient.V4ListItem) ([]hubclient.V4ListResult, error) {
@@ -106,7 +119,9 @@ func (transport currentHubTransport) V4ListBatch(ctx context.Context, items []hu
 	if err != nil {
 		return nil, err
 	}
-	return client.V4ListBatch(ctx, items)
+	result, err := client.V4ListBatch(ctx, items)
+	transport.recordHubContact(err)
+	return result, err
 }
 
 func (transport currentHubTransport) V4Wait(ctx context.Context, since int64) (hubclient.V4Wait, error) {
@@ -115,6 +130,7 @@ func (transport currentHubTransport) V4Wait(ctx context.Context, since int64) (h
 		return hubclient.V4Wait{}, err
 	}
 	result, err := client.V4Wait(ctx, since)
+	transport.recordHubContact(err)
 	var problem hubclient.V4Problem
 	if transport.queue != nil && errors.As(err, &problem) && (problem.Code == "device_revoked" || problem.Code == "not_paired") {
 		if saveErr := transport.queue.RecordCheckIn(time.Now(), "not_paired"); saveErr != nil {
@@ -122,4 +138,13 @@ func (transport currentHubTransport) V4Wait(ctx context.Context, since int64) (h
 		}
 	}
 	return result, err
+}
+
+func (transport currentHubTransport) recordHubContact(err error) {
+	if transport.queue == nil {
+		return
+	}
+	if _, saveErr := transport.queue.RecordHubContact(time.Now(), err); saveErr != nil {
+		log.Printf("record Hub contact status: %v", saveErr)
+	}
 }
