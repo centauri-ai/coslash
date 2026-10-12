@@ -113,14 +113,17 @@ func TestRunInventoryWakesSyncLoopWhenAnOlderSessionChanges(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	wake := make(chan struct{}, 1)
+	ticks := make(chan struct{})
+	scanned := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runInventoryWithInterval(ctx, fingerprints, queue, wake, &inventory.Tracker{}, func(context.Context) bool { return true }, 100*time.Millisecond)
+		runInventoryWithTicks(ctx, fingerprints, queue, wake, &inventory.Tracker{}, func(context.Context) bool { return true }, ticks, scanned)
 	}()
+	<-scanned
 	select {
 	case <-wake:
-	case <-time.After(5 * time.Second):
+	default:
 		t.Fatal("initial inventory did not wake the sync loop")
 	}
 	initial := queue.Inventory()
@@ -140,9 +143,11 @@ func TestRunInventoryWakesSyncLoopWhenAnOlderSessionChanges(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+	ticks <- struct{}{}
+	<-scanned
 	select {
 	case <-wake:
-	case <-time.After(350 * time.Millisecond):
+	default:
 		t.Fatal("inventory saw no sync wake after an older session grew")
 	}
 	if got := queue.Inventory(); got == nil || got.Bytes <= initial.Bytes {
