@@ -8,6 +8,7 @@ import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboardin
 import { LocalUpdateBanner } from '@/pages/coslash/components/LocalUpdateBanner';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
+import { retrySyncNow } from '@/pages/coslash/features/sync/api';
 import { chipOf, syncMode } from '@/pages/coslash/features/sync/model';
 import { SyncHeader } from '@/pages/coslash/features/sync/SyncHeader';
 import { useSyncStatus } from '@/pages/coslash/features/sync/use-sync-status';
@@ -363,6 +364,7 @@ export function CoslashPage() {
               status={syncStatus}
               loaded={syncStatusState.hasStatus}
               onSettings={() => setSettingsDialogMode('full-settings')}
+              onRetry={retrySyncNow}
             />
             {selectedSession?.hubSyncChip === 'in_hub' && isLocalSession(selectedSession) && (
               <Badge variant="secondary" className="shrink-0 text-xs font-semibold">

@@ -3,12 +3,26 @@ import { loadSyncStatus, type SyncStatus, type SyncStatusLoad } from './api';
 
 const POLL_INTERVAL_MS = 10_000;
 
-function sameStatus(left: SyncStatus, right: SyncStatus): boolean {
+export function sameStatus(left: SyncStatus, right: SyncStatus): boolean {
   const leftKeys = Object.keys(left.sessions);
   const rightKeys = Object.keys(right.sessions);
+  const leftFailure = left.lastFailure;
+  const rightFailure = right.lastFailure;
+  const sameFailure =
+    leftFailure == null
+      ? rightFailure == null
+      : rightFailure != null &&
+        leftFailure.host === rightFailure.host &&
+        leftFailure.cause === rightFailure.cause &&
+        leftFailure.sinceMs === rightFailure.sinceMs &&
+        leftFailure.attempts === rightFailure.attempts &&
+        leftFailure.sentence === rightFailure.sentence &&
+        leftFailure.rawError === rightFailure.rawError;
   return (
     left.state === right.state &&
     left.hubOrigin === right.hubOrigin &&
+    left.hubFailureActive === right.hubFailureActive &&
+    sameFailure &&
     leftKeys.length === rightKeys.length &&
     leftKeys.every((key) => left.sessions[key] === right.sessions[key])
   );

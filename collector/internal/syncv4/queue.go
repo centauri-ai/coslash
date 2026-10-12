@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -74,6 +75,7 @@ type state struct {
 	NextCheckInSeconds   int                `json:"nextCheckInSeconds,omitempty"`
 	LastCheckInAtMs      int64              `json:"lastCheckInAtMs,omitempty"`
 	LastCheckInResult    string             `json:"lastCheckInResult,omitempty"`
+	LastHubFailure       *HubContactFailure `json:"lastHubFailure,omitempty"`
 	Phase                string             `json:"phase,omitempty"`
 	RateBytesSec         float64            `json:"rateBytesSec,omitempty"`
 	RateSamples          int                `json:"rateSamples,omitempty"`
@@ -244,7 +246,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
 		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
-		q.state.LastCheckInAtMs, q.state.LastCheckInResult = 0, ""
+		q.state.LastCheckInAtMs, q.state.LastCheckInResult, q.state.LastHubFailure = 0, "", nil
 		q.state.Config = hubclient.V4Config{}
 		q.state.PlanStartedAt, q.state.Phase = 0, ""
 		q.state.LiveOnlyPlanVersion = 0
@@ -290,8 +292,72 @@ func (q *Queue) RecordCheckIn(at time.Time, result string) error {
 	return nil
 }
 
+// RecordHubContact updates the consecutive failed-contact streak. It reports
+// whether the cause changed so callers can log transitions without repeating
+// a line on every retry.
+func (q *Queue) RecordHubContact(at time.Time, err error) (bool, error) {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	var failure hubclient.HubFailure
+	if err != nil {
+		var ok bool
+		failure, ok = hubclient.ClassifyHubFailure(err)
+		if !ok {
+			return false, nil
+		}
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	previous := q.state.LastHubFailure
+	changed := false
+	if err == nil {
+		if previous == nil {
+			return false, nil
+		}
+		q.state.LastHubFailure = nil
+		changed = true
+	} else if previous != nil && previous.Cause == failure.Cause {
+		updated := *previous
+		if updated.Attempts < int(^uint(0)>>1) {
+			updated.Attempts++
+		}
+		updated.RawError = failure.RawError
+		q.state.LastHubFailure = &updated
+	} else {
+		q.state.LastHubFailure = &HubContactFailure{
+			Cause: failure.Cause, SinceMs: at.UTC().UnixMilli(), Attempts: 1, RawError: failure.RawError,
+		}
+		changed = true
+	}
+	if saveErr := q.save(); saveErr != nil {
+		q.state.LastHubFailure = previous
+		return false, saveErr
+	}
+	if changed {
+		if err == nil {
+			log.Printf("Hub contact recovered: cause=ok")
+		} else {
+			log.Printf("Hub contact failed: cause=%s", failure.Cause)
+		}
+	}
+	return changed, nil
+}
+
+func (q *Queue) LastHubFailure() *HubContactFailure {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.LastHubFailure == nil {
+		return nil
+	}
+	failure := *q.state.LastHubFailure
+	return &failure
+}
+
 func safeCheckInResult(value string) string {
-	if value == "ok" || value == "hub_unreachable" || value == "consent_unavailable" || value == "paused" || value == "local_error" || value == "not_paired" {
+	if value == "ok" || value == hubclient.FailureDNS || value == hubclient.FailureConnect || value == hubclient.FailureTLS ||
+		value == hubclient.FailureProxy || value == hubclient.FailureHubUnavailable || value == hubclient.FailureRejected ||
+		value == "hub_unreachable" || value == "consent_unavailable" || value == "paused" || value == "local_error" || value == "not_paired" {
 		return value
 	}
 	for _, prefix := range []string{"hub:", "hub_rejected:"} {

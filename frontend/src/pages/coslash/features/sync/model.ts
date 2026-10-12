@@ -1,4 +1,4 @@
-import type { SessionSyncState, SyncState, SyncStatus } from './api';
+import type { HubFailureStatus, SessionSyncState, SyncState, SyncStatus } from './api';
 
 export type SyncMode = 'on' | 'off' | 'paused' | 'none' | 'revoked' | 'update';
 export type SyncChipState = SessionSyncState | 'none';
@@ -46,6 +46,10 @@ export function chipLabel(state: SyncChipState): string {
 }
 
 export function syncHeader(status: SyncStatus): { label: string; href: string | null; linked: boolean } {
+  if (status.hubFailureActive && status.lastFailure) {
+    const label = status.lastFailure.cause === 'rejected' ? 'Hub rejected' : "Can't reach Hub";
+    return { label: `${label} · since ${hubFailureTime(status.lastFailure)}`, href: null, linked: false };
+  }
   const hub = status.hubOrigin || null;
   switch (status.state) {
     case 'connected_syncing':
@@ -62,6 +66,12 @@ export function syncHeader(status: SyncStatus): { label: string; href: string | 
     default:
       return { label: 'Not connected · Connect in Hub', href: hub, linked: true };
   }
+}
+
+export function hubFailureTime(failure: HubFailureStatus): string {
+  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
+    new Date(failure.sinceMs),
+  );
 }
 
 export type SyncSettingsView = {
