@@ -155,6 +155,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 	authFailures := 0
 	var lastLocalError [32]byte
 	hasLastLocalError := false
+	hasLoggedNotPaired := false
 	for ctx.Err() == nil {
 		control.beginPass()
 		passContext, cancel := context.WithCancel(ctx)
@@ -206,20 +207,31 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			policyMu.Unlock()
 			continue
 		}
-		if err != nil && ctx.Err() == nil {
+		if err != nil && (ctx.Err() == nil || syncv4.DeferReason(err) == "not_paired") {
 			reason := syncv4.DeferReason(err)
 			shouldLog := true
-			if reason == "local_error" {
+			if reason == "not_paired" {
+				shouldLog = !hasLoggedNotPaired
+				hasLoggedNotPaired = true
+				hasLastLocalError = false
+			} else if reason == "local_error" {
+				hasLoggedNotPaired = false
 				fingerprint := sha256.Sum256([]byte(err.Error()))
 				shouldLog = !hasLastLocalError || fingerprint != lastLocalError
 				lastLocalError, hasLastLocalError = fingerprint, true
 			} else {
+				hasLoggedNotPaired = false
 				hasLastLocalError = false
 			}
 			if shouldLog {
-				log.Printf("v4 sync deferred: %s", reason)
+				if reason == "not_paired" {
+					log.Printf("v4 sync stopped: device removed from Hub; run coslash connect to add it again")
+				} else {
+					log.Printf("v4 sync deferred: %s", reason)
+				}
 			}
 		} else if err == nil {
+			hasLoggedNotPaired = false
 			hasLastLocalError = false
 		}
 		if credentialRetry(err) {

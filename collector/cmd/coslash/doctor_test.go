@@ -55,9 +55,14 @@ func TestDoctorHubReportsUnpairedWhenBindingCannotLoad(t *testing.T) {
 }
 
 func TestDoctorHubTreatsRevokedDeviceAsUnpaired(t *testing.T) {
-	queue := syncv4.HealthSnapshot{LastCheckInResult: "hub:device_revoked"}
+	queue := syncv4.HealthSnapshot{LastCheckInResult: "not_paired"}
 	hub := buildDoctorHubHealth(context.Background(), fakeDoctorHubClient{}, "https://hub.example.test", "synthetic-host", false, true, queue, false)
-	if hub.Paired || hub.SyncState != "off" {
+	if hub.Paired || hub.SyncState != "off" || hub.LastCheckInResult != "not_paired" {
 		t.Fatalf("Hub snapshot = %+v", hub)
+	}
+	var output bytes.Buffer
+	renderDoctor(&output, &diagnostics.Snapshot{Version: "test", Hub: hub})
+	if !strings.Contains(output.String(), "Not connected: removed from Hub; run coslash connect to add it again") {
+		t.Fatalf("doctor omitted revoked-device recovery hint: %s", output.String())
 	}
 }
