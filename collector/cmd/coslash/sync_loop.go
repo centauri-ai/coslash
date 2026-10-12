@@ -169,6 +169,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			cancel()
 			<-done
 			control.setIdle(true)
+			requestDiscovery(runner)
 			continue
 		case <-ctx.Done():
 			cancel()
@@ -187,7 +188,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			blockedPolicyVersion = version
 			// Ignore requests that arrived before the policy block was observed.
 			clearWake(control.wake)
-			clearWake(inventoryWake)
+			if clearWake(inventoryWake) {
+				requestDiscovery(runner)
+			}
 			clearWake(policyWake)
 			policyMu.Unlock()
 			select {
@@ -199,7 +202,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			blockedPolicyVersion = -1
 			clearWake(policyWake)
 			clearWake(control.wake)
-			clearWake(inventoryWake)
+			if clearWake(inventoryWake) {
+				requestDiscovery(runner)
+			}
 			policyMu.Unlock()
 			continue
 		}
@@ -246,6 +251,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			return
 		case <-control.wake:
 		case <-inventoryWake:
+			requestDiscovery(runner)
 		case <-time.After(delay):
 		}
 	}
@@ -258,13 +264,21 @@ func clampImportRetry(delay time.Duration, err error, importActive, importPendin
 	return delay
 }
 
-func clearWake(wake <-chan struct{}) {
+func clearWake(wake <-chan struct{}) bool {
 	if wake == nil {
-		return
+		return false
 	}
 	select {
 	case <-wake:
+		return true
 	default:
+		return false
+	}
+}
+
+func requestDiscovery(runner v4SyncWorker) {
+	if requester, ok := runner.(interface{ RequestDiscovery() }); ok {
+		requester.RequestDiscovery()
 	}
 }
 

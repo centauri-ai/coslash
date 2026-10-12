@@ -136,6 +136,8 @@ type Runner struct {
 	checkInRejections   atomic.Int32
 	lastReportedPhase   string
 	lastDiscoveryAt     time.Time
+	discoveryRequests   atomic.Uint64
+	completedDiscovery  uint64
 	activeSince         time.Time
 	logRejectedUntil    time.Time
 }
@@ -150,6 +152,11 @@ func (r *Runner) now() time.Time {
 		return r.Now()
 	}
 	return time.Now()
+}
+
+// RequestDiscovery bypasses the cooldown until a streamed discovery pass succeeds.
+func (r *Runner) RequestDiscovery() {
+	r.discoveryRequests.Add(1)
 }
 
 func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
@@ -204,7 +211,8 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		// The inventory refreshes every five minutes. Between refreshes, use
 		// the saved queue to keep transferring instead of reparsing the same
 		// source files on every sync pass.
-		if !r.lastDiscoveryAt.IsZero() && r.now().Sub(r.lastDiscoveryAt) < 5*time.Minute {
+		discoveryRequest := r.discoveryRequests.Load()
+		if discoveryRequest == r.completedDiscovery && !r.lastDiscoveryAt.IsZero() && r.now().Sub(r.lastDiscoveryAt) < 5*time.Minute {
 			return transferErr
 		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
@@ -243,6 +251,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}); err != nil {
 			return errors.Join(transferErr, err)
 		}
+		r.completedDiscovery = discoveryRequest
 		r.lastDiscoveryAt = r.now()
 		return errors.Join(transferErr, r.runPlannedAndReport(ctx))
 	}

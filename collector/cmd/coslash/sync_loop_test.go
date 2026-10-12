@@ -22,6 +22,12 @@ func (syncLoopQueue) Progress() hubclient.V4Queue                 { return hubcl
 
 type syncLoopWorker struct{ started chan context.Context }
 
+type syncLoopDiscoveryWorker struct {
+	started   chan struct{}
+	requested chan struct{}
+	complete  bool
+}
+
 type syncLoopWorkerFunc func(context.Context) error
 
 func (f syncLoopWorkerFunc) SyncOnce(ctx context.Context) error { return f(ctx) }
@@ -34,6 +40,61 @@ func (w syncLoopWorker) SyncOnce(ctx context.Context) error {
 	w.started <- ctx
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+func (w syncLoopDiscoveryWorker) SyncOnce(ctx context.Context) error {
+	w.started <- struct{}{}
+	if w.complete {
+		return nil
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (w syncLoopDiscoveryWorker) RequestDiscovery() {
+	w.requested <- struct{}{}
+}
+
+func TestInventoryWakeRequestsDiscovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker := syncLoopDiscoveryWorker{started: make(chan struct{}, 2), requested: make(chan struct{}, 1)}
+	inventoryWake := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		}, inventoryWake)
+		close(done)
+	}()
+	<-worker.started
+	inventoryWake <- struct{}{}
+	<-worker.requested
+	<-worker.started
+	cancel()
+	<-done
+}
+
+func TestInventoryWakeWhileWaitingRequestsDiscovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker := syncLoopDiscoveryWorker{started: make(chan struct{}, 2), requested: make(chan struct{}, 1), complete: true}
+	inventoryWake := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		}, inventoryWake)
+		close(done)
+	}()
+	<-worker.started
+	inventoryWake <- struct{}{}
+	<-worker.requested
+	<-worker.started
+	cancel()
+	<-done
 }
 
 func TestV4WaitInterruptsActiveSyncForCommands(t *testing.T) {

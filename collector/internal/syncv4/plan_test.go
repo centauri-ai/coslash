@@ -572,6 +572,50 @@ func TestScaleDiscoveryMergesEachYieldBeforeTheNext(t *testing.T) {
 	}
 }
 
+func TestRequestedDiscoveryBypassesCooldown(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{}
+	discoveries := 0
+	interrupted := errors.New("discovery interrupted")
+	runner := &Runner{
+		Queue:    q,
+		Backup:   sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}),
+		Hub:      hub,
+		Discover: func(context.Context) ([]*session.Session, error) { return nil, nil },
+		Now:      func() time.Time { return now },
+	}
+	runner.DiscoverBatches = func(context.Context, func(DiscoveryBatch) error) error {
+		discoveries++
+		if discoveries == 2 {
+			return interrupted
+		}
+		return nil
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries != 1 {
+		t.Fatalf("discovery calls before request = %d, want 1", discoveries)
+	}
+	runner.RequestDiscovery()
+	if err := runner.SyncOnce(t.Context()); !errors.Is(err, interrupted) {
+		t.Fatalf("requested discovery error = %v, want interrupted scan", err)
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries != 3 {
+		t.Fatalf("discovery calls after request and retry = %d, want 3", discoveries)
+	}
+}
+
 func TestScaleQueueRetainsPreviousReaderVersion(t *testing.T) {
 	root := t.TempDir()
 	q, err := Open(root)

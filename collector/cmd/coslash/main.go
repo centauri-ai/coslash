@@ -434,6 +434,28 @@ func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue 
 }
 
 func runInventoryWithInterval(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration) {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(interval):
+			return true
+		}
+	}, nil)
+}
+
+func runInventoryWithTicks(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, ticks <-chan struct{}, scanComplete chan<- struct{}) {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticks:
+			return true
+		}
+	}, scanComplete)
+}
+
+func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, wait func(context.Context) bool, scanComplete chan<- struct{}) {
 	var previous *inventory.Snapshot
 	for {
 		if !paired(ctx) {
@@ -471,10 +493,15 @@ func runInventoryWithInterval(ctx context.Context, fingerprints *syncv4.Fingerpr
 			}
 			previous = snapshot
 		}
-		select {
-		case <-ctx.Done():
+		if scanComplete != nil {
+			select {
+			case scanComplete <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		if !wait(ctx) {
 			return
-		case <-time.After(interval):
 		}
 	}
 }
