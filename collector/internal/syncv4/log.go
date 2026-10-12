@@ -3,6 +3,7 @@ package syncv4
 import (
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -165,4 +166,20 @@ func (q *Queue) appendLog(line LogLine) {
 	q.state.LogSeq++
 	line.Seq = q.state.LogSeq
 	q.state.Log = append(q.state.Log, line)
+}
+
+// appendListedFailure moves a previously reported device-level failure onto
+// its Hub session after listing assigns the session identity. The caller holds
+// q.mu, and MarkListedAt persists this line together with the listing result.
+func (q *Queue) appendListedFailure(entry *Entry, now time.Time) {
+	code, sessionID, ok := strings.Cut(entry.LoggedFailure, " ")
+	if !ok || sessionID != "" || !strings.HasPrefix(entry.SessionID, "ses_") {
+		return
+	}
+	if _, ok := logMessages[code]; !ok {
+		return
+	}
+	entry.LoggedFailure = code + " " + entry.SessionID
+	q.appendLog(LogLine{At: now.UTC().Truncate(time.Microsecond), SessionID: entry.SessionID, Level: "error", Code: code,
+		Attempts: max(1, entry.Attempt+1, entry.BackoffAttempt), Parked: entry.ParkedVersion != ""})
 }
