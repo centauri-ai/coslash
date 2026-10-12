@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -87,7 +88,9 @@ func TestBeginOnboardingPairingKeepsAuthorizationMaterialInsideLocal(t *testing.
 	const intent = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	credentials := &memoryCredentials{}
 	var claimBody map[string]string
+	claimRequests := 0
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		claimRequests++
 		if request.Method != http.MethodPost || request.URL.Path != "/v1/device-onboardings/"+attempt+"/claim" {
 			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
 		}
@@ -109,6 +112,9 @@ func TestBeginOnboardingPairingKeepsAuthorizationMaterialInsideLocal(t *testing.
 		claimBody["os"] != runtime.GOOS || claimBody["arch"] != runtime.GOARCH || claimBody["version"] != "0.2.0-x" || len(claimBody) != 5 {
 		t.Fatalf("claim body=%#v", claimBody)
 	}
+	if claimRequests != 1 {
+		t.Fatalf("modern Hub claim requests=%d, want 1", claimRequests)
+	}
 	client.pairingMu.Lock()
 	secret, ok := client.pairings[pairing.PairingID]
 	client.pairingMu.Unlock()
@@ -129,7 +135,9 @@ func TestOnboardingDeviceFactsOmitsUnknownOrInvalidVersion(t *testing.T) {
 func TestClaimOnboardingCodeKeepsCodeAndAuthorizationMaterialInMemory(t *testing.T) {
 	credentials := &memoryCredentials{}
 	var claimBody map[string]string
+	claimRequests := 0
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		claimRequests++
 		if request.Method != http.MethodPost || request.URL.Path != "/v1/device-onboarding-codes/claim" {
 			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
 		}
@@ -151,11 +159,134 @@ func TestClaimOnboardingCodeKeepsCodeAndAuthorizationMaterialInMemory(t *testing
 		claimBody["os"] != runtime.GOOS || claimBody["arch"] != runtime.GOARCH || claimBody["version"] != "0.2.0-x" || len(claimBody) != 5 {
 		t.Fatalf("claim body=%#v", claimBody)
 	}
+	if claimRequests != 1 {
+		t.Fatalf("modern Hub claim requests=%d, want 1", claimRequests)
+	}
 	client.pairingMu.Lock()
 	secret, ok := client.pairings[pairing.PairingID]
 	client.pairingMu.Unlock()
 	if !ok || secret.deviceCode != "private-device-code" || secret.credential != "" {
 		t.Fatalf("local pairing secret=%#v found=%t", secret, ok)
+	}
+}
+
+func TestOnboardingClaimsFallBackWhenHubRejectsDeviceDetails(t *testing.T) {
+	previousLogger := slog.Default()
+	var logs strings.Builder
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(previousLogger)
+
+	tests := []struct {
+		name        string
+		path        string
+		legacyKey   string
+		legacyValue string
+		claim       func(*Client) (PairingResult, error)
+	}{
+		{
+			name:      "launch intent",
+			path:      "/v1/device-onboardings/10000000-0000-4000-8000-000000000151/claim",
+			legacyKey: "launchIntent", legacyValue: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			claim: func(client *Client) (PairingResult, error) {
+				return client.BeginOnboardingPairing(context.Background(), "10000000-0000-4000-8000-000000000151", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+			},
+		},
+		{
+			name:      "connect code",
+			path:      "/v1/device-onboarding-codes/claim",
+			legacyKey: "connectCode", legacyValue: "K7QX-29PD",
+			claim: func(client *Client) (PairingResult, error) {
+				return client.ClaimOnboardingCode(context.Background(), "K7QX-29PD")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var requests int
+			var bodies []map[string]json.RawMessage
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				requests++
+				if request.Method != http.MethodPost || request.URL.Path != test.path {
+					t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+				}
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				bodies = append(bodies, body)
+				if _, hasDeviceDetails := body["os"]; hasDeviceDetails {
+					w.Header().Set("Content-Type", "application/problem+json")
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"code":"invalid_request"}`))
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				_, _ = w.Write([]byte(`{"id":"10000000-0000-4000-8000-000000000152","deviceCode":"private-device-code","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`))
+			}))
+			defer hub.Close()
+			base, _ := url.Parse(hub.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, DeviceName: "Nia’s Mac", CollectorVersion: "0.2.0", HTTP: hub.Client()}
+			pairing, err := test.claim(&client)
+			if err != nil || pairing.State != "pending" {
+				t.Fatalf("pairing=%#v error=%v", pairing, err)
+			}
+			if requests != 2 || len(bodies) != 2 {
+				t.Fatalf("claim requests=%d bodies=%d, want exactly 2", requests, len(bodies))
+			}
+			if _, ok := bodies[0]["os"]; !ok {
+				t.Fatalf("first claim omitted device details: %#v", bodies[0])
+			}
+			if len(bodies[1]) != 2 || string(bodies[1][test.legacyKey]) != `"`+test.legacyValue+`"` || string(bodies[1]["deviceName"]) != `"Nia’s Mac"` {
+				t.Fatalf("fallback claim body=%s, want only %s and deviceName", bodies[1], test.legacyKey)
+			}
+		})
+	}
+	const fallbackLog = "Hub doesn't accept device details yet; connecting without them."
+	if count := strings.Count(logs.String(), fallbackLog); count != len(tests) || !strings.Contains(logs.String(), "level=INFO") {
+		t.Fatalf("fallback logs=%q, want %d info messages", logs.String(), len(tests))
+	}
+}
+
+func TestOnboardingClaimsDoNotRetryOtherErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		code   string
+		claim  func(*Client) (PairingResult, error)
+	}{
+		{
+			name: "launch intent invalid query", status: http.StatusBadRequest, code: "invalid_query",
+			claim: func(client *Client) (PairingResult, error) {
+				return client.BeginOnboardingPairing(context.Background(), "10000000-0000-4000-8000-000000000151", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+			},
+		},
+		{
+			name: "connect code server error", status: http.StatusInternalServerError, code: "invalid_request",
+			claim: func(client *Client) (PairingResult, error) {
+				return client.ClaimOnboardingCode(context.Background(), "K7QX-29PD")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(test.status)
+				_, _ = fmt.Fprintf(w, `{"code":%q}`, test.code)
+			}))
+			defer hub.Close()
+			base, _ := url.Parse(hub.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, HTTP: hub.Client()}
+			if _, err := test.claim(&client); err == nil {
+				t.Fatal("claim succeeded for error response")
+			}
+			if requests != 1 {
+				t.Fatalf("claim requests=%d, want 1", requests)
+			}
+		})
 	}
 }
 
