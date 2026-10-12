@@ -21,7 +21,6 @@ import {
   sessionCost,
   sessionKey,
   sessionReadiness,
-  sessionsForAggregates,
   sessionTotalTokens,
   sumKnown,
   type Session,
@@ -69,14 +68,13 @@ const pillClass =
   'text-meta max-w-full shrink-0 truncate rounded-full px-[7px] py-0.5 leading-[1.55] font-[550]';
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
-  const aggregate = sessionsForAggregates(sessions);
-  const tokens = sumKnown(aggregate.map((session) => sessionTotalTokens(session)));
-  const cost = sumKnown(aggregate.map(sessionCost));
+  const tokens = sumKnown(sessions.map((session) => sessionTotalTokens(session)));
+  const cost = sumKnown(sessions.map(sessionCost));
 
   return (
     <span className="text-meta text-coslash-muted tabular-nums">
       {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
-      <UnpricedModelWarning unpriced={aggregate.flatMap((session) => session.unpricedModels)}>
+      <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
         {formatEstimatedCost(cost)}
       </UnpricedModelWarning>
     </span>
