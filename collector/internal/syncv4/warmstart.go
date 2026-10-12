@@ -424,9 +424,30 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 	if firstErr != nil {
 		return firstErr
 	}
-	snapshot := r.Queue.ImportSnapshot(r.now())
-	if snapshot.ContentSessions == snapshot.TotalSessions {
+	planned := r.Queue.PlannedEntries(plan, r.now())
+	allPlannedSettled := true
+	for _, entry := range planned {
+		if pending(entry) && entry.ParkedVersion == "" && !entry.ListRejected {
+			allPlannedSettled = false
+			break
+		}
+	}
+	if allPlannedSettled {
 		return r.Queue.SetPhase("complete")
+	}
+	for _, entry := range planned {
+		if !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected {
+			continue
+		}
+		recent := planRecent(entry, plan, activeSince)
+		if !recent && plan.HistoryPaused && !entry.Priority {
+			return r.Queue.SetPhase("paused")
+		}
+		phase := "history"
+		if recent {
+			phase = "recent"
+		}
+		return r.Queue.SetPhase(phase)
 	}
 	if plan.HistoryPaused {
 		return r.Queue.SetPhase("paused")

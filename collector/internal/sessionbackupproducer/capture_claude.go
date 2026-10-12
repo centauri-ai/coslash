@@ -258,7 +258,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		}
 		members = append(members, member)
 		revisionInput = append(revisionInput, id+":"+revision)
-		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, repositoryLocalOnly, handle.Enrichment[id], synthesisRecords[id]); err != nil {
+		if err := writes.addProcessed(ctx, record, handle.Home, selection.SourceKind, repository, repositoryLocalOnly, handle.Enrichment[id], synthesisRecords[id]); err != nil {
 			return nil, processedCaptureFailure(err, "")
 		}
 	}

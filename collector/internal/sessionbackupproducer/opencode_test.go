@@ -3,6 +3,7 @@ package sessionbackupproducer
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -117,6 +118,69 @@ func TestOpenCodeCompleteRoundTripAndDedupe(t *testing.T) {
 	opened, err := restarted.Open(prepared.BundleID)
 	if err != nil || opened.Manifest.CompleteBackupSHA256 != prepared.BundleID {
 		t.Fatalf("restart = %#v, %v", opened, err)
+	}
+}
+
+func TestOpenCodeBackupSanitizesAbsoluteFileEditPaths(t *testing.T) {
+	db := openCodeBackupDB(t)
+	home, workspace := t.TempDir(), t.TempDir()
+	homeFile := filepath.Join(home, ".config", "editor.json")
+	if err := os.MkdirAll(filepath.Dir(homeFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(homeFile, []byte("setting"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(homeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffs, err := json.Marshal([]struct {
+		File      string `json:"file"`
+		Additions int    `json:"additions"`
+		Deletions int    `json:"deletions"`
+		Status    string `json:"status"`
+	}{
+		{File: filepath.Join(workspace, "src", "main.go"), Additions: 1, Status: "added"},
+		{File: homeFile, Additions: 2, Deletions: 1, Status: "modified"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE session SET directory = ?, summary_diffs = ? WHERE id = 'root'`, workspace, string(diffs)); err != nil {
+		t.Fatal(err)
+	}
+	spool := t.TempDir()
+	prepared, err := New(Options{Root: spool, LocalHome: func() (string, error) { return home, nil }}).Prepare(t.Context(), Selection{
+		SourceKind: backup.SourceLocal, SourceID: "local", Agent: vendors.AgentOpenCode, SessionID: "root",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, edit := range readProcessedRecord(t, spool, prepared, "root").Session.FileEdits {
+		paths[edit.Path] = true
+	}
+	if !paths["src/main.go"] || !paths["~/.config/editor.json"] {
+		t.Fatalf("sanitized OpenCode paths = %#v", paths)
+	}
+	foundTimestamp := false
+	for _, artifact := range prepared.Manifest.Artifacts {
+		if artifact.MemberID != "root" || artifact.Kind != backup.KindSessionEnrichment {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(spool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		enrichment, err := backup.DecodeEnrichment(data)
+		if err != nil || enrichment.LastEditAtMs == nil || *enrichment.LastEditAtMs != info.ModTime().UnixMilli() {
+			t.Fatalf("home file last edit timestamp = %#v, %v; want %d", enrichment.LastEditAtMs, err, info.ModTime().UnixMilli())
+		}
+		foundTimestamp = true
+	}
+	if !foundTimestamp {
+		t.Fatal("root session enrichment is missing")
 	}
 }
 

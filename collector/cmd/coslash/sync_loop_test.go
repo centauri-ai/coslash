@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,7 +23,17 @@ func (syncLoopQueue) NextRetryDelay() time.Duration               { return 0 }
 func (syncLoopQueue) NextCheckInDelay() time.Duration             { return 60 * time.Second }
 func (syncLoopQueue) Progress() hubclient.V4Queue                 { return hubclient.V4Queue{} }
 
+type fastSyncLoopQueue struct{ syncLoopQueue }
+
+func (fastSyncLoopQueue) NextCheckInDelay() time.Duration { return 10 * time.Millisecond }
+
 type syncLoopWorker struct{ started chan context.Context }
+
+type syncLoopDiscoveryWorker struct {
+	started   chan struct{}
+	requested chan struct{}
+	complete  bool
+}
 
 type syncLoopWorkerFunc func(context.Context) error
 
@@ -34,6 +47,61 @@ func (w syncLoopWorker) SyncOnce(ctx context.Context) error {
 	w.started <- ctx
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+func (w syncLoopDiscoveryWorker) SyncOnce(ctx context.Context) error {
+	w.started <- struct{}{}
+	if w.complete {
+		return nil
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (w syncLoopDiscoveryWorker) RequestDiscovery() {
+	w.requested <- struct{}{}
+}
+
+func TestInventoryWakeRequestsDiscovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker := syncLoopDiscoveryWorker{started: make(chan struct{}, 2), requested: make(chan struct{}, 1)}
+	inventoryWake := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		}, inventoryWake)
+		close(done)
+	}()
+	<-worker.started
+	inventoryWake <- struct{}{}
+	<-worker.requested
+	<-worker.started
+	cancel()
+	<-done
+}
+
+func TestInventoryWakeWhileWaitingRequestsDiscovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker := syncLoopDiscoveryWorker{started: make(chan struct{}, 2), requested: make(chan struct{}, 1), complete: true}
+	inventoryWake := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		}, inventoryWake)
+		close(done)
+	}()
+	<-worker.started
+	inventoryWake <- struct{}{}
+	<-worker.requested
+	<-worker.started
+	cancel()
+	<-done
 }
 
 func TestV4WaitInterruptsActiveSyncForCommands(t *testing.T) {
@@ -185,6 +253,47 @@ func TestV4WaitKeepsPickingUpCommandsAfterDeferredPass(t *testing.T) {
 				t.Fatal("sync loop did not stop")
 			}
 		})
+	}
+}
+
+func TestNotPairedSyncLogsOnceUntilStateChanges(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previousOutput) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var passes atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		runV4SyncLoopForTest(ctx, syncLoopWorkerFunc(func(context.Context) error {
+			passes.Add(1)
+			return hubclient.ErrNotPaired
+		}), fastSyncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		})
+		close(done)
+	}()
+	deadline := time.After(time.Second)
+	for passes.Load() < 4 {
+		select {
+		case <-deadline:
+			t.Fatal("sync loop did not retry the not-paired pass")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sync loop did not stop")
+	}
+
+	got := output.String()
+	if strings.Count(got, "v4 sync stopped: device removed from Hub") != 1 || strings.Contains(got, "v4 sync deferred: local_error") {
+		t.Fatalf("not-paired sync logs = %q", got)
 	}
 }
 

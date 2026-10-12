@@ -68,7 +68,11 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 	}()
 
 	if selection.Agent == vendors.AgentOpenCode {
-		prepared, err := manager.captureOpenCode(ctx, staging, selection)
+		home, homeErr := manager.localHome()
+		if homeErr != nil || home == "" {
+			return problem(selection, sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindParsedSessionRecord, true)
+		}
+		prepared, err := manager.captureOpenCode(ctx, staging, selection, home)
 		if err != nil {
 			var captureErr *captureError
 			if errors.As(err, &captureErr) {
@@ -454,7 +458,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			MemberID: memberID, ParentMemberID: record.ParentSessionID,
 			SourceRevision: memberRevision, SynthesisRevisionMs: synthesisRevision,
 		})
-		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, repositoryLocalOnly, handle.Enrichment[memberID], synthesisRecords[memberID]); err != nil {
+		if err := writes.addProcessed(ctx, record, handle.Home, selection.SourceKind, repository, repositoryLocalOnly, handle.Enrichment[memberID], synthesisRecords[memberID]); err != nil {
 			return nil, processedCaptureFailure(err, "")
 		}
 	}
@@ -534,7 +538,20 @@ func repositoryIdentity(ctx context.Context, sourceKind, workingDirectory string
 	return name, true
 }
 
-func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessionv1.Record, sourceKind, repository string, repositoryLocalOnly bool, frozen remote.BackupSessionEnrichment, persisted sessionbackupv1.SynthesisRecord) error {
+func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessionv1.Record, home, sourceKind, repository string, repositoryLocalOnly bool, frozen remote.BackupSessionEnrichment, persisted sessionbackupv1.SynthesisRecord) error {
+	var lastEditAtMs *int64
+	if sourceKind == sessionbackupv1.SourceLocal {
+		value, err := fullsessionrecord.ToSession(record)
+		if err != nil {
+			return err
+		}
+		lastEditAtMs = session.LatestFileModificationTimeContext(ctx, value.WorkingDirectory, value.FileEdits)
+	}
+	records := []fullsessionv1.Record{record}
+	if err := sanitizeRecordFilePaths(records, home); err != nil {
+		return err
+	}
+	record = records[0]
 	prefix := fmt.Sprintf("members/%s/processed", record.SessionID)
 	recordBytes, err := fullsessionv1.Marshal(record)
 	if err != nil {
@@ -578,11 +595,7 @@ func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessi
 		if drift := session.BranchDriftContext(ctx, record.Session.WorkingDirectory, branch); drift != nil {
 			enrichment.Git = &sessionbackupv1.GitDrift{BaseBranch: drift.BaseBranch, Ahead: drift.Ahead, Behind: drift.Behind}
 		}
-		value, err := fullsessionrecord.ToSession(record)
-		if err != nil {
-			return err
-		}
-		enrichment.LastEditAtMs = session.LatestFileModificationTimeContext(ctx, value.WorkingDirectory, value.FileEdits)
+		enrichment.LastEditAtMs = lastEditAtMs
 	} else {
 		if frozen.Repository != nil {
 			enrichment.Repository = frozen.Repository

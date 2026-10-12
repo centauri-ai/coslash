@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -42,15 +43,48 @@ type Snapshot struct {
 	Storage                  Storage   `json:"storage"`
 	Synthesis                Synthesis `json:"synthesis"`
 	Sources                  []Source  `json:"sources"`
+	Hub                      *HubSync  `json:"hub,omitempty"`
 	Remote                   *Remote   `json:"remote,omitempty"`
 	Checks                   []Check   `json:"checks"`
 	openCodePlugin           opencode.PluginHealth
 	openCodePluginError      string
 	piExtension              pi.ExtensionHealth
 	piExtensionError         string
+	piDetected               bool
 	piSynthesisUnsupported   bool
 	grokSynthesisUnsupported bool
 	homeError                string
+}
+
+type HubSync struct {
+	Origin            string             `json:"origin"`
+	DeviceName        string             `json:"deviceName"`
+	DeviceID          string             `json:"deviceId,omitempty"`
+	Paired            bool               `json:"paired"`
+	LastCheckInAtMs   *int64             `json:"lastCheckInAtMs,omitempty"`
+	LastCheckInResult string             `json:"lastCheckInResult"`
+	LastFailure       *HubFailure        `json:"lastFailure,omitempty"`
+	SyncState         string             `json:"syncState"`
+	PolicyKnown       bool               `json:"policyKnown"`
+	Pending           int                `json:"pending"`
+	Failing           int                `json:"failing"`
+	Parked            int                `json:"parked"`
+	TopFailureCodes   []FailureCodeCount `json:"topFailureCodes"`
+}
+
+type HubFailure struct {
+	Host     string `json:"host"`
+	Cause    string `json:"cause"`
+	SinceMs  int64  `json:"sinceMs"`
+	Attempts int    `json:"attempts"`
+	Sentence string `json:"sentence"`
+	RawError string `json:"rawError"`
+	Active   bool   `json:"active,omitempty"`
+}
+
+type FailureCodeCount struct {
+	Code  string `json:"code"`
+	Count int    `json:"count"`
 }
 
 type Remote struct {
@@ -156,6 +190,15 @@ func Collect(ctx context.Context, version string, includeVersions bool) *Snapsho
 	return CollectWithRemote(ctx, version, includeVersions, nil)
 }
 
+func CollectWithHub(ctx context.Context, version string, includeVersions bool, hub *HubSync) *Snapshot {
+	snapshot := collectLocal(ctx, version, includeVersions)
+	snapshot.Hub = hub
+	if hub != nil {
+		snapshot.Checks = append(snapshot.Checks, hubSyncCheck(hub))
+	}
+	return snapshot
+}
+
 func CollectWithRemote(
 	ctx context.Context,
 	version string,
@@ -212,7 +255,16 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	snapshot.Storage.Error = displayError(userHome, snapshot.Storage.Error)
 
 	for _, health := range collector.Sources() {
-		snapshot.Sources = append(snapshot.Sources, collectSource(ctx, userHome, health, includeVersions))
+		source := collectSource(ctx, userHome, health, includeVersions)
+		snapshot.Sources = append(snapshot.Sources, source)
+		if source.Agent == vendors.AgentPi && source.CLI.Found {
+			snapshot.piDetected = true
+		}
+	}
+	if !snapshot.piDetected && userHome != "" {
+		if info, err := os.Stat(filepath.Join(userHome, ".pi")); err == nil && info.IsDir() {
+			snapshot.piDetected = true
+		}
 	}
 
 	snapshot.piSynthesisUnsupported = config.Backend == settings.BackendPi && !vendors.PiSupported()

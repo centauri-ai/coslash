@@ -19,6 +19,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 type planHub struct {
@@ -27,6 +28,8 @@ type planHub struct {
 	creates      int
 	lists        [][]hubclient.V4ListItem
 	checks       int
+	checkInQueue []hubclient.V4Queue
+	checkInLogs  [][]hubclient.V4LogEntry
 	checkInErr   error
 	results      []hubclient.V4CommandResult
 	retryLists   int
@@ -77,9 +80,18 @@ type deadlineCreateHub struct {
 	*planHub
 }
 
+type tooLargeCreateHub struct {
+	*planHub
+}
+
 func (h *deadlineCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
 	h.creates++
 	return hubclient.V4Status{}, context.DeadlineExceeded
+}
+
+func (h *tooLargeCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
+	h.creates++
+	return hubclient.V4Status{}, hubclient.V4Problem{Code: "too_large", HTTPStatus: 413}
 }
 
 func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
@@ -128,6 +140,157 @@ func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
 		}
 	}
 	t.Fatal("fresh session was not listed on the next boundary within the budget")
+}
+
+func TestPlannedSyncReportsParkedListedFailureAndProgressPromptly(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("awaiting_plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "unreadable", Activity: now.UnixMilli(), SourceRevision: "source-1",
+		Session: hubclient.V4Session{Agent: "claude"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry := queue.Entries()[0]
+	hub := &planHub{}
+	runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return now }, Version: "0.0.5",
+		scaleSupported: true, lastReportedPhase: "awaiting_plan"}
+	if err := runner.recordFailure(&entry, preparationProblem(sessionbackupv1.ProblemInvalid, false)); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.MarkListedAt([]hubclient.V4ListResult{{LocalKeyHash: entry.Key, SessionID: "ses_unreadable", State: "listed"}}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runner.runPlannedAndReport(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if hub.checks != 1 || len(hub.checkInQueue) != 1 || len(hub.checkInLogs) != 1 {
+		t.Fatalf("check-ins=%d queue=%d logs=%d", hub.checks, len(hub.checkInQueue), len(hub.checkInLogs))
+	}
+	progress := hub.checkInQueue[0]
+	if progress.Pending != 0 || progress.Failing != 1 || progress.FirstSync.RecentDone != 1 || progress.FirstSync.RecentTotal != 1 {
+		t.Fatalf("reported queue progress=%+v", progress)
+	}
+	lines := hub.checkInLogs[0]
+	if len(lines) != 2 || lines[0].SessionID != "" || lines[1].SessionID != "ses_unreadable" || lines[1].Code != "malformed_artifact" {
+		t.Fatalf("reported failure lines=%+v", lines)
+	}
+	if pending, _ := queue.PendingLog(now); len(pending) != 0 {
+		t.Fatalf("successful same-pass check-in left pending logs: %+v", pending)
+	}
+}
+
+func TestPlannedCheckInErrorTakesPrecedenceOverUploadError(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, prepared, _ := fixtureBundle(t)
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "too-large", Activity: now.UnixMilli(), Listed: true, BundleID: prepared.BundleID,
+		Selection: prepared.Selection, Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "too-large"}}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &tooLargeCreateHub{planHub: &planHub{plan: plan, checkInErr: hubclient.V4Problem{Code: "unauthorized", HTTPStatus: 401}}}
+	runner := &Runner{Queue: queue, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+		scaleEnabled: true, scaleSupported: true, config: hubclient.V4Config{ImportPlan: plan}, lastReportedPhase: "recent"}
+
+	err = runner.runPlannedAndReport(t.Context())
+	var problem hubclient.V4Problem
+	if !errors.As(err, &problem) || problem.Code != "unauthorized" || DeferReason(err) != "rejected" || !strings.Contains(err.Error(), "too_large") {
+		t.Fatalf("sync error = %v, defer reason = %q; want check-in unauthorized", err, DeferReason(err))
+	}
+}
+
+func TestPrioritizedRetryKeepsPlannedPhaseIncomplete(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d"}
+	entry := Entry{Key: "prioritized", Activity: now.Add(-10 * 24 * time.Hour).UnixMilli(), Priority: true,
+		RetryAt: now.Add(time.Minute), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "prioritized"}}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("complete"); err != nil {
+		t.Fatal(err)
+	}
+	progress := queue.Progress().FirstSync
+	snapshot := queue.ImportSnapshot(now)
+	if progress.RecentDone != progress.RecentTotal || progress.HistoryState != "off" || snapshot.ContentSessions != 0 || snapshot.TotalSessions != 1 {
+		t.Fatalf("test setup did not isolate prioritized work: progress=%+v import=%+v", progress, snapshot)
+	}
+	runner := &Runner{Queue: queue, Now: func() time.Time { return now }, config: hubclient.V4Config{ImportPlan: &plan}}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := queue.Phase(); phase != "history" || !runner.ImportActive() {
+		t.Fatalf("phase = %q, active = %t; want unfinished prioritized work", phase, runner.ImportActive())
+	}
+	entry = queue.Entries()[0]
+	entry.ParkedVersion = "0.0.5"
+	if err := queue.Update(entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := queue.Phase(); phase != "complete" || runner.ImportActive() {
+		t.Fatalf("parked phase = %q, active = %t; want settled work", phase, runner.ImportActive())
+	}
+}
+
+func TestPrioritizedListRejectedEntryDoesNotKeepHistoryActive(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", History: false}
+	entry := Entry{Key: "rejected", Activity: now.Add(-10 * 24 * time.Hour).UnixMilli(), Priority: true,
+		Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "rejected"}}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.MarkListedAt([]hubclient.V4ListResult{{LocalKeyHash: entry.Key, State: "rejected", Code: "invalid_item"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &Runner{Queue: queue, Now: func() time.Time { return now }}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := queue.Phase(); phase != "complete" || runner.ImportActive() {
+		t.Fatalf("phase = %q, active = %t; want settled work", phase, runner.ImportActive())
+	}
 }
 
 func TestPlannedIdempotencyConflictParksOneRevisionAndContinuesQueue(t *testing.T) {
@@ -315,8 +478,10 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 }
 
 func (*planHub) V4Binding(context.Context) (string, error) { return strings.Repeat("a", 64), nil }
-func (h *planHub) V4CheckIn(_ context.Context, _ hubclient.V4Queue, _ int64, results []hubclient.V4CommandResult, _ []string, _ []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+func (h *planHub) V4CheckIn(_ context.Context, queue hubclient.V4Queue, _ int64, results []hubclient.V4CommandResult, _ []string, log []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
 	h.checks++
+	h.checkInQueue = append(h.checkInQueue, queue)
+	h.checkInLogs = append(h.checkInLogs, append([]hubclient.V4LogEntry(nil), log...))
 	h.results = append([]hubclient.V4CommandResult(nil), results...)
 	if h.checkInErr != nil {
 		return hubclient.V4CheckIn{}, h.checkInErr
@@ -572,6 +737,50 @@ func TestScaleDiscoveryMergesEachYieldBeforeTheNext(t *testing.T) {
 	}
 }
 
+func TestRequestedDiscoveryBypassesCooldown(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{}
+	discoveries := 0
+	interrupted := errors.New("discovery interrupted")
+	runner := &Runner{
+		Queue:    q,
+		Backup:   sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}),
+		Hub:      hub,
+		Discover: func(context.Context) ([]*session.Session, error) { return nil, nil },
+		Now:      func() time.Time { return now },
+	}
+	runner.DiscoverBatches = func(context.Context, func(DiscoveryBatch) error) error {
+		discoveries++
+		if discoveries == 2 {
+			return interrupted
+		}
+		return nil
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries != 1 {
+		t.Fatalf("discovery calls before request = %d, want 1", discoveries)
+	}
+	runner.RequestDiscovery()
+	if err := runner.SyncOnce(t.Context()); !errors.Is(err, interrupted) {
+		t.Fatalf("requested discovery error = %v, want interrupted scan", err)
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries != 3 {
+		t.Fatalf("discovery calls after request and retry = %d, want 3", discoveries)
+	}
+}
+
 func TestScaleQueueRetainsPreviousReaderVersion(t *testing.T) {
 	root := t.TempDir()
 	q, err := Open(root)
@@ -622,6 +831,47 @@ func TestEmptyPlanMovesThroughListingToComplete(t *testing.T) {
 	}
 	if phase, _, _ := q.Phase(); phase != "complete" {
 		t.Fatalf("phase = %s", phase)
+	}
+}
+
+func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", History: false, MaxSessionsPerAgent: 30}
+	activity := now.UnixMilli()
+	entries := []Entry{
+		{Key: "synced", Activity: activity, RevisionID: "revision-synced", SyncedActivity: activity,
+			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "synced", Agent: "codex"}},
+		{Key: "parked", Activity: activity, ParkedVersion: "0.0.5", FailureCode: "unreadable_source",
+			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "parked", Agent: "codex"}},
+	}
+	if err := q.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	q.SetActiveSince(now)
+	if err := q.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	progress := q.Progress().FirstSync
+	if progress.RecentDone != 2 || progress.RecentTotal != 2 || progress.HistoryState != "off" {
+		t.Fatalf("settled live-only progress = %+v", progress)
+	}
+
+	runner := &Runner{Queue: q, Now: func() time.Time { return now }}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if phase, _, _ := q.Phase(); phase != "complete" {
+		t.Fatalf("phase = %s, want complete", phase)
 	}
 }
 

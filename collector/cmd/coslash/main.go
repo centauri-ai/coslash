@@ -35,7 +35,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
@@ -111,6 +110,8 @@ func main() {
 	}
 	if !protocolRequest && len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "help", "version", "status", "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
+			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		case "ssh-auth":
 			if len(os.Args) != 3 {
 				log.Fatal("coslash ssh-auth requires one attempt ID")
@@ -127,12 +128,18 @@ func main() {
 			}
 			fmt.Println("SSH authentication ready; return to coSlash.")
 			return
-		case "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
-			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		case "update-apply":
 			runUpdateApply(os.Args[2:])
 			return
+		default:
+			if os.Args[1] != "" && os.Args[1][0] != '-' {
+				os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
+			}
 		}
+	}
+	if !protocolRequest && len(arguments) > 0 && (arguments[0] == "--help" || arguments[0] == "-h") {
+		printCLIHelp(os.Stdout)
+		return
 	}
 
 	opts, err := parseOptions(arguments)
@@ -197,7 +204,7 @@ func main() {
 			vendors.SetParseCache(fingerprints)
 		}
 	}
-	if err := pi.EnsureExtension(); err != nil {
+	if err := ensurePiExtensionIfDetected(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
 	if err := opencode.EnsurePlugin(); err != nil {
@@ -300,7 +307,7 @@ func main() {
 				return err == nil && credential != ""
 			})
 		}
-		syncHub := currentHubTransport{current: onboardings.currentHubClient}
+		syncHub := currentHubTransport{current: onboardings.currentHubClient, queue: queue}
 		runner := &syncv4.Runner{
 			Version: collectorVersion,
 			Queue:   queue, Backup: backupManager, Hub: syncHub,
@@ -428,11 +435,35 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 
 // runInventory takes the stat-only inventory at startup and every sync
 // interval, records it for check-in, prunes cache entries whose source is
-// gone, and wakes the sync loop once so the first inventory checks in within
-// seconds of pairing.
+// gone, and wakes the sync loop when a source file changes.
 func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool) {
-	const interval = 5 * time.Minute
-	first := true
+	runInventoryWithInterval(ctx, fingerprints, queue, wake, tracker, paired, 5*time.Minute)
+}
+
+func runInventoryWithInterval(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration) {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(interval):
+			return true
+		}
+	}, nil)
+}
+
+func runInventoryWithTicks(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, ticks <-chan struct{}, scanComplete chan<- struct{}) {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticks:
+			return true
+		}
+	}, scanComplete)
+}
+
+func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, wait func(context.Context) bool, scanComplete chan<- struct{}) {
+	var previous *inventory.Snapshot
 	for {
 		if !paired(ctx) {
 			select {
@@ -461,20 +492,47 @@ func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue 
 			} else if removed > 0 {
 				log.Printf("parse cache: pruned %d entries", removed)
 			}
-			if first {
-				first = false
+			if inventorySourcesChanged(previous, snapshot) {
 				select {
 				case wake <- struct{}{}:
 				default:
 				}
 			}
+			previous = snapshot
 		}
-		select {
-		case <-ctx.Done():
+		if scanComplete != nil {
+			select {
+			case scanComplete <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		if !wait(ctx) {
 			return
-		case <-time.After(interval):
 		}
 	}
+}
+
+func inventorySourcesChanged(previous, current *inventory.Snapshot) bool {
+	if previous == nil || current == nil || previous.Skipped != current.Skipped || len(previous.Files) != len(current.Files) || len(previous.Missing) != len(current.Missing) {
+		return true
+	}
+	for i := range previous.Missing {
+		if previous.Missing[i] != current.Missing[i] {
+			return true
+		}
+	}
+	files := make(map[string]inventory.File, len(previous.Files))
+	for _, file := range previous.Files {
+		files[file.Agent+"\x00"+file.Path] = file
+	}
+	for _, file := range current.Files {
+		prior, ok := files[file.Agent+"\x00"+file.Path]
+		if !ok || prior.Size != file.Size || prior.ModTimeMs != file.ModTimeMs {
+			return true
+		}
+	}
+	return false
 }
 
 func newProductionRemoteManager() (*remote.Manager, error) {
@@ -562,6 +620,13 @@ func routesWithOnboarding(
 			return
 		}
 		writeJSON(w, service.syncController.Status())
+	})
+	api.HandleFunc("POST /api/sync/retry", func(w http.ResponseWriter, _ *http.Request) {
+		if service.syncController == nil || !service.syncController.RetryNow() {
+			writeAPIError(w, http.StatusConflict, "sync_unavailable", "Hub sync is not available")
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
 	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)

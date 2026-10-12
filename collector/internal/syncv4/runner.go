@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,21 +61,44 @@ func Busy(err error) bool {
 }
 
 // DeferReason names why a pass stopped, without session content: a Hub
-// problem code, a local pause or consent state, or local_error.
+// problem code, the not-paired state, a local pause or consent state, or local_error.
 func DeferReason(err error) string {
 	var problem hubclient.V4Problem
 	switch {
+	case errors.Is(err, hubclient.ErrNotPaired):
+		return "not_paired"
 	case errors.As(err, &problem):
-		if errors.Is(err, ErrStaleConsent) && problem.Code != "device_revoked" && permanentCheckInRejection(problem) {
-			return "hub_rejected:" + problem.Code
+		if problem.Code == "device_revoked" || problem.Code == "not_paired" {
+			return "not_paired"
 		}
-		return "hub:" + problem.Code
 	case errors.Is(err, ErrPaused):
 		return "paused"
-	case errors.Is(err, ErrStaleConsent):
+	}
+	if failure, ok := hubclient.ClassifyHubFailure(err); ok {
+		return failure.Cause
+	}
+	if errors.As(err, &problem) {
+		return "hub:" + problem.Code
+	}
+	if errors.Is(err, ErrStaleConsent) {
+		if hubUnavailable(err) {
+			return "hub_unreachable"
+		}
 		return "consent_unavailable"
 	}
+	if hubUnavailable(err) {
+		return "hub_unreachable"
+	}
 	return "local_error"
+}
+
+func hubUnavailable(err error) bool {
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && problem.HTTPStatus >= 500 {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError)
 }
 
 // NextSyncDelay is the wait before the next pass: busyRetry after the Hub's
@@ -136,6 +160,8 @@ type Runner struct {
 	checkInRejections   atomic.Int32
 	lastReportedPhase   string
 	lastDiscoveryAt     time.Time
+	discoveryRequests   atomic.Uint64
+	completedDiscovery  uint64
 	activeSince         time.Time
 	logRejectedUntil    time.Time
 }
@@ -150,6 +176,11 @@ func (r *Runner) now() time.Time {
 		return r.Now()
 	}
 	return time.Now()
+}
+
+// RequestDiscovery bypasses the cooldown until a streamed discovery pass succeeds.
+func (r *Runner) RequestDiscovery() {
+	r.discoveryRequests.Add(1)
 }
 
 func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
@@ -204,7 +235,8 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		// The inventory refreshes every five minutes. Between refreshes, use
 		// the saved queue to keep transferring instead of reparsing the same
 		// source files on every sync pass.
-		if !r.lastDiscoveryAt.IsZero() && r.now().Sub(r.lastDiscoveryAt) < 5*time.Minute {
+		discoveryRequest := r.discoveryRequests.Load()
+		if discoveryRequest == r.completedDiscovery && !r.lastDiscoveryAt.IsZero() && r.now().Sub(r.lastDiscoveryAt) < 5*time.Minute {
 			return transferErr
 		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
@@ -243,6 +275,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}); err != nil {
 			return errors.Join(transferErr, err)
 		}
+		r.completedDiscovery = discoveryRequest
 		r.lastDiscoveryAt = r.now()
 		return errors.Join(transferErr, r.runPlannedAndReport(ctx))
 	}

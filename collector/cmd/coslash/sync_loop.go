@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log"
 	"sync"
@@ -152,6 +153,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 	}
 
 	authFailures := 0
+	var lastLocalError [32]byte
+	hasLastLocalError := false
+	hasLoggedNotPaired := false
 	for ctx.Err() == nil {
 		control.beginPass()
 		passContext, cancel := context.WithCancel(ctx)
@@ -169,6 +173,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			cancel()
 			<-done
 			control.setIdle(true)
+			requestDiscovery(runner)
 			continue
 		case <-ctx.Done():
 			cancel()
@@ -187,7 +192,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			blockedPolicyVersion = version
 			// Ignore requests that arrived before the policy block was observed.
 			clearWake(control.wake)
-			clearWake(inventoryWake)
+			if clearWake(inventoryWake) {
+				requestDiscovery(runner)
+			}
 			clearWake(policyWake)
 			policyMu.Unlock()
 			select {
@@ -199,12 +206,43 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			blockedPolicyVersion = -1
 			clearWake(policyWake)
 			clearWake(control.wake)
-			clearWake(inventoryWake)
+			if clearWake(inventoryWake) {
+				requestDiscovery(runner)
+			}
 			policyMu.Unlock()
 			continue
 		}
-		if err != nil && ctx.Err() == nil {
-			log.Printf("v4 sync deferred: %s", syncv4.DeferReason(err))
+		if err != nil && (ctx.Err() == nil || syncv4.DeferReason(err) == "not_paired") {
+			reason := syncv4.DeferReason(err)
+			shouldLog := true
+			if _, contactFailure := hubclient.ClassifyHubFailure(err); contactFailure {
+				// The transport logs only when the classified contact cause changes.
+				shouldLog = false
+				hasLoggedNotPaired = false
+				hasLastLocalError = false
+			} else if reason == "not_paired" {
+				shouldLog = !hasLoggedNotPaired
+				hasLoggedNotPaired = true
+				hasLastLocalError = false
+			} else if reason == "local_error" {
+				hasLoggedNotPaired = false
+				fingerprint := sha256.Sum256([]byte(err.Error()))
+				shouldLog = !hasLastLocalError || fingerprint != lastLocalError
+				lastLocalError, hasLastLocalError = fingerprint, true
+			} else {
+				hasLoggedNotPaired = false
+				hasLastLocalError = false
+			}
+			if shouldLog {
+				if reason == "not_paired" {
+					log.Printf("v4 sync stopped: device removed from Hub; run coslash connect to add it again")
+				} else {
+					log.Printf("v4 sync deferred: %s", reason)
+				}
+			}
+		} else if err == nil {
+			hasLoggedNotPaired = false
+			hasLastLocalError = false
 		}
 		if credentialRetry(err) {
 			authFailures++
@@ -246,6 +284,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			return
 		case <-control.wake:
 		case <-inventoryWake:
+			requestDiscovery(runner)
 		case <-time.After(delay):
 		}
 	}
@@ -258,13 +297,21 @@ func clampImportRetry(delay time.Duration, err error, importActive, importPendin
 	return delay
 }
 
-func clearWake(wake <-chan struct{}) {
+func clearWake(wake <-chan struct{}) bool {
 	if wake == nil {
-		return
+		return false
 	}
 	select {
 	case <-wake:
+		return true
 	default:
+		return false
+	}
+}
+
+func requestDiscovery(runner v4SyncWorker) {
+	if requester, ok := runner.(interface{ RequestDiscovery() }); ok {
+		requester.RequestDiscovery()
 	}
 }
 

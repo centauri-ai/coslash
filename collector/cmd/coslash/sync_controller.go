@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
@@ -15,9 +16,11 @@ import (
 type syncLoopStarter func(context.Context, *syncv4.Queue, *hubclient.Client, chan struct{})
 
 type syncStatus struct {
-	State     string            `json:"state"`
-	HubOrigin string            `json:"hubOrigin"`
-	Sessions  map[string]string `json:"sessions"`
+	State            string                  `json:"state"`
+	HubOrigin        string                  `json:"hubOrigin"`
+	Sessions         map[string]string       `json:"sessions"`
+	LastFailure      *diagnostics.HubFailure `json:"lastFailure,omitempty"`
+	HubFailureActive bool                    `json:"hubFailureActive,omitempty"`
 }
 
 type syncController struct {
@@ -134,16 +137,21 @@ func (c *syncController) Ensure(client *hubclient.Client) error {
 }
 
 func (c *syncController) RequestPass(_ string) {
+	c.RetryNow()
+}
+
+func (c *syncController) RetryNow() bool {
 	c.mu.RLock()
 	connected, wake := c.connected, c.wake
 	c.mu.RUnlock()
 	if !connected || wake == nil {
-		return
+		return false
 	}
 	select {
 	case wake <- struct{}{}:
 	default:
 	}
+	return true
 }
 
 func (c *syncController) LoopIdle() bool { return !c.passActive.Load() }
@@ -167,12 +175,19 @@ func (c *syncController) stopLoop(wait bool) {
 }
 
 func (c *syncController) Status() syncStatus {
+	return c.statusAt(time.Now())
+}
+
+func (c *syncController) statusAt(now time.Time) syncStatus {
 	c.mu.RLock()
 	client, connected, revoked := c.client, c.connected, c.revoked
 	c.mu.RUnlock()
 	status := syncStatus{State: "not_connected", Sessions: map[string]string{}}
 	if client != nil && client.BaseURL != nil {
 		status.HubOrigin = client.BaseURL.Scheme + "://" + client.BaseURL.Host
+	}
+	if c.queue != nil {
+		status.LastFailure, status.HubFailureActive = hubFailureView(status.HubOrigin, c.queue.LastHubFailure(), now, c.queue.NextCheckInDelay())
 	}
 	if revoked {
 		status.State = "disconnected"

@@ -123,6 +123,7 @@ type Options struct {
 
 type Manager struct {
 	root             string
+	localHome        func() (string, error)
 	collectorVersion string
 	parserVersion    string
 	synthesis        SynthesisStore
@@ -181,7 +182,7 @@ func New(options Options) *Manager {
 		now = time.Now
 	}
 	return &Manager{
-		root: root, collectorVersion: identifierOr(options.CollectorVersion, "development"),
+		root: root, localHome: localHome, collectorVersion: identifierOr(options.CollectorVersion, "development"),
 		parserVersion: identifierOr(options.ParserVersion, vendors.ParserVersion),
 		synthesis:     options.Synthesis, openSource: openSource, afterRawCopy: options.AfterRawCopy,
 		afterRename: options.AfterRename, lifecycle: lifecycle, lifecycleCancel: lifecycleCancel, now: now,

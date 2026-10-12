@@ -82,6 +82,13 @@ func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
 			if tracking.maxRead.Load() > 128*1024 {
 				t.Fatalf("largest source read = %d", tracking.maxRead.Load())
 			}
+			paths := make(map[string]bool)
+			for _, edit := range readRootRecord(t, spool, prepared).Session.FileEdits {
+				paths[edit.Path] = true
+			}
+			if !paths["main.go"] || !paths["~/.config/other.go"] {
+				t.Fatalf("sanitized Codex paths = %#v", paths)
+			}
 			if sourceKind == sessionbackupv1.SourceSSH {
 				var rawBytes int64
 				for _, file := range []string{familyFile(home, false, testRootID), familyFile(home, true, testChildID)} {
@@ -863,14 +870,16 @@ func completeRollout(id, parentID, workspace string, padding int) string {
 	if parentID != "" {
 		parent = fmt.Sprintf(",\"parent_thread_id\":%q", parentID)
 	}
+	repositoryFile := filepath.Join(workspace, "main.go")
+	homeFile := filepath.Join(filepath.Dir(workspace), ".config", "other.go")
 	return fmt.Sprintf(`{"timestamp":"2026-08-18T10:00:00.000Z","type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":%q,"git":{"branch":"main"}%s}}
 {"timestamp":"2026-08-18T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"synthetic fixture prompt"}}
 {"timestamp":"2026-08-18T10:00:02.000Z","type":"turn_context","payload":{"model":"gpt-5"}}
 {"timestamp":"2026-08-18T10:00:03.000Z","type":"event_msg","payload":{"type":"task_started"}}
-{"timestamp":"2026-08-18T10:00:04.000Z","type":"event_msg","payload":{"type":"patch_apply_end","changes":{"main.go":{"type":"update","unified_diff":"@@\n-old\n+new\n"},"new.go":{"type":"add","content":"package newfile\n"}}}}
+{"timestamp":"2026-08-18T10:00:04.000Z","type":"event_msg","payload":{"type":"patch_apply_end","changes":{%q:{"type":"update","unified_diff":"@@\n-old\n+new\n"},%q:{"type":"add","content":"package newfile\n"}}}}
 {"timestamp":"2026-08-18T10:00:05.000Z","type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"done"}}
 {"timestamp":"2026-08-18T10:00:06.000Z","type":"event_msg","payload":{"type":"task_complete"}}
-%s`, id, id, workspace, parent, strings.Repeat("{}\n", padding/3))
+%s`, id, id, workspace, parent, repositoryFile, homeFile, strings.Repeat("{}\n", padding/3))
 }
 
 func guardianRollout(id, parentID, workspace string) string {

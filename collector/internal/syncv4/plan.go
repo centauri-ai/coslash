@@ -330,14 +330,20 @@ func (q *Queue) MarkListedAt(results []hubclient.V4ListResult, now time.Time) er
 		switch result.State {
 		case "listed":
 			entry.Listed = true
-			entry.ListRejected, entry.FailureCode = false, ""
+			entry.ListRejected = false
+			if entry.ParkedVersion == "" {
+				entry.FailureCode = ""
+			}
 			entry.SyncedActivity, entry.SyncedSourceRevision, entry.RevisionID = 0, "", ""
 			if result.SessionID != "" {
 				entry.SessionID = result.SessionID
 			}
 		case "existing":
 			entry.Listed = true
-			entry.ListRejected, entry.FailureCode = false, ""
+			entry.ListRejected = false
+			if entry.ParkedVersion == "" {
+				entry.FailureCode = ""
+			}
 			if result.SessionID != "" {
 				entry.SessionID = result.SessionID
 			}
@@ -350,6 +356,9 @@ func (q *Queue) MarkListedAt(results []hubclient.V4ListResult, now time.Time) er
 				entry.FailureCode = "server_error"
 			}
 			entry.ListRejected = true
+		}
+		if result.State == "listed" || result.State == "existing" {
+			q.appendListedFailure(entry, now)
 		}
 	}
 	q.state.LastProgressAt = now.UnixMilli()
