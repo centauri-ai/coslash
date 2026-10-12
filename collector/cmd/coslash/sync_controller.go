@@ -268,6 +268,12 @@ func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
 	return err
 }
 
+func (w observedSyncWorker) RequestDiscovery() {
+	if requester, ok := w.runner.(interface{ RequestDiscovery() }); ok {
+		requester.RequestDiscovery()
+	}
+}
+
 func (c *syncController) markRevoked(client *hubclient.Client, binding string) {
 	c.mu.Lock()
 	if c.client != client || c.binding != binding {
