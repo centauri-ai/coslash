@@ -176,6 +176,9 @@ func TestSSHCommandPreservesAuthenticationFailure(t *testing.T) {
 	if !strings.Contains(output.String(), "Permission denied (publickey)") || strings.Contains(output.String(), "/private/key") || strings.Contains(output.String(), "user@host") || strings.Contains(output.String(), "\x1b") {
 		t.Fatalf("unsafe or missing SSH diagnostic: %q", output.String())
 	}
+	if strings.Count(output.String(), "ssh.test failed:") != 1 || strings.Contains(output.String(), "SSH command failed") {
+		t.Fatalf("unexpected duplicate SSH diagnostic: %q", output.String())
+	}
 }
 
 func TestSSHInstallPreservesHelperFailure(t *testing.T) {
