@@ -752,9 +752,16 @@ func TestSweepRemovedSourcesLimitsCleanupToLocalRemovals(t *testing.T) {
 }
 
 func TestSweepRemovedSourcesRestoresUncommittedOwnership(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	root := t.TempDir()
 	cache := NewCache(root)
 	previous := settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "working-box", HostID: "working-host", Enabled: true}
+	config := settings.Defaults()
+	config.Remote = &previous
+	local := settings.Open()
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
 	if err := cache.StoreHelperVersion(previous.ID, "v1", previous.SSHAlias); err != nil {
 		t.Fatal(err)
 	}
@@ -767,12 +774,55 @@ func TestSweepRemovedSourcesRestoresUncommittedOwnership(t *testing.T) {
 		_ = cache.removeSourceWithCommit(previous.ID, func() error { panic("interrupted before settings commit") }, &previous)
 	}()
 	restarted := NewCache(root)
-	restarted.SweepRemovedSources(&previous)
+	restarted.SweepRemovedSources(local)
 	if ownership, owned, err := restarted.LoadHelperOwnership(previous.ID); err != nil || !owned || ownership.Version != "v1" || ownership.Alias != previous.SSHAlias {
 		t.Fatalf("pending removal lost ownership: %+v %v %v", ownership, owned, err)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "remotes"))
 	if err != nil || len(entries) != 1 || entries[0].Name() != previous.ID {
 		t.Fatalf("pending removal was not recovered: %v %v", entries, err)
+	}
+}
+
+func TestSweepRemovedSourcesDoesNotRestoreCommittedRemoval(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	previous := settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "working-box", HostID: "working-host", Enabled: true}
+	config := settings.Defaults()
+	config.Remote = &previous
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	cache := NewCache(root)
+	if err := cache.StoreHelperVersion(previous.ID, "v1", previous.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(root, "remotes")
+	trash, err := os.MkdirTemp(parent, ".removed-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(parent, previous.ID), filepath.Join(trash, "source")); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := json.Marshal(removedSource{SourceID: previous.ID, PreviousAlias: previous.SSHAlias})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trash+".json", marker, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config.Remote = nil
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{Cache: cache})
+	manager.CleanupRemovedSources(local)
+	if _, err := os.Stat(filepath.Join(parent, previous.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("committed removal restored the source: %v", err)
+	}
+	if _, err := os.Stat(trash); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("committed removal retry was not cleaned: %v", err)
 	}
 }
