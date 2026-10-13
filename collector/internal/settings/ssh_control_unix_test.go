@@ -90,6 +90,33 @@ func TestSSHControlPathReplacesInvalidSavedDirectory(t *testing.T) {
 	}
 }
 
+func TestSSHControlPathRepairsExistingStateDirectory(t *testing.T) {
+	home := t.TempDir()
+	preferred, err := os.MkdirTemp("", "s-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(preferred) })
+	stateDir := filepath.Join(home, "ssh")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path, err := sshControlPath(home, preferred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir := filepath.Dir(path); dir != preferred {
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	}
+	info, err := os.Stat(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("SSH state directory permissions = %o, want 700", info.Mode().Perm())
+	}
+}
+
 func TestSSHControlPathSharedAcrossProcesses(t *testing.T) {
 	if os.Getenv("F25_CONTROL_DIR_CHILD") == "1" {
 		path, err := SSHControlPath()
