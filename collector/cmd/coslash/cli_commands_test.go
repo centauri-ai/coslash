@@ -596,8 +596,9 @@ func TestPluginSkillCommandsParse(t *testing.T) {
 		}
 		for _, match := range command.FindAllStringSubmatch(string(data), -1) {
 			args := strings.Fields(match[1])
-			// Leading flags start the app, and doctor runs real diagnostics.
-			if strings.HasPrefix(args[0], "-") || args[0] == "doctor" {
+			// Leading flags start the app, doctor runs real diagnostics, and Hub
+			// commands require the separate fake-Hub OAuth tests.
+			if strings.HasPrefix(args[0], "-") || args[0] == "doctor" || args[0] == "hub" {
 				continue
 			}
 			for _, variant := range skillCommandVariants(args) {

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "coslash": {
+      "type": "http",
+      "url": "https://mcp.hub.coslash.io/mcp"
+    }
+  }
+}
