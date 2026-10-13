@@ -256,10 +256,8 @@ func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
 	w.controller.passActive.Store(false)
 	var problem hubclient.V4Problem
 	revoked := errors.As(err, &problem) && problem.Code == "device_revoked"
-	if w.client != nil && w.client.Credentials != nil && (revoked || errors.Is(err, hubclient.ErrNotPaired)) {
-		if _, loadErr := w.client.Credentials.Load(context.WithoutCancel(ctx)); errors.Is(loadErr, hubclient.ErrNotPaired) {
-			w.controller.markRevoked(w.client, w.binding)
-		}
+	if revoked || errors.Is(err, hubclient.ErrNotPaired) {
+		w.controller.markRevokedIfUnpaired(ctx, w.client, w.binding)
 	}
 	if revoked && credentialErr == nil && credential != "" {
 		if deleter, ok := w.client.Credentials.(hubclient.ConditionalCredentialDeleter); ok {
@@ -279,6 +277,27 @@ func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
 func (w observedSyncWorker) RequestDiscovery() {
 	if requester, ok := w.runner.(interface{ RequestDiscovery() }); ok {
 		requester.RequestDiscovery()
+	}
+}
+
+func (c *syncController) observedWait(wait func(context.Context, int64) (hubclient.V4Wait, error), client *hubclient.Client) func(context.Context, int64) (hubclient.V4Wait, error) {
+	c.mu.RLock()
+	binding := c.binding
+	c.mu.RUnlock()
+	return func(ctx context.Context, since int64) (hubclient.V4Wait, error) {
+		result, err := wait(ctx, since)
+		if syncv4.DeferReason(err) == "not_paired" {
+			c.markRevokedIfUnpaired(ctx, client, binding)
+		}
+		return result, err
+	}
+}
+
+func (c *syncController) markRevokedIfUnpaired(ctx context.Context, client *hubclient.Client, binding string) {
+	if client != nil && client.Credentials != nil {
+		if _, err := client.Credentials.Load(context.WithoutCancel(ctx)); errors.Is(err, hubclient.ErrNotPaired) {
+			c.markRevoked(client, binding)
+		}
 	}
 }
 
