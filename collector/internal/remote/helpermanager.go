@@ -410,12 +410,12 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	manager.helper = &status
 	if result.CanExecute {
 		if err := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); err != nil {
-			LogSSHFailure("ssh.install", err)
 			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
 			manager.helper = &status
 			manager.helperTarget = nil
 			health := manager.healthLocked(manager.lastRequestedMs)
 			manager.mu.Unlock()
+			LogSSHFailure("ssh.install", err)
 			return health, nil
 		}
 		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
