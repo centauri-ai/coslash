@@ -1539,7 +1539,8 @@ func TestSaveHubSettingsPreservesOwnedHostOnFailure(t *testing.T) {
 				}
 				t.Setenv("COSLASH_HOME", blocked)
 			} else {
-				cache.Root = filepath.Join(t.TempDir(), strings.Repeat("x", 256))
+				// Go rejects NUL paths on every OS, rather than treating them as missing.
+				cache.Root = cacheRoot + "\x00"
 			}
 			if err := manager.SaveHubSettings(local, next); err == nil {
 				t.Fatal("failed replacement succeeded")
