@@ -303,7 +303,14 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
 		}
 		if problem.Code == "device_revoked" {
-			if deleteErr := c.Credentials.Delete(context.WithoutCancel(ctx)); deleteErr != nil {
+			deleteContext := context.WithoutCancel(ctx)
+			var deleteErr error
+			if deleter, ok := c.Credentials.(ConditionalCredentialDeleter); ok {
+				_, deleteErr = deleter.DeleteIfMatches(deleteContext, credential)
+			} else {
+				deleteErr = c.Credentials.Delete(deleteContext)
+			}
+			if deleteErr != nil {
 				return errors.Join(problem, fmt.Errorf("delete revoked Hub credential: %w", deleteErr))
 			}
 		}

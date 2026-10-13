@@ -255,7 +255,13 @@ func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
 	err := w.runner.SyncOnce(ctx)
 	w.controller.passActive.Store(false)
 	var problem hubclient.V4Problem
-	if errors.As(err, &problem) && problem.Code == "device_revoked" && credentialErr == nil && credential != "" {
+	revoked := errors.As(err, &problem) && problem.Code == "device_revoked"
+	if w.client != nil && w.client.Credentials != nil && (revoked || errors.Is(err, hubclient.ErrNotPaired)) {
+		if _, loadErr := w.client.Credentials.Load(context.WithoutCancel(ctx)); errors.Is(loadErr, hubclient.ErrNotPaired) {
+			w.controller.markRevoked(w.client, w.binding)
+		}
+	}
+	if revoked && credentialErr == nil && credential != "" {
 		if deleter, ok := w.client.Credentials.(hubclient.ConditionalCredentialDeleter); ok {
 			deleteContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
