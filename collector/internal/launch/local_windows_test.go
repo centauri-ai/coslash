@@ -488,7 +488,10 @@ func TestWindowsRemoteSSHDisablesConfiguredMultiplexing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := remoteSSHCommand(destination, "true")
+	command, err := remoteSSHCommand(destination, "true")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(command, "'ControlMaster=no'") || strings.Contains(command, "'ControlMaster=auto'") {
 		t.Fatalf("command = %q", command)
 	}

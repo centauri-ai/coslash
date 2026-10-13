@@ -2,14 +2,14 @@ package launch
 
 import "github.com/centauri-ai/coslash/collector/internal/settings"
 
-func remoteSSHArgs(destination settings.SSHDestination, command string) []string {
+func remoteSSHArgs(destination settings.SSHDestination, command string) ([]string, error) {
 	args := []string{"ssh", "-tt", "-o", "ControlMaster=no"}
 	args = append(args, destination.Args()...)
-	return append(args, command)
+	return append(args, command), nil
 }
 
-func remoteReviewSSHArgs(destination settings.SSHDestination, command string) []string {
+func remoteReviewSSHArgs(destination settings.SSHDestination, command string) ([]string, error) {
 	args := []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no"}
 	args = append(args, destination.Args()...)
-	return append(args, command)
+	return append(args, command), nil
 }
