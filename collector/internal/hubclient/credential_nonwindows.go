@@ -23,7 +23,11 @@ func (s OSKeychain) Load(ctx context.Context) (string, error) {
 	}
 	output, err := command.Output()
 	if err != nil {
-		return "", keychainCommandLoadError(ctx)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			output = append(output, exitErr.Stderr...)
+		}
+		return "", keychainCommandLoadError(ctx, err, string(output))
 	}
 	credential := strings.TrimSpace(string(output))
 	if credential == "" {
@@ -32,11 +36,14 @@ func (s OSKeychain) Load(ctx context.Context) (string, error) {
 	return credential, nil
 }
 
-func keychainCommandLoadError(ctx context.Context) error {
+func keychainCommandLoadError(ctx context.Context, commandErr error, output string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return ErrNotPaired
+	if missingCredentialItem(output) {
+		return ErrNotPaired
+	}
+	return fmt.Errorf("load Hub credential: %w: %w", ErrCredentialStoreUnavailable, commandErr)
 }
 
 func (s OSKeychain) save(ctx context.Context, credential string) error {
