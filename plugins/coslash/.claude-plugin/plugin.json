@@ -1,6 +1,7 @@
 {
   "name": "coslash",
   "description": "Use local coSlash sessions, handoffs, agent launches, and diagnostics.",
+  "mcpServers": "./.mcp.json",
   "author": {
     "name": "Centauri AI",
     "url": "https://github.com/centauri-ai"

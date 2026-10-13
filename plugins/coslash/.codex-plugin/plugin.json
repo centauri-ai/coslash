@@ -10,6 +10,7 @@
   "license": "MIT",
   "keywords": ["coslash", "sessions", "handoff", "claude", "codex"],
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "coSlash",
     "shortDescription": "Use coSlash from Codex.",
