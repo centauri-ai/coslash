@@ -739,12 +739,12 @@ func TestSweepRemovedSourcesLimitsCleanupToLocalRemovals(t *testing.T) {
 	write(filepath.Join(parent, ".removed-13.json"), `{"sourceId":"../../outside"}`)
 	write(filepath.Join(parent, ".removed-14", "notes.txt"), "unrelated data")
 	NewCache(root).SweepRemovedSources(nil)
-	for _, name := range []string{".removed-11", ".removed-11.json", ".removed-12"} {
+	for _, name := range []string{".removed-11", ".removed-11.json"} {
 		if _, err := os.Stat(filepath.Join(parent, name)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("Local removal was not cleaned: %s %v", name, err)
 		}
 	}
-	for _, name := range []string{".removed-other", ".removed-13", ".removed-14", "r_0123456789abcdef"} {
+	for _, name := range []string{".removed-12", ".removed-other", ".removed-13", ".removed-14", "r_0123456789abcdef"} {
 		if _, err := os.Stat(filepath.Join(parent, name)); err != nil {
 			t.Fatalf("sweep changed unrelated directory: %s %v", name, err)
 		}
