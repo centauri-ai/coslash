@@ -303,8 +303,7 @@ func cleanupRemovedSource(trash string) error {
 	return nil
 }
 
-// SweepRemovedSources retries only Local's recorded removals or its original
-// numeric temporary-directory layout with a single source child.
+// SweepRemovedSources retries only Local's recorded removals.
 func (c *Cache) SweepRemovedSources(current *settings.RemoteSettings) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -322,34 +321,6 @@ func (c *Cache) SweepRemovedSources(current *settings.RemoteSettings) {
 		entries, readErr := directory.ReadDir(64)
 		for _, entry := range entries {
 			name := entry.Name()
-			if entry.IsDir() && removedSourceName(name) {
-				trash := filepath.Join(parent, name)
-				if _, err := os.Lstat(trash + ".json"); !errors.Is(err, os.ErrNotExist) {
-					continue
-				}
-				// Older Local builds did not record a removal beside the renamed cache.
-				legacy, err := os.Open(trash)
-				if errors.Is(err, os.ErrNotExist) {
-					continue
-				}
-				if err != nil {
-					LogSSHFailure("removed remote cache retry", err)
-					continue
-				}
-				children, err := legacy.ReadDir(2)
-				closeErr := legacy.Close()
-				if err != nil && !errors.Is(err, io.EOF) || closeErr != nil {
-					LogSSHFailure("removed remote cache retry", errors.Join(err, closeErr))
-					continue
-				}
-				if len(children) != 1 || children[0].Name() != "source" || !children[0].IsDir() {
-					continue
-				}
-				if err := os.RemoveAll(trash); err != nil {
-					LogSSHFailure("removed remote cache retry", err)
-				}
-				continue
-			}
 			if !entry.Type().IsRegular() || !strings.HasSuffix(name, ".json") {
 				continue
 			}
