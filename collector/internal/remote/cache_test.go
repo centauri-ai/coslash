@@ -719,3 +719,60 @@ func TestCacheHelperOwnershipCorruptionFailsClosedAndLegacyMigratesWithConfigure
 		t.Fatalf("migrated ownership = %#v, %v, %v", ownership, ok, err)
 	}
 }
+
+func TestSweepRemovedSourcesLimitsCleanupToLocalRemovals(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "remotes")
+	write := func(path string, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{".removed-11", ".removed-12", ".removed-other", ".removed-13", "r_0123456789abcdef"} {
+		write(filepath.Join(parent, name, "source", "session.txt"), "private data")
+	}
+	write(filepath.Join(parent, ".removed-11.json"), `{"sourceId":"r_0123456789abcdef"}`)
+	write(filepath.Join(parent, ".removed-13.json"), `{"sourceId":"../../outside"}`)
+	write(filepath.Join(parent, ".removed-14", "notes.txt"), "unrelated data")
+	NewCache(root).SweepRemovedSources(nil)
+	for _, name := range []string{".removed-11", ".removed-11.json", ".removed-12"} {
+		if _, err := os.Stat(filepath.Join(parent, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("Local removal was not cleaned: %s %v", name, err)
+		}
+	}
+	for _, name := range []string{".removed-other", ".removed-13", ".removed-14", "r_0123456789abcdef"} {
+		if _, err := os.Stat(filepath.Join(parent, name)); err != nil {
+			t.Fatalf("sweep changed unrelated directory: %s %v", name, err)
+		}
+	}
+}
+
+func TestSweepRemovedSourcesRestoresUncommittedOwnership(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	previous := settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "working-box", HostID: "working-host", Enabled: true}
+	if err := cache.StoreHelperVersion(previous.ID, "v1", previous.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("interruption not reached")
+			}
+		}()
+		_ = cache.removeSourceWithCommit(previous.ID, func() error { panic("interrupted before settings commit") }, &previous)
+	}()
+	restarted := NewCache(root)
+	restarted.SweepRemovedSources(&previous)
+	if ownership, owned, err := restarted.LoadHelperOwnership(previous.ID); err != nil || !owned || ownership.Version != "v1" || ownership.Alias != previous.SSHAlias {
+		t.Fatalf("pending removal lost ownership: %+v %v %v", ownership, owned, err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "remotes"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != previous.ID {
+		t.Fatalf("pending removal was not recovered: %v %v", entries, err)
+	}
+}
