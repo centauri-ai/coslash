@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1432,5 +1433,74 @@ func TestSetupPreservesInstallerSSHReasons(t *testing.T) {
 				t.Fatalf("helper = %+v, want failure reason %q", health.Helper, tc.reason)
 			}
 		})
+	}
+}
+
+func TestRemoveHubHostKeepsOwnershipWhileSetupIsInProgress(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	config := settings.Defaults()
+	config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: true}
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	cache := NewCache(t.TempDir())
+	if err := cache.StoreHelperVersion(config.Remote.ID, "v1", "agent-box"); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{Cache: cache})
+	if err := manager.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+	before := manager.DiagnosticsHealth()
+	manager.helperSetup = true
+	if err := manager.RemoveHubHost(local, *config.Remote); !errors.Is(err, ErrHelperSetupInProgress) {
+		t.Fatalf("setup removal error: %v", err)
+	}
+	if !reflect.DeepEqual(local.State().Config, config) || !reflect.DeepEqual(manager.DiagnosticsHealth(), before) {
+		t.Fatal("failed removal changed configured host")
+	}
+	if _, owned, err := cache.LoadHelperOwnership(config.Remote.ID); err != nil || !owned {
+		t.Fatalf("ownership: %v %v", owned, err)
+	}
+	manager.helperSetup = false
+	if err := manager.RemoveHubHost(local, *config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	if local.State().Config.Remote != nil || manager.DiagnosticsHealth().SourceID != "" {
+		t.Fatal("retry did not remove host")
+	}
+}
+
+func TestRemoveHubHostDoesNotApplyStaleConfiguration(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	config := settings.Defaults()
+	config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: true}
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{Cache: NewCache(t.TempDir())})
+	if err := manager.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+	previous := *config.Remote
+	next := previous
+	next.SSHAlias = "new-box"
+	config.Remote = &next
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	before := manager.DiagnosticsHealth()
+	if err := manager.RemoveHubHost(local, previous); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(local.State().Config, config) || !reflect.DeepEqual(manager.DiagnosticsHealth(), before) {
+		t.Fatal("stale reconciliation removed updated host")
 	}
 }

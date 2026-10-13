@@ -213,13 +213,42 @@ func (c *Cache) Store(sourceID string, cached CachedSnapshot) error {
 }
 
 func (c *Cache) RemoveSource(sourceID string) error {
+	return c.removeSourceWithCommit(sourceID, func() error { return nil })
+}
+
+func (c *Cache) removeSourceWithCommit(sourceID string, commit func() error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	dir, err := c.sourceDir(sourceID)
 	if err != nil {
 		return err
 	}
-	return os.RemoveAll(dir)
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		return commit()
+	} else if err != nil {
+		return err
+	}
+	trash, err := os.MkdirTemp(filepath.Dir(dir), ".removed-*")
+	if err != nil {
+		return err
+	}
+	staged := filepath.Join(trash, "source")
+	if err := os.Rename(dir, staged); err != nil {
+		_ = os.Remove(trash)
+		return err
+	}
+	if err := commit(); err != nil {
+		if restoreErr := os.Rename(staged, dir); restoreErr != nil {
+			return errors.Join(err, fmt.Errorf("restore remote cache: %w", restoreErr))
+		}
+		_ = os.Remove(trash)
+		return err
+	}
+	// The rename committed removal; cleanup cannot roll back a deleted tree.
+	if err := os.RemoveAll(trash); err != nil {
+		LogSSHFailure("removed remote cache cleanup", err)
+	}
+	return nil
 }
 
 func age(fetchedAtMs int64, now time.Time) time.Duration {
