@@ -328,7 +328,7 @@ func TestTransportRevocationStopsSyncAndAllowsPairingAgain(t *testing.T) {
 			}
 			transport := currentHubTransport{current: func() *hubclient.Client { return client }, queue: controller.Queue()}
 			if fromWait {
-				if _, err := transport.V4Wait(t.Context(), 0); err == nil {
+				if _, err := controller.observedWait(transport.V4Wait, client)(t.Context(), 0); err == nil {
 					t.Fatal("wait accepted revoked device")
 				}
 			}
@@ -336,8 +336,10 @@ func TestTransportRevocationStopsSyncAndAllowsPairingAgain(t *testing.T) {
 				_, err := transport.V4CheckIn(ctx, hubclient.V4Queue{}, 0, nil, nil, nil)
 				return err
 			}), client)
-			if err := worker.SyncOnce(t.Context()); err == nil {
-				t.Fatal("check-in accepted revoked device")
+			if !fromWait {
+				if err := worker.SyncOnce(t.Context()); err == nil {
+					t.Fatal("check-in accepted revoked device")
+				}
 			}
 			if status := controller.Status(); status.State != "disconnected" {
 				t.Fatalf("revoked status = %s", status.State)
@@ -386,6 +388,44 @@ func TestTransportRevocationStopsSyncAndAllowsPairingAgain(t *testing.T) {
 			}
 			if requests.Load() != 2 {
 				t.Fatalf("paired requests=%d, want 2", requests.Load())
+			}
+		})
+	}
+}
+
+func TestStaleWaitRevocationPreservesCurrentPairing(t *testing.T) {
+	for _, newClient := range []bool{false, true} {
+		t.Run(fmt.Sprintf("newClient=%t", newClient), func(t *testing.T) {
+			credentials := &syncTestCredentials{value: "old"}
+			controller := newTestSyncController(t, nil, nil)
+			client := syncTestClient(t, credentials)
+			if err := controller.Ensure(client); err != nil {
+				t.Fatal(err)
+			}
+			client.HTTP = &http.Client{Transport: onboardingRoundTripper(func(*http.Request) (*http.Response, error) {
+				if newClient {
+					replacement := syncTestClient(t, &syncTestCredentials{value: "new"})
+					if err := controller.Ensure(replacement); err != nil {
+						return nil, err
+					}
+				} else if err := credentials.Save(t.Context(), "new"); err != nil {
+					return nil, err
+				}
+				return onboardingResponse(http.StatusForbidden, `{"code":"device_revoked"}`), nil
+			})}
+			wait := controller.observedWait(client.V4Wait, client)
+			if _, err := wait(t.Context(), 0); err == nil {
+				t.Fatal("revocation error was swallowed")
+			}
+			if status := controller.Status(); status.State != "connected_idle" {
+				t.Fatalf("current pairing status=%s", status.State)
+			}
+			if !newClient {
+				if value, err := credentials.Load(t.Context()); err != nil || value != "new" {
+					t.Fatalf("replacement credential=%q err=%v", value, err)
+				}
+			} else if _, err := credentials.Load(t.Context()); !errors.Is(err, hubclient.ErrNotPaired) {
+				t.Fatalf("old credential not revoked: %v", err)
 			}
 		})
 	}
