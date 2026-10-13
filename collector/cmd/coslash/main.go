@@ -356,7 +356,7 @@ func main() {
 			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
 		})
 		go runActivePoller(syncContext, "", loopControl)
-		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, syncHub.V4Wait, loopControl, wake, retryWake)
+		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, controller.observedWait(syncHub.V4Wait, client), loopControl, wake, retryWake)
 	}, func() bool { return settingsStore.State().Config.SyncPaused })
 	if err != nil {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
