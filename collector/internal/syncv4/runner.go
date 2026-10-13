@@ -144,6 +144,7 @@ type Runner struct {
 	LocalPause          func() bool
 	RequireImportPlan   bool
 	Command             func(context.Context, hubclient.V4Command) error
+	ReconcileSSHHosts   func([]hubclient.V4SSHHost) error
 	Now                 func() time.Time
 	config              hubclient.V4Config
 	checkedAt           time.Time
@@ -735,6 +736,11 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", ErrStaleConsent, err)
 	}
 	r.resetCheckInBackoff()
+	if result.SSHHosts != nil && r.ReconcileSSHHosts != nil {
+		if err := r.ReconcileSSHHosts(result.SSHHosts); err != nil {
+			return err
+		}
+	}
 	r.lastProgressCheckIn.Store(r.now().UnixNano())
 	if logAccepted && through > 0 {
 		if err := r.Queue.AcknowledgeLog(through); err != nil {
