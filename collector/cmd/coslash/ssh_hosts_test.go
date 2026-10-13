@@ -165,10 +165,15 @@ func TestSSHHostsCheckInReconcilesAndRetries(t *testing.T) {
 				t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
 			}
 			if tc.failure == "cache" {
-				cache.Root = filepath.Join(t.TempDir(), strings.Repeat("x", 256))
+				// Go rejects NUL paths on every OS, rather than treating them as missing.
+				cache.Root = cacheRoot + "\x00"
 			}
 			if tc.failure == "settings" {
-				t.Setenv("COSLASH_HOME", filepath.Join(t.TempDir(), strings.Repeat("x", 256)))
+				blocked := filepath.Join(t.TempDir(), "blocked")
+				if err := os.WriteFile(blocked, []byte("block save"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("COSLASH_HOME", blocked)
 			}
 			err = runner.SyncOnce(t.Context())
 			if tc.failure != "" {
