@@ -58,6 +58,7 @@ type Config struct {
 // RemoteSettings is the optional one-host SSH configuration.
 type RemoteSettings struct {
 	ID       string `json:"id"`
+	HostID   string `json:"hostId,omitempty"`
 	SSHAlias string `json:"sshAlias"`
 	Enabled  bool   `json:"enabled"`
 }
@@ -368,6 +369,7 @@ func Decode(data []byte) (Config, error) {
 	}
 	type remoteDocument struct {
 		ID       *string `json:"id"`
+		HostID   string  `json:"hostId"`
 		SSHAlias *string `json:"sshAlias"`
 		Enabled  *bool   `json:"enabled"`
 	}
@@ -421,6 +423,7 @@ func Decode(data []byte) (Config, error) {
 		}
 		config.Remote = &RemoteSettings{
 			ID:       *document.Remote.ID,
+			HostID:   document.Remote.HostID,
 			SSHAlias: *document.Remote.SSHAlias,
 			Enabled:  *document.Remote.Enabled,
 		}
