@@ -145,6 +145,7 @@ type Runner struct {
 	RequireImportPlan   bool
 	Command             func(context.Context, hubclient.V4Command) error
 	ReconcileSSHHosts   func([]hubclient.V4SSHHost) error
+	CleanupRemoteCache  func()
 	Now                 func() time.Time
 	config              hubclient.V4Config
 	checkedAt           time.Time
@@ -719,6 +720,9 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		for i := range lines {
 			lines[i].Attempts, lines[i].Parked = 0, false
 		}
+	}
+	if r.CleanupRemoteCache != nil {
+		r.CleanupRemoteCache()
 	}
 	result, err := r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), lines)
 	logAccepted := err == nil
