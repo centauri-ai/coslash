@@ -34,7 +34,7 @@ func sshControlPath(home, preferred string) (string, error) {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return "", err
 	}
-	if err := ensureSSHSocketDir(stateDir, os.Getuid()); err != nil {
+	if err := ensureSSHStateDir(stateDir, os.Getuid()); err != nil {
 		return "", err
 	}
 	lock, err := os.OpenFile(filepath.Join(stateDir, ".control-directory.lock"), os.O_CREATE|os.O_RDWR, 0o600)
@@ -85,13 +85,46 @@ func usableSSHSocketDir(dir, name string) bool {
 }
 
 func ensureSSHSocketDir(dir string, uid int) error {
-	info, err := os.Lstat(filepath.Clean(dir))
+	socketDir, info, err := openOwnedSSHSocketDir(dir, uid)
 	if err != nil {
-		return fmt.Errorf("inspect SSH socket directory: %w", err)
+		return err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !info.IsDir() || info.Mode().Perm() != 0o700 || !ok || stat.Uid != uint32(uid) {
+	defer func() { _ = socketDir.Close() }()
+	if info.Mode().Perm() != 0o700 {
 		return fmt.Errorf("SSH socket directory must be a private directory owned by uid %d", uid)
 	}
 	return nil
+}
+
+func ensureSSHStateDir(dir string, uid int) error {
+	socketDir, info, err := openOwnedSSHSocketDir(dir, uid)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = socketDir.Close() }()
+	if info.Mode().Perm() != 0o700 {
+		if err := socketDir.Chmod(0o700); err != nil {
+			return fmt.Errorf("secure SSH socket directory: %w", err)
+		}
+	}
+	return nil
+}
+
+func openOwnedSSHSocketDir(dir string, uid int) (*os.File, os.FileInfo, error) {
+	fd, err := syscall.Open(filepath.Clean(dir), syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("inspect SSH socket directory: %w", err)
+	}
+	socketDir := os.NewFile(uintptr(fd), dir)
+	info, err := socketDir.Stat()
+	if err != nil {
+		_ = socketDir.Close()
+		return nil, nil, fmt.Errorf("inspect SSH socket directory: %w", err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || !ok || stat.Uid != uint32(uid) {
+		_ = socketDir.Close()
+		return nil, nil, fmt.Errorf("SSH socket directory must be a private directory owned by uid %d", uid)
+	}
+	return socketDir, info, nil
 }

@@ -4,6 +4,7 @@ package remote
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -44,6 +45,7 @@ func TestControlSocketWithLongLocalHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(controlPath)) })
 	path := strings.Replace(controlPath, "%C", strings.Repeat("a", 40), 1) + "." + strings.Repeat("b", 16)
 	// Reserve room for the terminating NUL.
 	if len(path)+1 > 104 {
