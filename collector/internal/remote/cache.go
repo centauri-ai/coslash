@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -213,10 +215,10 @@ func (c *Cache) Store(sourceID string, cached CachedSnapshot) error {
 }
 
 func (c *Cache) RemoveSource(sourceID string) error {
-	return c.removeSourceWithCommit(sourceID, func() error { return nil })
+	return c.removeSourceWithCommit(sourceID, func() error { return nil }, nil)
 }
 
-func (c *Cache) removeSourceWithCommit(sourceID string, commit func() error) error {
+func (c *Cache) removeSourceWithCommit(sourceID string, commit func() error, previous *settings.RemoteSettings) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	dir, err := c.sourceDir(sourceID)
@@ -232,23 +234,179 @@ func (c *Cache) removeSourceWithCommit(sourceID string, commit func() error) err
 	if err != nil {
 		return err
 	}
-	staged := filepath.Join(trash, "source")
-	if err := os.Rename(dir, staged); err != nil {
+	record := removedSource{SourceID: sourceID}
+	if previous != nil {
+		record.PreviousAlias = previous.SSHAlias
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
 		_ = os.Remove(trash)
 		return err
 	}
+	marker := trash + ".json"
+	file, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		_ = os.Remove(trash)
+		return err
+	}
+	_, writeErr := file.Write(data)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		_ = os.Remove(marker)
+		_ = os.Remove(trash)
+		return err
+	}
+	staged := filepath.Join(trash, "source")
+	if err := os.Rename(dir, staged); err != nil {
+		_ = os.Remove(trash)
+		_ = os.Remove(marker)
+		return err
+	}
+	syncDirBestEffort(filepath.Dir(dir))
 	if err := commit(); err != nil {
 		if restoreErr := os.Rename(staged, dir); restoreErr != nil {
 			return errors.Join(err, fmt.Errorf("restore remote cache: %w", restoreErr))
 		}
 		_ = os.Remove(trash)
+		_ = os.Remove(marker)
 		return err
 	}
 	// The rename committed removal; cleanup cannot roll back a deleted tree.
-	if err := os.RemoveAll(trash); err != nil {
+	if err := cleanupRemovedSource(trash); err != nil {
 		LogSSHFailure("removed remote cache cleanup", err)
 	}
 	return nil
+}
+
+type removedSource struct {
+	SourceID      string `json:"sourceId"`
+	PreviousAlias string `json:"previousAlias,omitempty"`
+}
+
+func removedSourceName(name string) bool {
+	suffix, ok := strings.CutPrefix(name, ".removed-")
+	if !ok {
+		return false
+	}
+	_, err := strconv.ParseUint(suffix, 10, 64)
+	return err == nil
+}
+
+func cleanupRemovedSource(trash string) error {
+	if err := os.RemoveAll(trash); err != nil {
+		return err
+	}
+	if err := os.Remove(trash + ".json"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// SweepRemovedSources retries only Local's recorded removals or its original
+// numeric temporary-directory layout with a single source child.
+func (c *Cache) SweepRemovedSources(current *settings.RemoteSettings) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	parent := filepath.Join(c.Root, "remotes")
+	directory, err := os.Open(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		LogSSHFailure("removed remote cache retry", err)
+		return
+	}
+	defer directory.Close()
+	for {
+		entries, readErr := directory.ReadDir(64)
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() && removedSourceName(name) {
+				trash := filepath.Join(parent, name)
+				if _, err := os.Lstat(trash + ".json"); !errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				// Older Local builds did not record a removal beside the renamed cache.
+				legacy, err := os.Open(trash)
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				if err != nil {
+					LogSSHFailure("removed remote cache retry", err)
+					continue
+				}
+				children, err := legacy.ReadDir(2)
+				closeErr := legacy.Close()
+				if err != nil && !errors.Is(err, io.EOF) || closeErr != nil {
+					LogSSHFailure("removed remote cache retry", errors.Join(err, closeErr))
+					continue
+				}
+				if len(children) != 1 || children[0].Name() != "source" || !children[0].IsDir() {
+					continue
+				}
+				if err := os.RemoveAll(trash); err != nil {
+					LogSSHFailure("removed remote cache retry", err)
+				}
+				continue
+			}
+			if !entry.Type().IsRegular() || !strings.HasSuffix(name, ".json") {
+				continue
+			}
+			base := strings.TrimSuffix(name, ".json")
+			if !removedSourceName(base) {
+				continue
+			}
+			if err := c.sweepRecordedRemoval(filepath.Join(parent, base), current); err != nil {
+				LogSSHFailure("removed remote cache retry", err)
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				LogSSHFailure("removed remote cache retry", readErr)
+			}
+			return
+		}
+	}
+}
+
+func (c *Cache) sweepRecordedRemoval(trash string, current *settings.RemoteSettings) error {
+	file, err := os.Open(trash + ".json")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, 1025))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		return errors.Join(readErr, closeErr)
+	}
+	var record removedSource
+	if len(data) > 1024 || json.Unmarshal(data, &record) != nil || !settings.ValidRemoteID(record.SourceID) || record.PreviousAlias != "" && !settings.ValidSSHAlias(record.PreviousAlias) {
+		return errors.New("invalid removed source record")
+	}
+	if info, err := os.Lstat(trash); err == nil && !info.IsDir() {
+		return errors.New("removed source is not a directory")
+	} else if errors.Is(err, os.ErrNotExist) {
+		return cleanupRemovedSource(trash)
+	} else if err != nil {
+		return err
+	}
+	if current != nil && record.SourceID == current.ID && record.PreviousAlias == current.SSHAlias {
+		original, err := c.sourceDir(record.SourceID)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Lstat(original); !errors.Is(err, os.ErrNotExist) {
+			return errors.New("removed source is still configured")
+		}
+		if err := os.Rename(filepath.Join(trash, "source"), original); err != nil {
+			return err
+		}
+	}
+	return cleanupRemovedSource(trash)
 }
 
 func age(fetchedAtMs int64, now time.Time) time.Duration {

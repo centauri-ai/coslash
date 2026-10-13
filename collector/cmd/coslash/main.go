@@ -245,11 +245,12 @@ func main() {
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		return collector.List(ctx, today.UnixMilli())
 	})
-	go cleanupHandoffs(settingsStore)
 	remoteManager, err := newProductionRemoteManager()
 	if err != nil {
 		log.Fatalf("remote manager: %v", err)
 	}
+	remoteManager.CleanupRemovedSources(settingsStore)
+	go cleanupHandoffs(settingsStore, remoteManager)
 	backupManager := sessionbackupproducer.New(sessionbackupproducer.Options{
 		CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
 	})
@@ -315,13 +316,14 @@ func main() {
 		runner := &syncv4.Runner{
 			Version: collectorVersion,
 			Queue:   queue, Backup: backupManager, Hub: syncHub,
-			RequireImportPlan: true,
-			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
-			InventoryProgress: func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
-			Conditions:        syncv4.LocalConditions,
-			LocalPause:        func() bool { return settingsStore.State().Config.SyncPaused },
-			Command:           v4CommandRunner(queue, settingsStore, remoteManager),
-			ReconcileSSHHosts: reconcileSSHHosts(settingsStore, remoteManager),
+			RequireImportPlan:  true,
+			Discover:           func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+			InventoryProgress:  func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
+			Conditions:         syncv4.LocalConditions,
+			LocalPause:         func() bool { return settingsStore.State().Config.SyncPaused },
+			Command:            v4CommandRunner(queue, settingsStore, remoteManager),
+			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
+			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
 		}
 		if fingerprints != nil {
 			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {

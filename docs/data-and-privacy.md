@@ -260,7 +260,9 @@ as a new store, so startup cannot detect every loss of prior history.
 Disabling a remote machine stops refreshes and hides its cards but retains its
 normalized last-good cache and any optional helper; it does not change Linux.
 **Remove** deletes the local host configuration and cache even if the host is
-offline. It deliberately leaves any previously installed helper in place on the
-remote machine.
+offline. If cache deletion fails, Local retries it at startup, on each check-in,
+and during daily maintenance until it succeeds. Cached data remains locally
+until deletion succeeds.
+Removal deliberately leaves any previously installed helper on the remote machine.
 
 To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names. The CLI report includes the configured Hub origin, device name and ID, and content-free sync failure codes.
