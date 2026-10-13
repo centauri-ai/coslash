@@ -82,5 +82,5 @@ func (s OSKeychain) delete(ctx context.Context) error {
 
 func missingCredentialItem(message string) bool {
 	message = strings.ToLower(message)
-	return strings.Contains(message, "could not be found") || strings.Contains(message, "no matching items") || strings.Contains(message, "not found")
+	return strings.Contains(message, "the specified item could not be found in the keychain") || strings.Contains(message, "no matching items")
 }
