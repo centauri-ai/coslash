@@ -27,9 +27,17 @@ func TestKeychainCommandLoadErrorPreservesContextError(t *testing.T) {
 }
 
 func TestKeychainCommandLoadErrorKeepsAccessFailuresRetryable(t *testing.T) {
-	commandErr := errors.New("exit status 36")
-	err := keychainCommandLoadError(context.Background(), commandErr, "security: User interaction is not allowed.")
-	if !errors.Is(err, ErrCredentialStoreUnavailable) || errors.Is(err, ErrNotPaired) || !errors.Is(err, commandErr) {
-		t.Fatalf("load error = %v, want retryable store error preserving command failure", err)
+	for _, output := range []string{
+		"security: User interaction is not allowed.",
+		"security: The specified keychain could not be found.",
+		"keychain service not found",
+	} {
+		t.Run(output, func(t *testing.T) {
+			commandErr := errors.New("exit status 36")
+			err := keychainCommandLoadError(context.Background(), commandErr, output)
+			if !errors.Is(err, ErrCredentialStoreUnavailable) || errors.Is(err, ErrNotPaired) || !errors.Is(err, commandErr) {
+				t.Fatalf("load error = %v, want retryable store error preserving command failure", err)
+			}
+		})
 	}
 }
