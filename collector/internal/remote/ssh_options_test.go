@@ -4,10 +4,8 @@ package remote
 
 import (
 	"net"
-	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +13,7 @@ import (
 )
 
 func TestUnixSSHOptionsIncludeMultiplexing(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	got, err := sshOptions(7)
 	if err != nil {
 		t.Fatal(err)
@@ -36,6 +35,7 @@ func TestUnixSSHOptionsIncludeMultiplexing(t *testing.T) {
 func TestControlSocketWithLongLocalHome(t *testing.T) {
 	t.Setenv("COSLASH_HOME", filepath.Join(t.TempDir(), strings.Repeat("home", 50)))
 	t.Setenv("TMPDIR", settings.Home())
+	t.Setenv("XDG_RUNTIME_DIR", settings.Home())
 	if err := ensureSSHControlDir(); err != nil {
 		t.Fatal(err)
 	}
@@ -45,8 +45,8 @@ func TestControlSocketWithLongLocalHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := strings.Replace(controlPath, "%C", strings.Repeat("a", 40), 1) + "." + strings.Repeat("b", 16)
-	// Reserve room for a ten-digit UID and the terminating NUL.
-	if len(path)+10-len(strconv.Itoa(os.Getuid()))+1 > 104 {
+	// Reserve room for the terminating NUL.
+	if len(path)+1 > 104 {
 		t.Fatalf("OpenSSH listener path is %d bytes, must be below 104: %s", len(path), path)
 	}
 	listener, err := net.Listen("unix", path)
