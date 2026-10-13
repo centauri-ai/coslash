@@ -112,6 +112,40 @@ func TestSSHInstallConfiguresOnlyConfirmedLocalHost(t *testing.T) {
 	}
 }
 
+func TestSSHConfirmationWithSameAliasReplacesSource(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	config := settings.Defaults()
+	config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "old-host", Enabled: true}
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	cacheRoot := t.TempDir()
+	cache := remote.NewCache(cacheRoot)
+	if err := cache.StoreHelperVersion(config.Remote.ID, "v1", config.Remote.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	relay := remote.NewManager(remote.Options{Cache: cache})
+	if err := relay.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(relay.Shutdown)
+
+	if err := configureCommandSSHHost(context.Background(), local, relay, "new-host", config.Remote.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	confirmed := local.State().Config.Remote
+	if confirmed == nil || confirmed.HostID != "new-host" || confirmed.ID != remoteSourceID("new-host") || confirmed.ID == config.Remote.ID {
+		t.Fatalf("same-alias host replacement kept old source identity: %+v", confirmed)
+	}
+	if relay.DiagnosticsHealth().SourceID != confirmed.ID {
+		t.Fatalf("live source id = %q, want %q", relay.DiagnosticsHealth().SourceID, confirmed.ID)
+	}
+	if _, owned, err := cache.LoadHelperOwnership(config.Remote.ID); err != nil || owned {
+		t.Fatalf("previous source cache was retained: owned=%v err=%v", owned, err)
+	}
+}
+
 func TestSSHInstallRestoresSettingsWhenRelayApplyFails(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	local := settings.Open()
