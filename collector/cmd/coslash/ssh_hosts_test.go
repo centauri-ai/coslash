@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -184,5 +186,82 @@ func TestSSHHostsCheckInReconcilesAndRetries(t *testing.T) {
 				t.Fatal("retained host changed")
 			}
 		})
+	}
+}
+
+func TestRemovedCacheCleanupIsRetried(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("Unix directory permissions require an unprivileged account")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	root := t.TempDir()
+	private := filepath.Join(root, "remotes", "r_0123456789abcdef", "private")
+	if err := os.MkdirAll(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(private, "session.txt"), []byte("private session data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(private, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err == nil && entry.IsDir() {
+				_ = os.Chmod(path, 0o700)
+			}
+			return nil
+		})
+	})
+	cache := remote.NewCache(root)
+	if err := cache.RemoveSource("r_0123456789abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	dirs, err := filepath.Glob(filepath.Join(root, "remotes", ".removed-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	folders := dirs[:0]
+	for _, path := range dirs {
+		if info, err := os.Lstat(path); err == nil && info.IsDir() {
+			folders = append(folders, path)
+		}
+	}
+	dirs = folders
+	if len(dirs) != 1 {
+		t.Fatalf("cleanup failure not reproduced: %v", dirs)
+	}
+	local := settings.Open()
+	relay := remote.NewManager(remote.Options{Cache: cache})
+	t.Cleanup(relay.Shutdown)
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	relay.CleanupRemovedSources(local)
+	if !strings.Contains(output.String(), "removed remote cache retry failed") {
+		t.Fatalf("retry failure not logged: %q", output.String())
+	}
+	if err := os.Chmod(filepath.Join(dirs[0], "source", "private"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"code":"temporary_unavailable"}`))
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := hubclient.Client{BaseURL: base, Credentials: hubTransportTestCredentials{}, CollectorVersion: "0.0.5"}
+	queue, err := syncv4.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := syncv4.Runner{Queue: queue, Hub: &client, Backup: sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}), Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }, CleanupRemoteCache: func() { relay.CleanupRemovedSources(local) }}
+	if err := runner.SyncOnce(t.Context()); err == nil {
+		t.Fatal("unavailable Hub unexpectedly accepted check-in")
+	}
+
+	if _, err := os.Stat(dirs[0]); !os.IsNotExist(err) {
+		t.Fatalf("private cache cleanup was not retried: %v", err)
 	}
 }

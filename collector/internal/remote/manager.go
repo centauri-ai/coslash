@@ -369,7 +369,7 @@ func (manager *Manager) applySettings(remote *settings.RemoteSettings, save func
 		}
 	}
 	if replacing {
-		if err := manager.cache.removeSourceWithCommit(previous.ID, save); err != nil {
+		if err := manager.cache.removeSourceWithCommit(previous.ID, save, previous); err != nil {
 			return err
 		}
 		aliasesToClose = append(aliasesToClose, manager.clearRemoteLocked())
@@ -831,7 +831,7 @@ func (manager *Manager) RemoveHubHost(local *settings.Store, expected settings.R
 	}
 	config := state.Config
 	config.Remote = nil
-	if err := manager.cache.removeSourceWithCommit(current.ID, func() error { return local.Save(config) }); err != nil {
+	if err := manager.cache.removeSourceWithCommit(current.ID, func() error { return local.Save(config) }, current); err != nil {
 		return err
 	}
 	alias = manager.clearRemoteLocked()
@@ -1374,4 +1374,13 @@ func classifyKnownError(err error) Reason {
 
 func retryBackoff(failures int) time.Duration {
 	return RemoteRetryInterval
+}
+
+func (manager *Manager) CleanupRemovedSources(local *settings.Store) {
+	state := local.State()
+	if !state.Valid {
+		LogSSHFailure("removed remote cache retry", ErrInvalidRemoteSettings)
+		return
+	}
+	manager.cache.SweepRemovedSources(state.Config.Remote)
 }
