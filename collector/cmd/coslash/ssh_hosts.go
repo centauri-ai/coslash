@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -15,7 +13,7 @@ func reconcileSSHHosts(local *settings.Store, relay *remote.Manager) func([]hubc
 		}
 		state := local.State()
 		if !state.Valid {
-			return errors.New("invalid Local settings")
+			return nil
 		}
 		current := state.Config.Remote
 		if current == nil || current.HostID == "" {
