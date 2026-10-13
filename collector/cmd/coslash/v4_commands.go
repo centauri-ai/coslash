@@ -20,6 +20,10 @@ func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.M
 	return func(ctx context.Context, command hubclient.V4Command) (commandErr error) {
 		defer func() {
 			if commandErr != nil && (command.Type == "ssh.test" || command.Type == "ssh.install") {
+				var sshCommandErr *syncv4.SSHCommandError
+				if errors.As(commandErr, &sshCommandErr) {
+					return
+				}
 				remote.LogSSHFailure(command.Type, commandErr)
 			}
 		}()
