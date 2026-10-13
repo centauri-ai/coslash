@@ -286,6 +286,19 @@ type BackupSessionEnrichment struct {
 }
 
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
+	return manager.applySettings(remote, nil)
+}
+
+// SaveHubSettings leaves the previous helper installed and transfers local
+// ownership only after replacement settings are durably saved.
+func (manager *Manager) SaveHubSettings(local *settings.Store, config settings.Config) error {
+	if config.Remote == nil {
+		return ErrInvalidRemoteSettings
+	}
+	return manager.applySettings(config.Remote, func() error { return local.Save(config) })
+}
+
+func (manager *Manager) applySettings(remote *settings.RemoteSettings, save func() error) error {
 	manager.mu.Lock()
 	aliasesToClose := make([]string, 0, 2)
 	defer func() {
@@ -295,11 +308,12 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 			exitControlMasterBestEffort(alias)
 		}
 	}()
-	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
+	replacing := save != nil && manager.cfg != nil && remote != nil && remoteTargetChanged(manager.cfg, remote)
+	if (manager.helperSetup || replacing && manager.helperAutoSetup) && remoteTargetChanged(manager.cfg, remote) {
 		return ErrHelperSetupInProgress
 	}
 	corruptOwnership := false
-	if remote != nil {
+	if remote != nil && !(replacing && manager.cfg.ID == remote.ID) {
 		ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
 		if errors.Is(err, ErrHelperOwnershipLegacy) && owned {
 			// The old record was created while this was the only configured host.
@@ -314,7 +328,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 			return err
 		}
 	}
-	if corruptOwnership {
+	if corruptOwnership || replacing {
 		if !settings.ValidRemoteID(remote.ID) || !settings.ValidSSHAlias(remote.SSHAlias) {
 			return ErrInvalidRemoteSettings
 		}
@@ -336,24 +350,52 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	} else if err != nil {
 		return err
 	}
-	if manager.cfg != nil && manager.cfg.ID != remote.ID {
-		alias, err := manager.removeLocked()
-		if alias != "" {
-			aliasesToClose = append(aliasesToClose, alias)
-		}
+	previous := manager.cfg
+	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
+	restart := previous == nil || !previous.Enabled || aliasChanged || previous.ID != remote.ID
+	if replacing && previous.ID == remote.ID {
+		owned = false
+		corruptOwnership = false
+	}
+	if replacing && owned && ownership.Alias != remote.SSHAlias {
+		return ErrHelperOwnershipConflict
+	}
+	var view cachedView
+	if restart && remote.Enabled && !(aliasChanged && previous.ID == remote.ID) {
+		var err error
+		view, err = manager.readCache(remote.ID)
 		if err != nil {
 			return err
 		}
 	}
-	previous := manager.cfg
-	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
-	if aliasChanged {
-		aliasesToClose = append(aliasesToClose, previous.SSHAlias)
-		if err := manager.cache.RemoveSource(remote.ID); err != nil {
+	if replacing {
+		if err := manager.cache.removeSourceWithCommit(previous.ID, save); err != nil {
 			return err
 		}
-		manager.helper = nil
-		manager.helperTarget = nil
+		aliasesToClose = append(aliasesToClose, manager.clearRemoteLocked())
+	} else {
+		if save != nil {
+			if err := save(); err != nil {
+				return err
+			}
+		}
+		if previous != nil && previous.ID != remote.ID {
+			alias, err := manager.removeLocked()
+			if alias != "" {
+				aliasesToClose = append(aliasesToClose, alias)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if aliasChanged {
+			if err := manager.cache.RemoveSource(remote.ID); err != nil {
+				return err
+			}
+			aliasesToClose = append(aliasesToClose, previous.SSHAlias)
+			manager.helper = nil
+			manager.helperTarget = nil
+		}
 	}
 	copyConfig := *remote
 	manager.cfg = &copyConfig
@@ -374,11 +416,10 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		aliasesToClose = append(aliasesToClose, remote.SSHAlias)
 		return nil
 	}
-	restart := previous == nil || !previous.Enabled || previous.SSHAlias != remote.SSHAlias
 	if restart {
-		if err := manager.loadCacheLocked(); err != nil {
-			return err
-		}
+		manager.snapshot, manager.legacyStale = view.snapshot, view.legacyStale
+		manager.sessions, manager.familyStale = view.sessions, view.familyStale
+		manager.lastSuccessAt, manager.lastCheckedAt = view.lastSuccessAt, view.lastCheckedAt
 		manager.startLifeLocked()
 		manager.refreshing = false
 		if manager.snapshot != nil {
@@ -828,45 +869,31 @@ func (manager *Manager) clearRemoteLocked() string {
 	return alias
 }
 
-func (manager *Manager) loadCacheLocked() error {
-	v2, ok, err := manager.cache.LoadV2(manager.cfg.ID)
+type cachedView struct {
+	snapshot                     *CachedSnapshotV2
+	legacyStale                  bool
+	sessions                     []*session.Session
+	familyStale                  map[remoteSessionKey]bool
+	lastSuccessAt, lastCheckedAt *int64
+}
+
+func (manager *Manager) readCache(sourceID string) (cachedView, error) {
+	v2, ok, err := manager.cache.LoadV2(sourceID)
 	if err != nil {
-		return err
+		return cachedView{}, err
 	}
 	if ok {
-		manager.snapshot = &v2
-		manager.legacyStale = false
-		manager.sessions = composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0)
-		manager.familyStale = staleSessions(v2)
-		manager.lastSuccessAt = int64Ptr(v2.FetchedAtMs)
-		manager.lastCheckedAt = int64Ptr(v2.FetchedAtMs)
-		return nil
+		return cachedView{snapshot: &v2, sessions: composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0), familyStale: staleSessions(v2), lastSuccessAt: int64Ptr(v2.FetchedAtMs), lastCheckedAt: int64Ptr(v2.FetchedAtMs)}, nil
 	}
-	legacy, ok, err := manager.cache.Load(manager.cfg.ID)
-	if err != nil {
-		return err
+	legacy, ok, err := manager.cache.Load(sourceID)
+	if err != nil || !ok {
+		return cachedView{}, err
 	}
-	if !ok {
-		manager.snapshot = nil
-		manager.legacyStale = false
-		manager.sessions = nil
-		manager.familyStale = nil
-		return nil
-	}
-	// A v1 card stays visible as stale display data only: Families and
-	// BaselineID stay empty so the next refresh starts from an empty
-	// generation instead of reinterpreting v1 fingerprints as v2 state.
-	manager.snapshot = &CachedSnapshotV2{
-		Version: cacheV2Version, CoverageSinceMs: legacy.CoverageSinceMs,
-		FetchedAtMs: legacy.FetchedAtMs, RoundTripMs: legacy.RoundTripMs,
-		Coverage: legacy.Coverage,
-	}
-	manager.legacyStale = true
-	manager.sessions = legacy.sessions()
-	manager.familyStale = nil
-	manager.lastSuccessAt = int64Ptr(legacy.FetchedAtMs)
-	manager.lastCheckedAt = int64Ptr(legacy.FetchedAtMs)
-	return nil
+	// A v1 card stays visible as stale display data only, without a v2 baseline.
+	return cachedView{
+		snapshot:    &CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: legacy.CoverageSinceMs, FetchedAtMs: legacy.FetchedAtMs, RoundTripMs: legacy.RoundTripMs, Coverage: legacy.Coverage},
+		legacyStale: true, sessions: legacy.sessions(), lastSuccessAt: int64Ptr(legacy.FetchedAtMs), lastCheckedAt: int64Ptr(legacy.FetchedAtMs),
+	}, nil
 }
 
 func (manager *Manager) startLifeLocked() {
