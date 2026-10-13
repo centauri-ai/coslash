@@ -1504,3 +1504,60 @@ func TestRemoveHubHostDoesNotApplyStaleConfiguration(t *testing.T) {
 		t.Fatal("stale reconciliation removed updated host")
 	}
 }
+
+func TestSaveHubSettingsPreservesOwnedHostOnFailure(t *testing.T) {
+	for _, failure := range []string{"save", "cache"} {
+		t.Run(failure, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("COSLASH_HOME", home)
+			local := settings.Open()
+			old := settings.Defaults()
+			old.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "working-box", HostID: "working-host", Enabled: true}
+			if err := local.Save(old); err != nil {
+				t.Fatal(err)
+			}
+			cacheRoot := t.TempDir()
+			cache := NewCache(cacheRoot)
+			if err := cache.StoreHelperVersion(old.Remote.ID, "v1", old.Remote.SSHAlias); err != nil {
+				t.Fatal(err)
+			}
+			manager := NewManager(Options{Cache: cache, LifecycleFactory: func(string) (Lifecycle, error) {
+				t.Error("replacement touched installed remote helper")
+				return Lifecycle{}, errors.New("unexpected SSH")
+			}})
+			if err := manager.ApplySettings(old.Remote); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Shutdown)
+			before := manager.DiagnosticsHealth()
+			next := old
+			next.Remote = &settings.RemoteSettings{ID: "r_fedcba9876543210", SSHAlias: "replacement-box", HostID: "replacement-host", Enabled: true}
+			if failure == "save" {
+				blocked := filepath.Join(t.TempDir(), "blocked")
+				if err := os.WriteFile(blocked, []byte("block save"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("COSLASH_HOME", blocked)
+			} else {
+				cache.Root = filepath.Join(t.TempDir(), strings.Repeat("x", 256))
+			}
+			if err := manager.SaveHubSettings(local, next); err == nil {
+				t.Fatal("failed replacement succeeded")
+			}
+			t.Setenv("COSLASH_HOME", home)
+			cache.Root = cacheRoot
+			if !reflect.DeepEqual(local.State().Config, old) || !reflect.DeepEqual(settings.Open().State().Config, old) || !reflect.DeepEqual(manager.DiagnosticsHealth(), before) {
+				t.Fatal("failed replacement changed the working host")
+			}
+			if ownership, owned, err := cache.LoadHelperOwnership(old.Remote.ID); err != nil || !owned || ownership.Version != "v1" || ownership.Alias != old.Remote.SSHAlias {
+				t.Fatalf("old ownership lost: %+v %v %v", ownership, owned, err)
+			}
+			if err := manager.SaveHubSettings(local, next); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(settings.Open().State().Config, next) || manager.DiagnosticsHealth().Label != next.Remote.SSHAlias {
+				t.Fatal("replacement retry did not commit")
+			}
+		})
+	}
+}
