@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   availableSynthesisBackends,
+  decodeRemoteHostSettings,
   decodeSettingsResponse,
   initialSettingsDraft,
   settingsForSave,
@@ -113,4 +114,9 @@ describe('settingsForSave', () => {
     expect(settings.remote?.id).toBeUndefined();
     expect(settingsForSave(saved)).toBe(saved);
   });
+});
+
+it('preserves Hub host identity in remote settings', () => {
+  const remote = { id: 'r_0123456789abcdef', hostId: 'new-host', sshAlias: 'agent-box', enabled: true };
+  expect(decodeRemoteHostSettings(remote)).toEqual(remote);
 });

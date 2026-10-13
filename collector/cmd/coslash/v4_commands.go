@@ -80,12 +80,12 @@ func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.M
 			if health.State != remote.StateOK {
 				return &syncv4.SSHCommandError{Reason: health.Reason}
 			}
-			return nil
+			return configureCommandSSHHost(ctx, local, relay, payload.HostID, payload.Alias)
 		case "ssh.install":
 			if payload.HostID == "" || payload.Alias == "" {
 				return errors.New("invalid SSH host")
 			}
-			if err := configureCommandSSHHost(ctx, local, relay, payload.HostID, payload.Alias); err != nil {
+			if err := configureSSHHost(ctx, local, relay, payload.HostID, payload.Alias, false); err != nil {
 				return err
 			}
 			health, err := relay.SetupHelperForAlias(ctx, payload.Alias, remote.Consent{Install: true, Upgrade: true})
@@ -99,7 +99,7 @@ func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.M
 				}
 				return &syncv4.SSHCommandError{Reason: reason, Install: true}
 			}
-			return nil
+			return configureCommandSSHHost(ctx, local, relay, payload.HostID, payload.Alias)
 		default:
 			return errors.New("unsupported command")
 		}
@@ -113,6 +113,10 @@ type commandSSHConfigurator interface {
 }
 
 func configureCommandSSHHost(ctx context.Context, local *settings.Store, relay commandSSHConfigurator, hostID, alias string) error {
+	return configureSSHHost(ctx, local, relay, hostID, alias, true)
+}
+
+func configureSSHHost(ctx context.Context, local *settings.Store, relay commandSSHConfigurator, hostID, alias string, confirmed bool) error {
 	if !settings.ValidSSHAlias(alias) {
 		return errors.New("invalid SSH alias")
 	}
@@ -121,7 +125,7 @@ func configureCommandSSHHost(ctx context.Context, local *settings.Store, relay c
 		return errors.New("Local settings must be configured")
 	}
 	current := state.Config.Remote
-	if current != nil && current.Enabled && current.SSHAlias == alias {
+	if current != nil && current.Enabled && current.SSHAlias == alias && (!confirmed || current.HostID == hostID) {
 		return nil
 	}
 	config := state.Config
@@ -138,6 +142,10 @@ func configureCommandSSHHost(ctx context.Context, local *settings.Store, relay c
 		copy.Enabled = true
 		config.Remote = &copy
 	}
+	if confirmed {
+		config.Remote.HostID = hostID
+	}
+
 	if err := relay.ValidateSettingsChange(config.Remote); err != nil {
 		return err
 	}

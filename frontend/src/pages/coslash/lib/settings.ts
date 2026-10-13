@@ -9,6 +9,7 @@ export type SynthesisSettings = {
 
 export type RemoteHostSettings = {
   id?: string;
+  hostId?: string;
   sshAlias: string;
   enabled: boolean;
 };
@@ -75,6 +76,10 @@ export function decodeRemoteHostSettings(value: unknown): RemoteHostSettings | n
   if (raw.id != null) {
     if (typeof raw.id !== 'string') throw new Error('Invalid remote settings');
     remote.id = raw.id;
+  }
+  if (raw.hostId != null) {
+    if (typeof raw.hostId !== 'string') throw new Error('Invalid remote settings');
+    remote.hostId = raw.hostId;
   }
   return remote;
 }

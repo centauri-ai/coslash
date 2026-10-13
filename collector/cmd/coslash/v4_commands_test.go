@@ -46,7 +46,7 @@ func TestSSHInstallPersistsMissingSettings(t *testing.T) {
 	if !state.Valid || !state.Persisted || state.Config.Remote == nil {
 		t.Fatalf("persisted settings=%+v", state)
 	}
-	if state.Config.Remote.ID == "" || state.Config.Remote.SSHAlias != "agent-box" || !state.Config.Remote.Enabled {
+	if state.Config.Remote.HostID != "11111111-2222-3333-4444-555555555555" || state.Config.Remote.ID == "" || state.Config.Remote.SSHAlias != "agent-box" || !state.Config.Remote.Enabled {
 		t.Fatalf("persisted host=%+v", state.Config.Remote)
 	}
 	state.Config.Remote = nil
@@ -192,5 +192,36 @@ func TestSSHInstallPreservesHelperFailure(t *testing.T) {
 	var failure *syncv4.SSHCommandError
 	if !errors.As(err, &failure) || !failure.Install || failure.Reason == nil || *failure.Reason != remote.ReasonHelperMissing {
 		t.Fatalf("SSH install error = %v, want helper missing", err)
+	}
+	if host := settings.Open().State().Config.Remote; host == nil || host.HostID != "" {
+		t.Fatalf("failed install confirmed host: %+v", host)
+	}
+
+}
+
+func TestSSHTestFailureKeepsWorkingHost(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	config := settings.Defaults()
+	config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "working-box", HostID: "working-host", Enabled: true}
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	relay := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir()), Open: func(context.Context, string, remote.OpenOptions) (*remote.Session, error) {
+		return nil, errors.New("offline")
+	}})
+	if err := relay.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(relay.Shutdown)
+	before := relay.DiagnosticsHealth()
+	if err := v4CommandRunner(nil, local, relay)(t.Context(), hubclient.V4Command{Type: "ssh.test", Payload: json.RawMessage(`{"hostId":"candidate-host","alias":"offline-box"}`)}); err == nil {
+		t.Fatal("offline test succeeded")
+	}
+	if got := settings.Open().State().Config; !reflect.DeepEqual(got, config) {
+		t.Fatalf("failed test replaced working host: %+v", got.Remote)
+	}
+	if got := relay.DiagnosticsHealth(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("failed test changed live host: %+v", got)
 	}
 }
