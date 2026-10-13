@@ -459,3 +459,26 @@ func TestV4ConfirmSendsOneBatchOfUpToFiftyChunks(t *testing.T) {
 		t.Fatalf("invalid batches reached the Hub: %d requests", requests)
 	}
 }
+
+func TestV4CheckInSSHHostsPresence(t *testing.T) {
+	for _, tc := range []struct {
+		field   string
+		present bool
+		count   int
+		invalid bool
+	}{
+		{},
+		{field: `,"sshHosts":[]`, present: true},
+		{field: `,"sshHosts":[{"id":"host-one","alias":"agent-box"}]`, present: true, count: 1},
+		{field: `,"sshHosts":[{"alias":"agent-box"}]`, invalid: true},
+	} {
+		var result V4CheckIn
+		err := json.Unmarshal([]byte(`{"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true}`+tc.field+`}`), &result)
+		if (err != nil) != tc.invalid {
+			t.Fatalf("field %s: %v", tc.field, err)
+		}
+		if !tc.invalid && ((result.SSHHosts != nil) != tc.present || len(result.SSHHosts) != tc.count) {
+			t.Fatalf("field %s: hosts=%+v", tc.field, result.SSHHosts)
+		}
+	}
+}

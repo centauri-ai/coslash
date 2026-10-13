@@ -323,6 +323,7 @@ func main() {
 			Conditions:        syncv4.LocalConditions,
 			LocalPause:        func() bool { return settingsStore.State().Config.SyncPaused },
 			Command:           v4CommandRunner(queue, settingsStore, remoteManager),
+			ReconcileSSHHosts: reconcileSSHHosts(settingsStore, remoteManager),
 		}
 		if fingerprints != nil {
 			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {

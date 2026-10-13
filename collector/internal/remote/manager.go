@@ -754,11 +754,53 @@ func (manager *Manager) removeLocked() (string, error) {
 	if manager.helperVersion != "" {
 		return "", ErrHelperOwnershipConflict
 	}
+	if manager.cfg != nil {
+		if err := manager.cache.RemoveSource(manager.cfg.ID); err != nil {
+			return "", err
+		}
+	}
+	return manager.clearRemoteLocked(), nil
+}
+
+// RemoveHubHost commits settings and cache removal before releasing ownership.
+// It leaves the installed helper on the remote host.
+func (manager *Manager) RemoveHubHost(local *settings.Store, expected settings.RemoteSettings) error {
+	manager.mu.Lock()
+	alias := ""
+	defer func() {
+		manager.mu.Unlock()
+		if alias != "" {
+			CancelAuthAttemptsForDestination(alias)
+			exitControlMasterBestEffort(alias)
+		}
+	}()
+	state := local.State()
+	if !state.Valid {
+		return ErrInvalidRemoteSettings
+	}
+	current := state.Config.Remote
+	if current == nil || current.HostID == "" || *current != expected {
+		return nil
+	}
+	if manager.helperSetup || manager.helperAutoSetup {
+		return ErrHelperSetupInProgress
+	}
+	if manager.cfg != nil && (manager.cfg.ID != current.ID || manager.cfg.SSHAlias != current.SSHAlias) {
+		return ErrInvalidRemoteSettings
+	}
+	config := state.Config
+	config.Remote = nil
+	if err := manager.cache.removeSourceWithCommit(current.ID, func() error { return local.Save(config) }); err != nil {
+		return err
+	}
+	alias = manager.clearRemoteLocked()
+	return nil
+}
+
+func (manager *Manager) clearRemoteLocked() string {
 	manager.cancelLifeLocked()
-	var sourceID string
 	var alias string
 	if manager.cfg != nil {
-		sourceID = manager.cfg.ID
 		alias = manager.cfg.SSHAlias
 	}
 	manager.cfg = nil
@@ -783,10 +825,7 @@ func (manager *Manager) removeLocked() (string, error) {
 	manager.helperOwnershipCorrupt = false
 	manager.helperProbe = helperProbeFallback
 	manager.metrics = CollectionMetrics{}
-	if sourceID != "" {
-		return alias, manager.cache.RemoveSource(sourceID)
-	}
-	return alias, nil
+	return alias
 }
 
 func (manager *Manager) loadCacheLocked() error {

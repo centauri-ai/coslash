@@ -179,6 +179,11 @@ type V4LogEntry struct {
 	Parked    bool      `json:"parked,omitempty"`
 }
 
+type V4SSHHost struct {
+	ID    string `json:"id"`
+	Alias string `json:"alias"`
+}
+
 type V4CheckIn struct {
 	ConfigVersion          int64       `json:"configVersion"`
 	Config                 V4Config    `json:"config"`
@@ -187,6 +192,7 @@ type V4CheckIn struct {
 	RecommendedVersion     string      `json:"recommendedVersion"`
 	RecommendedDownloadURL string      `json:"recommendedDownloadUrl"`
 	NextCheckInSeconds     int         `json:"nextCheckInSeconds"`
+	SSHHosts               []V4SSHHost `json:"sshHosts,omitempty"`
 	// Capabilities lists what the Hub accepts beyond the Tier4 check-in;
 	// an older Hub omits it.
 	Capabilities      []string `json:"capabilities,omitempty"`
@@ -226,6 +232,11 @@ func (result *V4CheckIn) UnmarshalJSON(data []byte) error {
 	}
 	if required.Config == nil || required.Config.Paused == nil || required.Config.DeviceOff == nil || required.Config.LeaveOut == nil || required.Config.AgentKnowledge == nil {
 		return errors.New("v4 check-in omitted current policy fields")
+	}
+	for _, host := range decoded.SSHHosts {
+		if host.ID == "" || host.Alias == "" {
+			return errors.New("v4 check-in included invalid SSH host")
+		}
 	}
 	*result = V4CheckIn(decoded)
 	return nil
