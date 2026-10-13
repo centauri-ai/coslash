@@ -1377,10 +1377,5 @@ func retryBackoff(failures int) time.Duration {
 }
 
 func (manager *Manager) CleanupRemovedSources(local *settings.Store) {
-	state := local.State()
-	if !state.Valid {
-		LogSSHFailure("removed remote cache retry", ErrInvalidRemoteSettings)
-		return
-	}
-	manager.cache.SweepRemovedSources(state.Config.Remote)
+	manager.cache.SweepRemovedSources(local)
 }

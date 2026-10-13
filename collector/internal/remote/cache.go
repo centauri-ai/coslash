@@ -304,9 +304,18 @@ func cleanupRemovedSource(trash string) error {
 }
 
 // SweepRemovedSources retries only Local's recorded removals.
-func (c *Cache) SweepRemovedSources(current *settings.RemoteSettings) {
+func (c *Cache) SweepRemovedSources(local *settings.Store) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	var current *settings.RemoteSettings
+	if local != nil {
+		state := local.State()
+		if !state.Valid {
+			LogSSHFailure("removed remote cache retry", ErrInvalidRemoteSettings)
+			return
+		}
+		current = state.Config.Remote
+	}
 	parent := filepath.Join(c.Root, "remotes")
 	directory, err := os.Open(parent)
 	if errors.Is(err, os.ErrNotExist) {

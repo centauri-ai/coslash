@@ -83,6 +83,29 @@ func TestSSHHostsCheckInStopsRemovedHost(t *testing.T) {
 	}
 }
 
+func TestReconcileSSHHostsSkipsInvalidSettings(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	if err := os.WriteFile(settings.Path(), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	local := settings.Open()
+	if local.State().Valid {
+		t.Fatal("malformed settings unexpectedly loaded")
+	}
+	reconcile := reconcileSSHHosts(local, remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir())}))
+	for _, hosts := range [][]hubclient.V4SSHHost{
+		{},
+		{{ID: "host-one", Alias: "agent-box"}},
+	} {
+		if err := reconcile(hosts); err != nil {
+			t.Fatalf("invalid settings blocked Hub check-in: %v", err)
+		}
+	}
+	if local.State().Valid {
+		t.Fatal("reconciliation changed malformed settings")
+	}
+}
+
 func TestSSHHostsCheckInReconcilesAndRetries(t *testing.T) {
 	for _, tc := range []struct {
 		name, field, hostID, failure string
