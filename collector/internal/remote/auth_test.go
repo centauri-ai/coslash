@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -244,19 +245,8 @@ func TestRunAuthAttemptStopsSSHWhenAttemptIsCancelled(t *testing.T) {
 	}
 }
 
-// shortSSHHome stays under the Unix socket path limit. t.TempDir includes the test name.
-func shortSSHHome(t *testing.T) {
-	t.Helper()
-	home, err := os.MkdirTemp("", "csl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv("COSLASH_HOME", home)
-}
-
 func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
-	shortSSHHome(t)
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	originalRun := runInteractiveSSH
 	originalCheck := checkAuthControlMaster
 	originalResolve := resolveAuthControlSocketPath
@@ -266,7 +256,11 @@ func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
 		resolveAuthControlSocketPath = originalResolve
 	})
 
-	socketPath := filepath.Join(settings.Home(), "ssh", "cm-test")
+	controlPath, err := settings.SSHControlPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	socketPath := strings.Replace(controlPath, "%C", "test", 1)
 	resolveAuthControlSocketPath = func(context.Context, string) (string, error) { return socketPath, nil }
 	id, err := CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
@@ -312,7 +306,7 @@ func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
 }
 
 func TestPrepareAuthControlSocketKeepsSocketAfterInconclusiveCheck(t *testing.T) {
-	shortSSHHome(t)
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	originalCheck := checkAuthControlMaster
 	originalResolve := resolveAuthControlSocketPath
 	t.Cleanup(func() {
@@ -323,7 +317,11 @@ func TestPrepareAuthControlSocketKeepsSocketAfterInconclusiveCheck(t *testing.T)
 	if err := ensureSSHControlDir(); err != nil {
 		t.Fatal(err)
 	}
-	socketPath := filepath.Join(settings.Home(), "ssh", "cm-live")
+	controlPath, err := settings.SSHControlPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	socketPath := strings.Replace(controlPath, "%C", "live", 1)
 	master, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)

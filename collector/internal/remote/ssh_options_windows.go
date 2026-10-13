@@ -11,11 +11,11 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
-func sshOptions(connectTimeoutSeconds int) []string {
+func sshOptions(connectTimeoutSeconds int) ([]string, error) {
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
-	return []string{"-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds)}
+	return []string{"-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds)}, nil
 }
 
 func ControlExitArgs(alias string) ([]string, error) {
