@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -261,11 +263,15 @@ func TestStaleRevocationPreservesReplacementCredential(t *testing.T) {
 	if err := controller.Ensure(client); err != nil {
 		t.Fatal(err)
 	}
-	worker := controller.observed(syncLoopWorkerFunc(func(context.Context) error {
-		if err := credentials.Save(context.Background(), "replacement-device-credential"); err != nil {
-			return err
+	client.HTTP = &http.Client{Transport: onboardingRoundTripper(func(*http.Request) (*http.Response, error) {
+		if err := credentials.Save(t.Context(), "replacement-device-credential"); err != nil {
+			return nil, err
 		}
-		return hubclient.V4Problem{Code: "device_revoked", HTTPStatus: http.StatusForbidden}
+		return onboardingResponse(http.StatusForbidden, `{"code":"device_revoked"}`), nil
+	})}
+	worker := controller.observed(syncLoopWorkerFunc(func(ctx context.Context) error {
+		_, err := client.V4CheckIn(ctx, hubclient.V4Queue{}, 0, nil, nil, nil)
+		return err
 	}), client)
 	if err := worker.SyncOnce(context.Background()); err == nil {
 		t.Fatal("revocation error was swallowed")
@@ -281,4 +287,106 @@ func TestStaleRevocationPreservesReplacementCredential(t *testing.T) {
 	}
 	controller.Stop()
 	waitSignal(t, stopped)
+}
+
+func TestTransportRevocationStopsSyncAndAllowsPairingAgain(t *testing.T) {
+	for _, fromWait := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wait=%t", fromWait), func(t *testing.T) {
+			credentials := hubclient.FileCredentialStore{Path: filepath.Join(t.TempDir(), "credential")}
+			if err := credentials.Save(t.Context(), "old"); err != nil {
+				t.Fatal(err)
+			}
+			var requests atomic.Int32
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v1/device-authorizations":
+					w.WriteHeader(http.StatusCreated)
+					_, _ = fmt.Fprintf(w, `{"id":"pair","deviceCode":"secret","userCode":"ABCD-EFGH","verificationUri":"http://%s/device","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`, r.Host)
+				case "/v1/device-authorizations/token":
+					_, _ = fmt.Fprint(w, `{"deviceId":"new","credential":"new","tokenType":"Device","scope":"ingest"}`)
+				default:
+					requests.Add(1)
+					if r.Header.Get("Authorization") == "Device new" {
+						_, _ = fmt.Fprint(w, `{"configVersion":1,"config":{"paused":false,"autoUpdate":true,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"minVersion":"0.0.0"}`)
+					} else {
+						w.WriteHeader(http.StatusForbidden)
+						_, _ = fmt.Fprint(w, `{"code":"device_revoked"}`)
+					}
+				}
+			}))
+			defer hub.Close()
+			base, _ := url.Parse(hub.URL)
+			client := &hubclient.Client{BaseURL: base, Credentials: credentials, HTTP: hub.Client(), CollectorVersion: "1.2.3"}
+			stopped := make(chan struct{}, 2)
+			controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
+				<-ctx.Done()
+				stopped <- struct{}{}
+			}, nil)
+			if err := controller.Ensure(client); err != nil {
+				t.Fatal(err)
+			}
+			transport := currentHubTransport{current: func() *hubclient.Client { return client }, queue: controller.Queue()}
+			if fromWait {
+				if _, err := transport.V4Wait(t.Context(), 0); err == nil {
+					t.Fatal("wait accepted revoked device")
+				}
+			}
+			worker := controller.observed(syncLoopWorkerFunc(func(ctx context.Context) error {
+				_, err := transport.V4CheckIn(ctx, hubclient.V4Queue{}, 0, nil, nil, nil)
+				return err
+			}), client)
+			if err := worker.SyncOnce(t.Context()); err == nil {
+				t.Fatal("check-in accepted revoked device")
+			}
+			if status := controller.Status(); status.State != "disconnected" {
+				t.Fatalf("revoked status = %s", status.State)
+			}
+			waitSignal(t, stopped)
+			health, err := syncv4.ReadHealth("")
+			if err != nil || health.LastCheckInResult != "not_paired" {
+				t.Fatalf("health=%+v err=%v", health, err)
+			}
+			cliStatus := buildDoctorHubHealth(t.Context(), client, hub.URL, "device", false, true, health, false)
+			if cliStatus.Paired || cliStatus.SyncState != "off" {
+				t.Fatalf("CLI status=%+v", cliStatus)
+			}
+			if controller.RetryNow() {
+				t.Fatal("revoked device accepted retry")
+			}
+			if _, err := credentials.Load(t.Context()); !errors.Is(err, hubclient.ErrNotPaired) {
+				t.Fatalf("revoked credential: %v", err)
+			}
+			destination, err := client.Destination(t.Context())
+			if err != nil || destination.State != "pairing_required" {
+				t.Fatalf("destination=%+v err=%v", destination, err)
+			}
+			if _, err := transport.V4CheckIn(t.Context(), hubclient.V4Queue{}, 0, nil, nil, nil); !errors.Is(err, hubclient.ErrNotPaired) {
+				t.Fatalf("unpaired check-in: %v", err)
+			}
+			if requests.Load() != 1 {
+				t.Fatalf("revoked requests=%d, want 1", requests.Load())
+			}
+			pairing, err := client.BeginPairing(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := client.PollPairing(t.Context(), pairing.PairingID)
+			if err != nil || result.State != "paired" {
+				t.Fatalf("pairing=%+v err=%v", result, err)
+			}
+			if err := controller.Ensure(client); err != nil {
+				t.Fatal(err)
+			}
+			if status := controller.Status(); status.State != "connected_idle" {
+				t.Fatalf("paired status=%s", status.State)
+			}
+			if err := worker.SyncOnce(t.Context()); err != nil {
+				t.Fatalf("paired check-in: %v", err)
+			}
+			if requests.Load() != 2 {
+				t.Fatalf("paired requests=%d, want 2", requests.Load())
+			}
+		})
+	}
 }
