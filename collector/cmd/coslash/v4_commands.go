@@ -107,9 +107,7 @@ func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.M
 }
 
 type commandSSHConfigurator interface {
-	ValidateSettingsChange(*settings.RemoteSettings) error
-	ApplySettings(*settings.RemoteSettings) error
-	UninstallHelper(context.Context) error
+	SaveHubSettings(*settings.Store, settings.Config) error
 }
 
 func configureCommandSSHHost(ctx context.Context, local *settings.Store, relay commandSSHConfigurator, hostID, alias string) error {
@@ -129,11 +127,6 @@ func configureSSHHost(ctx context.Context, local *settings.Store, relay commandS
 		return nil
 	}
 	config := state.Config
-	if current != nil && current.SSHAlias != alias {
-		if err := relay.UninstallHelper(ctx); err != nil {
-			return err
-		}
-	}
 	if current == nil || current.SSHAlias != alias {
 		sum := sha256.Sum256([]byte(hostID))
 		config.Remote = &settings.RemoteSettings{ID: fmt.Sprintf("r_%x", sum[:8]), SSHAlias: alias, Enabled: true}
@@ -146,17 +139,5 @@ func configureSSHHost(ctx context.Context, local *settings.Store, relay commandS
 		config.Remote.HostID = hostID
 	}
 
-	if err := relay.ValidateSettingsChange(config.Remote); err != nil {
-		return err
-	}
-	if err := local.Save(config); err != nil {
-		return err
-	}
-	if err := relay.ApplySettings(config.Remote); err != nil {
-		if restoreErr := local.Restore(state); restoreErr != nil {
-			return errors.Join(err, fmt.Errorf("restore local settings: %w", restoreErr))
-		}
-		return err
-	}
-	return nil
+	return relay.SaveHubSettings(local, config)
 }

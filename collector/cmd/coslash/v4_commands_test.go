@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -22,16 +23,25 @@ import (
 type commandRelay struct {
 	validateErr, applyErr error
 	applied               *settings.RemoteSettings
-	uninstallErr          error
-	uninstalls            int
 }
 
-func (r *commandRelay) ValidateSettingsChange(*settings.RemoteSettings) error { return r.validateErr }
-func (r *commandRelay) ApplySettings(next *settings.RemoteSettings) error {
-	r.applied = next
-	return r.applyErr
+func (r *commandRelay) SaveHubSettings(local *settings.Store, config settings.Config) error {
+	if r.validateErr != nil {
+		return r.validateErr
+	}
+	before := local.State()
+	if err := local.Save(config); err != nil {
+		return err
+	}
+	if r.applyErr != nil {
+		if err := local.Restore(before); err != nil {
+			return errors.Join(r.applyErr, err)
+		}
+		return r.applyErr
+	}
+	r.applied = config.Remote
+	return nil
 }
-func (r *commandRelay) UninstallHelper(context.Context) error { r.uninstalls++; return r.uninstallErr }
 
 func TestSSHInstallPersistsMissingSettings(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
@@ -86,19 +96,19 @@ func TestSSHInstallConfiguresOnlyConfirmedLocalHost(t *testing.T) {
 	if relay.applied == nil || relay.applied.SSHAlias != "agent-box" || !relay.applied.Enabled || local.State().Config.Remote == nil {
 		t.Fatalf("configured host=%+v", relay.applied)
 	}
-	relay.uninstallErr = errors.New("uninstall failed")
+	relay.validateErr = errors.New("replacement rejected")
 	if err := configureCommandSSHHost(context.Background(), local, relay, "22222222-2222-3333-4444-555555555555", "different-box"); err == nil {
-		t.Fatal("replacement bypassed failed old-host cleanup")
+		t.Fatal("replacement bypassed failed validation")
 	}
 	if local.State().Config.Remote.SSHAlias != "agent-box" {
 		t.Fatal("rejected host replaced local settings")
 	}
-	relay.uninstallErr = nil
+	relay.validateErr = nil
 	if err := configureCommandSSHHost(context.Background(), local, relay, "22222222-2222-3333-4444-555555555555", "different-box"); err != nil {
 		t.Fatal(err)
 	}
-	if relay.uninstalls != 2 || local.State().Config.Remote.SSHAlias != "different-box" {
-		t.Fatalf("replacement state=%+v cleanups=%d", local.State().Config.Remote, relay.uninstalls)
+	if local.State().Config.Remote.SSHAlias != "different-box" {
+		t.Fatalf("replacement state=%+v", local.State().Config.Remote)
 	}
 }
 
@@ -223,5 +233,44 @@ func TestSSHTestFailureKeepsWorkingHost(t *testing.T) {
 	}
 	if got := relay.DiagnosticsHealth(); !reflect.DeepEqual(got, before) {
 		t.Fatalf("failed test changed live host: %+v", got)
+	}
+}
+
+func TestSSHConfirmationSaveFailureKeepsOldHelper(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	local := settings.Open()
+	config := settings.Defaults()
+	config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "working-box", HostID: "working-host", Enabled: true}
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	blockedHome := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blockedHome, []byte("block save"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSLASH_HOME", blockedHome)
+	cache := remote.NewCache(t.TempDir())
+	if err := cache.StoreHelperVersion(config.Remote.ID, "v1", config.Remote.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	relay := remote.NewManager(remote.Options{Cache: cache})
+	if err := relay.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(relay.Shutdown)
+	before := relay.DiagnosticsHealth()
+	if err := configureCommandSSHHost(t.Context(), local, relay, "replacement-host", "replacement-box"); err == nil || !strings.Contains(err.Error(), "create coSlash directory") {
+		t.Fatalf("expected save failure, got %v", err)
+	}
+	if !reflect.DeepEqual(relay.DiagnosticsHealth(), before) {
+		t.Fatal("failed save changed live helper state")
+	}
+	if _, owned, err := cache.LoadHelperOwnership(config.Remote.ID); err != nil || !owned {
+		t.Fatalf("failed save lost helper ownership: %v %v", owned, err)
+	}
+	t.Setenv("COSLASH_HOME", home)
+	if !reflect.DeepEqual(local.State().Config, config) || !reflect.DeepEqual(settings.Open().State().Config, config) {
+		t.Fatal("failed save changed old host settings")
 	}
 }
