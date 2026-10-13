@@ -123,16 +123,19 @@ func configureSSHHost(ctx context.Context, local *settings.Store, relay commandS
 		return errors.New("Local settings must be configured")
 	}
 	current := state.Config.Remote
-	if current != nil && current.Enabled && current.SSHAlias == alias && (!confirmed || current.HostID == hostID) {
+	sourceID := remoteSourceID(hostID)
+	if current != nil && current.Enabled && current.SSHAlias == alias && (!confirmed || current.HostID == hostID && current.ID == sourceID) {
 		return nil
 	}
 	config := state.Config
 	if current == nil || current.SSHAlias != alias {
-		sum := sha256.Sum256([]byte(hostID))
-		config.Remote = &settings.RemoteSettings{ID: fmt.Sprintf("r_%x", sum[:8]), SSHAlias: alias, Enabled: true}
+		config.Remote = &settings.RemoteSettings{ID: sourceID, SSHAlias: alias, Enabled: true}
 	} else {
 		copy := *current
 		copy.Enabled = true
+		if confirmed {
+			copy.ID = sourceID
+		}
 		config.Remote = &copy
 	}
 	if confirmed {
@@ -140,4 +143,9 @@ func configureSSHHost(ctx context.Context, local *settings.Store, relay commandS
 	}
 
 	return relay.SaveHubSettings(local, config)
+}
+
+func remoteSourceID(hostID string) string {
+	sum := sha256.Sum256([]byte(hostID))
+	return fmt.Sprintf("r_%x", sum[:8])
 }
