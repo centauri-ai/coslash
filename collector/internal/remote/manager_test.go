@@ -1349,6 +1349,54 @@ func TestSetupLogsUnderlyingSSHFailure(t *testing.T) {
 	}
 }
 
+func TestSetupLogsOwnershipWriteFailureAfterUnlock(t *testing.T) {
+	host, _, content := lifecycleFixture(t)
+	cache := NewCache(t.TempDir())
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	ownershipPath, err := cache.helperOwnershipPath(config.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{
+		Cache: cache, ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+		HelperInstallationAvailable: true,
+	})
+	t.Cleanup(manager.Shutdown)
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(ownershipPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	previous := log.Writer()
+	writer := &managerLockCheckingWriter{manager: manager}
+	log.SetOutput(writer)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	if _, err := manager.SetupHelperForAlias(context.Background(), config.SSHAlias, Consent{Install: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !writer.called || !writer.lockAvailable {
+		t.Fatalf("ownership write diagnostic called=%v manager lock available=%v", writer.called, writer.lockAvailable)
+	}
+}
+
+type managerLockCheckingWriter struct {
+	manager       *Manager
+	called        bool
+	lockAvailable bool
+}
+
+func (writer *managerLockCheckingWriter) Write(content []byte) (int, error) {
+	writer.called = true
+	writer.lockAvailable = writer.manager.mu.TryLock()
+	if writer.lockAvailable {
+		writer.manager.mu.Unlock()
+	}
+	return len(content), nil
+}
+
 func TestSetupPreservesInstallerSSHReasons(t *testing.T) {
 	cases := []struct {
 		message string
