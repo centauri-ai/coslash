@@ -309,7 +309,7 @@ func handleSynthesis(w http.ResponseWriter, agent, id string, mgr *synthesis.Man
 	log.Printf("synthesis: %s", id)
 }
 
-func cleanupHandoffs(settingsStore *settings.Store) {
+func cleanupHandoffs(settingsStore *settings.Store, remoteManager *remote.Manager) {
 	ticker := time.NewTicker(launch.HandoffSweepInterval)
 	defer ticker.Stop()
 	for {
@@ -329,6 +329,7 @@ func cleanupHandoffs(settingsStore *settings.Store) {
 			}
 		}
 		<-ticker.C
+		remoteManager.CleanupRemovedSources(settingsStore)
 	}
 }
 
