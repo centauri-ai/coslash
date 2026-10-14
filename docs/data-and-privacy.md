@@ -181,7 +181,15 @@ response removes the stored credential and marks this computer disconnected.
 `COSLASH_SYNC_METERED=1` and
 `COSLASH_SYNC_OFFLINE=1` stop uploads locally. On macOS, low battery uses
 `pmset`; on Linux, metered NetworkManager connections and discharging battery
-levels are checked when available. `COSLASH_SYNC_BATTERY_PERCENT` is a local
+levels are checked when available. On Windows, Local checks native power status
+and the preferred Internet connection's WinRT cost: metered, roaming, data-limit
+and background-data restrictions pause uploads. Battery below 20% pauses uploads
+when running off AC; desktops without a battery and computers on AC keep syncing.
+An unavailable connection, unknown network cost or unknown battery state off AC
+pauses uploads until the next successful check. The hidden Windows PowerShell
+probe has a ten-second timeout (other platforms keep two seconds), and successful
+network cost checks are reused for up to 15 seconds between upload guards.
+`COSLASH_SYNC_BATTERY_PERCENT` is a local
 override for testing. The per-computer pause setting also stops uploads and
 retries until resumed. Local has no manual complete-backup action that bypasses
 this pause; automatic personal sync does not enable team sharing.
