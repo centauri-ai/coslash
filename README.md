@@ -69,6 +69,13 @@ The code expires after ten minutes and can be used once. Hub switches to the
 computer's **Connect** card after Local claims the code; approving there
 connects the device.
 
+If Hub limits connect requests or is temporarily unavailable, Local reports a
+retryable failure (exit code 8). Wait for the indicated delay and rerun the
+command; get a new command in Hub if its code expires. Claims are not retried
+automatically. With `--json`, these failures have state `rate_limited` or
+`hub_temporarily_unavailable` and `retryAfterSeconds` (0 when no valid delay is
+provided; delays are bounded to one day).
+
 ### Open coSlash Local
 
 When Local is not running, Hub offers **Open coSlash Local**. Click it to start
