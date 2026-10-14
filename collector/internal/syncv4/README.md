@@ -45,8 +45,9 @@ the device waits for the plan before creating uploads or listing sessions. The
 plan's window and history choice set the scope. The default plan is recent
 `3d` activity capped at 30 sessions; it does not start an extended backfill.
 Hub Settings can explicitly start a per-device 30-day, 60-day, or all-history
-import. Local receives finite choices as one-time `backfill: true`,
-`history: false` plans; the all-history choice retains `history: true`. Finite
+import. Local receives all three choices as one-time `backfill: true`,
+`history: false` plans; `window: "all"` removes the activity cutoff only for
+that explicitly requested backfill. Finite
 cutoffs are anchored to the plan start, and zero session caps mean unlimited
 for an explicit backfill. Legacy `history: true` plans retain their
 continuing-history behavior. For a bounded plan, Local selects the
