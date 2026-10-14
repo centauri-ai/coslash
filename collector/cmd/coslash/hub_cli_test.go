@@ -21,6 +21,7 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 	var devicePolls atomic.Int32
 	var actionPolls atomic.Int32
 	var toolRetries atomic.Int32
+	var searchCalls atomic.Int32
 	var endpoint string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -44,7 +45,7 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]string{"client_id": "client_test"})
 		case "/oauth/device_authorization":
-			if err := r.ParseForm(); err != nil || r.Form.Get("client_id") != "client_test" || r.Form.Get("resource") != endpoint || r.Form.Get("scope") != hubAgentDefaultScope {
+			if err := r.ParseForm(); err != nil || r.Form.Get("client_id") != "client_test" || r.Form.Get("resource") != endpoint || r.Form.Get("scope") != "hub:read hub:ask hub:write hub:share hub:admin" {
 				http.Error(w, "bad device request", http.StatusBadRequest)
 				return
 			}
@@ -92,6 +93,15 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 				_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"coslash_delete_sessions","title":"Delete sessions","inputSchema":{"type":"object"},"annotations":{"destructiveHint":true}}]}}`, request.ID)
 			case "tools/call":
 				switch request.Params.Name {
+				case "coslash_search_sessions":
+					var args map[string]string
+					_ = json.Unmarshal(request.Params.Arguments, &args)
+					if args["query"] != "retry backoff" {
+						http.Error(w, "bad search query", http.StatusBadRequest)
+						return
+					}
+					searchCalls.Add(1)
+					writeTestRPC(w, request.ID, map[string]any{"structuredContent": map[string]any{"items": []any{}, "next_cursor": nil}})
 				case "coslash_delete_sessions":
 					if toolRetries.Add(1) == 1 {
 						result := map[string]any{"isError": true, "structuredContent": map[string]any{"error": map[string]any{
@@ -131,7 +141,8 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 	var output bytes.Buffer
 	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: func(context.Context, time.Duration) error { return nil }, pollEvery: time.Millisecond}
 
-	if err := cli.run(context.Background(), []string{"login", "--hub", endpoint}); err != nil {
+	if err := cli.run(context.Background(), []string{"login", "--hub", endpoint,
+		"--scope", "hub:read", "--scope", "hub:ask", "--scope", "hub:write", "--scope", "hub:share", "--scope", "hub:admin"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := cli.run(context.Background(), []string{"tools"}); err != nil {
@@ -140,15 +151,19 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 	if err := cli.run(context.Background(), []string{"tools", "--json"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := cli.run(context.Background(), []string{"search", "retry", "backoff"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := cli.run(context.Background(), []string{"call", "coslash_delete_sessions", "--json", `{"session_ids":["synthetic-session"]}`}); err != nil {
 		t.Fatal(err)
 	}
-	if devicePolls.Load() != 2 || actionPolls.Load() != 2 || toolRetries.Load() != 2 {
-		t.Fatalf("poll/call counts = device %d, action %d, call %d", devicePolls.Load(), actionPolls.Load(), toolRetries.Load())
+	if devicePolls.Load() != 2 || actionPolls.Load() != 2 || toolRetries.Load() != 2 || searchCalls.Load() != 1 {
+		t.Fatalf("poll/call counts = device %d, action %d, call %d, search %d", devicePolls.Load(), actionPolls.Load(), toolRetries.Load(), searchCalls.Load())
 	}
 	for _, expected := range []string{
 		"Open " + server.URL + "/agents/activate?user_code=ABCD-EFGH",
 		"coslash_delete_sessions\tDelete sessions", `"inputSchema"`, `"destructiveHint": true`,
+		`"items"`,
 		"Human approval required. Open " + server.URL + "/approve/pa_test", `"deleted": 1`, "did not issue a refresh token",
 	} {
 		if !strings.Contains(output.String(), expected) {
@@ -293,6 +308,31 @@ func TestHubCLIURLAndToolValidation(t *testing.T) {
 	}
 	if _, err := parseHubLoginArgs([]string{"--hub", "https://example.com"}); err == nil {
 		t.Fatal("accepted Hub origin without /mcp")
+	}
+}
+
+func TestHubLoginScopesDefaultAndValidation(t *testing.T) {
+	defaults, err := parseHubLoginArgs(nil)
+	if err != nil || defaults.HubURL != hubDefaultURL || strings.Join(defaults.Scopes, " ") != hubAgentDefaultScope {
+		t.Fatalf("default login options = %+v, %v", defaults, err)
+	}
+	requested, err := parseHubLoginArgs([]string{"--scope", "hub:read", "--scope", "hub:share", "--hub", "http://127.0.0.1:18380/mcp"})
+	if err != nil || requested.HubURL != "http://127.0.0.1:18380/mcp" || strings.Join(requested.Scopes, " ") != "hub:read hub:share" {
+		t.Fatalf("explicit login options = %+v, %v", requested, err)
+	}
+	for _, args := range [][]string{
+		{"--scope", "mcp:read"},
+		{"--scope", "hub:share", "--scope", "hub:share"},
+		{"--scope"},
+		{"--other", "value"},
+	} {
+		if _, err := parseHubLoginArgs(args); err == nil {
+			t.Errorf("accepted invalid login arguments %q", args)
+		}
+	}
+	cli := &hubAgentCLI{}
+	if err := cli.run(context.Background(), []string{"search"}); err == nil {
+		t.Fatal("accepted search without a query")
 	}
 }
 
