@@ -78,8 +78,8 @@ func validateImportPlan(plan hubclient.V4ImportPlan) error {
 		return errors.New("invalid import plan window")
 	}
 	extended := plan.Window == "all" || duration > recentWindow
-	if plan.Backfill && (plan.History || duration == 0) || extended && !plan.Backfill && !plan.History || plan.Window == "60d" && plan.History {
-		return errors.New("extended import plan requires an explicit finite backfill or history choice")
+	if plan.Backfill && plan.History || extended && !plan.Backfill && !plan.History || plan.Window == "60d" && plan.History {
+		return errors.New("extended import plan requires an explicit one-time backfill or history choice")
 	}
 	if plan.MaxSessionsPerAgent < 0 || plan.MaxSessionsPerAgent > 500 || plan.MaxSessions < 0 {
 		return errors.New("invalid import plan session limit")
