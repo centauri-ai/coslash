@@ -1,8 +1,10 @@
 package syncv4
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -206,8 +208,8 @@ func TestManualSixtyDayBackfillIsFiniteAndPerDevice(t *testing.T) {
 			t.Fatalf("extended %s plan was accepted without an explicit choice", window)
 		}
 	}
-	if err := validateImportPlan(hubclient.V4ImportPlan{Window: "all", Backfill: true}); err == nil {
-		t.Fatal("unbounded history was accepted as a finite backfill")
+	if err := validateImportPlan(hubclient.V4ImportPlan{Window: "all", Backfill: true, History: true}); err == nil {
+		t.Fatal("one-time backfill was accepted with continuing history enabled")
 	}
 	invalidSixtyDay := defaultPlan
 	invalidSixtyDay.Version++
@@ -220,7 +222,71 @@ func TestManualSixtyDayBackfillIsFiniteAndPerDevice(t *testing.T) {
 	}
 }
 
+// Mirrors Hub applyImportPlanPut: all-history is a one-time backfill, not
+// permission to keep filling history after the default plan is restored.
+func TestHubAllHistoryBackfillSelectsUnboundedHistory(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "hubclient", "testdata", "scale-contracts-v1", "check-in-response-all-history-backfill.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response hubclient.V4CheckIn
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	plan := response.Config.ImportPlan
+	started := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []Entry
+	for i := range 35 {
+		entries = append(entries, catchUpEntry(queue, fmt.Sprintf("old-%02d", i), "codex", started.Add(-time.Duration(90+i)*24*time.Hour)))
+	}
+	private := catchUpEntry(queue, "private", "claude", started.Add(-365*24*time.Hour))
+	private.Session.Repo = "repo/private"
+	entries = append(entries, private)
+	if err := queue.Merge(entries, started.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	response.Config.LeaveOut = []string{"repo/private"}
+	if err := queue.ApplyPolicyAt(response, started); err != nil {
+		t.Fatal(err)
+	}
+	for pass := range 2 {
+		if err := queue.FreezeCatchUp(*plan); err != nil {
+			t.Fatal(err)
+		}
+		planned := queue.PlannedEntries(*plan, started.Add(180*24*time.Hour))
+		if len(planned) != 35 || slices.Contains(entryKeys(planned), private.Key) {
+			t.Fatalf("pass %d all-history selection = %v; want all 35 allowed families", pass, entryKeys(planned))
+		}
+		for _, entry := range planned {
+			if !isCatchUpEntry(entry, *plan) {
+				t.Fatalf("history was not frozen: %s", entry.Key)
+			}
+		}
+		discoveryPlan, planStartedAt := queue.DiscoveryPlan()
+		if cutoff := DiscoveryMinActivity(discoveryPlan, planStartedAt); cutoff != 0 {
+			t.Fatalf("all-history discovery cutoff = %d", cutoff)
+		}
+		queue, err = Open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
+	for _, window := range []string{"60d", "all"} {
+		t.Run(window, func(t *testing.T) {
+			testCompletedBackfillReturnsToLiveOnlyActivity(t, window)
+		})
+	}
+}
+
+func testCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T, window string) {
 	started := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	root := t.TempDir()
 	queue, err := Open(root)
@@ -233,7 +299,7 @@ func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
 	if err := queue.Merge([]Entry{old, revisionOnly, recentBackfilled}, started.Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	backfill := hubclient.V4ImportPlan{Version: 1, Window: "60d", Backfill: true}
+	backfill := hubclient.V4ImportPlan{Version: 1, Window: window, Backfill: true}
 	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &backfill}}, started); err != nil {
 		t.Fatal(err)
 	}
@@ -246,8 +312,12 @@ func TestCompletedBackfillReturnsToLiveOnlyActivity(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := queue.SetPhase("complete"); err != nil {
+	runner := &Runner{Queue: queue, Now: func() time.Time { return started }}
+	if err := runner.syncPlannedContent(t.Context(), backfill); err != nil {
 		t.Fatal(err)
+	}
+	if got := queue.ImportSnapshot(started).Phase; got != "complete" {
+		t.Fatalf("settled backfill phase = %q, want complete", got)
 	}
 
 	returnedAt := started.Add(time.Hour)
