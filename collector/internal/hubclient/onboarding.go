@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,6 +28,38 @@ var (
 	ErrConnectUnsupported    = errors.New("connect_unsupported")
 	ErrClientVersionRejected = errors.New("client_version_rejected")
 )
+
+// ConnectClaimError preserves a temporary claim failure without exposing Hub details.
+type ConnectClaimError struct {
+	Code              string `json:"error"`
+	RetryAfterSeconds int    `json:"retryAfterSeconds,omitempty"`
+}
+
+func (e ConnectClaimError) Error() string { return e.Code }
+
+func connectClaimFailure(response *http.Response) error {
+	code := "hub_temporarily_unavailable"
+	if response.StatusCode == http.StatusTooManyRequests {
+		code = "rate_limited"
+	}
+	delay := 0
+	value := strings.TrimSpace(response.Header.Get("Retry-After"))
+	if value != "" && strings.Trim(value, "0123456789") == "" {
+		seconds, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || seconds > 86400 {
+			seconds = 86400
+		}
+		delay = int(seconds)
+	} else if retryAt, err := http.ParseTime(value); err == nil {
+		seconds := retryAt.Sub(time.Now()).Seconds()
+		if seconds > 86400 {
+			delay = 86400
+		} else if seconds > 0 {
+			delay = min(86400, int(seconds)+1)
+		}
+	}
+	return ConnectClaimError{Code: code, RetryAfterSeconds: delay}
+}
 
 func ValidConnectCode(code string) bool { return connectCode.MatchString(code) }
 
@@ -245,6 +278,9 @@ func (c *Client) ClaimOnboardingCode(ctx context.Context, code string) (PairingR
 		return PairingResult{}, errors.New("Hub could not receive the Local pairing request")
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusTooManyRequests || (response.StatusCode >= 500 && response.StatusCode <= 599) {
+		return PairingResult{}, connectClaimFailure(response)
+	}
 	if response.StatusCode != http.StatusCreated {
 		if problem == nil {
 			decoded := readProblem(response)

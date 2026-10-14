@@ -535,3 +535,34 @@ func TestLegacyCheckInReportsRevokedCredentialCleanupFailure(t *testing.T) {
 		t.Fatalf("check-in error = %v, want cleanup deadline error", err)
 	}
 }
+
+func TestClaimOnboardingCodePreservesTemporaryCause(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		header string
+		code   string
+		delay  int
+	}{
+		{429, "60", "rate_limited", 60},
+		{503, "Wed, 01 Jan 2200 00:00:00 GMT", "hub_temporarily_unavailable", 86400},
+		{500, "Sat, 01 Jan 2000 00:00:00 GMT", "hub_temporarily_unavailable", 0},
+	} {
+		t.Run(fmt.Sprintf("%d", test.status), func(t *testing.T) {
+			calls := 0
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				w.Header().Set("Retry-After", test.header)
+				w.WriteHeader(test.status)
+				fmt.Fprint(w, `{"code":"untrusted","detail":"secret"}`)
+			}))
+			defer hub.Close()
+			base, _ := url.Parse(hub.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, HTTP: hub.Client()}
+			_, err := client.ClaimOnboardingCode(context.Background(), "K7QX-29PD")
+			var cause ConnectClaimError
+			if !errors.As(err, &cause) || cause.Code != test.code || cause.RetryAfterSeconds != test.delay || calls != 1 {
+				t.Fatalf("cause=%#v err=%v calls=%d", cause, err, calls)
+			}
+		})
+	}
+}

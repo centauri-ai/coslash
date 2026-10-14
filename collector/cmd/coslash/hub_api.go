@@ -190,6 +190,16 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			http.Error(w, hubclient.ErrConnectUnsupported.Error(), http.StatusNotFound)
 			return
 		}
+		var claimError hubclient.ConnectClaimError
+		if errors.As(err, &claimError) {
+			status := http.StatusServiceUnavailable
+			if claimError.Code == "rate_limited" {
+				status = http.StatusTooManyRequests
+			}
+			w.WriteHeader(status)
+			writeJSON(w, claimError)
+			return
+		}
 		if err != nil {
 			http.Error(w, "unreachable", http.StatusBadGateway)
 			return
