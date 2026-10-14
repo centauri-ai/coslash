@@ -239,6 +239,23 @@ func printConnectFailure(stdout, stderr io.Writer, opts connectOptions, code int
 }
 
 func connectErrorFromLocal(stdout, stderr io.Writer, opts connectOptions, err error) int {
+	var claimError hubclient.ConnectClaimError
+	if errors.As(err, &claimError) {
+		if opts.json {
+			_ = json.NewEncoder(stdout).Encode(map[string]any{"state": claimError.Code, "exitCode": connectExitRetryable, "retryAfterSeconds": claimError.RetryAfterSeconds})
+		} else {
+			message := "Hub is temporarily unavailable."
+			if claimError.Code == "rate_limited" {
+				message = "Hub is limiting connect requests."
+			}
+			if claimError.RetryAfterSeconds > 0 {
+				fmt.Fprintf(stderr, "%s Wait %d seconds, then run the command again. Get a new command in Hub if the code expires.\n", message, claimError.RetryAfterSeconds)
+			} else {
+				fmt.Fprintln(stderr, message+" Wait a moment, then run the command again. Get a new command in Hub if the code expires.")
+			}
+		}
+		return connectExitRetryable
+	}
 	switch strings.TrimSpace(err.Error()) {
 	case "connect_code_invalid":
 		return printConnectFailure(stdout, stderr, opts, connectExitInvalid, "")

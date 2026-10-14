@@ -757,3 +757,93 @@ func TestConnectHubOriginRejectsUnexpectedPath(t *testing.T) {
 		t.Fatal("hubOrigin accepted a path")
 	}
 }
+
+func TestConnectTemporaryClaimFailureAcrossHTTPAndCLI(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		status     int
+		retryAfter string
+		delay      int
+		state      string
+	}{
+		{"rate limited", 429, "60", 60, "rate_limited"},
+		{"malformed delay", 429, "secret-token", 0, "rate_limited"},
+		{"negative delay", 429, "-1", 0, "rate_limited"},
+		{"huge delay", 429, "99999999999999999999999999999", 86400, "rate_limited"},
+		{"maximum delay", 429, "86400", 86400, "rate_limited"},
+		{"excess delay", 429, "86401", 86400, "rate_limited"},
+		{"zero delay", 429, "0", 0, "rate_limited"},
+		{"temporary outage", 503, "30", 30, "hub_temporarily_unavailable"},
+		{"bad gateway", 502, "", 0, "hub_temporarily_unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("COSLASH_HOME", t.TempDir())
+			var requests atomic.Int32
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Method != http.MethodPost || r.URL.Path != "/v1/device-onboarding-codes/claim" {
+					t.Errorf("unexpected claim %s %s", r.Method, r.URL.Path)
+				}
+				w.Header().Set("Retry-After", test.retryAfter)
+				w.WriteHeader(test.status)
+				fmt.Fprint(w, `{"code":"rate_limited","detail":"secret-token K7QX-29PD"}`)
+			}))
+			defer hub.Close()
+			manager := newOnboardingManager("0.1.0")
+			defer manager.Close()
+			api := http.NewServeMux()
+			registerHubRoutes(api, nil, nil, manager)
+			local := httptest.NewServer(api)
+			defer local.Close()
+			holdTestRuntime(t, local.URL)
+			body, _ := json.Marshal(map[string]string{"hubUrl": hub.URL, "connectCode": "K7QX-29PD"})
+			response, err := local.Client().Post(local.URL+"/api/hub/onboarding/connect", "application/json", bytes.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cause hubclient.ConnectClaimError
+			decodeErr := json.NewDecoder(response.Body).Decode(&cause)
+			response.Body.Close()
+			status := http.StatusServiceUnavailable
+			if test.status == 429 {
+				status = http.StatusTooManyRequests
+			}
+			if response.StatusCode != status || decodeErr != nil || cause.Code != test.state || cause.RetryAfterSeconds != test.delay {
+				t.Fatalf("local status=%d cause=%#v decode=%v", response.StatusCode, cause, decodeErr)
+			}
+			for _, jsonOutput := range []bool{false, true} {
+				args := []string{"K7QX-29PD", "--hub", hub.URL}
+				if jsonOutput {
+					args = append(args, "--json")
+				}
+				var stdout, stderr bytes.Buffer
+				if exit := runConnectCLI(&stdout, &stderr, args); exit != connectExitRetryable {
+					t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+				}
+				if strings.Contains(stdout.String()+stderr.String(), "secret-token") || strings.Contains(stdout.String()+stderr.String(), "K7QX-29PD") {
+					t.Fatal("claim output leaked upstream detail or code")
+				}
+				if jsonOutput {
+					var result struct {
+						State string `json:"state"`
+						Delay int    `json:"retryAfterSeconds"`
+						Exit  int    `json:"exitCode"`
+					}
+					if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || result.State != test.state || result.Delay != test.delay || result.Exit != connectExitRetryable || stderr.Len() != 0 {
+						t.Fatalf("JSON=%q stderr=%q", stdout.String(), stderr.String())
+					}
+				} else {
+					if strings.Contains(stderr.String(), "Couldn't reach") || !strings.Contains(stderr.String(), "run the command again") {
+						t.Fatalf("guidance=%q", stderr.String())
+					}
+					if test.delay > 0 && !strings.Contains(stderr.String(), fmt.Sprintf("Wait %d seconds", test.delay)) {
+						t.Fatalf("delay guidance=%q", stderr.String())
+					}
+				}
+			}
+			if requests.Load() != 3 || len(manager.connectJobs) != 0 {
+				t.Fatalf("claims=%d jobs=%d; no automatic retry or pairing expected", requests.Load(), len(manager.connectJobs))
+			}
+		})
+	}
+}
