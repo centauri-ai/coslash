@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	hubUsage                    = "usage: coslash hub login [--hub URL] | logout | tools [--json] | call <tool> --json '{…}'"
+	hubUsage                    = "usage: coslash hub login [--hub URL] [--scope SCOPE ...] | logout | tools [--json] | search <query> | call <tool> --json '{…}'"
 	hubDefaultURL               = "https://mcp.hub.coslash.io/mcp"
 	hubAgentKeychainService     = "ai.coslash.hub-agent"
 	hubAgentKeychainAccount     = "default"
@@ -85,11 +85,11 @@ func (c *hubAgentCLI) run(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "login":
-		hubURL, err := parseHubLoginArgs(args[1:])
+		options, err := parseHubLoginArgs(args[1:])
 		if err != nil {
 			return err
 		}
-		return c.login(ctx, hubURL)
+		return c.login(ctx, options.HubURL, strings.Join(options.Scopes, " "))
 	case "logout":
 		if len(args) != 1 {
 			return errors.New(hubUsage)
@@ -100,6 +100,13 @@ func (c *hubAgentCLI) run(ctx context.Context, args []string) error {
 			return errors.New(hubUsage)
 		}
 		return c.listTools(ctx, len(args) == 2)
+	case "search":
+		query := strings.TrimSpace(strings.Join(args[1:], " "))
+		if query == "" {
+			return errors.New(hubUsage)
+		}
+		arguments, _ := json.Marshal(map[string]string{"query": query})
+		return c.callTool(ctx, "coslash_search_sessions", arguments)
 	case "call":
 		if len(args) != 4 || args[2] != "--json" || !validHubToolName(args[1]) {
 			return errors.New(hubUsage)
@@ -115,18 +122,57 @@ func (c *hubAgentCLI) run(ctx context.Context, args []string) error {
 	}
 }
 
-func parseHubLoginArgs(args []string) (string, error) {
-	hubURL := hubDefaultURL
-	if len(args) == 0 {
-		return hubURL, nil
+type hubLoginOptions struct {
+	HubURL string
+	Scopes []string
+}
+
+func parseHubLoginArgs(args []string) (hubLoginOptions, error) {
+	options := hubLoginOptions{HubURL: hubDefaultURL}
+	var scopes []string
+	seenScopes := map[string]bool{}
+	seenHub := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--hub":
+			if seenHub || i+1 >= len(args) {
+				return hubLoginOptions{}, errors.New(hubUsage)
+			}
+			seenHub = true
+			i++
+			options.HubURL = args[i]
+		case "--scope":
+			if i+1 >= len(args) {
+				return hubLoginOptions{}, errors.New(hubUsage)
+			}
+			i++
+			scope := args[i]
+			if !validHubAgentScope(scope) || seenScopes[scope] {
+				return hubLoginOptions{}, errors.New("Hub scope is invalid or repeated")
+			}
+			seenScopes[scope] = true
+			scopes = append(scopes, scope)
+		default:
+			return hubLoginOptions{}, errors.New(hubUsage)
+		}
 	}
-	if len(args) != 2 || args[0] != "--hub" {
-		return "", errors.New(hubUsage)
+	if _, err := validateHubURL(options.HubURL); err != nil {
+		return hubLoginOptions{}, err
 	}
-	if _, err := validateHubURL(args[1]); err != nil {
-		return "", err
+	if len(scopes) == 0 {
+		scopes = strings.Fields(hubAgentDefaultScope)
 	}
-	return args[1], nil
+	options.Scopes = scopes
+	return options, nil
+}
+
+func validHubAgentScope(scope string) bool {
+	switch scope {
+	case "hub:read", "hub:ask", "hub:write", "hub:share", "hub:admin":
+		return true
+	default:
+		return false
+	}
 }
 
 func validHubToolName(value string) bool {
@@ -233,7 +279,7 @@ func validateOAuthEndpoint(raw string, issuer *url.URL) error {
 	return nil
 }
 
-func (c *hubAgentCLI) login(ctx context.Context, hubURL string) error {
+func (c *hubAgentCLI) login(ctx context.Context, hubURL, scope string) error {
 	if _, err := validateHubURL(hubURL); err != nil {
 		return err
 	}
@@ -254,7 +300,7 @@ func (c *hubAgentCLI) login(ctx context.Context, hubURL string) error {
 		return errors.New("Hub did not return a client ID")
 	}
 	deviceResponse, err := c.postForm(ctx, endpoints.DeviceAuthorizationURL, url.Values{
-		"client_id": {client.ClientID}, "resource": {hubURL}, "scope": {hubAgentDefaultScope},
+		"client_id": {client.ClientID}, "resource": {hubURL}, "scope": {scope},
 	})
 	if err != nil {
 		return fmt.Errorf("start Hub device authorization: %w", err)
