@@ -271,6 +271,8 @@ normalized last-good cache and any optional helper; it does not change Linux.
 offline. If cache deletion fails, Local retries it at startup, on each check-in,
 and during daily maintenance until it succeeds. Cached data remains locally
 until deletion succeeds.
-Removal deliberately leaves any previously installed helper on the remote machine.
+Hub removal attempts to uninstall the helper after saving removal locally.
+If uninstall fails, the host stays removed, but the helper can remain on Linux.
+Local remove-only leaves the helper installed.
 
 To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names. The CLI report includes the configured Hub origin, device name and ID, and content-free sync failure codes.
