@@ -141,7 +141,7 @@ func runConnectCLI(stdout, stderr io.Writer, args []string) int {
 		return printConnectFailure(stdout, stderr, opts, connectExitUnreachable, "")
 	}
 	if !opts.json {
-		fmt.Fprintln(stdout, "✓ Found your Hub setup. Return to Hub and click \"Connect this computer\".")
+		fmt.Fprintln(stdout, "Return to Hub and click \"Connect this computer\".")
 	}
 	deadline := time.Now().Add(10 * time.Minute)
 	for time.Now().Before(deadline) {
