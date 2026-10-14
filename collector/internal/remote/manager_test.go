@@ -1615,3 +1615,66 @@ func TestRemoveHubHostUninstallsHelper(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveHubHostUninstallsPreviouslyOwnedHelper(t *testing.T) {
+	for _, name := range []string{"older version", "wrong alias", "corrupt ownership"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("COSLASH_HOME", t.TempDir())
+			local := settings.Open()
+			config := settings.Defaults()
+			config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: false}
+			if err := local.Save(config); err != nil {
+				t.Fatal(err)
+			}
+			host, artifact, content := lifecycleFixture(t)
+			// Install v1 on the fixture host before a Local release changes metadata.
+			result := lifecycleFor(host).Setup(t.Context(), host.document, content, Consent{Install: true})
+			if !result.CanExecute {
+				t.Fatalf("setup: %+v", result)
+			}
+			installed := filepath.Join(host.root, artifact.Version, HelperFileName)
+			cache := NewCache(t.TempDir())
+			if err := cache.StoreHelperVersion(config.Remote.ID, "v1", "agent-box"); err != nil {
+				t.Fatal(err)
+			}
+			manager := NewManager(Options{
+				Cache: cache, ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+				LifecycleFactory: func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+			})
+			if name == "older version" {
+				if err := manager.ApplySettings(config.Remote); err != nil {
+					t.Fatal(err)
+				}
+				current := artifact
+				current.Version = "v2"
+				document := signDocument(t, ReleaseMetadata{Sequence: 2, ExpiresAtUnix: host.document.Metadata.ExpiresAtUnix, Artifacts: []Artifact{current}})
+				manager.releaseProvider = fixedHelperRelease{document: document, content: content}
+			} else if name == "wrong alias" {
+				if err := cache.StoreHelperVersion(config.Remote.ID, "v1", "other-box"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				data := []byte(`{"version":"../v1"}`)
+				ownershipPath, err := cache.helperOwnershipPath(config.Remote.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(ownershipPath, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Cleanup(manager.Shutdown)
+			if err := manager.RemoveHubHost(local, *config.Remote); err != nil {
+				t.Fatal(err)
+			}
+			if local.State().Config.Remote != nil || manager.DiagnosticsHealth().SourceID != "" {
+				t.Fatal("host remains configured")
+			}
+			_, err := os.Stat(installed)
+			remove := name == "older version"
+			if remove && !os.IsNotExist(err) || !remove && err != nil {
+				t.Fatalf("helper after removal: %v", err)
+			}
+		})
+	}
+}
