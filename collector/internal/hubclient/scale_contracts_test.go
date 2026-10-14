@@ -18,12 +18,13 @@ import (
 // These scale-contracts/v1 fixtures pin the wire shapes used by the client.
 // The additive d60 and backfill fixtures must stay aligned with the Hub schema.
 var scaleFixtureHashes = map[string]string{
-	"check-in-import-progress.json":          "85cb489539e0393d2a99c839367800743430004cafd8d214c11be54cda91d3dc",
-	"check-in-inventory-unknown-agent.json":  "3c0fc797e351a2969471149a4ed98dff9dea54501fd519db27616f283a417ce7",
-	"check-in-inventory-with-path.json":      "efe6cb8f2219dfc7bc10bb5c31e98ccab6ddc0a7e66a0409af4009f7f164ea56",
-	"check-in-inventory-with-title.json":     "192a80ca9c5f263bf6b45248ef4b977a7666658288aaa34683e1b0282149f011",
-	"check-in-response-import-plan.json":     "2ac857f153f5ed5861cf05f7e3fdd5faf5659530863a4afa94501e3b570ee025",
-	"check-in-response-manual-backfill.json": "ea46c150aaffad6b99a79a2f10eb6dd064d04c5be88ab9148f19c5df37361b21",
+	"check-in-response-all-history-backfill.json": "fa9fb8d6e0c2d23350a191b8dddc5f11a256275e95174889bf72a2739598e6cb",
+	"check-in-import-progress.json":               "85cb489539e0393d2a99c839367800743430004cafd8d214c11be54cda91d3dc",
+	"check-in-inventory-unknown-agent.json":       "3c0fc797e351a2969471149a4ed98dff9dea54501fd519db27616f283a417ce7",
+	"check-in-inventory-with-path.json":           "efe6cb8f2219dfc7bc10bb5c31e98ccab6ddc0a7e66a0409af4009f7f164ea56",
+	"check-in-inventory-with-title.json":          "192a80ca9c5f263bf6b45248ef4b977a7666658288aaa34683e1b0282149f011",
+	"check-in-response-import-plan.json":          "2ac857f153f5ed5861cf05f7e3fdd5faf5659530863a4afa94501e3b570ee025",
+	"check-in-response-manual-backfill.json":      "ea46c150aaffad6b99a79a2f10eb6dd064d04c5be88ab9148f19c5df37361b21",
 }
 
 func readScaleFixture(t *testing.T, name string) []byte {
@@ -104,14 +105,21 @@ func TestV4CheckInResponseCarriesHubCapabilities(t *testing.T) {
 	}
 }
 
-func TestV4CheckInResponseDecodesManualSixtyDayBackfill(t *testing.T) {
-	var response V4CheckIn
-	if err := json.Unmarshal(readScaleFixture(t, "check-in-response-manual-backfill.json"), &response); err != nil {
-		t.Fatal(err)
-	}
-	plan := response.Config.ImportPlan
-	if plan == nil || plan.Window != "60d" || !plan.Backfill || plan.History || plan.MaxSessionsPerAgent != 0 || plan.MaxSessions != 0 {
-		t.Fatalf("manual backfill plan = %+v", plan)
+func TestV4CheckInResponseDecodesManualBackfill(t *testing.T) {
+	for _, choice := range []struct{ fixture, window string }{
+		{"check-in-response-manual-backfill.json", "60d"},
+		{"check-in-response-all-history-backfill.json", "all"},
+	} {
+		t.Run(choice.window, func(t *testing.T) {
+			var response V4CheckIn
+			if err := json.Unmarshal(readScaleFixture(t, choice.fixture), &response); err != nil {
+				t.Fatal(err)
+			}
+			plan := response.Config.ImportPlan
+			if plan == nil || plan.Window != choice.window || !plan.Backfill || plan.History || plan.MaxSessionsPerAgent != 0 || plan.MaxSessions != 0 {
+				t.Fatalf("manual backfill plan = %+v", plan)
+			}
+		})
 	}
 }
 
