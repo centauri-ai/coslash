@@ -1562,3 +1562,56 @@ func TestSaveHubSettingsPreservesOwnedHostOnFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveHubHostUninstallsHelper(t *testing.T) {
+	for _, name := range []string{"reachable", "offline"} {
+		t.Run(name, func(t *testing.T) {
+			offline := name == "offline"
+			t.Setenv("COSLASH_HOME", t.TempDir())
+			local := settings.Open()
+			config := settings.Defaults()
+			config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: true}
+			if err := local.Save(config); err != nil {
+				t.Fatal(err)
+			}
+			host, artifact, content := lifecycleFixture(t)
+			var manager *Manager
+			manager = NewManager(Options{
+				Cache: NewCache(t.TempDir()), ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+				LifecycleFactory: func(string) (Lifecycle, error) {
+					if local.State().Config.Remote == nil {
+						if err := manager.ApplySettings(config.Remote); !errors.Is(err, ErrHelperSetupInProgress) {
+							t.Fatalf("settings save during uninstall: %v", err)
+						}
+					}
+					return lifecycleFor(host), nil
+				},
+				HelperInstallationAvailable: true,
+			})
+			if err := manager.ApplySettings(config.Remote); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Shutdown)
+			if health, err := manager.SetupHelperForAlias(t.Context(), "agent-box", Consent{Install: true}); err != nil || health.Helper == nil || !health.Helper.Compatible {
+				t.Fatalf("helper setup: %+v %v", health, err)
+			}
+			installed := filepath.Join(host.root, artifact.Version, HelperFileName)
+			if _, err := os.Stat(installed); err != nil {
+				t.Fatal(err)
+			}
+			if offline {
+				host.removeErr = context.DeadlineExceeded
+			}
+			if err := manager.RemoveHubHost(local, *config.Remote); err != nil {
+				t.Fatal(err)
+			}
+			if local.State().Config.Remote != nil || manager.DiagnosticsHealth().SourceID != "" {
+				t.Fatal("removed host remains configured")
+			}
+			_, err := os.Stat(installed)
+			if offline && err != nil || !offline && !os.IsNotExist(err) {
+				t.Fatalf("helper file after removal: %v (offline=%v)", err, offline)
+			}
+		})
+	}
+}

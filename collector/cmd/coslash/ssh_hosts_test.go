@@ -138,7 +138,8 @@ func TestSSHHostsCheckInReconcilesAndRetries(t *testing.T) {
 			if err := cache.StoreHelperVersion(config.Remote.ID, "v1", "agent-box"); err != nil {
 				t.Fatal(err)
 			}
-			relay := remote.NewManager(remote.Options{Cache: cache})
+			provider := &removedHostRelease{t: t, local: local}
+			relay := remote.NewManager(remote.Options{Cache: cache, ReleaseProvider: provider})
 			if !tc.notRunning {
 				if err := relay.ApplySettings(config.Remote); err != nil {
 					t.Fatal(err)
@@ -204,13 +205,16 @@ func TestSSHHostsCheckInReconcilesAndRetries(t *testing.T) {
 			}
 			got := settings.Open().State().Config
 			if tc.remove {
+				if provider.calls != 1 {
+					t.Fatalf("uninstall attempts = %d, want 1", provider.calls)
+				}
 				if _, owned, err := cache.LoadHelperOwnership(config.Remote.ID); err != nil || owned {
 					t.Fatalf("removed host still owns helper: owned=%v err=%v", owned, err)
 				}
 				if got.Remote != nil || relay.DiagnosticsHealth().SourceID != "" {
 					t.Fatal("removed host remains configured")
 				}
-			} else if !reflect.DeepEqual(got, config) || !reflect.DeepEqual(relay.DiagnosticsHealth(), before) {
+			} else if provider.calls != 0 || !reflect.DeepEqual(got, config) || !reflect.DeepEqual(relay.DiagnosticsHealth(), before) {
 				t.Fatal("retained host changed")
 			}
 		})
@@ -292,4 +296,23 @@ func TestRemovedCacheCleanupIsRetried(t *testing.T) {
 	if _, err := os.Stat(dirs[0]); !os.IsNotExist(err) {
 		t.Fatalf("private cache cleanup was not retried: %v", err)
 	}
+}
+
+// The offline host must still be forgotten after the uninstall attempt.
+type removedHostRelease struct {
+	remote.HelperReleaseProvider
+	t     *testing.T
+	local *settings.Store
+	calls int
+}
+
+func (provider *removedHostRelease) LoadMetadata(ctx context.Context) (remote.SignedReleaseMetadata, error) {
+	provider.calls++
+	if provider.local.State().Config.Remote != nil {
+		provider.t.Error("uninstall attempted before settings commit")
+	}
+	if _, bounded := ctx.Deadline(); !bounded {
+		provider.t.Error("uninstall has no deadline")
+	}
+	return remote.SignedReleaseMetadata{}, context.DeadlineExceeded
 }
