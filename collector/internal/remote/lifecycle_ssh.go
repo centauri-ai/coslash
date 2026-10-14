@@ -388,8 +388,10 @@ func removeStaleLifecycleTemporary(client *sftp.Client, temporary string, uid ui
 	if err != nil {
 		return err
 	}
-	if err := validateLifecycleEntry(info, uid, false); err != nil {
-		return err
+	// Stale uploads may retain permissive creation modes after interruption.
+	stat, ok := info.Sys().(*sftp.FileStat)
+	if !info.Mode().IsRegular() || !ok || stat.UID != uid {
+		return ErrHelperVerification
 	}
 	return client.Remove(temporary)
 }
@@ -416,6 +418,9 @@ type lifecycleArtifactFile interface {
 }
 
 func writeLifecycleArtifact(file lifecycleArtifactFile, content []byte) error {
+	if err := file.Chmod(0o600); err != nil {
+		return err
+	}
 	if _, err := io.Copy(file, bytes.NewReader(content)); err != nil {
 		return err
 	}

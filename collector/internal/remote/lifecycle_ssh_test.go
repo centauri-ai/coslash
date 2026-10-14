@@ -89,6 +89,40 @@ func TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	uid := uint32(os.Getuid())
+	staging := path.Join(home, ".coslash-helper-0.0.0.stage")
+	if err := os.WriteFile(staging, []byte("partial upload"), 0o664); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(staging, 0o664); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLifecycleHome(client, home, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleLifecycleTemporary(client, staging, uid+1); !errors.Is(err, ErrHelperVerification) {
+		t.Fatalf("wrong-owner cleanup error = %v", err)
+	}
+	if err := removeStaleLifecycleTemporary(client, staging, uid); err != nil {
+		t.Fatalf("cleanup of 0664 partial stage: %v", err)
+	}
+	if _, err := os.Lstat(staging); !os.IsNotExist(err) {
+		t.Fatalf("partial stage remains: %v", err)
+	}
+	if err := os.Symlink(local, staging); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleLifecycleTemporary(client, staging, uid); !errors.Is(err, ErrHelperVerification) {
+		t.Fatalf("symlink cleanup error = %v", err)
+	}
+	if err := os.Remove(staging); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleLifecycleTemporary(client, staging, uid); !errors.Is(err, ErrHelperVerification) {
+		t.Fatalf("directory cleanup error = %v", err)
+	}
 	if err := validateLifecycleDirectories(client, home, "v1", uid, true); err != nil {
 		t.Fatal(err)
 	}
@@ -304,5 +338,57 @@ func TestCappedWriterRejectsGrowthPastReportedSize(t *testing.T) {
 	}
 	if _, err := capped.Write([]byte("x")); !errors.Is(err, ErrHelperVerification) {
 		t.Fatalf("growth error = %v, want ErrHelperVerification", err)
+	}
+}
+
+type interruptedLifecycleFile struct {
+	*os.File
+	interrupt bool
+}
+
+func (file interruptedLifecycleFile) Write(content []byte) (int, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if info.Mode().Perm() != 0o600 {
+		return 0, errors.New("stage must be 0600 before writing")
+	}
+	if file.interrupt {
+		n, err := file.File.Write(content[:1])
+		return n, errors.Join(err, io.ErrUnexpectedEOF)
+	}
+	return file.File.Write(content)
+}
+
+func TestWriteLifecycleArtifactSecuresStageBeforeUpload(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX remote file permissions")
+	}
+	for _, interrupt := range []bool{false, true} {
+		t.Run(map[bool]string{false: "complete", true: "interrupted"}[interrupt], func(t *testing.T) {
+			file, err := os.Create(filepath.Join(t.TempDir(), "stage"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			if err := file.Chmod(0o664); err != nil {
+				t.Fatal(err)
+			}
+			err = writeLifecycleArtifact(interruptedLifecycleFile{File: file, interrupt: interrupt}, []byte("helper"))
+			wantMode := os.FileMode(0o700)
+			if interrupt {
+				wantMode = 0o600
+				if !errors.Is(err, io.ErrUnexpectedEOF) {
+					t.Fatalf("interrupted upload error = %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			info, err := file.Stat()
+			if err != nil || info.Mode().Perm() != wantMode {
+				t.Fatalf("stage info = %v, error = %v, want mode %v", info, err, wantMode)
+			}
+		})
 	}
 }
