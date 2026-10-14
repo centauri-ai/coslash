@@ -1617,7 +1617,7 @@ func TestRemoveHubHostUninstallsHelper(t *testing.T) {
 }
 
 func TestRemoveHubHostUninstallsPreviouslyOwnedHelper(t *testing.T) {
-	for _, name := range []string{"older version", "wrong alias", "corrupt ownership"} {
+	for _, name := range []string{"older version", "legacy ownership", "wrong alias", "corrupt ownership"} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("COSLASH_HOME", t.TempDir())
 			local := settings.Open()
@@ -1654,7 +1654,10 @@ func TestRemoveHubHostUninstallsPreviouslyOwnedHelper(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				data := []byte(`{"version":"../v1"}`)
+				data := []byte(`{"version":"v1"}`)
+				if name == "corrupt ownership" {
+					data = []byte(`{"version":"../v1"}`)
+				}
 				ownershipPath, err := cache.helperOwnershipPath(config.Remote.ID)
 				if err != nil {
 					t.Fatal(err)
@@ -1671,7 +1674,7 @@ func TestRemoveHubHostUninstallsPreviouslyOwnedHelper(t *testing.T) {
 				t.Fatal("host remains configured")
 			}
 			_, err := os.Stat(installed)
-			remove := name == "older version"
+			remove := name == "older version" || name == "legacy ownership"
 			if remove && !os.IsNotExist(err) || !remove && err != nil {
 				t.Fatalf("helper after removal: %v", err)
 			}
