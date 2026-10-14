@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -207,6 +208,13 @@ func (client *localAPIClient) request(method, path string, body io.Reader) ([]by
 		return nil, fmt.Errorf("read coSlash response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if path == "/api/hub/onboarding/connect" {
+			var claimError hubclient.ConnectClaimError
+			if json.Unmarshal(data, &claimError) == nil && (claimError.Code == "rate_limited" || claimError.Code == "hub_temporarily_unavailable") {
+				claimError.RetryAfterSeconds = max(0, min(86400, claimError.RetryAfterSeconds))
+				return nil, claimError
+			}
+		}
 		message := strings.TrimSpace(string(data))
 		var apiError apiErrorBody
 		if json.Unmarshal(data, &apiError) == nil && apiError.Error != "" {
