@@ -476,7 +476,7 @@ func (manager *Manager) ReleaseHelperOwnership() error {
 	return nil
 }
 
-// UninstallHelper removes exactly the currently verified artifact. It leaves
+// UninstallHelper removes exactly the verified or locally owned artifact. It leaves
 // the local host configuration untouched on error so the caller can retry or
 // deliberately choose remove-only.
 func (manager *Manager) UninstallHelper(ctx context.Context) error {
@@ -494,6 +494,7 @@ func (manager *Manager) UninstallHelper(ctx context.Context) error {
 	if manager.helperTarget != nil {
 		version = manager.helperTarget.version
 	}
+	locallyOwned := manager.helperVersion != "" && manager.helperVersion == version
 	provider, factory := manager.releaseProvider, manager.lifecycleFactory
 	manager.mu.Unlock()
 	if provider == nil || factory == nil {
@@ -507,7 +508,7 @@ func (manager *Manager) UninstallHelper(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := lifecycle.Uninstall(ctx, document, version); err != nil {
+	if err := lifecycle.uninstall(ctx, document, version, locallyOwned); err != nil {
 		return err
 	}
 	if err := manager.cache.RemoveHelperVersion(config.ID); err != nil {
