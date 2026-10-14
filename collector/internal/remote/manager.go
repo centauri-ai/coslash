@@ -132,6 +132,7 @@ type Manager struct {
 	helperVerify           helperVerifyFunc
 	resetControlMaster     func(string)
 	helperSetup            bool
+	removingHubHost        bool
 	helperAutoSetup        bool
 	helperVersion          string
 	helperOwnershipCorrupt bool
@@ -309,7 +310,7 @@ func (manager *Manager) applySettings(remote *settings.RemoteSettings, save func
 		}
 	}()
 	replacing := save != nil && manager.cfg != nil && remote != nil && remoteTargetChanged(manager.cfg, remote)
-	if (manager.helperSetup || replacing && manager.helperAutoSetup) && remoteTargetChanged(manager.cfg, remote) {
+	if manager.removingHubHost || (manager.helperSetup || replacing && manager.helperAutoSetup) && remoteTargetChanged(manager.cfg, remote) {
 		return ErrHelperSetupInProgress
 	}
 	corruptOwnership := false
@@ -458,7 +459,7 @@ func (manager *Manager) ValidateSettingsChange(remote *settings.RemoteSettings) 
 }
 
 func (manager *Manager) validateSettingsLocked(remote *settings.RemoteSettings) error {
-	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
+	if manager.removingHubHost || manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
 		return ErrHelperSetupInProgress
 	}
 	if remote == nil {
@@ -804,7 +805,7 @@ func (manager *Manager) removeLocked() (string, error) {
 }
 
 // RemoveHubHost commits settings and cache removal before releasing ownership.
-// It leaves the installed helper on the remote host.
+// Helper uninstall is best-effort after the durable removal commits.
 func (manager *Manager) RemoveHubHost(local *settings.Store, expected settings.RemoteSettings) error {
 	manager.mu.Lock()
 	alias := ""
@@ -829,11 +830,36 @@ func (manager *Manager) RemoveHubHost(local *settings.Store, expected settings.R
 	if manager.cfg != nil && (manager.cfg.ID != current.ID || manager.cfg.SSHAlias != current.SSHAlias) {
 		return ErrInvalidRemoteSettings
 	}
+	var ownership helperOwnership
+	var ownershipErr error
+	if manager.cfg == nil {
+		ownership, _, ownershipErr = manager.cache.LoadHelperOwnership(current.ID)
+	}
 	config := state.Config
 	config.Remote = nil
 	if err := manager.cache.removeSourceWithCommit(current.ID, func() error { return local.Save(config) }, current); err != nil {
 		return err
 	}
+	if manager.cfg == nil {
+		copyConfig := *current
+		manager.cfg = &copyConfig
+		manager.helperVersion = ownership.Version
+		manager.helperOwnershipCorrupt = ownershipErr != nil || ownership.Alias != "" && ownership.Alias != current.SSHAlias
+	}
+	// Reserve the target and stop collection while uninstall runs without the lock.
+	manager.helperSetup = true
+	manager.removingHubHost = true
+	manager.cancelLifeLocked()
+	manager.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultHelperInstallTimeout)
+	err := manager.UninstallHelper(ctx)
+	cancel()
+	if err != nil {
+		LogSSHFailure("removed Hub host helper uninstall", err)
+	}
+	manager.mu.Lock()
+	manager.helperSetup = false
+	manager.removingHubHost = false
 	alias = manager.clearRemoteLocked()
 	return nil
 }
