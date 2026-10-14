@@ -543,7 +543,9 @@ func TestConnectCLIWaitsForApprovalAndHandlesInterrupt(t *testing.T) {
 		})
 		var stdout, stderr bytes.Buffer
 		code := runConnectCLI(&stdout, &stderr, []string{"K7QX-29PD", "--hub", "https://hub.coslash.io"})
-		if code != connectExitOK || !strings.Contains(stdout.String(), "✓ Connected. Your recent sessions are syncing to My space.") ||
+		if code != connectExitOK || !strings.HasPrefix(stdout.String(),
+			"Return to Hub and click \"Connect this computer\".\n✓ Connected. Your recent sessions are syncing to My space.\n") ||
+			strings.Count(stdout.String(), "✓") != 1 ||
 			statusPolls.Load() < 2 || stderr.Len() != 0 {
 			t.Fatalf("exit=%d polls=%d stdout=%q stderr=%q", code, statusPolls.Load(), stdout.String(), stderr.String())
 		}
@@ -572,6 +574,31 @@ func TestConnectCLIWaitsForApprovalAndHandlesInterrupt(t *testing.T) {
 			t.Fatalf("exit=%d polls=%d stdout=%q stderr=%q", code, statusPolls.Load(), stdout.String(), stderr.String())
 		}
 	})
+}
+
+func TestConnectCLIClaimThenExpire(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/api/hub/onboarding/connect":
+			_, _ = fmt.Fprint(w, `{"id":"job","state":"claimed"}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/api/hub/onboarding/connect/job":
+			_, _ = fmt.Fprint(w, `{"state":"expired"}`)
+		default:
+			t.Errorf("unexpected Local request %s %s", request.Method, request.URL.Path)
+			http.NotFound(w, request)
+		}
+	}))
+	defer local.Close()
+	holdTestRuntime(t, local.URL)
+	var output bytes.Buffer
+	code := runConnectCLI(&output, &output, []string{"K7QX-29PD", "--hub", "https://hub.coslash.io"})
+	want := "Return to Hub and click \"Connect this computer\".\n" +
+		"This connect code is invalid or expired. Get a new command in Hub.\n"
+	if code != connectExitInvalid || output.String() != want {
+		t.Fatalf("exit=%d output=%q, want exit=%d output=%q", code, output.String(), connectExitInvalid, want)
+	}
 }
 
 func TestConnectClaimMapsInvalidUnsupportedAndUnreachable(t *testing.T) {
