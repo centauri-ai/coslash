@@ -834,6 +834,10 @@ func (manager *Manager) RemoveHubHost(local *settings.Store, expected settings.R
 	var ownershipErr error
 	if manager.cfg == nil {
 		ownership, _, ownershipErr = manager.cache.LoadHelperOwnership(current.ID)
+		if errors.Is(ownershipErr, ErrHelperOwnershipLegacy) {
+			ownership.Alias = current.SSHAlias
+			ownershipErr = nil
+		}
 	}
 	config := state.Config
 	config.Remote = nil
