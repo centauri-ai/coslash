@@ -97,6 +97,16 @@ The queue is private (`0700` directory and `0600` file, or current-user ACL on
 Windows) and updated by sync plus atomic rename. Check-in reports
 `queue.firstSync` as fallback for server events. A failed check-in, stale policy,
 Hub pause, device-off, local metered hint, or low battery stops new writes.
+On Windows, native power status supplies the battery percentage only off AC;
+below 20% pauses writes. A batteryless desktop or known AC power is exempt.
+A hidden, cancellable Windows PowerShell process queries WinRT for the preferred
+Internet connection's cost, with a ten-second budget to allow cold startup.
+Metered, roaming, data-limit or restricted background-data connections stop
+writes; unavailable or unknown cost and unknown off-AC battery state also stop
+writes. Successful network probes are reused for 15 seconds so chunk and session
+guards do not each launch PowerShell. Power and explicit environment overrides
+are checked on every guard; a connection change can take up to 15 seconds to
+affect the next guard. No connection name or address is read or reported.
 After the Hub advertises `scale-import/v1`, check-in also reports
 `queue.import` with the scheduler's phase, counts, bytes, current transfer,
 progress timestamps, measured rate quantiles and wait reason. During the
