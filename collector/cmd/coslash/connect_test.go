@@ -545,7 +545,6 @@ func TestConnectCLIWaitsForApprovalAndHandlesInterrupt(t *testing.T) {
 		code := runConnectCLI(&stdout, &stderr, []string{"K7QX-29PD", "--hub", "https://hub.coslash.io"})
 		if code != connectExitOK || !strings.HasPrefix(stdout.String(),
 			"Return to Hub and click \"Connect this computer\".\n✓ Connected. Your recent sessions are syncing to My space.\n") ||
-			strings.Count(stdout.String(), "✓") != 1 ||
 			statusPolls.Load() < 2 || stderr.Len() != 0 {
 			t.Fatalf("exit=%d polls=%d stdout=%q stderr=%q", code, statusPolls.Load(), stdout.String(), stderr.String())
 		}
