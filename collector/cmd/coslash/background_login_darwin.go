@@ -29,7 +29,19 @@ func backgroundLoginPlist(executable string) ([]byte, error) {
 `), nil
 }
 
-func registerBackgroundLogin() error {
+func registerBackgroundLogin() error { return nil }
+
+func installService() error {
+	if !usesDefaultHome() {
+		return fmt.Errorf("login installation requires the default COSLASH_HOME")
+	}
+	if err := registerProtocolHandler(); err != nil {
+		return err
+	}
+	return installBackgroundLogin()
+}
+
+func installBackgroundLogin() error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
