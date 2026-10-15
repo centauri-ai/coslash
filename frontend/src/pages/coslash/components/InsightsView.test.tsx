@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
@@ -27,6 +30,48 @@ function render(sessions: Session[] = []) {
 }
 
 afterEach(() => vi.useRealTimers());
+
+it('allows the next month after the calendar rolls into a new year', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 11, 31, 23, 59, 30));
+  vi.mocked(useSynthesisCosts).mockReturnValue({
+    data: null,
+    isLoading: false,
+    error: null,
+    retry: () => {},
+    refresh: () => {},
+  });
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  try {
+    await act(async () =>
+      root.render(
+        <InsightsView
+          sessions={[]}
+          isLoading={false}
+          loadError={null}
+          synthesisCostVersion={null}
+          onRetry={() => {}}
+        />,
+      ),
+    );
+    const next = container.querySelector<HTMLButtonElement>('[aria-label="Next month"]')!;
+    expect(next.disabled).toBe(true);
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(next.disabled).toBe(false);
+    await act(async () => next.click());
+    expect(next.disabled).toBe(true);
+    expect(useSynthesisCosts).toHaveBeenLastCalledWith({
+      since: new Date(2027, 0, 1).getTime(),
+      until: new Date(2027, 1, 1).getTime(),
+    });
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 
 it('shows synthesis in a month with no coding sessions and labels both scopes', () => {
   vi.useFakeTimers();
