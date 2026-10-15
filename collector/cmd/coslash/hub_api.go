@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -48,7 +50,7 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 	}
 	return &hubclient.Client{
 		BaseURL:          baseURL,
-		Credentials:      deviceCredentialStore(runtime.GOOS, baseURL.Host),
+		Credentials:      deviceCredentialStore(runtime.GOOS, baseURL.Scheme+"://"+baseURL.Host),
 		DeviceName:       deviceName,
 		CollectorVersion: collectorVersion,
 		InstallChannel:   detectedInstallChannel(),
@@ -56,11 +58,27 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 	}, nil
 }
 
-func deviceCredentialStore(goos, host string) hubclient.CredentialStore {
+func deviceCredentialStore(goos, origin string) hubclient.CredentialStore {
+	_, host, hasScheme := strings.Cut(origin, "://")
+	if !hasScheme {
+		host = origin
+	}
+
 	if goos == "linux" {
 		return hubclient.FileCredentialStore{Path: filepath.Join(settings.Home(), "hub-credentials", host)}
 	}
-	return hubclient.OSKeychain{Service: "ai.coslash.hub-device", Account: host}
+	home := filepath.Clean(settings.Home())
+	if absolute, err := filepath.Abs(home); err == nil {
+		home = absolute
+	}
+	store := hubclient.OSKeychain{
+		Service: "ai.coslash.hub-device",
+		Account: fmt.Sprintf("%x:%s", sha256.Sum256([]byte(home)), origin),
+	}
+	if usesDefaultHome() {
+		store.LegacyAccount = host
+	}
+	return store
 }
 
 func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, onboardings *onboardingManager) {
