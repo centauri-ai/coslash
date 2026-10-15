@@ -973,10 +973,10 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		}
 		if recent {
 			progress.FirstSync.RecentTotal++
-			if !pending(entry) || entry.ParkedVersion != "" {
+			if caughtUp(entry) {
 				progress.FirstSync.RecentDone++
 			}
-		} else if pending(entry) && entry.ParkedVersion == "" && (plan == nil || plan.History || plan.Backfill) {
+		} else if !caughtUp(entry) && (plan == nil || plan.History || plan.Backfill) {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 		if pending(entry) && entry.ParkedVersion == "" {
@@ -1049,6 +1049,10 @@ func (q *Queue) InPlanScope(entry Entry, plan hubclient.V4ImportPlan) bool {
 
 func pending(entry Entry) bool {
 	return entry.RevisionID == "" || entry.SyncedActivity < entry.Activity || entry.SourceRevision != "" && entry.SyncedSourceRevision != entry.SourceRevision
+}
+
+func caughtUp(entry Entry) bool {
+	return !pending(entry) || entry.SyncedActivity > 0 || entry.ParkedVersion != "" || entry.ListRejected || entry.FailureCode == "session_deleted"
 }
 
 func (q *Queue) save() error {
