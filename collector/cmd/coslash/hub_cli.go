@@ -70,6 +70,12 @@ func hubAgentCredentialStore(goos string) hubclient.CredentialStore {
 	if goos == "linux" {
 		return hubclient.FileCredentialStore{Path: filepath.Join(settings.Home(), "hub-credentials", "agent-access")}
 	}
+	if goos == "darwin" {
+		return hubclient.SealedFileCredentialStore{
+			Path:     filepath.Join(settings.Home(), "hub-credentials", "agent-access.enc"),
+			Keychain: hubclient.OSKeychain{Service: hubAgentKeychainService, Account: hubAgentKeychainAccount},
+		}
+	}
 	return hubclient.OSKeychain{Service: hubAgentKeychainService, Account: hubAgentKeychainAccount}
 }
 
@@ -344,6 +350,10 @@ func (c *hubAgentCLI) login(ctx context.Context, hubURL, scope string) error {
 	if err := c.saveCredential(ctx, credential); err != nil {
 		return fmt.Errorf("save Hub credentials: %w", err)
 	}
+	stored, err := c.loadCredential(ctx)
+	if err != nil || stored.AccessToken != credential.AccessToken || stored.RefreshToken != credential.RefreshToken || stored.HubURL != credential.HubURL {
+		return errors.New("Hub credentials were not retained; disconnect this CLI in Hub and try again")
+	}
 	fmt.Fprintln(c.output, "Connected to coSlash Hub.")
 	if credential.RefreshToken == "" {
 		fmt.Fprintf(c.output, "Hub did not issue a refresh token; access expires in %s and will need another device login.\n", time.Duration(tokens.ExpiresIn)*time.Second)
@@ -431,7 +441,10 @@ func (c *hubAgentCLI) pollDeviceToken(ctx context.Context, endpoints hubOAuthEnd
 func (c *hubAgentCLI) logout(ctx context.Context) error {
 	credential, err := c.loadCredential(ctx)
 	if err != nil && !errors.Is(err, hubclient.ErrNotPaired) {
-		return err
+		if deleteErr := c.credentials.Delete(ctx); deleteErr != nil {
+			return fmt.Errorf("delete unreadable Hub credentials: %w", deleteErr)
+		}
+		return errors.New("local credentials were removed, but Hub could not revoke the token; revoke this client in Hub settings")
 	}
 	var revokeErr error
 	if err == nil {

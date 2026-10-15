@@ -202,13 +202,15 @@ Local device does not authorize MCP.
 OpenCode setup preserves an existing `opencode.jsonc`, including comments and
 other servers.
 
-On a headless host, `coslash hub login` connects the Local CLI with device-code
-authorization. It requests `hub:read` and `hub:ask` by default. Repeat
+On a headless host, `coslash hub login --hub <MCP URL>` connects the Local CLI
+with device-code authorization. Copy the MCP URL from Hub Settings → Coding
+agents. It requests `hub:read` by default. Repeat
 `--scope SCOPE` to request additional access, for example
 `coslash hub login --scope hub:write --scope hub:share`; review the requested
 scopes in Hub before the CLI stores its separate Hub credential. Search session
 text with `coslash hub search "retry backoff"`; use `coslash hub call` for other
-tools.
+tools. On macOS, the CLI stores its encryption key in Keychain and the encrypted
+credential in a private `0600` file under `$COSLASH_HOME/hub-credentials`.
 
 The agent stores its own OAuth credential. To switch Hub accounts for Claude
 Code, Codex, or OpenCode, run `coslash mcp switch <agent>`, change the account
