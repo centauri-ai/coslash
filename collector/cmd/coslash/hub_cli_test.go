@@ -45,7 +45,7 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]string{"client_id": "client_test"})
 		case "/oauth/device_authorization":
-			if err := r.ParseForm(); err != nil || r.Form.Get("client_id") != "client_test" || r.Form.Get("resource") != endpoint || r.Form.Get("scope") != "hub:read hub:ask hub:write hub:share hub:admin" {
+			if err := r.ParseForm(); err != nil || r.Form.Get("client_id") != "client_test" || r.Form.Get("resource") != endpoint || r.Form.Get("scope") != "hub:read hub:write hub:share hub:admin" {
 				http.Error(w, "bad device request", http.StatusBadRequest)
 				return
 			}
@@ -142,7 +142,7 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: func(context.Context, time.Duration) error { return nil }, pollEvery: time.Millisecond}
 
 	if err := cli.run(context.Background(), []string{"login", "--hub", endpoint,
-		"--scope", "hub:read", "--scope", "hub:ask", "--scope", "hub:write", "--scope", "hub:share", "--scope", "hub:admin"}); err != nil {
+		"--scope", "hub:read", "--scope", "hub:write", "--scope", "hub:share", "--scope", "hub:admin"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := cli.run(context.Background(), []string{"tools"}); err != nil {
@@ -313,7 +313,7 @@ func TestHubCLIURLAndToolValidation(t *testing.T) {
 
 func TestHubLoginScopesDefaultAndValidation(t *testing.T) {
 	defaults, err := parseHubLoginArgs(nil)
-	if err != nil || defaults.HubURL != hubDefaultURL || strings.Join(defaults.Scopes, " ") != hubAgentDefaultScope {
+	if err != nil || defaults.HubURL != "https://hub.coslash.io/mcp" || strings.Join(defaults.Scopes, " ") != "hub:read" {
 		t.Fatalf("default login options = %+v, %v", defaults, err)
 	}
 	requested, err := parseHubLoginArgs([]string{"--scope", "hub:read", "--scope", "hub:share", "--hub", "http://127.0.0.1:18380/mcp"})
@@ -321,6 +321,7 @@ func TestHubLoginScopesDefaultAndValidation(t *testing.T) {
 		t.Fatalf("explicit login options = %+v, %v", requested, err)
 	}
 	for _, args := range [][]string{
+		{"--scope", "hub:ask"},
 		{"--scope", "mcp:read"},
 		{"--scope", "hub:share", "--scope", "hub:share"},
 		{"--scope"},
