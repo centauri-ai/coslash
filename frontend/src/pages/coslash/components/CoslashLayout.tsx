@@ -1,13 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowDown,
@@ -944,24 +935,9 @@ function SessionListView({
   review: SessionReviewProps;
   handoffs: ReadonlyMap<string, DirectedHandoff>;
 }) {
-  const headRef = useRef<HTMLTableSectionElement>(null);
-  // Section bands pin directly under the header row, whose height changes when its labels wrap.
-  const [headHeight, setHeadHeight] = useState(34);
-
-  useEffect(() => {
-    const head = headRef.current;
-    if (head == null) return;
-    const observer = new ResizeObserver(() => setHeadHeight(head.getBoundingClientRect().height));
-    observer.observe(head);
-    return () => observer.disconnect();
-  }, []);
-
   return (
-    <table
-      className="max-compact:table-auto w-full table-fixed border-separate border-spacing-0"
-      style={{ '--coslash-head-height': `${headHeight}px` } as CSSProperties}
-    >
-      <thead ref={headRef}>
+    <table className="max-compact:table-auto w-full table-fixed border-separate border-spacing-0">
+      <thead>
         <tr>
           <SortHeader label="Session" sortKey="title" sort={sort} onSort={onSort} className="w-[300px]" />
           <th className={cn(styles.head, 'max-compact:hidden w-[204px] px-2.5 py-[9px]')}>Where</th>
@@ -1000,10 +976,7 @@ function SessionListView({
         return (
           <tbody key={status}>
             <tr>
-              <th
-                colSpan={6}
-                className="border-coslash-line-soft bg-coslash-soft sticky top-[var(--coslash-head-height)] z-11 border-y text-left"
-              >
+              <th colSpan={6} className="border-coslash-line-soft bg-coslash-soft border-y text-left">
                 <button
                   type="button"
                   className="hover:bg-coslash-line-soft flex min-h-8 w-full cursor-pointer items-center gap-2 px-2.5 py-[7px] text-xs font-[650] transition-colors"

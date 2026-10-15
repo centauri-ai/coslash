@@ -172,6 +172,29 @@ for (const theme of ['light', 'dark']) {
         await page.close();
       }
     });
+    test(`group bands do not cover rows, ${theme}, ${width}px`, async () => {
+      const { page } = await fixture(width, theme);
+      try {
+        await page.getByRole('button', { name: /Show .* more/ }).click();
+        await page.locator('table').evaluate((table) => {
+          table.parentElement.scrollTop = 42;
+        });
+        const overlap = await page.locator('table').evaluate((table) => {
+          const band = table.querySelector('tbody th').getBoundingClientRect();
+          const row = table.querySelector('tbody tr:nth-child(2)').getBoundingClientRect();
+          return band.bottom - row.top;
+        });
+        assert.ok(overlap <= 1, `group header covers ${overlap}px of the first row`);
+        if (process.env.SCREENSHOT_DIR) {
+          await page.screenshot({
+            animations: 'disabled',
+            path: `${process.env.SCREENSHOT_DIR}/p39-${theme}-${width}.png`,
+          });
+        }
+      } finally {
+        await page.close();
+      }
+    });
   }
 }
 
