@@ -228,6 +228,21 @@ func TestHubCLILogoutRevokesAndDeletesAgentCredentials(t *testing.T) {
 	}
 }
 
+func TestHubCLILogoutRemovesUnreadableCredential(t *testing.T) {
+	store := hubclient.FileCredentialStore{Path: filepath.Join(t.TempDir(), "hub-agent-credentials")}
+	if err := store.Save(context.Background(), `{"access_token":"truncated`); err != nil {
+		t.Fatal(err)
+	}
+	cli := &hubAgentCLI{output: &bytes.Buffer{}, credentials: store}
+	err := cli.logout(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "revoke this client in Hub settings") {
+		t.Fatalf("logout unreadable credential = %v", err)
+	}
+	if _, err := store.Load(context.Background()); !errors.Is(err, hubclient.ErrNotPaired) {
+		t.Fatalf("local credential remains after logout: %v", err)
+	}
+}
+
 func TestHubCLIRefreshesAndPersistsRotatedTokens(t *testing.T) {
 	var refreshCalls atomic.Int32
 	var endpoint string
@@ -345,9 +360,13 @@ func TestHubCLIHelpDoesNotTouchCredentialStore(t *testing.T) {
 }
 
 func TestHubAgentCredentialStoreUsesIsolatedServiceAndLinuxFile(t *testing.T) {
-	mac, ok := hubAgentCredentialStore("darwin").(hubclient.OSKeychain)
-	if !ok || mac.Service != hubAgentKeychainService || mac.Service == "ai.coslash.hub-device" {
+	mac, ok := hubAgentCredentialStore("darwin").(hubclient.SealedFileCredentialStore)
+	if !ok || filepath.Base(mac.Path) != "agent-access.enc" {
 		t.Fatalf("macOS Hub agent credential store = %#v", mac)
+	}
+	macKeychain, ok := mac.Keychain.(hubclient.OSKeychain)
+	if !ok || macKeychain.Service != hubAgentKeychainService || macKeychain.Service == "ai.coslash.hub-device" {
+		t.Fatalf("macOS Hub agent keychain = %#v", mac.Keychain)
 	}
 	linux, ok := hubAgentCredentialStore("linux").(hubclient.FileCredentialStore)
 	if !ok || filepath.Base(linux.Path) != "agent-access" || strings.Contains(linux.Path, "hub-device") {
