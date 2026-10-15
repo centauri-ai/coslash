@@ -11,6 +11,7 @@ import {
   synthesisCostVersionChanged,
   synthesisCoverage,
 } from '@/pages/coslash/lib/synthesis-costs';
+import { MINUTE } from '@/pages/coslash/lib/time';
 
 const COLORS = [
   'var(--brand)',
@@ -107,8 +108,12 @@ export function InsightsView({
   onRetry: () => void;
   inPageFlow?: boolean;
 }) {
-  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const current = new Date();
+  const [current, setCurrent] = useState(() => new Date());
+  const [month, setMonth] = useState(() => new Date(current.getFullYear(), current.getMonth(), 1));
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrent(new Date()), MINUTE);
+    return () => window.clearInterval(timer);
+  }, []);
   const nextDisabled =
     month.getFullYear() === current.getFullYear() && month.getMonth() === current.getMonth();
   const insights = useMemo(() => buildInsights(sessions, month), [sessions, month]);
