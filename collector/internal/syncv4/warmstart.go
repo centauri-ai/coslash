@@ -77,7 +77,7 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 	}
 	if phase != "listing" {
 		for _, entry := range r.Queue.PlannedEntries(*plan, r.now()) {
-			if entry.SyncedActivity == 0 && !entry.Listed && !entry.Excluded && !entry.ListRejected {
+			if !caughtUp(entry) && !entry.Listed && !entry.Excluded && !entry.ListRejected {
 				if err := r.Queue.SetPhase("listing"); err != nil {
 					return err
 				}
@@ -371,7 +371,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, activeSince) && plan.HistoryPaused {
 			continue
 		}
-		if entry.SyncedActivity == 0 {
+		if !caughtUp(entry) {
 			phase := "recent"
 			if !planRecent(entry, plan, activeSince) {
 				phase = "history"
