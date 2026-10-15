@@ -92,3 +92,31 @@ func TestSealedFileCredentialStoreReplacesOldTruncatedKeychainValue(t *testing.T
 		t.Fatalf("replacement key length = %d", len(keychain.value))
 	}
 }
+
+func TestSealedFileCredentialStoreReadsAndMigratesLegacyKeychainCredential(t *testing.T) {
+	ctx := context.Background()
+	legacy := `{"hub_url":"https://hub.example.test/mcp","access_token":"old"}`
+	keychain := &shortCredentialKeychain{value: legacy}
+	store := SealedFileCredentialStore{
+		Path: filepath.Join(t.TempDir(), "agent-access.enc"), Keychain: keychain,
+	}
+	if got, err := store.Load(ctx); err != nil || got != legacy {
+		t.Fatalf("load legacy credential: match=%v, err=%v", got == legacy, err)
+	}
+	updated := strings.Repeat("refreshed-token", 100)
+	if err := store.Save(ctx, updated); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Load(ctx); err != nil || got != updated {
+		t.Fatalf("load migrated credential: match=%v, err=%v", got == updated, err)
+	}
+	if keychain.value == legacy {
+		t.Fatal("legacy plaintext remained in Keychain after migration")
+	}
+	if err := store.Delete(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(ctx); !errors.Is(err, ErrNotPaired) {
+		t.Fatalf("load after deleting migrated credential = %v", err)
+	}
+}

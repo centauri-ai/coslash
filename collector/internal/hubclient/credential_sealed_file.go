@@ -25,6 +25,12 @@ type SealedFileCredentialStore struct {
 
 func (s SealedFileCredentialStore) Load(ctx context.Context) (string, error) {
 	encoded, err := (FileCredentialStore{Path: s.Path}).Load(ctx)
+	if errors.Is(err, ErrNotPaired) {
+		// Older macOS CLIs kept the OAuth JSON directly in this Keychain item.
+		// Keep it usable until the next token save moves it into sealed storage,
+		// and let logout revoke it before deleting the old item.
+		return s.Keychain.Load(ctx)
+	}
 	if err != nil {
 		return "", err
 	}
