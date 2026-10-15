@@ -57,7 +57,7 @@ func setProtocolHandlerTestHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("COSLASH_HOME", filepath.Join(home, ".coslash"))
 	return home
 }
 
@@ -197,5 +197,23 @@ func TestFixLinksPrintsPlanAndRequiresYes(t *testing.T) {
 	}
 	if len(fake.unregistered) != 2 || fake.unregistered[0] != "/old/handler.app" || fake.unregistered[1] != "/missing/handler.app" {
 		t.Fatalf("unregistered = %v", fake.unregistered)
+	}
+}
+
+func TestAutomaticProtocolRegistrationPreservesOtherHomeAndBinary(t *testing.T) {
+	home := setProtocolHandlerTestHome(t)
+	t.Setenv("COSLASH_HOME", filepath.Join(home, "dev"))
+	t.Setenv(protocolHandlerTestHomeOverride, "1")
+	fake := &fakeProtocolHandlerBackend{registration: protocolHandlerRegistration{Registered: true, Executable: "/release/coslash"}}
+	useFakeProtocolHandlerBackend(t, fake)
+	if err := ensureProtocolHandler(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSLASH_HOME", filepath.Join(home, ".coslash"))
+	if err := ensureProtocolHandler(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.registered) != 0 {
+		t.Fatal("automatic registration replaced another Local")
 	}
 }
