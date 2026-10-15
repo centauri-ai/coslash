@@ -82,9 +82,13 @@ When Local is not running, Hub offers **Open coSlash Local**. Click it to start
 Local on that computer and request an immediate Hub check-in. Local stays in
 the background without opening its own browser tab. The first start registers a
 per-user URL handler on macOS or Windows; neither requires administrator rights.
-Once paired, Local also registers a per-user login start. Closing the browser
-does not stop its sync worker. On macOS, the login agent restarts Local if its
-process exits; on Windows, Local starts at the next sign-in; on Linux, see
+On macOS, run `coslash service install` from the copy you want to start at login.
+This installs its login agent and URL handler. It requires the default data home.
+Starting Local never replaces its login agent or an existing URL handler. A custom
+`COSLASH_HOME` skips URL registration and keeps separate Hub credentials.
+Closing the browser does not stop the sync worker. The macOS login agent restarts
+Local if its process exits. On Windows, pairing registers Local to start at the
+next sign-in; on Linux, see
 [Linux](#linux). Hub asks running
 Locals to check in when My space opens and shows whether they are reachable.
 When uninstalling a paired Windows copy, remove its login entry with

@@ -34,7 +34,40 @@ type protocolHandlerBackend interface {
 
 var activeProtocolHandlerBackend protocolHandlerBackend = newProtocolHandlerBackend()
 
+func usesDefaultHome() bool {
+	home, err := os.UserHomeDir()
+	return err == nil && sameProtocolHandlerPath(settings.Home(), filepath.Join(home, ".coslash"))
+}
+
+func ensureProtocolHandler() error {
+	if !usesDefaultHome() {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	if homeIsUnderTempDir(home, os.TempDir()) && os.Getenv(protocolHandlerTestHomeOverride) != "1" {
+		return nil
+	}
+	executable, err := currentExecutablePath()
+	if err != nil {
+		return err
+	}
+	registration, err := activeProtocolHandlerBackend.Status(executable, home)
+	if err != nil {
+		return err
+	}
+	if registration.Registered {
+		return nil
+	}
+	return registerProtocolHandler()
+}
+
 func registerProtocolHandler() error {
+	if !usesDefaultHome() {
+		return fmt.Errorf("URL handler installation requires the default COSLASH_HOME")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("find user home for protocol handler: %w", err)
