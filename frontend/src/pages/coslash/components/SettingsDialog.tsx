@@ -208,14 +208,22 @@ export function SettingsDialog({
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
   const initializedForOpen = useRef(false);
+  const openAttempt = useRef(0);
   const saveChain = useRef(Promise.resolve());
   const draftRef = useRef(draft);
   const isFirstRun = requiresFirstRunConsent(response);
-  const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
+  const requiresConsent = mode === 'synthesis-consent';
   const updateDraft = useCallback((next: CoslashSettings) => {
     draftRef.current = next;
     setDraft(next);
   }, []);
+
+  useEffect(
+    () => () => {
+      openAttempt.current += 1;
+    },
+    [open, mode],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -249,7 +257,8 @@ export function SettingsDialog({
 
   const save = async () => {
     if (!draft || !synthesisBackendAvailable) return;
-    if (await saveSettings(draft)) {
+    const attempt = openAttempt.current;
+    if ((await saveSettings(draft)) && attempt === openAttempt.current) {
       setTheme(draft.appearance.theme);
       onOpenChange(false);
     }
@@ -301,18 +310,16 @@ export function SettingsDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if ((requiresConsent || remoteOperationInProgress) && !next) return;
+        if (remoteOperationInProgress && !next) return;
         if (next) onOpenChange(true);
         else onOpenChange(false);
       }}
     >
       <DialogContent
         className="coslash-shell flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
-        showCloseButton={!requiresConsent && !remoteOperationInProgress}
-        onEscapeKeyDown={(event) => (requiresConsent || remoteOperationInProgress) && event.preventDefault()}
-        onPointerDownOutside={(event) =>
-          (requiresConsent || remoteOperationInProgress) && event.preventDefault()
-        }
+        showCloseButton={!remoteOperationInProgress}
+        onEscapeKeyDown={(event) => remoteOperationInProgress && event.preventDefault()}
+        onPointerDownOutside={(event) => remoteOperationInProgress && event.preventDefault()}
       >
         <DialogHeader className="shrink-0 gap-1.5 p-4 pr-12 pb-3">
           <DialogTitle>
