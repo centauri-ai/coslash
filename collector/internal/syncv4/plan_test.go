@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -916,6 +919,107 @@ func TestEmptyPlanMovesThroughListingToComplete(t *testing.T) {
 	}
 }
 
+func TestLiveResyncDoesNotBlockCatchUpHTTP(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
+	policy := hubclient.V4CheckIn{ConfigVersion: 1, MinVersion: "0.0.3",
+		Capabilities: []string{hubclient.CapabilityScaleImport},
+		Config:       hubclient.V4Config{ImportPlan: &plan, LeaveOut: []string{}}}
+	if err := queue.ApplyPolicyAt(policy, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "live", Live: true, Listed: true, Activity: now.Add(-time.Minute).UnixMilli(),
+		SyncedActivity: now.Add(-time.Minute).UnixMilli(), RevisionID: "accepted", SessionID: "ses_live",
+		Session: hubclient.V4Session{InstallID: queue.InstallID(), LocalKeyHash: "live", Agent: "codex"}}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	pass, creates, reports := 0, 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if pass > 0 && r.URL.Path != "/v4/devices/me/check-in" {
+			if phase, _, _ := queue.Phase(); phase != "complete" {
+				t.Errorf("phase during re-sync %s = %q, want complete", r.URL.Path, phase)
+			}
+		}
+		switch r.URL.Path {
+		case "/v4/sessions:list-batch":
+			io.WriteString(w, `{"results":[{"localKeyHash":"live","sessionId":"ses_live","state":"existing"}]}`)
+		case "/v4/uploads":
+			creates++
+			io.WriteString(w, `{"sessionId":"ses_live","state":"completed","revisionId":"updated"}`)
+		case "/v4/devices/me/check-in":
+			var request struct{ Queue hubclient.V4Queue }
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			reports++
+			progress := request.Queue
+			if progress.Import == nil || progress.Import.Phase != "complete" ||
+				progress.FirstSync.RecentTotal != 1 || progress.FirstSync.RecentDone != 1 || progress.FirstSync.HistoryState != "off" {
+				t.Errorf("pass %d reported incomplete catch-up: %+v import=%+v", pass, progress, progress.Import)
+			}
+			json.NewEncoder(w).Encode(policy)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: queue, Now: func() time.Time { return now }, checkedAt: now,
+		scaleSupported: true, config: policy.Config,
+		Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}}
+	for pass = 0; pass < 3; pass++ {
+		if pass < 2 {
+			now = now.Add(time.Second)
+			entry.Activity = now.UnixMilli()
+			if err := queue.Merge([]Entry{entry}, now); err != nil {
+				t.Fatal(err)
+			}
+			if got := queue.Entries()[0]; got.RevisionID != "" || got.Listed || got.ChangedAt != now.UnixMilli() {
+				t.Fatalf("new live activity did not invalidate revision: %+v", got)
+			}
+		} else {
+			now = now.Add(2 * time.Minute)
+			manager, prepared, _ := fixtureBundle(t)
+			runner.Backup = manager
+			quiet := queue.Entries()[0]
+			quiet.BundleID = prepared.BundleID
+			if err := queue.Update(quiet); err != nil {
+				t.Fatal(err)
+			}
+		}
+		runner.checkedAt = now
+		if err := runner.runPlanned(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if err := runner.refreshConsent(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		wantPending := 1
+		if pass == 2 {
+			wantPending = 0
+		}
+		if pending := queue.Progress().Pending; pending != wantPending {
+			t.Fatalf("pass %d pending uploads = %d", pass, pending)
+		}
+	}
+	if creates != 1 || reports != 3 {
+		t.Fatalf("creates=%d reports=%d, want 1 upload and 3 reports", creates, reports)
+	}
+}
+
 func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *testing.T) {
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	q, err := Open(t.TempDir())
@@ -929,6 +1033,10 @@ func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *te
 			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "synced", Agent: "codex"}},
 		{Key: "parked", Activity: activity, ParkedVersion: "0.0.5", FailureCode: "unreadable_source",
 			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "parked", Agent: "codex"}},
+		{Key: "rejected", Activity: activity,
+			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "rejected", Agent: "codex"}},
+		{Key: "deleted", Activity: activity, FailureCode: "session_deleted", RetryAt: now.Add(time.Hour),
+			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "deleted", Agent: "codex"}},
 	}
 	if err := q.Merge(entries, now); err != nil {
 		t.Fatal(err)
@@ -937,6 +1045,9 @@ func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *te
 		t.Fatal(err)
 	}
 	q.SetActiveSince(now)
+	if err := q.MarkListedAt([]hubclient.V4ListResult{{LocalKeyHash: "rejected", State: "rejected", Code: "invalid_item"}}, now); err != nil {
+		t.Fatal(err)
+	}
 	if err := q.FreezeCatchUp(plan); err != nil {
 		t.Fatal(err)
 	}
@@ -944,7 +1055,7 @@ func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *te
 		t.Fatal(err)
 	}
 	progress := q.Progress().FirstSync
-	if progress.RecentDone != 2 || progress.RecentTotal != 2 || progress.HistoryState != "off" {
+	if progress.RecentDone != 4 || progress.RecentTotal != 4 || progress.HistoryState != "off" {
 		t.Fatalf("settled live-only progress = %+v", progress)
 	}
 
