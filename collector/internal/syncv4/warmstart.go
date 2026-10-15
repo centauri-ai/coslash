@@ -113,6 +113,9 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 				err := r.estimateContentBytes(estimateCtx, &entry)
 				cancel()
 				if err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					if stopSync(err) {
 						return r.persistPolicyStop(&entry, err)
 					}
@@ -134,6 +137,9 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 		pickCtx, cancel := context.WithTimeout(ctx, budget-r.now().Sub(started))
 		if err := r.ensureCreated(pickCtx, pick); err != nil {
 			cancel()
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 				return nil
 			}
@@ -148,6 +154,9 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 		if pick.UploadID != "" {
 			if err := r.transfer(pickCtx, pick); err != nil {
 				cancel()
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 					return nil
 				}
@@ -330,6 +339,9 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			continue
 		}
 		if err := r.transfer(workCtx, &entry); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if workCtx.Err() != nil && ctx.Err() == nil {
 				entry.FailureCode = "server_error"
 				entry.BackoffAttempt++
@@ -400,6 +412,9 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			continue
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if workCtx.Err() != nil && ctx.Err() == nil {
 				entry.FailureCode = "server_error"
 				entry.BackoffAttempt++
