@@ -210,21 +210,9 @@ export function CoslashPage() {
   }, []);
   /* oxlint-enable react/set-state-in-effect */
 
-  /* oxlint-disable react/set-state-in-effect -- open required synthesis consent when selection changes */
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
   }, [settingsState.response]);
-
-  useEffect(() => {
-    if (
-      selectedSession != null &&
-      isLocalSession(selectedSession) &&
-      shouldPromptForSynthesisConsent(selectedSession, settingsState.response)
-    ) {
-      setSettingsDialogMode((current) => current ?? 'synthesis-consent');
-    }
-  }, [selectedSession, settingsState.response]);
-  /* oxlint-enable react/set-state-in-effect */
 
   /* oxlint-disable react/set-state-in-effect -- clear a selection removed by a session refresh */
   useEffect(() => {
@@ -354,6 +342,22 @@ export function CoslashPage() {
         banner={
           <>
             {settingsBanner}
+            {settingsState.response?.valid &&
+              librarySessions.some(
+                (session) =>
+                  isLocalSession(session) && shouldPromptForSynthesisConsent(session, settingsState.response),
+              ) && (
+                <div className="border-coslash-line bg-coslash-soft flex flex-wrap items-center justify-between gap-2 border-b px-5 py-2 text-sm">
+                  <span>AI synthesis is off. You can enable it in Settings.</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettingsDialogMode('synthesis-consent')}
+                  >
+                    Choose synthesis settings
+                  </Button>
+                </div>
+              )}
             {handoffsError && (
               <SettingsErrorBanner
                 message={handoffsError}
