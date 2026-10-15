@@ -11,13 +11,15 @@ import (
 	"strings"
 )
 
-func (s OSKeychain) Load(ctx context.Context) (string, error) {
+var keychainCommandContext = exec.CommandContext
+
+func (s OSKeychain) load(ctx context.Context) (string, error) {
 	var command *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		command = exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", s.Service, "-a", s.Account, "-w")
+		command = keychainCommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", s.Service, "-a", s.Account, "-w")
 	case "linux":
-		command = exec.CommandContext(ctx, "secret-tool", "lookup", "service", s.Service, "account", s.Account)
+		command = keychainCommandContext(ctx, "secret-tool", "lookup", "service", s.Service, "account", s.Account)
 	default:
 		return "", fmt.Errorf("load Hub credential: unsupported OS %s", runtime.GOOS)
 	}
@@ -67,9 +69,9 @@ func (s OSKeychain) delete(ctx context.Context) error {
 	var command *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		command = exec.CommandContext(ctx, "/usr/bin/security", "delete-generic-password", "-s", s.Service, "-a", s.Account)
+		command = keychainCommandContext(ctx, "/usr/bin/security", "delete-generic-password", "-s", s.Service, "-a", s.Account)
 	case "linux":
-		command = exec.CommandContext(ctx, "secret-tool", "clear", "service", s.Service, "account", s.Account)
+		command = keychainCommandContext(ctx, "secret-tool", "clear", "service", s.Service, "account", s.Account)
 	default:
 		return fmt.Errorf("delete Hub credential: unsupported OS %s", runtime.GOOS)
 	}

@@ -71,7 +71,7 @@ type windowsCredential struct {
 	UserName           *uint16
 }
 
-func (s OSKeychain) Load(ctx context.Context) (string, error) {
+func (s OSKeychain) load(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
