@@ -77,7 +77,7 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 	}
 	if phase != "listing" {
 		for _, entry := range r.Queue.PlannedEntries(*plan, r.now()) {
-			if !entry.Listed && !entry.Excluded && !entry.ListRejected {
+			if entry.SyncedActivity == 0 && !entry.Listed && !entry.Excluded && !entry.ListRejected {
 				if err := r.Queue.SetPhase("listing"); err != nil {
 					return err
 				}
@@ -371,12 +371,14 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, activeSince) && plan.HistoryPaused {
 			continue
 		}
-		phase := "recent"
-		if !planRecent(entry, plan, activeSince) {
-			phase = "history"
-		}
-		if err := r.Queue.SetPhase(phase); err != nil {
-			return err
+		if entry.SyncedActivity == 0 {
+			phase := "recent"
+			if !planRecent(entry, plan, activeSince) {
+				phase = "history"
+			}
+			if err := r.Queue.SetPhase(phase); err != nil {
+				return err
+			}
 		}
 		err := r.ensureConsent(workCtx)
 		if err == nil {
@@ -442,7 +444,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 	planned := r.Queue.PlannedEntries(plan, r.now())
 	allPlannedSettled := true
 	for _, entry := range planned {
-		if pending(entry) && entry.ParkedVersion == "" && !entry.ListRejected {
+		if !caughtUp(entry) {
 			allPlannedSettled = false
 			break
 		}
@@ -451,7 +453,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		return r.Queue.SetPhase("complete")
 	}
 	for _, entry := range planned {
-		if !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected {
+		if caughtUp(entry) {
 			continue
 		}
 		recent := planRecent(entry, plan, activeSince)
