@@ -12,11 +12,12 @@ VERSION ?= $(shell sh scripts/source-version.sh)
 ARCHIVE_VERSION ?= $(GIT_DESCRIPTION)
 INSTALL_CHANNEL ?=
 BRANCH_BUILD ?= false
+RELEASE_BUILD ?= false
 DIST := dist
 PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
-EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X main.installChannelMetadata=$(INSTALL_CHANNEL) -X main.branchBuildMetadata=$(BRANCH_BUILD) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
+EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X main.installChannelMetadata=$(INSTALL_CHANNEL) -X main.branchBuildMetadata=$(BRANCH_BUILD) -X main.releaseBuildMetadata=$(RELEASE_BUILD) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
 MODELS := internal/session/models.json
 LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
 OPENCODE_MODELS_URL := https://models.opencode.ai/api.json
