@@ -21,11 +21,11 @@ import (
 
 const (
 	hubUsage                    = "usage: coslash hub login [--hub URL] [--scope SCOPE ...] | logout | tools [--json] | search <query> | call <tool> --json '{…}'"
-	hubDefaultURL               = "https://mcp.hub.coslash.io/mcp"
+	hubDefaultURL               = "https://hub.coslash.io/mcp"
 	hubAgentKeychainService     = "ai.coslash.hub-agent"
 	hubAgentKeychainAccount     = "default"
 	hubAgentDeviceGrant         = "urn:ietf:params:oauth:grant-type:device_code"
-	hubAgentDefaultScope        = "hub:read hub:ask"
+	hubAgentDefaultScope        = "hub:read"
 	hubAgentRequestTimeout      = 20 * time.Second
 	hubAgentRefreshLeeway       = 30 * time.Second
 	hubAgentMaxResponseBytes    = 1 << 20
@@ -168,7 +168,7 @@ func parseHubLoginArgs(args []string) (hubLoginOptions, error) {
 
 func validHubAgentScope(scope string) bool {
 	switch scope {
-	case "hub:read", "hub:ask", "hub:write", "hub:share", "hub:admin":
+	case "hub:read", "hub:write", "hub:share", "hub:admin":
 		return true
 	default:
 		return false
