@@ -120,6 +120,10 @@ func (darwinProtocolHandlerBackend) Status(executable, home string) (protocolHan
 	if err != nil {
 		return protocolHandlerRegistration{}, err
 	}
+	return macProtocolHandlerStatus(executable, home, handlers), nil
+}
+
+func macProtocolHandlerStatus(executable, home string, handlers []launchServicesHandler) protocolHandlerRegistration {
 	current := filepath.Join(home, "Library", "Application Support", "coSlash Local", macProtocolBundleName)
 	var foundCurrent *protocolHandlerRegistration
 	for _, handler := range handlers {
@@ -132,15 +136,20 @@ func (darwinProtocolHandlerBackend) Status(executable, home string) (protocolHan
 			foundCurrent = &registration
 			continue
 		}
+		if sameProtocolHandlerPath(handler.Path, current) && registeredExecutable != "" && canInstallBackgroundLogin() {
+			if _, err := os.Stat(registeredExecutable); os.IsNotExist(err) {
+				continue
+			}
+		}
 		if registration.Executable == "" {
 			registration.Executable = handler.Path
 		}
-		return registration, nil
+		return registration
 	}
 	if foundCurrent != nil {
-		return *foundCurrent, nil
+		return *foundCurrent
 	}
-	return protocolHandlerRegistration{}, nil
+	return protocolHandlerRegistration{}
 }
 
 func (darwinProtocolHandlerBackend) StaleHandlers(_ string, home string) ([]string, error) {
