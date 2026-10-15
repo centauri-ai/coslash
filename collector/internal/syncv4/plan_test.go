@@ -84,6 +84,17 @@ type tooLargeCreateHub struct {
 	*planHub
 }
 
+func managerCancelledDuringPrepare(t *testing.T) (*sessionbackupproducer.Manager, <-chan struct{}) {
+	t.Helper()
+	started := make(chan struct{})
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), OpenSource: func(ctx context.Context, _ sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+		close(started)
+		<-ctx.Done()
+		return sessionbackupproducer.SourceHandle{}, ctx.Err()
+	}})
+	return manager, started
+}
+
 func (h *deadlineCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
 	h.creates++
 	return hubclient.V4Status{}, context.DeadlineExceeded
@@ -140,6 +151,77 @@ func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
 		}
 	}
 	t.Fatal("fresh session was not listed on the next boundary within the budget")
+}
+
+func TestPlannedContentCancellationDuringPrepareLeavesEntryPending(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	queue.SetActiveSince(now)
+	entry := Entry{Key: "cancelled", SourceRevision: "source-1", Selection: sessionbackupproducer.Selection{
+		SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: "codex", SessionID: "cancelled",
+	}, Session: hubclient.V4Session{InstallID: queue.InstallID(), Agent: "codex", LocalKeyHash: "cancelled"}, Activity: now.UnixMilli(), Listed: true}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	manager, started := managerCancelledDuringPrepare(t)
+	runner := &Runner{Queue: queue, Backup: manager, Now: func() time.Time { return now }, checkedAt: now,
+		config: hubclient.V4Config{ImportPlan: &plan}}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- runner.syncPlannedContent(ctx, plan) }()
+	<-started
+	cancel()
+	_ = <-done
+
+	got := queue.Entries()[0]
+	if got.FailureCode != "" || !pending(got) {
+		t.Fatalf("cancelled preparation changed pending entry: %+v", got)
+	}
+	if logs, _ := queue.PendingLog(now); len(logs) != 0 {
+		t.Fatalf("cancelled preparation queued Hub log lines: %+v", logs)
+	}
+}
+
+func TestWarmStartCancellationDuringPrepareLeavesEntryPending(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	queue.SetActiveSince(now)
+	entry := Entry{Key: "cancelled", SourceRevision: "source-1", Selection: sessionbackupproducer.Selection{
+		SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: "codex", SessionID: "cancelled",
+	}, Session: hubclient.V4Session{InstallID: queue.InstallID(), Agent: "codex", LocalKeyHash: "cancelled"}, Activity: now.UnixMilli()}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	manager, started := managerCancelledDuringPrepare(t)
+	runner := &Runner{Queue: queue, Backup: manager, Now: func() time.Time { return now }, checkedAt: now}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- runner.warmStart(ctx, plan, now, time.Minute, 0) }()
+	<-started
+	cancel()
+	_ = <-done
+
+	got := queue.Entries()[0]
+	if got.FailureCode != "" || !pending(got) {
+		t.Fatalf("cancelled preparation changed pending entry: %+v", got)
+	}
+	if logs, _ := queue.PendingLog(now); len(logs) != 0 {
+		t.Fatalf("cancelled preparation queued Hub log lines: %+v", logs)
+	}
 }
 
 func TestPlannedSyncReportsParkedListedFailureAndProgressPromptly(t *testing.T) {
