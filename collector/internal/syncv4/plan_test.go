@@ -1020,6 +1020,96 @@ func TestLiveResyncDoesNotBlockCatchUpHTTP(t *testing.T) {
 	}
 }
 
+func TestRestartKeepsSettledCatchUpCompleteOnHTTPFailure(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name    string
+		entry   Entry
+		content bool
+	}{
+		{name: "live", entry: Entry{Live: true, SyncedActivity: now.Add(-time.Minute).UnixMilli()}},
+		{name: "parked", entry: Entry{ParkedVersion: "0.0.5"}},
+		{name: "rejected", entry: Entry{ListRejected: true}},
+		{name: "session_deleted", entry: Entry{FailureCode: "session_deleted"}},
+		{name: "session_deleted_content", entry: Entry{FailureCode: "session_deleted"}, content: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			queue, err := Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
+			config := hubclient.V4Config{ImportPlan: &plan}
+			if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: config}, now.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			entry := test.entry
+			entry.Key, entry.Activity, entry.Listed = "settled", now.UnixMilli(), true
+			entry.Session = hubclient.V4Session{InstallID: queue.InstallID(), LocalKeyHash: entry.Key, Agent: "codex"}
+			if err := queue.Merge([]Entry{entry}, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := queue.FreezeCatchUp(plan); err != nil {
+				t.Fatal(err)
+			}
+			if err := queue.SetPhase("complete"); err != nil {
+				t.Fatal(err)
+			}
+			queue, err = Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if entry := queue.Entries()[0]; entry.Listed || !caughtUp(entry) || !pending(entry) {
+				t.Fatalf("restart did not retain settled pending entry: %+v", entry)
+			}
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				path := "/v4/sessions:list-batch"
+				if test.content {
+					path = "/v4/uploads"
+				}
+				if r.Method != http.MethodPost || r.URL.Path != path {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+				}
+				w.WriteHeader(http.StatusGone)
+				io.WriteString(w, `{"code":"session_deleted"}`)
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			runner := &Runner{Queue: queue, Now: func() time.Time { return now }, checkedAt: now, config: config,
+				Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}}}
+			if test.content {
+				manager, prepared, _ := fixtureBundle(t)
+				runner.Backup = manager
+				entry = queue.Entries()[0]
+				entry.BundleID = prepared.BundleID
+				if err := queue.Update(entry); err != nil {
+					t.Fatal(err)
+				}
+				err = runner.syncPlannedContent(t.Context(), plan)
+			} else {
+				err = runner.runPlanned(t.Context())
+			}
+			wantRequests := 1
+			if test.entry.ListRejected {
+				wantRequests = 0
+			}
+			var problem hubclient.V4Problem
+			if requests != wantRequests || wantRequests > 0 && (!errors.As(err, &problem) || problem.Code != "session_deleted") || wantRequests == 0 && err != nil {
+				t.Fatalf("requests=%d error=%v", requests, err)
+			}
+			if phase, _, _ := queue.Phase(); phase != "complete" {
+				t.Errorf("phase after restart = %q, want complete", phase)
+			}
+			if progress := queue.Progress().FirstSync; progress.RecentTotal != 1 || progress.RecentDone != progress.RecentTotal {
+				t.Errorf("catch-up after restart = %+v", progress)
+			}
+		})
+	}
+}
+
 func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *testing.T) {
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	q, err := Open(t.TempDir())
