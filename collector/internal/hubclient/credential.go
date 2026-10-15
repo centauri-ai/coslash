@@ -55,7 +55,7 @@ func (s OSKeychain) Delete(ctx context.Context) error {
 		return err
 	}
 	defer unlockOSKeychainMutation()
-	return s.delete(ctx)
+	return s.deleteAccounts(ctx)
 }
 
 func (s OSKeychain) DeleteIfMatches(ctx context.Context, expected string) (bool, error) {
@@ -76,13 +76,34 @@ func (s OSKeychain) DeleteIfMatches(ctx context.Context, expected string) (bool,
 	if current != expected {
 		return false, nil
 	}
-	if err := s.delete(ctx); err != nil {
+	if err := s.deleteAccounts(ctx); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 type OSKeychain struct {
-	Service string
-	Account string
+	Service       string
+	Account       string
+	LegacyAccount string
+}
+
+func (s OSKeychain) Load(ctx context.Context) (string, error) {
+	credential, err := s.load(ctx)
+	if errors.Is(err, ErrNotPaired) && s.LegacyAccount != "" {
+		s.Account = s.LegacyAccount
+		return s.load(ctx)
+	}
+	return credential, err
+}
+
+func (s OSKeychain) deleteAccounts(ctx context.Context) error {
+	if s.LegacyAccount != "" {
+		legacy := s
+		legacy.Account = s.LegacyAccount
+		if err := legacy.delete(ctx); err != nil {
+			return err
+		}
+	}
+	return s.delete(ctx)
 }
