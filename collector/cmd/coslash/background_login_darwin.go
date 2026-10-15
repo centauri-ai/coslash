@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -29,27 +30,39 @@ func backgroundLoginPlist(executable string) ([]byte, error) {
 `), nil
 }
 
-func registerBackgroundLogin() error { return nil }
+var backgroundLoginExecutable = os.Executable
 
-func installService() error {
-	if !usesDefaultHome() {
-		return fmt.Errorf("login installation requires the default COSLASH_HOME")
-	}
-	if err := registerProtocolHandler(); err != nil {
-		return err
+func canInstallBackgroundLogin() bool {
+	return releaseBuildMetadata == "true" && branchBuildMetadata != "true" && usesDefaultHome()
+}
+
+func registerBackgroundLogin() error {
+	if !canInstallBackgroundLogin() {
+		return nil
 	}
 	return installBackgroundLogin()
 }
 
+func installService() error {
+	if !canInstallBackgroundLogin() {
+		return fmt.Errorf("login installation requires a release build and the default COSLASH_HOME")
+	}
+	if err := installBackgroundLogin(); err != nil {
+		return err
+	}
+	return registerProtocolHandler()
+}
+
 func installBackgroundLogin() error {
-	executable, err := os.Executable()
+	executable, err := backgroundLoginExecutable()
 	if err != nil {
 		return err
 	}
-	executable, err = filepath.Abs(executable)
-	if err != nil {
-		return err
+	stable := backgroundLoginInstallPath(executable)
+	if !sameProtocolHandlerPath(stable, executable) {
+		return fmt.Errorf("login executable does not resolve to this installation")
 	}
+	executable = stable
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -63,8 +76,39 @@ func installBackgroundLogin() error {
 	if err != nil {
 		return err
 	}
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, contents) {
-		return loadBackgroundLogin(path)
+	if _, err := os.Lstat(path); err == nil {
+		output, err := exec.Command("/usr/bin/plutil", "-convert", "json", "-o", "-", "--", path).Output()
+		if err != nil {
+			return fmt.Errorf("read existing login item: %w", err)
+		}
+		var existing struct {
+			Label                string
+			Program              string
+			ProgramArguments     []string
+			EnvironmentVariables map[string]string
+		}
+		if err := json.Unmarshal(output, &existing); err != nil {
+			return err
+		}
+		previous, key := existing.Program, "Program"
+		if previous == "" && len(existing.ProgramArguments) > 0 {
+			previous, key = existing.ProgramArguments[0], "ProgramArguments.0"
+		}
+		env := existing.EnvironmentVariables
+		if existing.Label != "io.coslash.local" || !filepath.IsAbs(previous) || backgroundLoginInstallPath(previous) != executable ||
+			(env["HOME"] != "" && (!filepath.IsAbs(env["HOME"]) || !sameProtocolHandlerPath(env["HOME"], home))) ||
+			(env["COSLASH_HOME"] != "" && (!filepath.IsAbs(env["COSLASH_HOME"]) || !sameProtocolHandlerPath(env["COSLASH_HOME"], filepath.Join(home, ".coslash")))) {
+			return fmt.Errorf("existing login item belongs to another installation or home")
+		}
+		if previous == executable {
+			return loadBackgroundLogin(path)
+		}
+		contents, err = exec.Command("/usr/bin/plutil", "-replace", key, "-string", executable, "-o", "-", "--", path).Output()
+		if err != nil {
+			return fmt.Errorf("update login executable: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	temporary, err := os.CreateTemp(dir, ".coslash-local-*.plist")
 	if err != nil {
@@ -86,6 +130,19 @@ func installBackgroundLogin() error {
 		return err
 	}
 	return loadBackgroundLogin(path)
+}
+
+// Homebrew's opt link survives Cellar upgrades, including removal of the old keg.
+func backgroundLoginInstallPath(executable string) string {
+	resolved := canonicalPath(executable)
+	bin := filepath.Dir(resolved)
+	keg := filepath.Dir(bin)
+	formula := filepath.Dir(keg)
+	cellar := filepath.Dir(formula)
+	if filepath.Base(resolved) == "coslash" && filepath.Base(bin) == "bin" && filepath.Base(formula) == "coslash" && filepath.Base(cellar) == "Cellar" {
+		return filepath.Join(canonicalPath(filepath.Dir(cellar)), "opt", "coslash", "bin", "coslash")
+	}
+	return resolved
 }
 
 func backgroundLoginTarget() string {
