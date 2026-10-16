@@ -894,7 +894,7 @@ func writeSettings(ctx context.Context, w http.ResponseWriter, state settings.St
 		_, err := exec.LookPath(settings.BackendExecutable(option.ID))
 		available := err == nil
 		if option.ID == settings.BackendOpenCode && available {
-			option.Models = openCodeModels()
+			option.Models = openCodeModels(opencode.SynthesisModels())
 		}
 		response.Options.SynthesisBackends = append(
 			response.Options.SynthesisBackends,
@@ -920,25 +920,18 @@ func writeSettings(ctx context.Context, w http.ResponseWriter, state settings.St
 
 // Paid providers are reached through OpenCodeDefaultModel rather than listed:
 // OpenCode resolves them from ambient credentials, running to hundreds of ids.
-func openCodeModels() []settings.ModelOption {
+func openCodeModels(ids []string) []settings.ModelOption {
 	models := []settings.ModelOption{{
-		ID:    settings.OpenCodeDefaultModel,
-		Label: "OpenCode default for a new run",
+		ID:      settings.OpenCodeDefaultModel,
+		Label:   "OpenCode default for a new run",
+		Default: true,
 	}}
-	preferred := false
-	for _, id := range opencode.SynthesisModels() {
+	for _, id := range ids {
 		if !settings.ValidSynthesisModel(id) {
 			continue
 		}
-		option := settings.ModelOption{ID: id, Label: id}
-		if id == settings.OpenCodeSynthesisModel {
-			option.Default = true
-			preferred = true
-		}
-		models = append(models, option)
+		models = append(models, settings.ModelOption{ID: id, Label: id})
 	}
-	// Fall back to OpenCode's own model when the preferred one is retired.
-	models[0].Default = !preferred
 	return models
 }
 
