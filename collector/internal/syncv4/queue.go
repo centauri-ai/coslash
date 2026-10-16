@@ -966,7 +966,7 @@ func (q *Queue) progressAt(now time.Time) hubclient.V4Queue {
 	activeSince := q.activeSinceLocked(startedAt)
 	recentSettled := 0
 	for _, entry := range entries {
-		if entry.Excluded {
+		if entry.Excluded || entry.FailureCode == "session_deleted" {
 			continue
 		}
 		recent := entry.Recent

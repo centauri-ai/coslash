@@ -409,6 +409,9 @@ func (q *Queue) ImportSnapshot(now time.Time) ImportSnapshot {
 	}
 	snapshot.PlanVersion = plan.Version
 	for _, entry := range q.plannedEntriesLocked(*plan) {
+		if entry.FailureCode == "session_deleted" {
+			continue
+		}
 		if entry.Key == q.currentKey {
 			snapshot.CurrentSessionID = entry.SessionID
 		}
