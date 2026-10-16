@@ -146,6 +146,10 @@ func (r *CLIRunner) VendorName() string {
 }
 
 func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
+	executor := r.exec
+	if executor == nil {
+		executor = executeCommand
+	}
 	var label string
 	var args []string
 	var env []string
@@ -235,6 +239,13 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		}
 		args = append(args, "--", systemPrompt+jsonInstruction)
 		env = openCodeEnv(scratchDir, r.openCodeV2)
+		if r.openCodeV2 && r.Model == settings.OpenCodeDefaultModel {
+			config, err := openCodeDefaultConfig(ctx, r.Bin, executor)
+			if err != nil {
+				return RunResult{}, err
+			}
+			env = append(env, "OPENCODE_CONFIG_CONTENT="+config)
+		}
 	case settings.BackendPi:
 		label = "Pi"
 		parse = func(data []byte) (session.SessionSynthesis, error) {
@@ -347,10 +358,6 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 	}
 	runCtx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
-	executor := r.exec
-	if executor == nil {
-		executor = executeCommand
-	}
 	output, err := executor(runCtx, commandSpec{
 		bin:   r.Bin,
 		args:  args,

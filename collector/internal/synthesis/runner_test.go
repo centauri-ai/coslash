@@ -158,6 +158,7 @@ func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 }
 
 func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("OPENCODE_CONFIG_DIR", filepath.Join(t.TempDir(), "user-config"))
 	t.Setenv("OPENCODE_CONFIG", filepath.Join(t.TempDir(), "user.json"))
@@ -176,6 +177,10 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 			var captured commandSpec
 			runner := &CLIRunner{Backend: settings.BackendOpenCode, Bin: "opencode", Model: test.model, Timeout: time.Second, openCodeV2: test.v2}
 			runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+				if len(spec.args) > 0 && spec.args[0] == "api" {
+					return []byte(openCodeDefaultModelFixture), nil
+				}
+
 				captured = spec
 				return []byte("{\"type\":\"text\",\"part\":{\"id\":\"answer\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
 			}
@@ -185,8 +190,11 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 			if !slices.Equal(captured.args, test.wantArgs) {
 				t.Fatalf("args = %#v, want %#v", captured.args, test.wantArgs)
 			}
-			if !slices.Contains(captured.env, "OPENCODE_CONFIG_CONTENT="+test.wantConfig) {
+			if !(test.v2 && test.model == settings.OpenCodeDefaultModel) && !slices.Contains(captured.env, "OPENCODE_CONFIG_CONTENT="+test.wantConfig) {
 				t.Fatalf("config override missing from env: %#v", captured.env)
+			}
+			if test.v2 && test.model == settings.OpenCodeDefaultModel && !strings.Contains(strings.Join(captured.env, "\n"), `"model":"openai/gpt-5"`) {
+				t.Fatalf("user default was not passed into private configuration: %#v", captured.env)
 			}
 			configHome := ""
 			for _, entry := range captured.env {

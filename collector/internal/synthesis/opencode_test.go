@@ -1,6 +1,7 @@
 package synthesis
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -9,7 +10,100 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
+
+const openCodeDefaultModelFixture = `{"data":{"id":"gpt-5","providerID":"openai","package":"@opencode/ai/providers/openai"}}`
+
+func TestOpenCodeDefaultConfigPreservesOnlySelectedModel(t *testing.T) {
+	t.Setenv("OPENCODE_DB", filepath.Join(t.TempDir(), "user.db"))
+	t.Setenv("OPENCODE_CONFIG_CONTENT", `{"model":"custom/chosen","plugins":["untrusted"],"instructions":["untrusted"]}`)
+	var captured commandSpec
+	config, err := openCodeDefaultConfig(context.Background(), "opencode", func(_ context.Context, spec commandSpec) ([]byte, error) {
+		captured = spec
+		return []byte(`{"data":{"id":"chosen","providerID":"custom","package":"@opencode/ai/providers/openai-compatible","settings":{"baseURL":"http://localhost:1234/v1"},"modelID":"served-model","capabilities":{"tools":true},"instructions":["untrusted"],"plugins":["untrusted"]}}`), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.bin != "opencode" || strings.Join(captured.args, " ") != "api --standalone get /api/model/default" || captured.stdin != "" {
+		t.Fatalf("default probe = %+v", captured)
+	}
+	for _, want := range []string{"PWD=" + captured.dir, "OPENCODE_DB=" + filepath.Join(captured.dir, "opencode.db"), "OPENCODE_DISABLE_PROJECT_CONFIG=1"} {
+		found := false
+		for _, entry := range captured.env {
+			found = found || entry == want
+		}
+		if !found {
+			t.Fatalf("default probe missing %q: %v", want, captured.env)
+		}
+	}
+	for _, entry := range captured.env {
+		if value, ok := strings.CutPrefix(entry, "OPENCODE_CONFIG_CONTENT="); ok {
+			if strings.Contains(value, "untrusted") || !strings.Contains(value, `"model":"custom/chosen"`) || !strings.Contains(value, `"plugins":["-*","opencode.*"]`) {
+				t.Fatalf("unsafe or incomplete default probe configuration: %s", value)
+			}
+		}
+		if strings.HasPrefix(entry, "XDG_CONFIG_HOME=") || strings.HasPrefix(entry, "OPENCODE_CONFIG_DIR=") || strings.HasPrefix(entry, "OPENCODE_CONFIG=") {
+			t.Fatalf("default probe cannot resolve user configuration: %q", entry)
+		}
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(config), &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["model"]) != `"custom/chosen"` || !strings.Contains(string(got["providers"]), `"modelID":"served-model"`) || !strings.Contains(string(got["providers"]), `"baseURL":"http://localhost:1234/v1"`) {
+		t.Fatalf("selected provider configuration was lost: %s", config)
+	}
+	if strings.Contains(config, "untrusted") || !strings.Contains(string(got["policies"]), `"tool.use"`) {
+		t.Fatalf("unsafe synthesis configuration: %s", config)
+	}
+	if _, err := os.Stat(captured.dir); !os.IsNotExist(err) {
+		t.Fatalf("default probe scratch survived cleanup: %v", err)
+	}
+}
+
+func TestOpenCodeDefaultConfigRejectsUnavailableModel(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
+	large := `{"data":{"id":"chosen","providerID":"custom","package":"test","settings":{"large":"` + strings.Repeat("x", 64<<10) + `"}}}`
+	for _, output := range []string{"", `{}`, `{"data":{"id":"chosen"}}`, `{"data":{"providerID":"custom"}}`, large} {
+		if _, err := openCodeDefaultConfig(context.Background(), "opencode", func(context.Context, commandSpec) ([]byte, error) {
+			return []byte(output), nil
+		}); err == nil {
+			t.Fatalf("default model probe accepted %q", output)
+		}
+	}
+	if _, err := openCodeDefaultConfig(context.Background(), "opencode", func(context.Context, commandSpec) ([]byte, error) {
+		return nil, context.Canceled
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("probe cancellation = %v", err)
+	}
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "invalid")
+	if _, err := openCodeDefaultConfig(context.Background(), "opencode", func(context.Context, commandSpec) ([]byte, error) {
+		t.Fatal("probe ran with invalid inline configuration")
+		return nil, nil
+	}); err == nil {
+		t.Fatal("invalid inline configuration was ignored")
+	}
+}
+
+func TestOpenCodeDefaultProbeFailureStopsSynthesis(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
+	calls := 0
+	runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: settings.OpenCodeDefaultModel, openCodeV2: true}
+	runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+		calls++
+		if spec.args[0] != "api" {
+			t.Fatal("synthesis ran after its default model probe failed")
+		}
+		return nil, context.Canceled
+	}
+	if _, err := runner.Run(context.Background(), "private session facts"); !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("Run = %v, calls = %d", err, calls)
+	}
+}
 
 func TestOpenCodeSynthesisToolDenial(t *testing.T) {
 	for _, v2 := range []bool{false, true} {
