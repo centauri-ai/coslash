@@ -155,6 +155,10 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		}
 		return withCleanup(command, path), path, nil
 	case vendors.AgentOpenCode:
+		args, err := openCodeHandoffArguments(cli)
+		if err != nil {
+			return "", "", err
+		}
 		path, err := writeHandoffFile(context)
 		if err != nil {
 			return "", "", err
@@ -165,7 +169,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 			return "", "", fmt.Errorf("launch: encoding OpenCode handoff config: %w", err)
 		}
 		guard := "cat " + shellQuote(path) + " > /dev/null && "
-		command := guard + "OPENCODE_CONFIG_CONTENT=" + shellQuote(string(config)) + " " + shellJoin(cli)
+		command := guard + "OPENCODE_CONFIG_CONTENT=" + shellQuote(string(config)) + " " + shellJoin(args...)
 		if prompt != "" {
 			command += " " + shellQuote("--prompt="+prompt)
 		}
