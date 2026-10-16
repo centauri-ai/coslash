@@ -557,6 +557,9 @@ func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEdit
 			path = file.FilePath
 		}
 		if path == "" {
+			path = file.File
+		}
+		if path == "" {
 			path = part.State.Metadata.FilePath
 		}
 		if path == "" {
@@ -582,6 +585,9 @@ func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEdit
 		path := file.RelativePath
 		if path == "" {
 			path = file.FilePath
+		}
+		if path == "" {
+			path = file.File
 		}
 		if path == "" {
 			continue
