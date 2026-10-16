@@ -1151,6 +1151,104 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 	}
 }
 
+func TestImportSnapshotExcludesDeletedSessions(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name      string
+		failure   string
+		revision  string
+		wantTotal int64
+		wantBytes int64
+	}{
+		{name: "deleted pending", failure: "session_deleted", wantTotal: 1, wantBytes: 100},
+		{name: "deleted accepted", failure: "session_deleted", revision: "accepted", wantTotal: 1, wantBytes: 100},
+		{name: "other failure", failure: "server_error", wantTotal: 2, wantBytes: 300},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			queue := &Queue{}
+			queue.state.Config.ImportPlan = &hubclient.V4ImportPlan{Version: 1, Window: "3d"}
+			queue.state.PlanStartedAt = now.Add(-time.Hour).UnixMilli()
+			queue.state.Entries = []Entry{
+				{Key: "kept", Recent: true, Listed: true, Activity: now.UnixMilli(), SyncedActivity: now.UnixMilli(), RevisionID: "accepted", ContentBytes: 100},
+				{Key: "failed", Recent: true, Listed: true, Activity: now.UnixMilli(), SyncedActivity: now.UnixMilli(), RevisionID: test.revision, ContentBytes: 200, FailureCode: test.failure},
+			}
+			snapshot := queue.ImportSnapshot(now)
+			if snapshot.TotalSessions != test.wantTotal || snapshot.TotalBytes != test.wantBytes || snapshot.Listed != test.wantTotal ||
+				snapshot.ContentSessions != 1 || snapshot.ContentBytes != 100 {
+				t.Errorf("snapshot = %+v", snapshot)
+			}
+			if progress := queue.Progress().FirstSync; progress.RecentTotal != int(test.wantTotal) || progress.RecentDone != int(test.wantTotal) {
+				t.Errorf("first sync = %+v", progress)
+			}
+		})
+	}
+}
+
+func TestDeletedSessionImportCountsHTTP(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
+	policy := hubclient.V4CheckIn{ConfigVersion: 1, MinVersion: "0.0.3",
+		Capabilities: []string{hubclient.CapabilityScaleImport},
+		Config:       hubclient.V4Config{ImportPlan: &plan, LeaveOut: []string{}}}
+	if err := queue.ApplyPolicyAt(policy, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	entries := []Entry{
+		{Key: "kept", Activity: now.UnixMilli(), SyncedActivity: now.UnixMilli(), RevisionID: "accepted", ContentBytes: 100},
+		{Key: "deleted", Activity: now.UnixMilli(), ContentBytes: 200},
+	}
+	for i := range entries {
+		entries[i].Session = hubclient.V4Session{InstallID: queue.InstallID(), LocalKeyHash: entries[i].Key, Agent: "codex"}
+	}
+	if err := queue.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	var reported hubclient.V4Queue
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v4/sessions:list-batch":
+			io.WriteString(w, `{"results":[{"localKeyHash":"kept","sessionId":"ses_kept","state":"existing"},{"localKeyHash":"deleted","state":"rejected","code":"session_deleted"}]}`)
+		case "/v4/devices/me/check-in":
+			var request struct{ Queue hubclient.V4Queue }
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			reported = request.Queue
+			json.NewEncoder(w).Encode(policy)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: queue, Now: func() time.Time { return now }, checkedAt: now,
+		config: policy.Config, scaleSupported: true,
+		Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}}
+	if err := runner.runPlanned(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.refreshConsent(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if progress := reported.Import; progress == nil || progress.Phase != "complete" || progress.TotalSessions != 1 ||
+		progress.Listed != 1 || progress.ContentSessions != 1 || progress.TotalBytes != 100 || progress.ContentBytes != 100 {
+		t.Errorf("reported import = %+v", progress)
+	}
+	if progress := reported.FirstSync; progress.RecentTotal != 1 || progress.RecentDone != 1 || progress.HistoryState != "off" {
+		t.Errorf("reported first sync = %+v", progress)
+	}
+}
+
 func TestRestartKeepsSettledCatchUpCompleteOnHTTPFailure(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
@@ -1234,7 +1332,11 @@ func TestRestartKeepsSettledCatchUpCompleteOnHTTPFailure(t *testing.T) {
 			if phase, _, _ := queue.Phase(); phase != "complete" {
 				t.Errorf("phase after restart = %q, want complete", phase)
 			}
-			if progress := queue.Progress().FirstSync; progress.RecentTotal != 1 || progress.RecentDone != progress.RecentTotal {
+			wantTotal := 1
+			if test.entry.FailureCode == "session_deleted" {
+				wantTotal = 0
+			}
+			if progress := queue.Progress().FirstSync; progress.RecentTotal != wantTotal || progress.RecentDone != progress.RecentTotal {
 				t.Errorf("catch-up after restart = %+v", progress)
 			}
 		})
@@ -1276,7 +1378,7 @@ func TestPlannedContentCompletesRecentPhaseWhenHistoryOffAndFailuresParked(t *te
 		t.Fatal(err)
 	}
 	progress := q.Progress().FirstSync
-	if progress.RecentDone != 4 || progress.RecentTotal != 4 || progress.HistoryState != "off" {
+	if progress.RecentDone != 3 || progress.RecentTotal != 3 || progress.HistoryState != "off" {
 		t.Fatalf("settled live-only progress = %+v", progress)
 	}
 
