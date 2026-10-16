@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -236,7 +237,7 @@ func TestCompletedToolFilePathRepresentations(t *testing.T) {
 				}
 				part.Tool = tool
 				edits := session.NewFileEditSet()
-				if !addCompletedToolEdits("/work", &part, edits) || len(edits.Edits) != 1 || edits.Edits[0].Path != "src/main.go" || edits.Edits[0].Additions != 1 || !edits.Edits[0].IsNew {
+				if !addCompletedToolEdits("/work", &part, edits) || len(edits.Edits) != 1 || edits.Edits[0].Path != filepath.Join("src", "main.go") || edits.Edits[0].Additions != 1 || !edits.Edits[0].IsNew {
 					t.Fatalf("tool edits = %#v", edits.Edits)
 				}
 			})
