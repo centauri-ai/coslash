@@ -186,6 +186,7 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 				captured = spec
 				for _, entry := range spec.env {
 					if value, ok := strings.CutPrefix(entry, "OPENCODE_CONFIG="); ok && value != "" {
+						assertPrivateSynthesisPath(t, value, false)
 						isolatedConfig, isolatedConfigErr = os.ReadFile(value)
 					}
 				}

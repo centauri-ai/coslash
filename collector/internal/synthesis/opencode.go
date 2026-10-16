@@ -148,8 +148,19 @@ func setOpenCodeEnv(env []string, key, value string) []string {
 
 func writeOpenCodeConfig(directory string, config []byte) (string, error) {
 	path := filepath.Join(directory, "opencode.json")
-	if err := os.WriteFile(path, config, 0o600); err != nil {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create OpenCode configuration: %w", err)
+	}
+	defer file.Close()
+	if err := protectSynthesisFile(path, file); err != nil {
+		return "", fmt.Errorf("secure OpenCode configuration: %w", err)
+	}
+	if _, err := file.Write(config); err != nil {
 		return "", fmt.Errorf("write OpenCode configuration: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close OpenCode configuration: %w", err)
 	}
 	return path, nil
 }
