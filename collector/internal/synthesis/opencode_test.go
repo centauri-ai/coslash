@@ -17,6 +17,7 @@ import (
 const openCodeDefaultModelFixture = `{"data":{"id":"gpt-5","providerID":"openai","package":"@opencode/ai/providers/openai"}}`
 
 func TestOpenCodeDefaultConfigPreservesOnlySelectedModel(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("OPENCODE_DB", filepath.Join(t.TempDir(), "user.db"))
 	t.Setenv("OPENCODE_CONFIG_CONTENT", `{"model":"custom/chosen","plugins":["untrusted"],"instructions":["untrusted"]}`)
 	var captured commandSpec
@@ -34,6 +35,8 @@ func TestOpenCodeDefaultConfigPreservesOnlySelectedModel(t *testing.T) {
 				}
 			}
 		}
+		assertPrivateSynthesisPath(t, spec.dir, true)
+		assertPrivateSynthesisPath(t, probeConfigPath, false)
 		return []byte(`{"data":{"id":"chosen","providerID":"custom","package":"@opencode/ai/providers/openai-compatible","settings":{"baseURL":"http://localhost:1234/v1"},"modelID":"served-model","capabilities":{"tools":true},"instructions":["untrusted"],"plugins":["untrusted"]}}`), nil
 	})
 	if err != nil {
