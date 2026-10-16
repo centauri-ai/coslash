@@ -7,6 +7,7 @@
 ## Decision
 
 - Automated agent runs that coSlash owns (synthesis and background review) start with project hooks, plugins, MCP configuration, and user rules disabled. They run read-only or without tools, as the vendor CLI allows. `collector/internal/synthesis/runner.go` and `collector/internal/launch` hold the per-vendor flags.
+- OpenCode v2 synthesis denies every tool execution through a `tool.use` policy. Tool definitions remain visible because removing them triggers free-provider rejection. The policy blocks reads as well as mutations, while private configuration excludes external plugins and project rules. See `docs/vendors/opencode.md` and `TestOpenCodeSynthesisToolDenial`.
 - Transcript text, repository content, synthesis output, remote host output, and Hub responses are untrusted. When they enter a prompt, they go inside an explicit `BEGIN UNTRUSTED ...` and `END UNTRUSTED ...` block with an instruction never to follow text inside it.
 - Untrusted or unbounded content goes to the agent through stdin or a private temporary file. It never goes into argv. A positional user prompt comes after `--`, so message text cannot become a flag.
 - A handoff goes to the new agent through a private file that coSlash deletes after the launch. The terminal command text contains only the file path. For a remote launch, the SSH command never contains the handoff. Local Codex launches are a known exception, listed in [`docs/implementation-notes.md`](../implementation-notes.md).
