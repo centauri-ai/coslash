@@ -6,7 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -55,9 +56,8 @@ type verboseModel struct {
 // Opening Settings reaches this probe, so it must not inherit the collector's
 // working directory: OpenCode loads project plugins and config from there, and
 // starting coSlash in an untrusted checkout would run repository code. It runs
-// from an empty directory instead, with `--pure` for external plugins and PWD
-// set because OpenCode reads it before cwd. The global config is left alone,
-// since enumerating models needs its providers.
+// from an empty directory instead, with external plugins disabled and PWD set
+// because OpenCode reads it before cwd.
 func loadModels() []string {
 	directory, err := os.MkdirTemp("", "coslash-models-*")
 	if err != nil {
@@ -66,7 +66,15 @@ func loadModels() []string {
 	defer os.RemoveAll(directory)
 	ctx, cancel := context.WithTimeout(context.Background(), modelTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "opencode", "models", "opencode", "--verbose", "--pure")
+	major, err := CLIMajorVersion()
+	if err != nil {
+		return []string{}
+	}
+	args := []string{"models", "opencode", "--verbose", "--pure"}
+	if major >= 2 {
+		args = []string{"api", "--standalone", "get", "/api/model"}
+	}
+	cmd := commandContext(ctx, "opencode", args...)
 	cmd.Dir = directory
 	cmd.Env = append(os.Environ(),
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
@@ -74,11 +82,64 @@ func loadModels() []string {
 		"PWD="+directory,
 		"NO_COLOR=1",
 	)
+	if major >= 2 {
+		cmd.Env = append(cmd.Env, "XDG_CONFIG_HOME="+directory,
+			"OPENCODE_CONFIG_DIR="+directory, "OPENCODE_CONFIG=",
+			"OPENCODE_DB="+filepath.Join(directory, "opencode.db"),
+			`OPENCODE_CONFIG_CONTENT={"update":"disable","plugins":["-*","opencode.*"]}`)
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return []string{}
 	}
+	if major >= 2 {
+		return parseV2Models(output)
+	}
 	return parseVerboseModels(output)
+}
+
+func parseV2Models(output []byte) []string {
+	var response struct {
+		Data []struct {
+			ID           string `json:"id"`
+			ProviderID   string `json:"providerID"`
+			Enabled      bool   `json:"enabled"`
+			Status       string `json:"status"`
+			Capabilities struct {
+				Output []string `json:"output"`
+			} `json:"capabilities"`
+			Cost []struct {
+				Input  *float64 `json:"input"`
+				Output *float64 `json:"output"`
+				Cache  struct {
+					Read  *float64 `json:"read"`
+					Write *float64 `json:"write"`
+				} `json:"cache"`
+			} `json:"cost"`
+		} `json:"data"`
+	}
+	models := []string{}
+	if json.Unmarshal(output, &response) != nil {
+		return models
+	}
+	for _, model := range response.Data {
+		if model.ProviderID != "opencode" || model.ID == "" || !model.Enabled || model.Status == "deprecated" || len(model.Cost) == 0 {
+			continue
+		}
+		free := true
+		for _, tier := range model.Cost {
+			for _, price := range []*float64{tier.Input, tier.Output, tier.Cache.Read, tier.Cache.Write} {
+				free = free && price != nil && *price == 0
+			}
+		}
+		if free && slices.Contains(model.Capabilities.Output, "text") {
+			models = append(models, zenPrefix+model.ID)
+			if len(models) == modelsLimit {
+				break
+			}
+		}
+	}
+	return models
 }
 
 // The CLI prints a "provider/id" header, then a pretty-printed object whose

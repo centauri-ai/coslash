@@ -188,6 +188,18 @@ func openCodeMajor(version string) int {
 	return 0
 }
 
+func CLIMajorVersion() (int, error) {
+	version, err := detectOpenCodeVersion()
+	if err != nil {
+		return 0, err
+	}
+	major := openCodeMajor(version)
+	if major == 0 {
+		return 0, errors.New("unrecognized OpenCode version")
+	}
+	return major, nil
+}
+
 func openCodeVersion() (string, error) {
 	executable, err := exec.LookPath("opencode")
 	if err != nil {
