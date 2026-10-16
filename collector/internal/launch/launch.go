@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
 const (
@@ -68,6 +70,7 @@ var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var localTerminalOpener = openTerminalForAgent
 var reviewCommandContext = agentexec.CommandContext
+var openCodeMajorVersion = opencode.CLIMajorVersion
 
 type ReviewerOption struct {
 	ID         string
@@ -381,7 +384,7 @@ func cleanupReviewScratch(cutoff time.Time) error {
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || (!strings.HasPrefix(entry.Name(), "cursor-") && !strings.HasPrefix(entry.Name(), "grok-")) {
+		if !entry.IsDir() || (!strings.HasPrefix(entry.Name(), "cursor-") && !strings.HasPrefix(entry.Name(), "grok-") && !strings.HasPrefix(entry.Name(), "opencode-")) {
 			continue
 		}
 		info, err := entry.Info()
@@ -466,6 +469,13 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 			"--sandbox", "read-only", "--skip-git-repo-check", "-",
 		}, stdin: prompt}, nil
 	case vendors.AgentOpenCode:
+		major, err := openCodeMajorVersion()
+		if err != nil {
+			return reviewCommandSpec{}, fmt.Errorf("detect OpenCode version: %w", err)
+		}
+		if major >= 2 {
+			return openCodeV2ReviewCommand(workingDirectory, name, prompt)
+		}
 		return reviewCommandSpec{
 			bin:   "opencode",
 			args:  []string{"run", "--pure", "--title", name},
@@ -493,6 +503,40 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
 	}
+}
+
+func openCodeV2ReviewCommand(workingDirectory, name, prompt string) (reviewCommandSpec, error) {
+	workingDirectory, err := filepath.Abs(workingDirectory)
+	if err != nil {
+		return reviewCommandSpec{}, err
+	}
+	workingDirectory, err = filepath.EvalSymlinks(workingDirectory)
+	if err != nil {
+		return reviewCommandSpec{}, err
+	}
+	if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
+		return reviewCommandSpec{}, err
+	}
+	scratch, err := os.MkdirTemp(reviewScratchDir(), "opencode-*")
+	if err != nil {
+		return reviewCommandSpec{}, err
+	}
+	resource, _ := json.Marshal(strings.TrimSuffix(filepath.ToSlash(workingDirectory), "/") + "/*")
+	config := fmt.Sprintf(`{"update":"disable","plugins":["-*","opencode.*"],"permissions":[{"action":"*","resource":"*","effect":"deny"},{"action":"read","resource":%s,"effect":"allow"},{"action":"glob","resource":"*","effect":"allow"},{"action":"grep","resource":"*","effect":"allow"},{"action":"external_directory","resource":%s,"effect":"allow"}]}`, resource, resource)
+	return reviewCommandSpec{
+		bin: "opencode", dir: scratch,
+		args: []string{"run", "--standalone", "--title", name},
+		env: []string{
+			"XDG_CONFIG_HOME=" + filepath.Join(scratch, "config"),
+			"OPENCODE_CONFIG_DIR=" + filepath.Join(scratch, "config", "opencode"),
+			"OPENCODE_CONFIG=", "OPENCODE_CONFIG_CONTENT=" + config,
+			"OPENCODE_DB=" + filepath.Join(scratch, "opencode.db"),
+			"OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_AUTOUPDATE=1",
+			"PWD=" + scratch,
+		},
+		stdin:   prompt + "\nUse the supplied worktree snapshot for the review. Read untracked files relative to " + strconv.Quote(workingDirectory) + ". Do not run shell commands.\n",
+		cleanup: func() { _ = os.RemoveAll(scratch) },
+	}, nil
 }
 
 func grokReviewCommand(workingDirectory, prompt string) (reviewCommandSpec, error) {

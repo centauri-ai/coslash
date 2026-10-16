@@ -25,6 +25,7 @@ func TestReviewerDoesNotInheritSessionMarkers(t *testing.T) {
 		return agentexec.CommandContext(ctx, "env")
 	}
 
+	stubOpenCodeMajor(t, 1)
 	output, err := Review(context.Background(), review.Launch{Reviewer: vendors.AgentOpenCode, WorkingDirectory: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
