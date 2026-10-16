@@ -57,6 +57,7 @@ func TestCleanupReviewScratchRemovesOnlyStaleCursorData(t *testing.T) {
 }
 
 func TestReviewCLICommands(t *testing.T) {
+	stubOpenCodeMajor(t, 1)
 	name := "Review — Bob's change (12345678)"
 	prompt := "Review Bob's change\nDo not edit."
 	sandbox := "enabled"
@@ -459,6 +460,7 @@ func TestReviewCLICommandRejectsUnknownReviewer(t *testing.T) {
 }
 
 func TestReviewSetsPWDToWorkingDirectory(t *testing.T) {
+	stubOpenCodeMajor(t, 1)
 	workingDirectory := t.TempDir()
 	output := filepath.Join(t.TempDir(), "pwd")
 	t.Setenv("REVIEW_PWD_OUTPUT", output)
