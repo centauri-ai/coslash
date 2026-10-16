@@ -19,7 +19,9 @@ For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed
 content revision schedules a fresh capture even when activity time is equal.
 On process restart or import-plan version change, Local re-lists the selected
-families, including locally completed entries. Under the bounded default plan,
+families, including locally completed entries. A `session_deleted` failure blocks
+listing and upload retries until activity or the source revision changes.
+Under the bounded default plan,
 rows outside frozen catch-up remain eligible after restart only when their
 activity is at or after the persisted plan start; a source revision change
 alone does not promote older pre-existing history to live updates. After a

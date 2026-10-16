@@ -1093,7 +1093,7 @@ func TestRestartKeepsSettledCatchUpCompleteOnHTTPFailure(t *testing.T) {
 				err = runner.runPlanned(t.Context())
 			}
 			wantRequests := 1
-			if test.entry.ListRejected {
+			if test.entry.ListRejected || test.entry.FailureCode == "session_deleted" {
 				wantRequests = 0
 			}
 			var problem hubclient.V4Problem
@@ -1796,5 +1796,101 @@ func TestWarmStartAtTwentyMegabitsFinalizesBeforeListing(t *testing.T) {
 	}
 	if hub.Now().Sub(now) > 10*time.Second || base.finalized != 1 || len(base.lists) != 1 || q.ImportSnapshot(hub.Now()).Phase == "warm_start" {
 		t.Fatalf("warm start: elapsed=%s finalized=%d listing calls=%d phase=%s", hub.Now().Sub(now), base.finalized, len(base.lists), q.ImportSnapshot(hub.Now()).Phase)
+	}
+}
+
+func TestDeletedSessionResumesOnlyAfterSourceChange(t *testing.T) {
+	for _, change := range []string{"activity", "revision"} {
+		t.Run(change, func(t *testing.T) {
+			now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+			root := t.TempDir()
+			queue, err := Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+			config := hubclient.V4Config{ImportPlan: &plan}
+			if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: config}, now); err != nil {
+				t.Fatal(err)
+			}
+			found := Entry{Key: "deleted", Activity: now.Add(-time.Hour).UnixMilli(), SourceRevision: "source-1",
+				Session: hubclient.V4Session{InstallID: queue.InstallID(), LocalKeyHash: "deleted", Agent: "codex"}}
+			if err := queue.Merge([]Entry{found}, now); err != nil {
+				t.Fatal(err)
+			}
+			lists, uploads := 0, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v4/sessions:list-batch":
+					lists++
+					io.WriteString(w, `{"results":[{"localKeyHash":"deleted","sessionId":"ses_deleted","state":"listed"}]}`)
+				case "/v4/uploads":
+					uploads++
+					if uploads == 1 {
+						w.WriteHeader(http.StatusGone)
+						io.WriteString(w, `{"code":"session_deleted"}`)
+					} else {
+						io.WriteString(w, `{"sessionId":"ses_new","state":"completed","revisionId":"accepted"}`)
+					}
+				default:
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			manager, prepared, _ := fixtureBundle(t)
+			runner := &Runner{Backup: manager, Now: func() time.Time { return now }, config: config,
+				Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}}}
+			run := func() error {
+				t.Helper()
+				entry := queue.Entries()[0]
+				entry.BundleID = prepared.BundleID
+				if err := queue.Update(entry); err != nil {
+					t.Fatal(err)
+				}
+				runner.Queue, runner.checkedAt = queue, now
+				return runner.runPlanned(t.Context())
+			}
+			var problem hubclient.V4Problem
+			if err := run(); !errors.As(err, &problem) || problem.Code != "session_deleted" {
+				t.Fatalf("initial upload = %v, want session_deleted", err)
+			}
+			if got := queue.Entries()[0]; got.FailureCode != "session_deleted" || !caughtUp(got) {
+				t.Fatalf("deletion not retained as caught up: %+v", got)
+			}
+			queue, err = Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := queue.RetrySession("ses_deleted"); err != nil || ok {
+				t.Fatalf("retry released deleted session: ok=%t err=%v", ok, err)
+			}
+			now = now.Add(2 * time.Hour)
+			if err := queue.Merge([]Entry{found}, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := run(); err != nil {
+				t.Fatal(err)
+			}
+			if lists != 1 || uploads != 1 || queue.Entries()[0].FailureCode != "session_deleted" {
+				t.Fatalf("restart retried unchanged deleted session: lists=%d uploads=%d entry=%+v", lists, uploads, queue.Entries()[0])
+			}
+			if change == "activity" {
+				found.Activity = now.UnixMilli()
+			} else {
+				found.SourceRevision = "source-2"
+			}
+			if err := queue.Merge([]Entry{found}, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := run(); err != nil {
+				t.Fatal(err)
+			}
+			if got := queue.Entries()[0]; lists != 2 || uploads != 2 || got.RevisionID != "accepted" || got.FailureCode != "" {
+				t.Fatalf("changed source did not sync: lists=%d uploads=%d entry=%+v", lists, uploads, got)
+			}
+		})
 	}
 }

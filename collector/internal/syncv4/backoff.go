@@ -26,7 +26,7 @@ func retryBackoff(attempt int) time.Duration {
 }
 
 func retryDue(entry Entry, now time.Time) bool {
-	return entry.RetryAt.IsZero() || !now.Before(entry.RetryAt)
+	return entry.FailureCode != "session_deleted" && (entry.RetryAt.IsZero() || !now.Before(entry.RetryAt))
 }
 
 func (q *Queue) NextRetryDelay() time.Duration {
