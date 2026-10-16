@@ -1,6 +1,7 @@
 package synthesis
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -9,6 +10,40 @@ import (
 	"testing"
 	"time"
 )
+
+func TestOpenCodeSynthesisToolDenial(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		type policy struct {
+			Action   string `json:"action"`
+			Resource string `json:"resource"`
+			Effect   string `json:"effect"`
+		}
+		var config struct {
+			Permission   string   `json:"permission"`
+			Policies     []policy `json:"policies"`
+			Experimental struct {
+				Policies []policy `json:"policies"`
+			} `json:"experimental"`
+		}
+		for _, entry := range openCodeEnv(t.TempDir(), v2) {
+			if value, ok := strings.CutPrefix(entry, "OPENCODE_CONFIG_CONTENT="); ok {
+				if err := json.Unmarshal([]byte(value), &config); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if v2 {
+			if config.Permission != "" || len(config.Policies) != 1 || config.Policies[0].Action != "tool.use" || config.Policies[0].Resource != "*" || config.Policies[0].Effect != "deny" {
+				t.Fatalf("v2 must deny every tool execution through policy: %+v", config)
+			}
+			if len(config.Experimental.Policies) != 1 || config.Experimental.Policies[0] != (policy{Action: "permission", Resource: "*", Effect: "deny"}) {
+				t.Fatalf("older v2 must retain execution denial: %+v", config)
+			}
+		} else if config.Permission != "deny" {
+			t.Fatalf("v1 must retain tool denial: %+v", config)
+		}
+	}
+}
 
 func TestOpenCodeCommandDiagnostic(t *testing.T) {
 	output := []byte("{\"type\":\"text\",\"part\":{\"text\":\"private transcript\"}}\n" +

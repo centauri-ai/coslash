@@ -21,7 +21,9 @@ import (
 )
 
 const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
-const openCodeV2ConfigContent = `{"permission":"deny","update":"disable"}`
+
+// V2 renamed its policy key and action; each runtime retains its supported denial.
+const openCodeV2ConfigContent = `{"policies":[{"action":"tool.use","resource":"*","effect":"deny"}],"experimental":{"policies":[{"action":"permission","resource":"*","effect":"deny"}]},"update":"disable"}`
 
 var cachedOpenCodeV2 = newOpenCodeV2Detector(detectOpenCodeV2)
 
