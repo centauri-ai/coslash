@@ -539,6 +539,18 @@ func openCodeV2ReviewCommand(workingDirectory, name, prompt string) (reviewComma
 	}, nil
 }
 
+func openCodeHandoffArguments(cli string) ([]string, error) {
+	major, err := openCodeMajorVersion()
+	if err != nil {
+		return nil, fmt.Errorf("detect OpenCode version: %w", err)
+	}
+	args := []string{cli}
+	if major >= 2 {
+		args = append(args, "--standalone")
+	}
+	return args, nil
+}
+
 func grokReviewCommand(workingDirectory, prompt string) (reviewCommandSpec, error) {
 	if !vendors.GrokSynthesisSupported() {
 		return reviewCommandSpec{}, errors.New("launch: Grok review is supported only on macOS and Windows")

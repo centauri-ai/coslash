@@ -452,6 +452,7 @@ func mustLookPathForPi(t *testing.T, name string) string {
 }
 
 func TestStagedLaunchFishUsesNativeParentAndPOSIXChild(t *testing.T) {
+	stubOpenCodeMajor(t, 1)
 	setupFakePi(t)
 	t.Setenv("SHELL", "/usr/local/bin/fish")
 	for _, agent := range []string{vendors.AgentPi, vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {

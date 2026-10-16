@@ -401,6 +401,10 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		}
 		return withPowerShellCleanup(command, path), path, nil
 	case vendors.AgentOpenCode:
+		args, err := openCodeHandoffArguments(cli)
+		if err != nil {
+			return "", "", err
+		}
 		path, err := writeHandoffFile(context)
 		if err != nil {
 			return "", "", err
@@ -412,7 +416,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		}
 		setup := "$hadOpenCodeConfigContent = Test-Path Env:OPENCODE_CONFIG_CONTENT; " +
 			"$previousOpenCodeConfigContent = $env:OPENCODE_CONFIG_CONTENT; "
-		command := "$env:OPENCODE_CONFIG_CONTENT = " + powerShellQuote(string(config)) + "; " + localCommandJoin(cli)
+		command := "$env:OPENCODE_CONFIG_CONTENT = " + powerShellQuote(string(config)) + "; " + localCommandJoin(args...)
 		if prompt != "" {
 			command += " " + powerShellQuote("--prompt="+prompt)
 		}

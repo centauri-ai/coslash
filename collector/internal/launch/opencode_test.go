@@ -2,6 +2,7 @@ package launch
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,31 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestOpenCodeHandoffUsesPrivateV2ServerButKeepsV1Launch(t *testing.T) {
+	for _, major := range []int{1, 2} {
+		t.Run(fmt.Sprint(major), func(t *testing.T) {
+			stubOpenCodeMajor(t, major)
+			t.Setenv("COSLASH_HOME", t.TempDir())
+			command, path, err := handoffCommand("opencode", "opencode", "private historical notes", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = removeHandoffFile(path) })
+			if strings.Contains(command, "--standalone") != (major == 2) || strings.Contains(command, "private historical notes") {
+				t.Fatalf("handoff command = %q", command)
+			}
+			content, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(content), handoffPreamble+"private historical notes") {
+				t.Fatalf("handoff = %q, error = %v", content, err)
+			}
+			resume, _, err := cliCommand("opencode", "ses_test", ResumeSession, "")
+			if err != nil || strings.Contains(resume, "--standalone") || !strings.Contains(resume, "--session") {
+				t.Fatalf("resume command = %q, error = %v", resume, err)
+			}
+		})
+	}
+}
 
 func stubOpenCodeMajor(t *testing.T, major int) {
 	t.Helper()

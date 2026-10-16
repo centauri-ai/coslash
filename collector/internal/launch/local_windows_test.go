@@ -286,6 +286,7 @@ func TestWindowsGrokCLIOutsidePath(t *testing.T) {
 }
 
 func TestWindowsHandoffCommandsUsePowerShellCleanup(t *testing.T) {
+	stubOpenCodeMajor(t, 1)
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	tests := []struct {
 		agent string
