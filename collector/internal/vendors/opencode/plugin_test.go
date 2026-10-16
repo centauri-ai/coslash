@@ -2,9 +2,11 @@ package opencode
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +26,42 @@ func TestOpenCodeMajor(t *testing.T) {
 	for _, test := range tests {
 		if got := openCodeMajor(test.version); got != test.want {
 			t.Errorf("openCodeMajor(%q) = %d; want %d", test.version, got, test.want)
+		}
+	}
+}
+
+func TestVersionProbeIsolatesProjectAndUserConfiguration(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_CONTENT", `{"plugins":["untrusted"]}`)
+	t.Setenv("OPENCODE_CONFIG_DIR", filepath.Join(directory, "untrusted-config"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(directory, "untrusted-xdg-config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(directory, "untrusted-xdg-data"))
+	t.Setenv("OPENCODE_DB", filepath.Join(directory, "untrusted.db"))
+	t.Setenv("PWD", filepath.Join(directory, "untrusted-cwd"))
+
+	command := versionProbeCommand(context.Background(), "opencode", directory)
+	if command.Dir != directory || len(command.Args) != 2 || command.Args[1] != "--version" {
+		t.Fatalf("version command = %#v", command)
+	}
+	env := map[string]string{}
+	for _, entry := range command.Env {
+		key, value, _ := strings.Cut(entry, "=")
+		env[key] = value
+	}
+	want := map[string]string{
+		"OPENCODE_CONFIG_CONTENT":         `{"update":"disable","plugins":["-*"]}`,
+		"OPENCODE_CONFIG_DIR":             directory,
+		"OPENCODE_CONFIG":                 "",
+		"XDG_CONFIG_HOME":                 directory,
+		"XDG_DATA_HOME":                   directory,
+		"OPENCODE_DB":                     filepath.Join(directory, "opencode.db"),
+		"OPENCODE_DISABLE_PROJECT_CONFIG": "1",
+		"OPENCODE_DISABLE_AUTOUPDATE":     "1",
+		"PWD":                             directory,
+	}
+	for key, value := range want {
+		if env[key] != value {
+			t.Errorf("%s = %q, want %q", key, env[key], value)
 		}
 	}
 }
