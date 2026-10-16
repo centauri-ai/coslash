@@ -707,7 +707,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	if r.now().Before(r.logRejectedUntil) {
 		lines, through = nil, 0
 	}
-	progress := r.Queue.Progress()
+	progress := r.Queue.progressAt(r.now())
 	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
 		progress.Import = r.importProgress(ctx, r.now())
 	}
