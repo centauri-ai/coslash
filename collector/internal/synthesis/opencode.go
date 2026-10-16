@@ -155,11 +155,20 @@ func writeOpenCodeConfig(directory string, config []byte) (string, error) {
 }
 
 func openCodeDefaultConfig(ctx context.Context, bin string, execute commandExecutor) (string, error) {
-	directory, err := os.MkdirTemp("", "coslash-opencode-default-*")
+	if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
+		return "", fmt.Errorf("create synthesis directory: %w", err)
+	}
+	if err := protectSynthesisDirectories(SynthesisCwd()); err != nil {
+		return "", fmt.Errorf("secure synthesis directory: %w", err)
+	}
+	directory, err := os.MkdirTemp(SynthesisCwd(), "coslash-opencode-default-*")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(directory)
+	if err := protectSynthesisDirectory(directory); err != nil {
+		return "", fmt.Errorf("secure OpenCode default probe directory: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	probeConfig := map[string]any{"update": "disable", "plugins": []string{"-*", "opencode.*"}}
