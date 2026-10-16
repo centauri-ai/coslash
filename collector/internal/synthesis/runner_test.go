@@ -175,6 +175,8 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var captured commandSpec
+			var isolatedConfig []byte
+			var isolatedConfigErr error
 			runner := &CLIRunner{Backend: settings.BackendOpenCode, Bin: "opencode", Model: test.model, Timeout: time.Second, openCodeV2: test.v2}
 			runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
 				if len(spec.args) > 0 && spec.args[0] == "api" {
@@ -182,6 +184,11 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 				}
 
 				captured = spec
+				for _, entry := range spec.env {
+					if value, ok := strings.CutPrefix(entry, "OPENCODE_CONFIG="); ok && value != "" {
+						isolatedConfig, isolatedConfigErr = os.ReadFile(value)
+					}
+				}
 				return []byte("{\"type\":\"text\",\"part\":{\"id\":\"answer\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
 			}
 			if _, err := runner.Run(context.Background(), "facts"); err != nil {
@@ -193,8 +200,18 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 			if !(test.v2 && test.model == settings.OpenCodeDefaultModel) && !slices.Contains(captured.env, "OPENCODE_CONFIG_CONTENT="+test.wantConfig) {
 				t.Fatalf("config override missing from env: %#v", captured.env)
 			}
-			if test.v2 && test.model == settings.OpenCodeDefaultModel && !strings.Contains(strings.Join(captured.env, "\n"), `"model":"openai/gpt-5"`) {
-				t.Fatalf("user default was not passed into private configuration: %#v", captured.env)
+			if test.v2 && test.model == settings.OpenCodeDefaultModel {
+				if isolatedConfigErr != nil {
+					t.Fatalf("read isolated default config: %v", isolatedConfigErr)
+				}
+				if !strings.Contains(string(isolatedConfig), `"model":"openai/gpt-5"`) || !slices.Contains(captured.env, "OPENCODE_CONFIG_CONTENT=") {
+					t.Fatalf("user default was not passed through a private config file: config=%s env=%#v", isolatedConfig, captured.env)
+				}
+				for _, entry := range captured.env {
+					if strings.HasPrefix(entry, "OPENCODE_CONFIG_CONTENT=") && entry != "OPENCODE_CONFIG_CONTENT=" {
+						t.Fatalf("default config leaked into the process environment: %q", entry)
+					}
+				}
 			}
 			configHome := ""
 			for _, entry := range captured.env {
@@ -208,8 +225,14 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 			if !test.v2 && configHome != "" {
 				t.Fatalf("v1 config home = %q, want inherited config", configHome)
 			}
+			configPath := ""
+			for _, entry := range captured.env {
+				if value, ok := strings.CutPrefix(entry, "OPENCODE_CONFIG="); ok {
+					configPath = value
+				}
+			}
 			if test.v2 && (!slices.Contains(captured.env, "OPENCODE_CONFIG_DIR="+filepath.Join(configHome, "opencode")) ||
-				!slices.Contains(captured.env, "OPENCODE_CONFIG=")) {
+				(configPath != "") != (test.model == settings.OpenCodeDefaultModel)) {
 				t.Fatalf("v2 inherited explicit config paths: %#v", captured.env)
 			}
 			if !test.v2 && (slices.Contains(captured.env, "OPENCODE_CONFIG=") || slices.Contains(captured.env, "OPENCODE_CONFIG_DIR=")) {

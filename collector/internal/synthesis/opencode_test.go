@@ -20,8 +20,20 @@ func TestOpenCodeDefaultConfigPreservesOnlySelectedModel(t *testing.T) {
 	t.Setenv("OPENCODE_DB", filepath.Join(t.TempDir(), "user.db"))
 	t.Setenv("OPENCODE_CONFIG_CONTENT", `{"model":"custom/chosen","plugins":["untrusted"],"instructions":["untrusted"]}`)
 	var captured commandSpec
+	var probeConfigPath string
+	var probeConfig []byte
 	config, err := openCodeDefaultConfig(context.Background(), "opencode", func(_ context.Context, spec commandSpec) ([]byte, error) {
 		captured = spec
+		for _, entry := range spec.env {
+			if value, ok := strings.CutPrefix(entry, "OPENCODE_CONFIG="); ok {
+				probeConfigPath = value
+				var readErr error
+				probeConfig, readErr = os.ReadFile(value)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+			}
+		}
 		return []byte(`{"data":{"id":"chosen","providerID":"custom","package":"@opencode/ai/providers/openai-compatible","settings":{"baseURL":"http://localhost:1234/v1"},"modelID":"served-model","capabilities":{"tools":true},"instructions":["untrusted"],"plugins":["untrusted"]}}`), nil
 	})
 	if err != nil {
@@ -40,14 +52,18 @@ func TestOpenCodeDefaultConfigPreservesOnlySelectedModel(t *testing.T) {
 		}
 	}
 	for _, entry := range captured.env {
-		if value, ok := strings.CutPrefix(entry, "OPENCODE_CONFIG_CONTENT="); ok {
-			if strings.Contains(value, "untrusted") || !strings.Contains(value, `"model":"custom/chosen"`) || !strings.Contains(value, `"plugins":["-*","opencode.*"]`) {
-				t.Fatalf("unsafe or incomplete default probe configuration: %s", value)
-			}
+		if entry != "OPENCODE_CONFIG_CONTENT=" && strings.HasPrefix(entry, "OPENCODE_CONFIG_CONTENT=") {
+			t.Fatalf("default probe config should be passed by file: %q", entry)
 		}
-		if strings.HasPrefix(entry, "XDG_CONFIG_HOME=") || strings.HasPrefix(entry, "OPENCODE_CONFIG_DIR=") || strings.HasPrefix(entry, "OPENCODE_CONFIG=") {
+		if strings.HasPrefix(entry, "XDG_CONFIG_HOME=") || strings.HasPrefix(entry, "OPENCODE_CONFIG_DIR=") {
 			t.Fatalf("default probe cannot resolve user configuration: %q", entry)
 		}
+	}
+	if probeConfigPath == "" || filepath.Dir(probeConfigPath) != captured.dir {
+		t.Fatalf("default probe config path = %q, want a private file in %q", probeConfigPath, captured.dir)
+	}
+	if strings.Contains(string(probeConfig), "untrusted") || !strings.Contains(string(probeConfig), `"model":"custom/chosen"`) || !strings.Contains(string(probeConfig), `"plugins":["-*","opencode.*"]`) {
+		t.Fatalf("unsafe or incomplete default probe configuration: %s", probeConfig)
 	}
 	var got map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(config), &got); err != nil {
