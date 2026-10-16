@@ -4,13 +4,68 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 )
+
+func TestDatabasePathProbeSupportsBothCLIs(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint("legacy=", legacy), func(t *testing.T) {
+			directory := t.TempDir()
+			name := "opencode"
+			if runtime.GOOS == "windows" {
+				name += ".exe"
+			}
+			if err := os.WriteFile(filepath.Join(directory, name), nil, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", directory)
+			t.Setenv("OPENCODE_DB", "")
+			t.Setenv("XDG_DATA_HOME", "")
+			t.Setenv("COSLASH_TEST_DB_PATH", filepath.Join(directory, "channel.db"))
+			t.Setenv("COSLASH_TEST_LEGACY_DB", fmt.Sprint(legacy))
+			original := commandContext
+			var calls [][]string
+			commandContext = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+				calls = append(calls, slices.Clone(args))
+				return exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestDatabasePathProbeHelper$", "--"}, args...)...)
+			}
+			t.Cleanup(func() { commandContext = original })
+			got, err := RootContext(context.Background())
+			if err != nil || got != os.Getenv("COSLASH_TEST_DB_PATH") {
+				t.Fatalf("root = %q, error = %v", got, err)
+			}
+			want := [][]string{{"debug", "paths", "db"}}
+			if legacy {
+				want = append(want, []string{"db", "path"})
+			}
+			if !reflect.DeepEqual(calls, want) {
+				t.Fatalf("path probes = %v, want %v", calls, want)
+			}
+		})
+	}
+}
+
+func TestDatabasePathProbeHelper(t *testing.T) {
+	path := os.Getenv("COSLASH_TEST_DB_PATH")
+	if path == "" {
+		return
+	}
+	index := slices.Index(os.Args, "--")
+	modern := index >= 0 && slices.Equal(os.Args[index+1:], []string{"debug", "paths", "db"})
+	if modern == (os.Getenv("COSLASH_TEST_LEGACY_DB") == "true") {
+		os.Exit(1)
+	}
+	fmt.Println(path)
+	os.Exit(0)
+}
 
 func TestOpenV2DatabaseFromDataHome(t *testing.T) {
 	dataHome := t.TempDir()

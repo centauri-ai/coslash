@@ -46,10 +46,15 @@ func RootContext(ctx context.Context) (string, error) {
 	if executable, err := exec.LookPath("opencode"); err == nil {
 		lookupCtx, cancel := context.WithTimeout(ctx, databasePathLookupTimeout)
 		defer cancel()
-		if output, err := commandContext(lookupCtx, executable, "db", "path").Output(); err == nil {
-			path := strings.TrimSpace(string(output))
-			if filepath.IsAbs(path) {
-				return filepath.Clean(path), nil
+		for _, args := range [][]string{{"debug", "paths", "db"}, {"db", "path"}} {
+			if output, err := commandContext(lookupCtx, executable, args...).Output(); err == nil {
+				path := strings.TrimSpace(string(output))
+				if filepath.IsAbs(path) {
+					return filepath.Clean(path), nil
+				}
+			}
+			if lookupCtx.Err() != nil {
+				break
 			}
 		}
 	}
