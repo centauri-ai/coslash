@@ -50,6 +50,37 @@ func TestQueuePersistsInstallIdentityAndRecentFirstProgress(t *testing.T) {
 	}
 }
 
+func TestRecentDoneWaitsForCaughtUpAcrossLiveQuietBoundary(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "live", Live: true, Activity: now.UnixMilli(),
+		Session: hubclient.V4Session{Agent: "codex"}}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, at := range []time.Time{now.Add(2*time.Minute - time.Millisecond), now.Add(2 * time.Minute)} {
+		progress := queue.progressAt(at)
+		if progress.FirstSync.RecentDone != 0 || progress.FirstSync.RecentTotal != 1 || progress.Pending != 1 {
+			t.Fatalf("progress at %s = %+v; want incomplete pending upload", at, progress)
+		}
+	}
+
+	entry = queue.Entries()[0]
+	entry.RevisionID = "accepted"
+	entry.SyncedActivity = entry.Activity
+	if err := queue.Update(entry); err != nil {
+		t.Fatal(err)
+	}
+	progress := queue.progressAt(now.Add(2 * time.Minute))
+	if progress.FirstSync.RecentDone != 1 || progress.FirstSync.RecentTotal != 1 || progress.Pending != 0 {
+		t.Fatalf("progress after accepted upload = %+v; want completed", progress)
+	}
+}
+
 func TestCWDLabelIsPathSafeAndEnforcesFolderLeaveOut(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
