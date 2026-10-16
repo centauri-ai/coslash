@@ -942,6 +942,10 @@ func (q *Queue) InFlight() int {
 }
 
 func (q *Queue) Progress() hubclient.V4Queue {
+	return q.progressAt(time.Now())
+}
+
+func (q *Queue) progressAt(now time.Time) hubclient.V4Queue {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	var progress hubclient.V4Queue
@@ -973,10 +977,10 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		}
 		if recent {
 			progress.FirstSync.RecentTotal++
-			if caughtUp(entry) {
+			if settledForCatchUp(entry, now) {
 				progress.FirstSync.RecentDone++
 			}
-		} else if !caughtUp(entry) && (plan == nil || plan.History || plan.Backfill) {
+		} else if !settledForCatchUp(entry, now) && (plan == nil || plan.History || plan.Backfill) {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 		if pending(entry) && entry.ParkedVersion == "" {
@@ -1053,6 +1057,11 @@ func pending(entry Entry) bool {
 
 func caughtUp(entry Entry) bool {
 	return !pending(entry) || entry.SyncedActivity > 0 || entry.ParkedVersion != "" || entry.ListRejected || entry.FailureCode == "session_deleted"
+}
+
+// A live revision held for quiet time has no catch-up work to attempt yet.
+func settledForCatchUp(entry Entry, now time.Time) bool {
+	return caughtUp(entry) || !readyLive(entry, now)
 }
 
 func (q *Queue) save() error {

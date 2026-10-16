@@ -1020,6 +1020,129 @@ func TestLiveResyncDoesNotBlockCatchUpHTTP(t *testing.T) {
 	}
 }
 
+func TestNewSessionAfterCompleteHTTP(t *testing.T) {
+	for _, live := range []bool{true, false} {
+		t.Run(fmt.Sprintf("live=%t", live), func(t *testing.T) {
+			now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+			queue, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessionsPerAgent: 30}
+			policy := hubclient.V4CheckIn{ConfigVersion: 1, MinVersion: "0.0.3", Capabilities: []string{hubclient.CapabilityScaleImport},
+				Config: hubclient.V4Config{ImportPlan: &plan, LeaveOut: []string{}}}
+			if err := queue.ApplyPolicyAt(policy, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := queue.FreezeCatchUp(plan); err != nil {
+				t.Fatal(err)
+			}
+			if err := queue.SetPhase("complete"); err != nil {
+				t.Fatal(err)
+			}
+			queue.SetActiveSince(now)
+			creates, reports := 0, 0
+			quiet, reporting := false, false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v4/sessions:list-batch":
+					io.WriteString(w, `{"results":[{"localKeyHash":"new","sessionId":"ses_new","state":"listed"}]}`)
+				case "/v4/uploads":
+					creates++
+					if !quiet {
+						t.Error("uploaded before quiet period or retry elapsed")
+					}
+					io.WriteString(w, `{"sessionId":"ses_new","state":"completed","revisionId":"accepted"}`)
+				case "/v4/devices/me/check-in":
+					var request struct{ Queue hubclient.V4Queue }
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Error(err)
+					}
+					if !reporting {
+						json.NewEncoder(w).Encode(policy)
+						return
+					}
+					reports++
+					wantPhase, wantDone := "complete", 1
+					if !live && !quiet {
+						wantPhase, wantDone = "recent", 0
+					}
+					progress := request.Queue
+					if progress.Import == nil || progress.Import.Phase != wantPhase ||
+						progress.FirstSync.RecentTotal != 1 || progress.FirstSync.RecentDone != wantDone {
+						t.Errorf("report %d: want phase=%s done=%d/1, got firstSync=%+v import=%+v", reports, wantPhase, wantDone, progress.FirstSync, progress.Import)
+					}
+					json.NewEncoder(w).Encode(policy)
+				default:
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			runner := &Runner{Queue: queue, Now: func() time.Time { return now }, config: policy.Config,
+				scaleSupported: true, Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}}
+			entry := Entry{Key: "new", Live: live,
+				Session: hubclient.V4Session{InstallID: queue.InstallID(), LocalKeyHash: "new", Agent: "codex"}}
+			for pass := 0; pass < 13; pass++ {
+				now = now.Add(time.Minute)
+				entry.Activity = now.UnixMilli()
+				if err := queue.Merge([]Entry{entry}, now); err != nil {
+					t.Fatal(err)
+				}
+				if !live {
+					waiting := queue.Entries()[0]
+					waiting.RetryAt = now.Add(time.Hour)
+					if err := queue.Update(waiting); err != nil {
+						t.Fatal(err)
+					}
+				}
+				runner.checkedAt = now
+				if err := runner.runPlanned(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				reporting = true
+				if err := runner.refreshConsent(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				reporting = false
+			}
+			if live {
+				for _, elapsed := range []time.Duration{2*time.Minute - time.Millisecond, 2 * time.Minute} {
+					wantDone := 1
+					if elapsed == 2*time.Minute {
+						wantDone = 0
+					}
+					if progress := queue.progressAt(now.Add(elapsed)); progress.FirstSync.RecentDone != wantDone || progress.Pending != 1 {
+						t.Fatalf("progress at quiet boundary %s = %+v", elapsed, progress)
+					}
+				}
+			}
+			quiet = true
+			now = now.Add(2 * time.Minute)
+			manager, prepared, _ := fixtureBundle(t)
+			runner.Backup = manager
+			waiting := queue.Entries()[0]
+			waiting.BundleID, waiting.RetryAt = prepared.BundleID, time.Time{}
+			if err := queue.Update(waiting); err != nil {
+				t.Fatal(err)
+			}
+			runner.checkedAt = now
+			if err := runner.runPlanned(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			reporting = true
+			if err := runner.refreshConsent(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if creates != 1 || reports != 14 || queue.Progress().Pending != 0 {
+				t.Fatalf("creates=%d reports=%d pending=%d", creates, reports, queue.Progress().Pending)
+			}
+		})
+	}
+}
+
 func TestRestartKeepsSettledCatchUpCompleteOnHTTPFailure(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
