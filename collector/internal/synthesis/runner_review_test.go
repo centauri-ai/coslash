@@ -34,6 +34,7 @@ func TestOpenCodeComponentCostsSurviveBadOrMissingSiblings(t *testing.T) {
 }
 
 func TestOpenCodeMatchingScratchAndStreamTotals(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
 	const first = `{"providerID":"openai","modelID":"gpt-5","cost":0.01,"tokens":{"input":2,"output":1,"cache":{"read":0,"write":0}},"time":{"completed":1}}`
 	const second = `{"providerID":"openai","modelID":"gpt-5","cost":0.02,"tokens":{"input":3,"output":2,"cache":{"read":0,"write":0}},"time":{"completed":2}}`
 	const step1 = `{"type":"step_finish","sessionID":"run","part":{"id":"p1","providerID":"openai","modelID":"gpt-5","cost":0.01,"tokens":{"input":2,"output":1,"cache":{"read":0,"write":0}}}}` + "\n"
@@ -44,6 +45,10 @@ func TestOpenCodeMatchingScratchAndStreamTotals(t *testing.T) {
 				t.Setenv("COSLASH_HOME", t.TempDir())
 				runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: settings.OpenCodeDefaultModel, Timeout: time.Second, openCodeV2: v2}
 				runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+					if len(spec.args) > 0 && spec.args[0] == "api" {
+						return []byte(openCodeDefaultModelFixture), nil
+					}
+
 					var path string
 					for _, entry := range spec.env {
 						if len(entry) > 12 && entry[:12] == "OPENCODE_DB=" {
@@ -136,6 +141,7 @@ func TestOpenCodeScratchCostSurvivesMalformedTokens(t *testing.T) {
 }
 
 func TestOpenCodeScratchSkipsUnsafeRowsAndKeepsKnownUsage(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
 	const start = `{"role":"assistant","cost":0.3,"time":{"completed":1},"padding":"`
 	const end = `"}`
 	for _, tc := range []struct {
@@ -152,6 +158,10 @@ func TestOpenCodeScratchSkipsUnsafeRowsAndKeepsKnownUsage(t *testing.T) {
 				t.Setenv("COSLASH_HOME", t.TempDir())
 				runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: settings.OpenCodeDefaultModel, Timeout: time.Second, openCodeV2: v2}
 				runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+					if len(spec.args) > 0 && spec.args[0] == "api" {
+						return []byte(openCodeDefaultModelFixture), nil
+					}
+
 					var path string
 					for _, entry := range spec.env {
 						if strings.HasPrefix(entry, "OPENCODE_DB=") {

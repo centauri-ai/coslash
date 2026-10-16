@@ -135,6 +135,77 @@ func openCodeEnv(scratchDir string, v2 bool) []string {
 	return env
 }
 
+func openCodeDefaultConfig(ctx context.Context, bin string, execute commandExecutor) (string, error) {
+	directory, err := os.MkdirTemp("", "coslash-opencode-default-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(directory)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	probeConfig := map[string]any{"update": "disable", "plugins": []string{"-*", "opencode.*"}}
+	if value := os.Getenv("OPENCODE_CONFIG_CONTENT"); value != "" {
+		var inline map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(value), &inline); err != nil {
+			return "", errors.New("OpenCode inline configuration is invalid")
+		}
+		for _, key := range []string{"model", "providers"} {
+			if value, ok := inline[key]; ok {
+				probeConfig[key] = value
+			}
+		}
+	}
+	probeContent, err := json.Marshal(probeConfig)
+	if err != nil {
+		return "", err
+	}
+	output, err := execute(ctx, commandSpec{
+		bin: bin, args: []string{"api", "--standalone", "get", "/api/model/default"}, dir: directory,
+		env: []string{
+			"PWD=" + directory,
+			"OPENCODE_DB=" + filepath.Join(directory, "opencode.db"),
+			"OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_AUTOUPDATE=1",
+			"OPENCODE_CONFIG_CONTENT=" + string(probeContent),
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("resolve OpenCode default model: %w", err)
+	}
+	var response struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		return "", errors.New("OpenCode default model response is invalid")
+	}
+	var id, providerID, pkg string
+	if json.Unmarshal(response.Data["id"], &id) != nil || id == "" ||
+		json.Unmarshal(response.Data["providerID"], &providerID) != nil || providerID == "" ||
+		json.Unmarshal(response.Data["package"], &pkg) != nil || pkg == "" {
+		return "", errors.New("OpenCode has no available default model")
+	}
+	model := map[string]json.RawMessage{}
+	for _, key := range []string{"modelID", "name", "capabilities", "compatibility", "variants", "cost", "limit", "headers", "body"} {
+		if value, ok := response.Data[key]; ok {
+			model[key] = value
+		}
+	}
+	provider := map[string]any{"package": pkg, "models": map[string]any{id: model}}
+	if value, ok := response.Data["settings"]; ok {
+		provider["settings"] = value
+	}
+	var config map[string]any
+	if err := json.Unmarshal([]byte(openCodeV2ConfigContent), &config); err != nil {
+		return "", err
+	}
+	config["model"] = providerID + "/" + id
+	config["providers"] = map[string]any{providerID: provider}
+	encoded, err := json.Marshal(config)
+	if len(encoded) > 64<<10 {
+		return "", errors.New("OpenCode default model configuration exceeds the process environment limit")
+	}
+	return string(encoded), err
+}
+
 func detectOpenCodeV2(bin string) bool {
 	dataDir, err := os.MkdirTemp("", "coslash-opencode-version-")
 	if err != nil {

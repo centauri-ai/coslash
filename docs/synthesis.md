@@ -6,7 +6,9 @@ The Settings dialog offers a short model list per backend. You can set any model
 
 ## OpenCode
 
-The model list includes *OpenCode default for a new run* and, when the installed CLI can list them, free OpenCode Zen models. The default option passes no model. OpenCode v2 selects its current catalog default in a fresh, isolated process. OpenCode v1 can instead use a model from your configuration. Either model can differ from the model of an existing OpenCode session. If the resolved model is paid, each debrief bills your account.
+The model list includes *OpenCode default for a new run* and, when the installed CLI can list them, free OpenCode Zen models. For the default option, OpenCode v2 resolves your configured default through a separate probe with external plugins and project configuration disabled. Synthesis receives only the selected model and its provider configuration, in a fresh, isolated process. OpenCode v1 resolves its default through its existing configuration. The default for new work can differ from the model of an existing session. If the resolved model is paid, each debrief bills your account.
+
+OpenCode v2 synthesis uses a hard-deny execution policy. The model can see tool definitions, but every tool execution is blocked, including reads and writes. This preserves the no-tools boundary without the free-provider rejection that permission-based tool removal can trigger. The CLI still writes its temporary runtime data to isolated storage.
 
 ## Pi
 

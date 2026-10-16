@@ -290,11 +290,16 @@ func TestOpenCodeKeepsReportedCostWithMissingCounters(t *testing.T) {
 }
 
 func TestOpenCodeScratchUsageIsReadBeforeCleanup(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, v2 := range []bool{false, true} {
 		runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: settings.OpenCodeDefaultModel, Timeout: time.Second, openCodeV2: v2}
 		var scratch string
 		runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+			if len(spec.args) > 0 && spec.args[0] == "api" {
+				return []byte(openCodeDefaultModelFixture), nil
+			}
+
 			for _, entry := range spec.env {
 				if len(entry) > 12 && entry[:12] == "OPENCODE_DB=" {
 					scratch = entry[12:]
