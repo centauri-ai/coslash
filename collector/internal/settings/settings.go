@@ -36,11 +36,11 @@ const (
 	GrokDefaultModel     = "default"
 	GrokSynthesisModel   = "grok-4.7"
 
-	// Each backend's own default model, which the runner turns up to high
-	// reasoning effort. Changing one of these ids moves that flag with it.
+	// Retained for explicit selections saved before OpenCode default became preferred.
 	OpenCodeSynthesisModel = "opencode/deepseek-v4-flash-free"
-	CodexSynthesisModel    = "gpt-5.6-luna"
-	ClaudeSynthesisModel   = "claude-haiku-4-5"
+	// These backend defaults run with high reasoning effort.
+	CodexSynthesisModel  = "gpt-5.6-luna"
+	ClaudeSynthesisModel = "claude-haiku-4-5"
 
 	TerminalWindows = "windows-terminal"
 )
