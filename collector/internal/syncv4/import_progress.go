@@ -42,7 +42,7 @@ func (r *Runner) importProgress(ctx context.Context, now time.Time) *hubclient.V
 		positions := make(map[string]int64)
 		var position int64
 		for _, entry := range r.Queue.PlannedEntries(*config.ImportPlan, now) {
-			if !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, now) ||
+			if entry.FailureCode == "session_deleted" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, now) ||
 				!entry.Priority && !planRecent(entry, *config.ImportPlan, activeSince) && config.ImportPlan.HistoryPaused {
 				continue
 			}

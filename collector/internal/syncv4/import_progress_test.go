@@ -60,6 +60,7 @@ func TestImportProgressReportsSchedulerQueuePositions(t *testing.T) {
 	queue.state.Config.ImportPlan = &hubclient.V4ImportPlan{Version: 7, Window: "all"}
 	queue.state.PlanStartedAt = now.Add(-2 * time.Hour).UnixMilli()
 	queue.state.Entries = []Entry{
+		{Key: "deleted-private-key", SessionID: "ses_deleted", Activity: now.UnixMilli(), Listed: true, Priority: true, FailureCode: "session_deleted"},
 		{Key: "older-private-key", SessionID: "ses_older", Activity: now.Add(-time.Hour).UnixMilli(), Listed: true, Priority: true},
 		{Key: "newer-private-key", SessionID: "ses_newer", Activity: now.UnixMilli(), Listed: true},
 		{Key: "parked-private-key", SessionID: "ses_parked", Activity: now.Add(time.Hour).UnixMilli(), Listed: true, ParkedVersion: "0.0.5"},
