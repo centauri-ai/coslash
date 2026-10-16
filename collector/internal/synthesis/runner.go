@@ -244,7 +244,12 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			if err != nil {
 				return RunResult{}, err
 			}
-			env = append(env, "OPENCODE_CONFIG_CONTENT="+config)
+			configPath, err := writeOpenCodeConfig(scratchDir, []byte(config))
+			if err != nil {
+				return RunResult{}, err
+			}
+			env = setOpenCodeEnv(env, "OPENCODE_CONFIG_CONTENT", "")
+			env = setOpenCodeEnv(env, "OPENCODE_CONFIG", configPath)
 		}
 	case settings.BackendPi:
 		label = "Pi"

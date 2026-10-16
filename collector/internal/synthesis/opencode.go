@@ -135,6 +135,25 @@ func openCodeEnv(scratchDir string, v2 bool) []string {
 	return env
 }
 
+func setOpenCodeEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for index, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[index] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
+}
+
+func writeOpenCodeConfig(directory string, config []byte) (string, error) {
+	path := filepath.Join(directory, "opencode.json")
+	if err := os.WriteFile(path, config, 0o600); err != nil {
+		return "", fmt.Errorf("write OpenCode configuration: %w", err)
+	}
+	return path, nil
+}
+
 func openCodeDefaultConfig(ctx context.Context, bin string, execute commandExecutor) (string, error) {
 	directory, err := os.MkdirTemp("", "coslash-opencode-default-*")
 	if err != nil {
@@ -159,13 +178,17 @@ func openCodeDefaultConfig(ctx context.Context, bin string, execute commandExecu
 	if err != nil {
 		return "", err
 	}
+	probePath, err := writeOpenCodeConfig(directory, probeContent)
+	if err != nil {
+		return "", err
+	}
 	output, err := execute(ctx, commandSpec{
 		bin: bin, args: []string{"api", "--standalone", "get", "/api/model/default"}, dir: directory,
 		env: []string{
 			"PWD=" + directory,
 			"OPENCODE_DB=" + filepath.Join(directory, "opencode.db"),
 			"OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_AUTOUPDATE=1",
-			"OPENCODE_CONFIG_CONTENT=" + string(probeContent),
+			"OPENCODE_CONFIG_CONTENT=", "OPENCODE_CONFIG=" + probePath,
 		},
 	})
 	if err != nil {
@@ -200,10 +223,13 @@ func openCodeDefaultConfig(ctx context.Context, bin string, execute commandExecu
 	config["model"] = providerID + "/" + id
 	config["providers"] = map[string]any{providerID: provider}
 	encoded, err := json.Marshal(config)
-	if len(encoded) > 64<<10 {
-		return "", errors.New("OpenCode default model configuration exceeds the process environment limit")
+	if err != nil {
+		return "", err
 	}
-	return string(encoded), err
+	if len(encoded) > 64<<10 {
+		return "", errors.New("OpenCode default model configuration exceeds the size limit")
+	}
+	return string(encoded), nil
 }
 
 func detectOpenCodeV2(bin string) bool {
