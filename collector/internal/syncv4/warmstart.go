@@ -444,7 +444,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 	planned := r.Queue.PlannedEntries(plan, r.now())
 	allPlannedSettled := true
 	for _, entry := range planned {
-		if !caughtUp(entry) {
+		if !settledForCatchUp(entry, r.now()) {
 			allPlannedSettled = false
 			break
 		}
@@ -453,7 +453,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		return r.Queue.SetPhase("complete")
 	}
 	for _, entry := range planned {
-		if caughtUp(entry) {
+		if settledForCatchUp(entry, r.now()) {
 			continue
 		}
 		recent := planRecent(entry, plan, activeSince)
