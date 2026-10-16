@@ -205,22 +205,38 @@ func openCodeVersion() (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	// OpenCode v2 opens its shared log even for --version. On Windows that file
-	// may be locked by a running TUI, so isolate the probe's data directory.
-	probeData, err := os.MkdirTemp("", "coslash-opencode-version-")
+	// OpenCode may load project plugins before --version, and v2 opens its
+	// shared log on Windows, so keep the probe's paths private.
+	probeDir, err := os.MkdirTemp("", "coslash-opencode-version-")
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(probeData)
+	defer os.RemoveAll(probeDir)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, executable, "--version")
-	command.Env = append(os.Environ(), "XDG_DATA_HOME="+probeData)
+	command := versionProbeCommand(ctx, executable, probeDir)
 	output, err := command.Output()
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(strings.SplitN(string(output), "\n", 2)[0]), nil
+}
+
+func versionProbeCommand(ctx context.Context, executable, directory string) *exec.Cmd {
+	command := commandContext(ctx, executable, "--version")
+	command.Dir = directory
+	command.Env = append(os.Environ(),
+		"XDG_DATA_HOME="+directory,
+		"XDG_CONFIG_HOME="+directory,
+		"OPENCODE_CONFIG_DIR="+directory,
+		"OPENCODE_CONFIG=",
+		`OPENCODE_CONFIG_CONTENT={"update":"disable","plugins":["-*"]}`,
+		"OPENCODE_DB="+filepath.Join(directory, "opencode.db"),
+		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
+		"OPENCODE_DISABLE_AUTOUPDATE=1",
+		"PWD="+directory,
+	)
+	return command
 }
 
 func removeManagedLegacyPlugin(directory string) error {
