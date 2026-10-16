@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -221,6 +222,29 @@ func TestV2IncompleteCompactionAndStreamingTool(t *testing.T) {
 		parsed[0].Session.SessionDetails.Errors != 1 ||
 		parsed[0].Session.SessionDetails.CompactionSeed != "" {
 		t.Fatalf("incomplete v2 session = %#v", parsed[0].Session)
+	}
+}
+
+func TestCompletedToolFilePathRepresentations(t *testing.T) {
+	for _, field := range []string{"file", "filePath", "relativePath"} {
+		for _, tool := range []string{"patch", "apply_patch", "write"} {
+			t.Run(tool+"/"+field, func(t *testing.T) {
+				var part storedPart
+				data := fmt.Sprintf(`{"type":"tool","state":{"status":"completed","input":{"content":"hello\n"},"metadata":{"files":[{%q:"src/main.go","type":"add","additions":1,"patch":"@@\n+hello"}]}}}`, field)
+				if err := json.Unmarshal([]byte(data), &part); err != nil {
+					t.Fatal(err)
+				}
+				part.Tool = tool
+				edits := session.NewFileEditSet()
+				if !addCompletedToolEdits("/work", &part, edits) || len(edits.Edits) != 1 || edits.Edits[0].Path != "src/main.go" || edits.Edits[0].Additions != 1 || !edits.Edits[0].IsNew {
+					t.Fatalf("tool edits = %#v", edits.Edits)
+				}
+			})
+		}
+	}
+	var empty storedPart
+	if addCompletedToolEdits("/work", &empty, session.NewFileEditSet()) {
+		t.Fatal("empty tool produced a file edit")
 	}
 }
 
