@@ -308,7 +308,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 		return r.Queue.MarkListedAt(results, r.now())
 	}
 	for _, entry := range entries {
-		if entry.Listed || entry.Excluded || entry.ListRejected {
+		if entry.Listed || entry.Excluded || entry.ListRejected || entry.FailureCode == "session_deleted" {
 			continue
 		}
 		activity := time.UnixMilli(entry.Activity).UTC()

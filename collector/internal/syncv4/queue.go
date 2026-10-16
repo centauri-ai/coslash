@@ -616,7 +616,7 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 	defer q.mu.Unlock()
 	for i := range q.state.Entries {
 		entry := &q.state.Entries[i]
-		if entry.SessionID != serverID || entry.Excluded {
+		if entry.SessionID != serverID || entry.Excluded || entry.FailureCode == "session_deleted" {
 			continue
 		}
 		prior := *entry
