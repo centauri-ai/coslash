@@ -13,6 +13,9 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
+const familyOrder = ` ORDER BY selected_roots.family_updated DESC,
+	member.parent_id IS NOT NULL, member.time_updated, member.id`
+
 const activeFamiliesQuery = `
 WITH selected_roots AS (
 	SELECT root.id,
@@ -97,8 +100,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		}
 		query += ")"
 	}
-	query += ` ORDER BY selected_roots.family_updated DESC,
-		member.parent_id IS NOT NULL, member.time_updated, member.id`
+	query += familyOrder
 	parsed, skipped, err := loadContext(ctx, db, query, args...)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -189,7 +191,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	metadata := vendors.BestEffortMetadata(vendors.AgentOpenCode, func() (*vendors.SessionMetadata, error) {
 		return loadMetadata(db)
 	})
-	parsed, skipped, err := load(db, activeFamiliesQuery+" AND selected_roots.id = ?", id)
+	parsed, skipped, err := load(db, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, id)
 	if len(skipped) > 0 {
 		return nil, nil, fmt.Errorf("parse OpenCode session family %q: %w", skipped[0].id, skipped[0].err)
 	}
