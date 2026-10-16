@@ -964,6 +964,7 @@ func (q *Queue) progressAt(now time.Time) hubclient.V4Queue {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
 	}
 	activeSince := q.activeSinceLocked(startedAt)
+	recentSettled := 0
 	for _, entry := range entries {
 		if entry.Excluded {
 			continue
@@ -977,10 +978,14 @@ func (q *Queue) progressAt(now time.Time) hubclient.V4Queue {
 		}
 		if recent {
 			progress.FirstSync.RecentTotal++
-			if settledForCatchUp(entry, now) {
+			if caughtUp(entry) {
 				progress.FirstSync.RecentDone++
 			}
-		} else if !settledForCatchUp(entry, now) && (plan == nil || plan.History || plan.Backfill) {
+		}
+		settled := settledForCatchUp(entry, now)
+		if recent && settled {
+			recentSettled++
+		} else if !recent && !settled && (plan == nil || plan.History || plan.Backfill) {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 		if pending(entry) && entry.ParkedVersion == "" {
@@ -991,7 +996,7 @@ func (q *Queue) progressAt(now time.Time) hubclient.V4Queue {
 			progress.Failing++
 		}
 	}
-	if plan != nil && !plan.History && !plan.Backfill && q.state.CatchUpFrozenVersion == plan.Version && progress.FirstSync.RecentDone == progress.FirstSync.RecentTotal {
+	if plan != nil && !plan.History && !plan.Backfill && q.state.CatchUpFrozenVersion == plan.Version && recentSettled == progress.FirstSync.RecentTotal {
 		progress.FirstSync.HistoryState = "off"
 	}
 	if q.state.Inventory != nil && hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport) {

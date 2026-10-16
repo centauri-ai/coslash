@@ -1064,14 +1064,25 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 						return
 					}
 					reports++
-					wantPhase, wantDone := "complete", 1
+					wantPhase, wantDone := "complete", 0
+					wantHistory := "off"
+					if quiet {
+						wantDone = 1
+					}
 					if !live && !quiet {
-						wantPhase, wantDone = "recent", 0
+						wantPhase = "recent"
+						wantHistory = "syncing"
 					}
 					progress := request.Queue
-					if progress.Import == nil || progress.Import.Phase != wantPhase ||
-						progress.FirstSync.RecentTotal != 1 || progress.FirstSync.RecentDone != wantDone {
-						t.Errorf("report %d: want phase=%s done=%d/1, got firstSync=%+v import=%+v", reports, wantPhase, wantDone, progress.FirstSync, progress.Import)
+					if progress.Import == nil ||
+						progress.Import.Phase != wantPhase ||
+						progress.FirstSync.RecentTotal != 1 ||
+						progress.FirstSync.RecentDone != wantDone ||
+						progress.FirstSync.HistoryState != wantHistory {
+						t.Errorf(
+							"report %d: want phase=%s done=%d/1 history=%s, got firstSync=%+v import=%+v",
+							reports, wantPhase, wantDone, wantHistory, progress.FirstSync, progress.Import,
+						)
 					}
 					json.NewEncoder(w).Encode(policy)
 				default:
@@ -1110,11 +1121,7 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 			}
 			if live {
 				for _, elapsed := range []time.Duration{2*time.Minute - time.Millisecond, 2 * time.Minute} {
-					wantDone := 1
-					if elapsed == 2*time.Minute {
-						wantDone = 0
-					}
-					if progress := queue.progressAt(now.Add(elapsed)); progress.FirstSync.RecentDone != wantDone || progress.Pending != 1 {
+					if progress := queue.progressAt(now.Add(elapsed)); progress.FirstSync.RecentDone != 0 || progress.Pending != 1 {
 						t.Fatalf("progress at quiet boundary %s = %+v", elapsed, progress)
 					}
 				}
@@ -1136,8 +1143,9 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 			if err := runner.refreshConsent(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if creates != 1 || reports != 14 || queue.Progress().Pending != 0 {
-				t.Fatalf("creates=%d reports=%d pending=%d", creates, reports, queue.Progress().Pending)
+			if progress := queue.progressAt(now); creates != 1 || reports != 14 || progress.Pending != 0 ||
+				progress.FirstSync.RecentDone != progress.FirstSync.RecentTotal {
+				t.Fatalf("creates=%d reports=%d progress=%+v", creates, reports, progress)
 			}
 		})
 	}
