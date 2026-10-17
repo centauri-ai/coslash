@@ -3069,6 +3069,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000024
   },
+  "baseten/meta-models/muse-spark-open": {
+    "cache_read_input_token_cost": 1.5E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000425
+  },
   "baseten/moonshotai/Kimi-K2-Instruct-0905": {
     "input_cost_per_token": 6E-7,
     "output_cost_per_token": 0.0000025
@@ -3105,6 +3111,12 @@
     "max_input_tokens": 202800,
     "output_cost_per_token": 0.0000024
   },
+  "baseten/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B": {
+    "cache_read_input_token_cost": 4E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
+  },
   "baseten/nvidia/Nemotron-120B-A12B": {
     "input_cost_per_token": 3E-7,
     "output_cost_per_token": 7.5E-7
@@ -3114,6 +3126,12 @@
     "input_cost_per_token": 1E-7,
     "max_input_tokens": 128072,
     "output_cost_per_token": 5E-7
+  },
+  "baseten/reflection/Beam-1.0": {
+    "cache_read_input_token_cost": 1.3E-7,
+    "input_cost_per_token": 0.0000013,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000043
   },
   "baseten/thinkingmachines/inkling": {
     "cache_read_input_token_cost": 1.7E-7,
@@ -11097,6 +11115,11 @@
     "max_input_tokens": 32000,
     "output_cost_per_token": 0.00000111
   },
+  "nebius/reflection/beam": {
+    "input_cost_per_token": 2.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000001
+  },
   "nebius/zai-org/GLM-5.1": {
     "input_cost_per_token": 0.0000014,
     "max_input_tokens": 202752,
@@ -12332,6 +12355,12 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 2E-7
   },
+  "opencode/beam-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0
+  },
   "opencode/big-pickle": {
     "cache_creation_input_token_cost": 0,
     "cache_read_input_token_cost": 0,
@@ -12618,6 +12647,12 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 5e-07
   },
+  "opencode/glm-5.3-flash-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0
+  },
   "opencode/gpt-5": {
     "cache_read_input_token_cost": 1.0699999999999999e-07,
     "input_cost_per_token": 1.0700000000000001e-06,
@@ -12883,6 +12918,12 @@
     "output_cost_per_token": 0
   },
   "opencode/ling-3.1-flash-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0
+  },
+  "opencode/ll-alpha-free": {
     "cache_read_input_token_cost": 0,
     "input_cost_per_token": 0,
     "max_input_tokens": 262144,
@@ -15016,6 +15057,12 @@
     "max_input_tokens": 131072,
     "output_cost_per_token": 2E-7
   },
+  "together_ai/reflection/Beam-1.0-501B-A23B": {
+    "cache_read_input_token_cost": 4E-8,
+    "input_cost_per_token": 4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
   "together_ai/thinkingmachines/Inkling": {
     "cache_read_input_token_cost": 1.7E-7,
     "input_cost_per_token": 0.000001,
@@ -16413,10 +16460,10 @@
     "output_cost_per_token": 0.00000168
   },
   "vertex_ai/deepseek-ai/deepseek-v4.1-flash-maas": {
-    "cache_read_input_token_cost": 0.0,
-    "input_cost_per_token": 0.0,
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 3E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0
+    "output_cost_per_token": 0.0000012
   },
   "vertex_ai/gemini-2.0-flash": {
     "input_cost_per_token": 1.5E-7,
@@ -16950,6 +16997,12 @@
     "input_cost_per_token": 7E-8,
     "max_input_tokens": 262000,
     "output_cost_per_token": 2E-7
+  },
+  "wandb/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1049000,
+    "output_cost_per_token": 7.5E-7
   },
   "wandb/openai/gpt-oss-120b": {
     "input_cost_per_token": 3E-8,
