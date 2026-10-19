@@ -1,10 +1,14 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1321,4 +1325,359 @@ func waitUntil(t *testing.T, ready func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("timed out waiting for condition")
+}
+
+func TestSetupLogsUnderlyingSSHFailure(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	host, _, content := lifecycleFixture(t)
+	host.installErr = wrapSSHError(errors.New("installer exited"), "Permission denied (publickey). /private/key user@host")
+	manager := NewManager(Options{
+		Cache: NewCache(t.TempDir()), ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+		LifecycleFactory:   func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+		ResetControlMaster: func(string) {}, HelperInstallationAvailable: true,
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetupHelperForAlias(context.Background(), "agent-box", Consent{Install: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "installer exited") || !strings.Contains(output.String(), "Permission denied (publickey)") || strings.Contains(output.String(), "/private/key") || strings.Contains(output.String(), "user@host") {
+		t.Fatalf("unsafe or missing install diagnostic: %q", output.String())
+	}
+}
+
+func TestSetupLogsOwnershipWriteFailureAfterUnlock(t *testing.T) {
+	host, _, content := lifecycleFixture(t)
+	cache := NewCache(t.TempDir())
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	ownershipPath, err := cache.helperOwnershipPath(config.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{
+		Cache: cache, ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+		HelperInstallationAvailable: true,
+	})
+	t.Cleanup(manager.Shutdown)
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(ownershipPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	previous := log.Writer()
+	writer := &managerLockCheckingWriter{manager: manager}
+	log.SetOutput(writer)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	if _, err := manager.SetupHelperForAlias(context.Background(), config.SSHAlias, Consent{Install: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !writer.called || !writer.lockAvailable {
+		t.Fatalf("ownership write diagnostic called=%v manager lock available=%v", writer.called, writer.lockAvailable)
+	}
+}
+
+type managerLockCheckingWriter struct {
+	manager       *Manager
+	called        bool
+	lockAvailable bool
+}
+
+func (writer *managerLockCheckingWriter) Write(content []byte) (int, error) {
+	writer.called = true
+	writer.lockAvailable = writer.manager.mu.TryLock()
+	if writer.lockAvailable {
+		writer.manager.mu.Unlock()
+	}
+	return len(content), nil
+}
+
+func TestSetupPreservesInstallerSSHReasons(t *testing.T) {
+	cases := []struct {
+		message string
+		reason  Reason
+	}{
+		{"Permission denied (publickey)", ReasonAuthentication},
+		{"Connection reset by peer", ReasonConnectionFailed},
+		{"Connection refused", ReasonConnectionFailed},
+		{"i/o timeout", ReasonRefreshTimeout},
+		{"REMOTE HOST IDENTIFICATION HAS CHANGED", ReasonHostKeyChanged},
+		{"Host key verification failed", ReasonHostKeyConfirmation},
+		{"SFTP subsystem unavailable", ReasonSFTPUnavailable},
+		{"No space left on device", ReasonHelperInstallation},
+		{"installer exited", ReasonHelperInstallation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.message, func(t *testing.T) {
+			host, _, content := lifecycleFixture(t)
+			host.installErr = wrapSSHError(errors.New("installer exited"), tc.message)
+			manager := NewManager(Options{
+				Cache: NewCache(t.TempDir()), ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+				LifecycleFactory:   func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+				ResetControlMaster: func(string) {}, HelperInstallationAvailable: true,
+			})
+			if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+				t.Fatal(err)
+			}
+			health, err := manager.SetupHelperForAlias(context.Background(), "agent-box", Consent{Install: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if health.Helper == nil || health.Helper.Compatible || health.Helper.Reason == nil || *health.Helper.Reason != tc.reason {
+				t.Fatalf("helper = %+v, want failure reason %q", health.Helper, tc.reason)
+			}
+		})
+	}
+}
+
+func TestRemoveHubHostKeepsOwnershipWhileSetupIsInProgress(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	config := settings.Defaults()
+	config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: true}
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	cache := NewCache(t.TempDir())
+	if err := cache.StoreHelperVersion(config.Remote.ID, "v1", "agent-box"); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{Cache: cache})
+	if err := manager.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+	before := manager.DiagnosticsHealth()
+	manager.helperSetup = true
+	if err := manager.RemoveHubHost(local, *config.Remote); !errors.Is(err, ErrHelperSetupInProgress) {
+		t.Fatalf("setup removal error: %v", err)
+	}
+	if !reflect.DeepEqual(local.State().Config, config) || !reflect.DeepEqual(manager.DiagnosticsHealth(), before) {
+		t.Fatal("failed removal changed configured host")
+	}
+	if _, owned, err := cache.LoadHelperOwnership(config.Remote.ID); err != nil || !owned {
+		t.Fatalf("ownership: %v %v", owned, err)
+	}
+	manager.helperSetup = false
+	if err := manager.RemoveHubHost(local, *config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	if local.State().Config.Remote != nil || manager.DiagnosticsHealth().SourceID != "" {
+		t.Fatal("retry did not remove host")
+	}
+}
+
+func TestRemoveHubHostDoesNotApplyStaleConfiguration(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	config := settings.Defaults()
+	config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: true}
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{Cache: NewCache(t.TempDir())})
+	if err := manager.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+	previous := *config.Remote
+	next := previous
+	next.SSHAlias = "new-box"
+	config.Remote = &next
+	if err := local.Save(config); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(config.Remote); err != nil {
+		t.Fatal(err)
+	}
+	before := manager.DiagnosticsHealth()
+	if err := manager.RemoveHubHost(local, previous); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(local.State().Config, config) || !reflect.DeepEqual(manager.DiagnosticsHealth(), before) {
+		t.Fatal("stale reconciliation removed updated host")
+	}
+}
+
+func TestSaveHubSettingsPreservesOwnedHostOnFailure(t *testing.T) {
+	for _, failure := range []string{"save", "cache"} {
+		t.Run(failure, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("COSLASH_HOME", home)
+			local := settings.Open()
+			old := settings.Defaults()
+			old.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "working-box", HostID: "working-host", Enabled: true}
+			if err := local.Save(old); err != nil {
+				t.Fatal(err)
+			}
+			cacheRoot := t.TempDir()
+			cache := NewCache(cacheRoot)
+			if err := cache.StoreHelperVersion(old.Remote.ID, "v1", old.Remote.SSHAlias); err != nil {
+				t.Fatal(err)
+			}
+			manager := NewManager(Options{Cache: cache, LifecycleFactory: func(string) (Lifecycle, error) {
+				t.Error("replacement touched installed remote helper")
+				return Lifecycle{}, errors.New("unexpected SSH")
+			}})
+			if err := manager.ApplySettings(old.Remote); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Shutdown)
+			before := manager.DiagnosticsHealth()
+			next := old
+			next.Remote = &settings.RemoteSettings{ID: "r_fedcba9876543210", SSHAlias: "replacement-box", HostID: "replacement-host", Enabled: true}
+			if failure == "save" {
+				blocked := filepath.Join(t.TempDir(), "blocked")
+				if err := os.WriteFile(blocked, []byte("block save"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("COSLASH_HOME", blocked)
+			} else {
+				// Go rejects NUL paths on every OS, rather than treating them as missing.
+				cache.Root = cacheRoot + "\x00"
+			}
+			if err := manager.SaveHubSettings(local, next); err == nil {
+				t.Fatal("failed replacement succeeded")
+			}
+			t.Setenv("COSLASH_HOME", home)
+			cache.Root = cacheRoot
+			if !reflect.DeepEqual(local.State().Config, old) || !reflect.DeepEqual(settings.Open().State().Config, old) || !reflect.DeepEqual(manager.DiagnosticsHealth(), before) {
+				t.Fatal("failed replacement changed the working host")
+			}
+			if ownership, owned, err := cache.LoadHelperOwnership(old.Remote.ID); err != nil || !owned || ownership.Version != "v1" || ownership.Alias != old.Remote.SSHAlias {
+				t.Fatalf("old ownership lost: %+v %v %v", ownership, owned, err)
+			}
+			if err := manager.SaveHubSettings(local, next); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(settings.Open().State().Config, next) || manager.DiagnosticsHealth().Label != next.Remote.SSHAlias {
+				t.Fatal("replacement retry did not commit")
+			}
+		})
+	}
+}
+
+func TestRemoveHubHostUninstallsHelper(t *testing.T) {
+	for _, name := range []string{"reachable", "offline"} {
+		t.Run(name, func(t *testing.T) {
+			offline := name == "offline"
+			t.Setenv("COSLASH_HOME", t.TempDir())
+			local := settings.Open()
+			config := settings.Defaults()
+			config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: true}
+			if err := local.Save(config); err != nil {
+				t.Fatal(err)
+			}
+			host, artifact, content := lifecycleFixture(t)
+			var manager *Manager
+			manager = NewManager(Options{
+				Cache: NewCache(t.TempDir()), ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+				LifecycleFactory: func(string) (Lifecycle, error) {
+					if local.State().Config.Remote == nil {
+						if err := manager.ApplySettings(config.Remote); !errors.Is(err, ErrHelperSetupInProgress) {
+							t.Fatalf("settings save during uninstall: %v", err)
+						}
+					}
+					return lifecycleFor(host), nil
+				},
+				HelperInstallationAvailable: true,
+			})
+			if err := manager.ApplySettings(config.Remote); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Shutdown)
+			if health, err := manager.SetupHelperForAlias(t.Context(), "agent-box", Consent{Install: true}); err != nil || health.Helper == nil || !health.Helper.Compatible {
+				t.Fatalf("helper setup: %+v %v", health, err)
+			}
+			installed := filepath.Join(host.root, artifact.Version, HelperFileName)
+			if _, err := os.Stat(installed); err != nil {
+				t.Fatal(err)
+			}
+			if offline {
+				host.removeErr = context.DeadlineExceeded
+			}
+			if err := manager.RemoveHubHost(local, *config.Remote); err != nil {
+				t.Fatal(err)
+			}
+			if local.State().Config.Remote != nil || manager.DiagnosticsHealth().SourceID != "" {
+				t.Fatal("removed host remains configured")
+			}
+			_, err := os.Stat(installed)
+			if offline && err != nil || !offline && !os.IsNotExist(err) {
+				t.Fatalf("helper file after removal: %v (offline=%v)", err, offline)
+			}
+		})
+	}
+}
+
+func TestRemoveHubHostUninstallsPreviouslyOwnedHelper(t *testing.T) {
+	for _, name := range []string{"older version", "legacy ownership", "wrong alias", "corrupt ownership"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("COSLASH_HOME", t.TempDir())
+			local := settings.Open()
+			config := settings.Defaults()
+			config.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", HostID: "host-one", Enabled: false}
+			if err := local.Save(config); err != nil {
+				t.Fatal(err)
+			}
+			host, artifact, content := lifecycleFixture(t)
+			// Install v1 on the fixture host before a Local release changes metadata.
+			result := lifecycleFor(host).Setup(t.Context(), host.document, content, Consent{Install: true})
+			if !result.CanExecute {
+				t.Fatalf("setup: %+v", result)
+			}
+			installed := filepath.Join(host.root, artifact.Version, HelperFileName)
+			cache := NewCache(t.TempDir())
+			if err := cache.StoreHelperVersion(config.Remote.ID, "v1", "agent-box"); err != nil {
+				t.Fatal(err)
+			}
+			manager := NewManager(Options{
+				Cache: cache, ReleaseProvider: fixedHelperRelease{document: host.document, content: content},
+				LifecycleFactory: func(string) (Lifecycle, error) { return lifecycleFor(host), nil },
+			})
+			if name == "older version" {
+				if err := manager.ApplySettings(config.Remote); err != nil {
+					t.Fatal(err)
+				}
+				current := artifact
+				current.Version = "v2"
+				document := signDocument(t, ReleaseMetadata{Sequence: 2, ExpiresAtUnix: host.document.Metadata.ExpiresAtUnix, Artifacts: []Artifact{current}})
+				manager.releaseProvider = fixedHelperRelease{document: document, content: content}
+			} else if name == "wrong alias" {
+				if err := cache.StoreHelperVersion(config.Remote.ID, "v1", "other-box"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				data := []byte(`{"version":"v1"}`)
+				if name == "corrupt ownership" {
+					data = []byte(`{"version":"../v1"}`)
+				}
+				ownershipPath, err := cache.helperOwnershipPath(config.Remote.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(ownershipPath, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Cleanup(manager.Shutdown)
+			if err := manager.RemoveHubHost(local, *config.Remote); err != nil {
+				t.Fatal(err)
+			}
+			if local.State().Config.Remote != nil || manager.DiagnosticsHealth().SourceID != "" {
+				t.Fatal("host remains configured")
+			}
+			_, err := os.Stat(installed)
+			remove := name == "older version" || name == "legacy ownership"
+			if remove && !os.IsNotExist(err) || !remove && err != nil {
+				t.Fatalf("helper after removal: %v", err)
+			}
+		})
+	}
 }

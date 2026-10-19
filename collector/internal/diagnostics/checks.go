@@ -97,7 +97,7 @@ func derive(snapshot *Snapshot) []Check {
 	}
 	checks = append(checks, synthesis)
 	checks = append(checks, openCodePluginCheck(snapshot))
-	if vendors.PiSupported() {
+	if vendors.PiCollectionSupported() && snapshotHasPi(snapshot) {
 		checks = append(checks, piExtensionCheck(snapshot))
 	}
 
@@ -111,6 +111,18 @@ func derive(snapshot *Snapshot) []Check {
 		})
 	}
 	return checks
+}
+
+func snapshotHasPi(snapshot *Snapshot) bool {
+	if snapshot.piDetected {
+		return true
+	}
+	for _, source := range snapshot.Sources {
+		if source.Agent == vendors.AgentPi && source.CLI.Found {
+			return true
+		}
+	}
+	return false
 }
 
 func piCLIMissingReason(platform string) string {
@@ -155,7 +167,10 @@ func sourceCheck(source Source, platformOS string) Check {
 	switch {
 	case source.State == SourceUnreadable:
 		check.Status = StatusFail
-		if source.Root == "" {
+		if isReadableCodexParseFailure(source) {
+			check.Detail = "The Codex rollout is readable but could not be parsed: " + source.Error
+			check.Fix = "Check the Hub's “Didn't sync” list for the failure reason."
+		} else if source.Root == "" {
 			check.Detail = "Could not locate the session root: " + source.Error
 			check.Fix = "Check that the home directory is available and readable."
 		} else {
@@ -181,11 +196,31 @@ func sourceCheck(source Source, platformOS string) Check {
 	case source.SkippedTotal > 0:
 		check.Status = StatusWarn
 		check.Detail = fmt.Sprintf("%d sessions; skipped %d unreadable entries in %s.", source.Sessions, source.SkippedTotal, source.Root)
-		check.Fix = sourceAccessFix(source.Root, platformOS)
+		if isReadableCodexParseFailure(source) {
+			check.Detail = fmt.Sprintf("%d sessions; a Codex rollout is readable but could not be parsed in %s.", source.Sessions, source.Root)
+			check.Fix = "Check the Hub's “Didn't sync” list for the failure reason."
+		} else {
+			check.Fix = sourceAccessFix(source.Root, platformOS)
+		}
 	default:
 		check.Detail = fmt.Sprintf("%d sessions in %s", source.Sessions, source.Root)
 	}
 	return check
+}
+
+func isReadableCodexParseFailure(source Source) bool {
+	if source.Agent != vendors.AgentCodex {
+		return false
+	}
+	if strings.Contains(source.Error, "invalid transcript data") {
+		return true
+	}
+	for _, skipped := range source.Skipped {
+		if strings.Contains(skipped.Error, "invalid transcript data") {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceAccessFix(root, platformOS string) string {
@@ -219,6 +254,39 @@ func remoteCheck(remote *Remote) Check {
 	default:
 		check.Status = StatusWarn
 		check.Detail = remote.Label + " state is " + remote.State + "."
+	}
+	return check
+}
+
+func hubSyncCheck(hub *HubSync) Check {
+	check := Check{ID: "hub.sync", Title: "Hub sync", Status: StatusOK}
+	switch {
+	case hub.Origin == "":
+		check.Status = StatusWarn
+		check.Detail = "No Hub is configured."
+		check.Fix = "Pair this Local from Hub to enable sync."
+	case !hub.Paired:
+		check.Status = StatusWarn
+		check.Detail = "This Local is not paired with Hub."
+		check.Fix = "Pair this Local from Hub to enable sync."
+	case hub.LastCheckInResult == "unknown":
+		check.Status = StatusWarn
+		check.Detail = "This Local has not checked in with Hub yet."
+	case hub.LastCheckInResult != "" && hub.LastCheckInResult != "ok":
+		check.Status = StatusWarn
+		check.Detail = "The last Hub check-in did not succeed."
+		check.Fix = "Check the Hub address and device pairing, then retry sync."
+	case hub.Failing > 0:
+		check.Status = StatusWarn
+		check.Detail = fmt.Sprintf("%d queued session(s) have sync failures.", hub.Failing)
+	case hub.SyncState == "paused":
+		check.Status = StatusWarn
+		check.Detail = "Sync is paused."
+	case hub.SyncState == "off":
+		check.Status = StatusWarn
+		check.Detail = "Sync is off."
+	default:
+		check.Detail = "Paired and ready to sync."
 	}
 	return check
 }

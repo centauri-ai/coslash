@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   availableSynthesisBackends,
+  decodeRemoteHostSettings,
   decodeSettingsResponse,
   initialSettingsDraft,
   settingsForSave,
@@ -20,6 +21,7 @@ it('decodes installed reviewer options', () => {
     },
     persisted: true,
     valid: true,
+    settingsPath: '/custom/coslash/settings.json',
     options: {
       synthesisBackends: [],
       terminals: [],
@@ -27,6 +29,7 @@ it('decodes installed reviewer options', () => {
     },
   });
   expect(response.options.reviewers).toEqual([{ id: 'codex', label: 'Codex', available: true }]);
+  expect(response.settingsPath).toBe('/custom/coslash/settings.json');
 });
 
 it('defaults missing reviewer options for older servers', () => {
@@ -111,4 +114,9 @@ describe('settingsForSave', () => {
     expect(settings.remote?.id).toBeUndefined();
     expect(settingsForSave(saved)).toBe(saved);
   });
+});
+
+it('preserves Hub host identity in remote settings', () => {
+  const remote = { id: 'r_0123456789abcdef', hostId: 'new-host', sshAlias: 'agent-box', enabled: true };
+  expect(decodeRemoteHostSettings(remote)).toEqual(remote);
 });

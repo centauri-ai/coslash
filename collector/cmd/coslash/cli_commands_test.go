@@ -65,6 +65,43 @@ func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
 	}
 }
 
+func TestUIURLPrintsCurrentRuntimeAccessURL(t *testing.T) {
+	writeTestRuntime(t, "http://127.0.0.1:4321", "secret")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"ui-url"}); code != 0 {
+		t.Fatalf("ui-url exit = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "http://127.0.0.1:4321/#t=secret\n" || stderr.Len() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+	for _, args := range [][]string{{"ui-url", "--help"}, {"ui-url", "-h"}, {"ui-url", "unexpected"}} {
+		stdout.Reset()
+		stderr.Reset()
+		code := runCLI(&stdout, &stderr, args)
+		if args[1] == "unexpected" {
+			if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage:") {
+				t.Fatalf("invalid arguments: exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+			}
+		} else if code != 0 || stdout.String() != "usage: coslash ui-url\n" || stderr.Len() != 0 {
+			t.Fatalf("help: exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestUIURLRejectsStaleRuntimeWithoutPrintingToken(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	if err := writeToken("stale-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRuntime("http://127.0.0.1:4321"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"ui-url"}); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "coSlash app is not running") || strings.Contains(stderr.String(), "stale-secret") {
+		t.Fatalf("stale runtime: exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestReadRuntimeRejectsDescriptorWithoutOwnerLock(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	if err := writeToken("secret"); err != nil {
@@ -141,6 +178,9 @@ func TestRuntimeLockAllowsOnlyOneServer(t *testing.T) {
 	if _, err := acquireRuntimeLock(); err == nil {
 		first.Close()
 		t.Fatal("second server acquired the runtime lock")
+	} else if !errors.Is(err, errRuntimeAlreadyRunning) {
+		first.Close()
+		t.Fatalf("second runtime lock error=%v, want %v", err, errRuntimeAlreadyRunning)
 	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
@@ -514,7 +554,7 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
 		{"send", sendUsage() + "\n"},
 		{"review", reviewHelp() + "\n"},
-		{"doctor", "usage: coslash doctor [--json]\n"},
+		{"doctor", "usage: coslash doctor [--json] [--fix-links [--yes]]\n"},
 	} {
 		for _, flag := range []string{"--help", "-h"} {
 			var stdout, stderr bytes.Buffer
@@ -526,6 +566,54 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runCLI(&stdout, &stderr, []string{"sessions", "--bad"}); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage:") {
 		t.Fatalf("invalid flag: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRootHelpVersionAndUnknownCommand(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"help"}} {
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(&stdout, &stderr, args); code != 0 || stderr.Len() != 0 {
+			t.Fatalf("%v: code=%d stderr=%q", args, code, stderr.String())
+		}
+		for _, want := range []string{"connect", "sessions", "doctor", "status", "version", "check local setup and Hub sync health"} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("%v help omitted %q: %s", args, want, stdout.String())
+			}
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"version"}); code != 0 || stdout.String() != version+"\n" || stderr.Len() != 0 {
+		t.Fatalf("version: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runCLI(&stdout, &stderr, []string{"unknown"}); code != 2 || !strings.Contains(stderr.String(), "unknown command") || !strings.Contains(stderr.String(), "doctor") {
+		t.Fatalf("unknown command: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runCLI(&stdout, &stderr, []string{"help", "status"}); code != 0 || stdout.String() != "usage: coslash status [--json] [--retry]\n" || stderr.Len() != 0 {
+		t.Fatalf("status help: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestStatusRetryRequestsImmediateLocalSync(t *testing.T) {
+	retried := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/sync/retry" || r.Header.Get("X-Coslash-Token") != "secret" {
+			t.Fatalf("retry request = %s %s token=%q", r.Method, r.URL.Path, r.Header.Get("X-Coslash-Token"))
+		}
+		retried = true
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	t.Setenv("COSLASH_V4_SYNC", "0")
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(&stdout, &stderr, []string{"status", "--retry", "--json"})
+	if !retried || stdout.Len() == 0 || code == 2 {
+		t.Fatalf("status --retry: retried=%t code=%d stdout=%q stderr=%q", retried, code, stdout.String(), stderr.String())
 	}
 }
 
@@ -545,8 +633,9 @@ func TestPluginSkillCommandsParse(t *testing.T) {
 		}
 		for _, match := range command.FindAllStringSubmatch(string(data), -1) {
 			args := strings.Fields(match[1])
-			// Leading flags start the app, and doctor runs real diagnostics.
-			if strings.HasPrefix(args[0], "-") || args[0] == "doctor" {
+			// Leading flags start the app, doctor runs real diagnostics, and Hub
+			// commands require the separate fake-Hub OAuth tests.
+			if strings.HasPrefix(args[0], "-") || args[0] == "doctor" || args[0] == "hub" {
 				continue
 			}
 			for _, variant := range skillCommandVariants(args) {

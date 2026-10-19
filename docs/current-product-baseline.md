@@ -25,8 +25,9 @@ also contains the two maintenance commits that were already on `origin/main`.
   out of the browser source summary.
 - Pair with a configured coSlash Hub, freeze the complete local/SSH Codex
   session-family backup, review its inventory/hash/bytes/capacity and the
-  destination audience, and explicitly share one session or a bounded batch.
-  There is no standing auto-share rule.
+  destination audience, and explicitly share one session or a bounded batch
+  through the v3 Share flow. The separate personal v4 sync follows Hub device
+  policy and does not enable team sharing or standing team auto-share rules.
 - Open the server-confirmed Hub route after an accepted upload and preserve
   idempotent retry behavior.
 
@@ -38,7 +39,7 @@ also contains the two maintenance commits that were already on `origin/main`.
 | UI | React, TypeScript, Vite, Tailwind, and Radix primitives in `frontend` |
 | Session sources | Read-only parsers for Claude Code, Codex, and OpenCode local data |
 | Remote source | SSH manager plus versioned `coslash-helper` for Linux amd64/arm64 |
-| Local state | `~/.coslash/settings.json`, cached derived summaries, temporary handoffs, and normalized remote facts |
+| Local state | `~/.coslash/settings.json`, cached derived summaries, temporary handoffs, normalized remote facts, and private v4 sync queue state |
 | Hub credential | OS keychain entry scoped to the configured Hub host |
 | Raw source policy | Local and remote transcripts are read-only; an explicitly prepared complete backup persists exact attributable bytes in a private retry spool until discarded |
 
@@ -50,6 +51,7 @@ All routes are loopback-only and protected by the process access-token guard.
 | --- | --- |
 | `GET /api/sessions` | Local sessions; `sourceAware=1` adds safe local/SSH source facts |
 | `GET /api/synthesis` | Read or request the selected local session synthesis |
+| `POST /api/hub/share-synthesis` | Check or start a selected Local session's revision-bound debrief before complete-backup review; report pending, consent, eligibility, and failure states |
 | `GET /api/session-detail?source=…&agent=…&session=…&revision=…` | Read an exact local or cached SSH session revision |
 | `GET /api/diff?id=…&path=…` | Read one local session file diff (legacy path-based form) |
 | `GET /api/diff?source=…&agent=…&session=…&revision=…&change=…` | Read selected changes from an exact local or cached SSH session revision; repeat `change` to select multiple changes |
@@ -63,11 +65,14 @@ All routes are loopback-only and protected by the process access-token guard.
 | `POST /api/remote/test` | Validate the configured SSH source |
 | `POST /api/remote/retry` | Retry remote collection |
 | `GET /api/remote/status` | Read sanitized remote/helper health |
+| `GET /api/sync/status` | Read content-free Hub sync state and per-session membership, protected by the Local access token |
 | `POST /api/remote/helper/setup` | Install or update the managed remote helper |
 | `GET /api/diagnostics` | Read content-free build/source/CLI/storage diagnostics |
 | `GET /api/hub/destination` | Read pairing and destination readiness |
 | `POST /api/hub/pairings` | Start device pairing |
 | `POST /api/hub/pairings/{id}/poll` | Complete pairing and store the device credential |
+| `POST /api/hub/onboarding/activate` | Consume a Hub launch intent through the token-guarded Local API and start pairing |
+| `POST /api/hub/onboarding/check-in` | Retry a content-free Hub device check-in from a user-clicked Hub recovery link |
 | `POST /api/hub/backup-previews` | Freeze and review a complete `session-backup/v1` bundle |
 | `POST /api/hub/shares` | Resumably upload an explicitly approved complete backup through v3 |
 
@@ -85,8 +90,11 @@ older clients, but there is no separate full-revision action in the normal UI.
   artifact taxonomy, hashing, fixtures, and verifier.
 - `collector/internal/sessionbackupproducer`: frozen local/SSH Codex bundle
   production and restart-safe spools.
-- `collector/internal/hubclient`: discovery, pairing, destination, upload,
-  status, and canonical Hub handoff client.
+- `collector/internal/hubclient`: discovery, manual and Hub-led pairing,
+  content-free device check-in, destination, upload, status, and canonical Hub
+  handoff client.
+- `collector/cmd/coslash/protocol_*.go`: per-user macOS Launch Services and
+  Windows `HKCU` registration for the validated `coslash:` activation URL.
 - At the 2026-09-11 baseline, local-only categories included raw
   prompts/transcripts, summaries/goals, commands, todos, detailed subagent
   content, commit subjects, diffs, and absolute paths. C03 preserves that
@@ -199,3 +207,40 @@ Windows, a Grok review can read files outside the worktree.
 
 Vendor behavior and its evidence are in `docs/vendors/pi.md` and
 `docs/vendors/grok.md`. User-facing limits are in `docs/troubleshooting.md`.
+
+## Hub sync runtime addendum - 2026-10-05
+
+Local v4 personal sync starts by default after pairing and at startup when a
+stored Hub credential exists. The Hub's device policy controls automatic
+uploads; the Local settings pause stops uploads and retry work on this
+computer. Local reports a content-free `/api/sync/status` response and
+per-session `in_hub`, `syncing`, `not_in_hub`, or `left_out` states for the UI.
+Hub device revocation deletes the stored credential and changes the Local
+status to disconnected. `COSLASH_V4_SYNC=0` disables local v4 sync;
+`COSLASH_SYNC_POLICY=0` suppresses the `sync-policy/1` capability.
+
+## V3 client retirement addendum - 2026-10-09
+
+The Local V3 complete-backup preview and Share to Hub action, its Local upload
+routes, and the V3 upload caller have been removed. The local session-family
+producer and spool remain in use by V4 sync; V4 upload selection is unchanged.
+
+This client change does not remove Hub V3 endpoints, historical backup data, or
+workspace links. No migration or purge has been applied. Server route removal
+must follow an approved migrate-or-sunset policy and the owner-defined Local
+client adoption window. A migration must preserve exact artifacts and existing
+link resolution; a sunset must define notice, end date, old-link behavior, and
+data-deletion timing.
+
+## Linux Local addendum - 2026-10-09
+
+coSlash Local runs on Linux amd64 and arm64 and pairs with Hub like macOS and
+Windows. On a server, the person runs Hub's install command in their own SSH
+session; Hub never receives SSH credentials. Local stores the Hub device
+credential in `$COSLASH_HOME/hub-credentials/<hub host>` (mode `0600`) and
+keeps running after logout through a systemd user service when the account
+lingers, otherwise through a detached process and a `crontab` `@reboot` entry.
+Claude Code, Codex, Cursor, OpenCode, Grok Build, and Pi sessions are
+collected from their XDG locations. Pi and Grok Build synthesis, reviews, and
+launch actions remain unavailable on Linux. See
+`docs/decisions/linux-local-runtime.md`.

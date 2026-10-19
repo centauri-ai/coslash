@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { MachinesSettingsSection } from '@/pages/coslash/components/MachinesSettingsSection';
+import type { SyncStatus, SyncStatusLoad } from '@/pages/coslash/features/sync/api';
+import { SyncSettingsSection } from '@/pages/coslash/features/sync/SyncSettingsSection';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableSynthesisBackends,
@@ -182,6 +184,8 @@ export function SettingsDialog({
   onRemoteConnectionVerified,
   onRemoteRetry,
   remoteRetryInFlight,
+  syncStatus,
+  syncStatusLoadState,
 }: {
   open: boolean;
   mode: SettingsDialogMode;
@@ -195,6 +199,8 @@ export function SettingsDialog({
   onRemoteConnectionVerified?: () => void;
   onRemoteRetry?: () => Promise<MachineFact | undefined>;
   remoteRetryInFlight?: boolean;
+  syncStatus?: SyncStatus;
+  syncStatusLoadState: SyncStatusLoad;
 }) {
   const [draft, setDraft] = useState<CoslashSettings | null>(
     response ? initialSettingsDraft(response) : null,
@@ -202,14 +208,22 @@ export function SettingsDialog({
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
   const initializedForOpen = useRef(false);
+  const openAttempt = useRef(0);
   const saveChain = useRef(Promise.resolve());
   const draftRef = useRef(draft);
   const isFirstRun = requiresFirstRunConsent(response);
-  const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
+  const requiresConsent = mode === 'synthesis-consent';
   const updateDraft = useCallback((next: CoslashSettings) => {
     draftRef.current = next;
     setDraft(next);
   }, []);
+
+  useEffect(
+    () => () => {
+      openAttempt.current += 1;
+    },
+    [open, mode],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -243,7 +257,8 @@ export function SettingsDialog({
 
   const save = async () => {
     if (!draft || !synthesisBackendAvailable) return;
-    if (await saveSettings(draft)) {
+    const attempt = openAttempt.current;
+    if ((await saveSettings(draft)) && attempt === openAttempt.current) {
       setTheme(draft.appearance.theme);
       onOpenChange(false);
     }
@@ -295,27 +310,25 @@ export function SettingsDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if ((requiresConsent || remoteOperationInProgress) && !next) return;
+        if (remoteOperationInProgress && !next) return;
         if (next) onOpenChange(true);
         else onOpenChange(false);
       }}
     >
       <DialogContent
         className="coslash-shell flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
-        showCloseButton={!requiresConsent && !remoteOperationInProgress}
-        onEscapeKeyDown={(event) => (requiresConsent || remoteOperationInProgress) && event.preventDefault()}
-        onPointerDownOutside={(event) =>
-          (requiresConsent || remoteOperationInProgress) && event.preventDefault()
-        }
+        showCloseButton={!remoteOperationInProgress}
+        onEscapeKeyDown={(event) => remoteOperationInProgress && event.preventDefault()}
+        onPointerDownOutside={(event) => remoteOperationInProgress && event.preventDefault()}
       >
         <DialogHeader className="shrink-0 gap-1.5 p-4 pr-12 pb-3">
           <DialogTitle>
             {mode === 'full-settings' ? 'Settings' : 'Choose how coSlash handles synthesis'}
           </DialogTitle>
           <DialogDescription className="flex items-center gap-1.5 text-xs">
-            <span>Machine-wide.</span>
+            <span>Settings file:</span>
             <code className="bg-coslash-soft rounded-md px-1.5 py-0.5 font-mono text-[11px]">
-              ~/.coslash/settings.json
+              {response?.settingsPath ?? 'Settings path unavailable'}
             </code>
           </DialogDescription>
         </DialogHeader>
@@ -455,6 +468,15 @@ export function SettingsDialog({
                   )}
                 </div>
               </div>
+
+              {mode === 'full-settings' && (
+                <SyncSettingsSection
+                  status={syncStatus ?? null}
+                  statusLoadState={syncStatusLoadState}
+                  paused={draft.syncPaused === true}
+                  onPauseChange={(syncPaused) => saveChange({ ...draft, syncPaused })}
+                />
+              )}
 
               {mode === 'full-settings' && (
                 <div className="flex flex-col gap-2">

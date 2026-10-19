@@ -18,18 +18,22 @@ import (
 
 const defaultControlPersist = "10m"
 
-func sshOptions(connectTimeoutSeconds int) []string {
+func sshOptions(connectTimeoutSeconds int) ([]string, error) {
+	controlPath, err := controlSocketPath()
+	if err != nil {
+		return nil, err
+	}
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
 	return []string{
 		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
-		"-o", "ControlMaster=auto", "-o", "ControlPath=" + controlSocketPath(),
+		"-o", "ControlMaster=auto", "-o", "ControlPath=" + controlPath,
 		"-o", "ControlPersist=" + defaultControlPersist,
-	}
+	}, nil
 }
 
-func controlSocketPath() string { return settings.SSHControlPath() }
+func controlSocketPath() (string, error) { return settings.SSHControlPath() }
 
 func ensureSSHControlDir() error {
 	dir := filepath.Join(settings.Home(), "ssh")
@@ -54,7 +58,11 @@ func ControlExitArgs(alias string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"-O", "exit", "-o", "ControlPath=" + controlSocketPath()}
+	controlPath, err := controlSocketPath()
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"-O", "exit", "-o", "ControlPath=" + controlPath}
 	return append(args, destination.Args()...), nil
 }
 
@@ -63,7 +71,11 @@ func controlCheckArgs(alias string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"-O", "check", "-o", "ControlPath=" + controlSocketPath()}
+	controlPath, err := controlSocketPath()
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"-O", "check", "-o", "ControlPath=" + controlPath}
 	return append(args, destination.Args()...), nil
 }
 
@@ -75,10 +87,14 @@ func controlMasterStartArgs(alias string, connectTimeoutSeconds int) ([]string, 
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
+	controlPath, err := controlSocketPath()
+	if err != nil {
+		return nil, err
+	}
 	// -f -N leaves a background master so later SFTP clients can die without the tunnel.
 	args := []string{
 		"-f", "-N", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
-		"-o", "ControlMaster=yes", "-o", "ControlPath=" + controlSocketPath(),
+		"-o", "ControlMaster=yes", "-o", "ControlPath=" + controlPath,
 		"-o", "ControlPersist=" + defaultControlPersist,
 	}
 	return append(args, destination.Args()...), nil
@@ -160,7 +176,11 @@ var resolveAuthControlSocketPath = func(ctx context.Context, destination string)
 	if err != nil {
 		return "", err
 	}
-	args := []string{"-G", "-o", "ControlPath=" + controlSocketPath()}
+	controlPath, err := controlSocketPath()
+	if err != nil {
+		return "", err
+	}
+	args := []string{"-G", "-o", "ControlPath=" + controlPath}
 	output, err := exec.CommandContext(ctx, "ssh", append(args, parsed.Args()...)...).Output()
 	if err != nil {
 		return "", fmt.Errorf("expand SSH control path: %w", err)
@@ -179,11 +199,11 @@ var resolveAuthControlSocketPath = func(ctx context.Context, destination string)
 	if err != nil {
 		return "", err
 	}
-	controlDir, err := filepath.Abs(filepath.Join(settings.Home(), "ssh"))
+	controlDir, err := filepath.Abs(filepath.Dir(controlPath))
 	if err != nil {
 		return "", err
 	}
-	if filepath.Dir(expanded) != controlDir || !strings.HasPrefix(filepath.Base(expanded), "cm-") {
+	if filepath.Dir(expanded) != controlDir || !strings.HasPrefix(filepath.Base(expanded), strings.TrimSuffix(filepath.Base(controlPath), "%C")) {
 		return "", errors.New("SSH reported an unexpected control path")
 	}
 	return expanded, nil
@@ -223,12 +243,16 @@ func interactiveMasterArgs(destination string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	controlPath, err := controlSocketPath()
+	if err != nil {
+		return nil, err
+	}
 	args := []string{
 		"-f", "-N",
 		"-o", "BatchMode=no",
 		"-o", "ConnectTimeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())),
 		"-o", "ControlMaster=yes",
-		"-o", "ControlPath=" + controlSocketPath(),
+		"-o", "ControlPath=" + controlPath,
 		"-o", "ControlPersist=" + defaultControlPersist,
 	}
 	return append(args, parsed.Args()...), nil

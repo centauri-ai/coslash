@@ -11,7 +11,10 @@ func TestWindowsRemoteSSHCommandDisablesConfiguredMultiplexing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := remoteSSHCommand(destination, "cd '/repo' && 'codex'")
+	got, err := remoteSSHCommand(destination, "cd '/repo' && 'codex'")
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := `& 'ssh' '-tt' '-o' 'ControlMaster=no' 'agent-box' 'cd ''/repo'' && ''codex'''`
 	if got != want {
 		t.Fatalf("remote SSH command = %q, want %q", got, want)

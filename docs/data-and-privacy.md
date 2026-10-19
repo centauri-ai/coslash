@@ -21,6 +21,8 @@ coSlash reads, but does not modify:
 - Recorded working directories and Git metadata used for branch and change summaries.
 - Local process information used to identify live sessions.
 
+On macOS, background enrichment does not open project files in Desktop, Documents, Downloads, iCloud Drive, or mounted volumes. Transcript discovery and sync continue, but repository and file timestamp details may use fallback values or be absent for those sessions.
+
 `COSLASH_HOME` sets the storage root and defaults to `~/.coslash`:
 
 | Path | Contents |
@@ -34,6 +36,9 @@ coSlash reads, but does not modify:
 | `pi-runtime/` and `pi-history/` | Private process identity, session IDs, exact transcript paths, runtime state, and retained discovery evidence. |
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
+| `session-backups/prepared/` | Verified, private session-family bundles retained locally while a V4 sync can resume. |
+| `fingerprints/v1/<agent>/` | The local parse cache: one private file per local transcript, Cursor session or OpenCode family holding the parsed summary already produced for the board (prompts, commands, working directories, edited-file paths and file-change bodies), keyed by file size and modification time so an unchanged source is never parsed twice. It holds no raw transcript rows. Deleting the directory is always safe; `discovery-cursor.json` beside it records where a streamed discovery pass stopped. `COSLASH_SCALE_IMPORT=0` disables the cache. |
+| `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
 macOS and a protected current-user ACL on Windows). Programs running as that
@@ -85,8 +90,9 @@ parsed product data—including prompts, commands, edited-file paths, working
 directories, subagent detail, and file-change bodies—is transferred and cached
 locally so exact detail remains available after restart or an SSH outage. Claude
 parsed exact details now cross SSH into the private local cache just like Codex;
-raw transcript rows do not. Exact-detail caching, synthesis, and complete backup
-sharing are separate capabilities, and complete backup v1 remains Codex-only.
+raw transcript rows do not. Exact-detail caching, synthesis, and V4 sync are
+separate capabilities. The versioned local session-family producer remains as
+input to V4 sync; Local's manual V3 complete-backup share flow has been removed.
 The cache excludes raw transcript rows, SSH configuration, coSlash credentials,
 sockets, and environment values.
 
@@ -102,8 +108,12 @@ revision; display paths and change IDs are never treated as files to open.
 
 ## Outbound data
 
-Outside an explicitly approved Hub share, the collector does not upload
-session data itself. If you enable synthesis, it passes a bounded set of facts
+The collector does not upload session data just because it reads a local
+transcript. When a paired device's Hub policy allows it, personal V4 sync sends
+session data to Hub; the per-computer pause stops uploads and retries. Local no
+longer offers the manual V3 complete-backup Share to Hub action. A
+separately authorized remote MCP agent may read Hub sessions. If you enable
+synthesis, it passes a bounded set of facts
 to your selected local CLI. These facts can include prompts, recaps, todos,
 filenames, commands, and commit text. Supported CLIs are Claude Code, Codex,
 OpenCode, Cursor, Pi, and Grok Build. The CLI uses its existing authentication.
@@ -143,49 +153,87 @@ Resume and Start fresh launch your installed agent CLI. Its later network and da
 
 Sending a session to Cursor CLI copies its handoff and optional task to the system clipboard before opening Cursor. Clipboard history tools and cross-device clipboard sync may retain that content. Paste it into the new Cursor session, then clear the clipboard if needed.
 
-## Share preview and approval
+Remote Hub MCP is an optional agent connection. The agent sends tool questions
+and arguments directly to the Hub MCP endpoint after browser OAuth approval;
+coSlash Local does not copy the bearer token into its settings or process
+arguments. Each agent manages its own credential storage. Disconnect or switch
+the connection in that agent to clear its local OAuth credential; the Hub
+checks access on each tool request and denies revoked access.
 
-During an active Share to Hub flow, **See what gets shared** builds a local
-`session-backup/v1` bundle for each selected local or SSH Codex session family.
-The frozen bundle contains the raw attributable Codex rollout and sidecar
-bytes, canonical parsed records, exact file-change bodies, session enrichment,
-and revision-matched persisted synthesis. Previewing does not upload or approve
-anything. Claude, Cursor, and OpenCode remain visibly unsupported for complete
-backup v1; coSlash never falls back to a metadata-only upload.
+Pairing a device authorizes personal V4 background sync of local Codex, Claude,
+OpenCode, and Cursor sessions under the Hub policy and Local settings.
+Eligible activity can upload without a separate preview or approval for each
+session. Sync starts by default after pairing or startup with a stored
+credential, but uploads require a compatible Hub import plan.
+The first check-in advertises sync capabilities and reports the
+normalized Local version, install channel, operating system, and content-free
+queue state. A new owner's default Hub policy (version 0) is enough to start.
+Each check-in reports which agents this install has sessions for. It sends
+recent session metadata before content. With a compatible Hub policy, the
+default plan is recent activity from the last three days, capped at 30
+sessions; older activity is not uploaded automatically. After compatible Hub
+and Local versions are available, a user can explicitly start a 30-day,
+60-day, or all-history import for one device from Hub Settings. Finite cutoffs
+are fixed when the run starts. After completion Local returns to live activity
+and does not catch up sessions created while it was offline. The Hub check-in
+supplies the current pause, device-off and leave-out policy; if
+check-in fails or the policy becomes stale, upload stops. A Hub `device_revoked`
+response removes the stored credential and marks this computer disconnected.
+`COSLASH_V4_SYNC=0` disables Local auto-sync and stops advertising `sync-v4`;
+`COSLASH_SYNC_POLICY=0` stops advertising `sync-policy/1`. Both default on.
+`COSLASH_SYNC_METERED=1` and
+`COSLASH_SYNC_OFFLINE=1` stop uploads locally. On macOS, low battery uses
+`pmset`; on Linux, metered NetworkManager connections and discharging battery
+levels are checked when available. On Windows, Local checks native power status
+and the preferred Internet connection's WinRT cost: metered, roaming, data-limit
+and background-data restrictions pause uploads. Battery below 20% pauses uploads
+when running off AC; desktops without a battery and computers on AC keep syncing.
+An unavailable connection, unknown network cost or unknown battery state off AC
+pauses uploads until the next successful check. The hidden Windows PowerShell
+probe has a ten-second timeout (other platforms keep two seconds), and successful
+network cost checks are reused for up to 15 seconds between upload guards.
+`COSLASH_SYNC_BATTERY_PERCENT` is a local
+override for testing. The per-computer pause setting also stops uploads and
+retries until resumed. Local has no manual complete-backup action that bypasses
+this pause; automatic personal sync does not enable team sharing.
 
-For opt-in user testing before the Team flow ships, append
-`?team-preview=1` to the local coSlash URL. This reveals a clearly labeled
-preview-only trigger in session details; it does not enable a Team workspace,
-approval, or upload.
+Hub-led device setup sends Local an opaque, expiring launch intent through the
+`coslash:` app handoff. Local claims that intent with Hub, then uses the
+existing device-authorization poll and saves the returned device credential in
+the OS keychain on macOS and Windows, or a private file on Linux.
+The browser does not receive the device code,
+device credential, or Local API access token. The initial check-in contains
+device version, install channel, operating system, capabilities, and empty
+content-free queue state; it does not upload a session or enable team sharing.
+Hub manages device and sync policy; Local also offers a per-computer pause.
 
-The review shows artifact counts by class, the exact total byte count and
-complete-backup SHA-256, the Hub's advertised capacity, and the paired
-destination and audience. Complete backups are not redacted. Raw prompts,
-commands, tool output, paths, environment fragments, and file bodies may
-contain credentials or other secrets and become visible to active members of
-the destination workspace after acceptance.
+## Local preview and Hub sync
 
-The fixture-backed Share flow is available to source builds with
-`?team-share=1`. It exercises eligibility, destination, selection, exact review,
-partial retry, and Hub route states, but is labeled **NO UPLOAD** and never
-contacts a cloud service. Use `&share-state=signed_out`, `pairing_required`,
-`credential_dormant`, or `credential_revoked` to inspect eligibility states,
-and `&share-result=partial` to inspect retry.
+The `?team-preview=1` option exposes a clearly labeled, preview-only trigger in
+session details. It shows a local preview and does not approve or upload a
+session.
 
-Approval binds the frozen source revision, complete hash and byte count,
-destination workspace and name, audience version and member count, server
-identity, and advertised per-backup, chunk, and workspace capacities. A changed
-source, destination, audience, manifest, or capacity assertion requires a new
-review. Uploads use bounded verified chunks and reconcile server status with
-the same idempotency key. Frozen bundles and their upload identities survive a
-dialog or app restart, so retry reads only the approved spool and never uses
-changed source bytes as upload content. Accepted batch items remain accepted
-while eligible failed items resume only missing chunks.
+New session transfer from Local uses personal V4 sync under the paired device's
+Hub policy and Local sync settings. Pairing does not authorize workspace
+sharing. Personal sync does not create a workspace share link.
 
-The older metadata snapshot and single-request full-v2 protocols remain in the
-client for compatibility, but the normal **Share to Hub** action does not use
-them. A Hub without v3 complete-backup support shows an update requirement and
-receives no downgraded payload.
+V4 uploads contain only parsed session-record artifacts from the verified
+local bundle. Separate raw transcript, metadata, exact-change-body,
+enrichment, and synthesis artifacts remain in the private local spool.
+Parsed records can still contain prompts, commands, source snippets, working
+directories, and derived synthesis. Local does not scan these records for
+secrets. File-edit paths are sanitized, but that does not redact record
+contents. See [the sync consent decision](decisions/personal-hub-sync-consent.md).
+
+This client change removes Local's V3 complete-backup preview and upload path.
+It does not change Hub V3 routes, stored backups, revisions, chunks, existing
+workspace links, or their current URLs. No V3 data migration or deletion takes
+place. The V3 server path remains a compatibility dependency until an owner
+chooses a migration or sunset policy and the supported Local-client rollout
+window has elapsed.
+
+The local session-family producer and private spool remain in use by V4 sync.
+V3 requests and payloads are not redirected to a V4 endpoint.
 
 The library card for an SSH session carries the canonical origin remote when
 `git remote get-url origin` succeeds on that host, and its live status from the
@@ -230,7 +278,11 @@ as a new store, so startup cannot detect every loss of prior history.
 Disabling a remote machine stops refreshes and hides its cards but retains its
 normalized last-good cache and any optional helper; it does not change Linux.
 **Remove** deletes the local host configuration and cache even if the host is
-offline. It deliberately leaves any previously installed helper in place on the
-remote machine.
+offline. If cache deletion fails, Local retries it at startup, on each check-in,
+and during daily maintenance until it succeeds. Cached data remains locally
+until deletion succeeds.
+Hub removal attempts to uninstall the helper after saving removal locally.
+If uninstall fails, the host stays removed, but the helper can remain on Linux.
+Local remove-only leaves the helper installed.
 
-To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names.
+To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names. The CLI report includes the configured Hub origin, device name and ID, and content-free sync failure codes.

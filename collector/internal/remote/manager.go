@@ -132,6 +132,7 @@ type Manager struct {
 	helperVerify           helperVerifyFunc
 	resetControlMaster     func(string)
 	helperSetup            bool
+	removingHubHost        bool
 	helperAutoSetup        bool
 	helperVersion          string
 	helperOwnershipCorrupt bool
@@ -286,6 +287,19 @@ type BackupSessionEnrichment struct {
 }
 
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
+	return manager.applySettings(remote, nil)
+}
+
+// SaveHubSettings leaves the previous helper installed and transfers local
+// ownership only after replacement settings are durably saved.
+func (manager *Manager) SaveHubSettings(local *settings.Store, config settings.Config) error {
+	if config.Remote == nil {
+		return ErrInvalidRemoteSettings
+	}
+	return manager.applySettings(config.Remote, func() error { return local.Save(config) })
+}
+
+func (manager *Manager) applySettings(remote *settings.RemoteSettings, save func() error) error {
 	manager.mu.Lock()
 	aliasesToClose := make([]string, 0, 2)
 	defer func() {
@@ -295,11 +309,12 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 			exitControlMasterBestEffort(alias)
 		}
 	}()
-	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
+	replacing := save != nil && manager.cfg != nil && remote != nil && remoteTargetChanged(manager.cfg, remote)
+	if manager.removingHubHost || (manager.helperSetup || replacing && manager.helperAutoSetup) && remoteTargetChanged(manager.cfg, remote) {
 		return ErrHelperSetupInProgress
 	}
 	corruptOwnership := false
-	if remote != nil {
+	if remote != nil && !(replacing && manager.cfg.ID == remote.ID) {
 		ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
 		if errors.Is(err, ErrHelperOwnershipLegacy) && owned {
 			// The old record was created while this was the only configured host.
@@ -314,7 +329,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 			return err
 		}
 	}
-	if corruptOwnership {
+	if corruptOwnership || replacing {
 		if !settings.ValidRemoteID(remote.ID) || !settings.ValidSSHAlias(remote.SSHAlias) {
 			return ErrInvalidRemoteSettings
 		}
@@ -336,24 +351,52 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	} else if err != nil {
 		return err
 	}
-	if manager.cfg != nil && manager.cfg.ID != remote.ID {
-		alias, err := manager.removeLocked()
-		if alias != "" {
-			aliasesToClose = append(aliasesToClose, alias)
-		}
+	previous := manager.cfg
+	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
+	restart := previous == nil || !previous.Enabled || aliasChanged || previous.ID != remote.ID
+	if replacing && previous.ID == remote.ID {
+		owned = false
+		corruptOwnership = false
+	}
+	if replacing && owned && ownership.Alias != remote.SSHAlias {
+		return ErrHelperOwnershipConflict
+	}
+	var view cachedView
+	if restart && remote.Enabled && !(aliasChanged && previous.ID == remote.ID) {
+		var err error
+		view, err = manager.readCache(remote.ID)
 		if err != nil {
 			return err
 		}
 	}
-	previous := manager.cfg
-	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
-	if aliasChanged {
-		aliasesToClose = append(aliasesToClose, previous.SSHAlias)
-		if err := manager.cache.RemoveSource(remote.ID); err != nil {
+	if replacing {
+		if err := manager.cache.removeSourceWithCommit(previous.ID, save, previous); err != nil {
 			return err
 		}
-		manager.helper = nil
-		manager.helperTarget = nil
+		aliasesToClose = append(aliasesToClose, manager.clearRemoteLocked())
+	} else {
+		if save != nil {
+			if err := save(); err != nil {
+				return err
+			}
+		}
+		if previous != nil && previous.ID != remote.ID {
+			alias, err := manager.removeLocked()
+			if alias != "" {
+				aliasesToClose = append(aliasesToClose, alias)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if aliasChanged {
+			if err := manager.cache.RemoveSource(remote.ID); err != nil {
+				return err
+			}
+			aliasesToClose = append(aliasesToClose, previous.SSHAlias)
+			manager.helper = nil
+			manager.helperTarget = nil
+		}
 	}
 	copyConfig := *remote
 	manager.cfg = &copyConfig
@@ -374,11 +417,10 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		aliasesToClose = append(aliasesToClose, remote.SSHAlias)
 		return nil
 	}
-	restart := previous == nil || !previous.Enabled || previous.SSHAlias != remote.SSHAlias
 	if restart {
-		if err := manager.loadCacheLocked(); err != nil {
-			return err
-		}
+		manager.snapshot, manager.legacyStale = view.snapshot, view.legacyStale
+		manager.sessions, manager.familyStale = view.sessions, view.familyStale
+		manager.lastSuccessAt, manager.lastCheckedAt = view.lastSuccessAt, view.lastCheckedAt
 		manager.startLifeLocked()
 		manager.refreshing = false
 		if manager.snapshot != nil {
@@ -417,7 +459,7 @@ func (manager *Manager) ValidateSettingsChange(remote *settings.RemoteSettings) 
 }
 
 func (manager *Manager) validateSettingsLocked(remote *settings.RemoteSettings) error {
-	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
+	if manager.removingHubHost || manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
 		return ErrHelperSetupInProgress
 	}
 	if remote == nil {
@@ -516,6 +558,7 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 		Transport:   TransportSFTP,
 	}
 	if err != nil {
+		LogSSHFailure("ssh.test", err)
 		reason := classifyError(err)
 		health.State = StateError
 		health.Complete = false
@@ -753,11 +796,82 @@ func (manager *Manager) removeLocked() (string, error) {
 	if manager.helperVersion != "" {
 		return "", ErrHelperOwnershipConflict
 	}
+	if manager.cfg != nil {
+		if err := manager.cache.RemoveSource(manager.cfg.ID); err != nil {
+			return "", err
+		}
+	}
+	return manager.clearRemoteLocked(), nil
+}
+
+// RemoveHubHost commits settings and cache removal before releasing ownership.
+// Helper uninstall is best-effort after the durable removal commits.
+func (manager *Manager) RemoveHubHost(local *settings.Store, expected settings.RemoteSettings) error {
+	manager.mu.Lock()
+	alias := ""
+	defer func() {
+		manager.mu.Unlock()
+		if alias != "" {
+			CancelAuthAttemptsForDestination(alias)
+			exitControlMasterBestEffort(alias)
+		}
+	}()
+	state := local.State()
+	if !state.Valid {
+		return ErrInvalidRemoteSettings
+	}
+	current := state.Config.Remote
+	if current == nil || current.HostID == "" || *current != expected {
+		return nil
+	}
+	if manager.helperSetup || manager.helperAutoSetup {
+		return ErrHelperSetupInProgress
+	}
+	if manager.cfg != nil && (manager.cfg.ID != current.ID || manager.cfg.SSHAlias != current.SSHAlias) {
+		return ErrInvalidRemoteSettings
+	}
+	var ownership helperOwnership
+	var ownershipErr error
+	if manager.cfg == nil {
+		ownership, _, ownershipErr = manager.cache.LoadHelperOwnership(current.ID)
+		if errors.Is(ownershipErr, ErrHelperOwnershipLegacy) {
+			ownership.Alias = current.SSHAlias
+			ownershipErr = nil
+		}
+	}
+	config := state.Config
+	config.Remote = nil
+	if err := manager.cache.removeSourceWithCommit(current.ID, func() error { return local.Save(config) }, current); err != nil {
+		return err
+	}
+	if manager.cfg == nil {
+		copyConfig := *current
+		manager.cfg = &copyConfig
+		manager.helperVersion = ownership.Version
+		manager.helperOwnershipCorrupt = ownershipErr != nil || ownership.Alias != "" && ownership.Alias != current.SSHAlias
+	}
+	// Reserve the target and stop collection while uninstall runs without the lock.
+	manager.helperSetup = true
+	manager.removingHubHost = true
 	manager.cancelLifeLocked()
-	var sourceID string
+	manager.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultHelperInstallTimeout)
+	err := manager.UninstallHelper(ctx)
+	cancel()
+	if err != nil {
+		LogSSHFailure("removed Hub host helper uninstall", err)
+	}
+	manager.mu.Lock()
+	manager.helperSetup = false
+	manager.removingHubHost = false
+	alias = manager.clearRemoteLocked()
+	return nil
+}
+
+func (manager *Manager) clearRemoteLocked() string {
+	manager.cancelLifeLocked()
 	var alias string
 	if manager.cfg != nil {
-		sourceID = manager.cfg.ID
 		alias = manager.cfg.SSHAlias
 	}
 	manager.cfg = nil
@@ -782,51 +896,34 @@ func (manager *Manager) removeLocked() (string, error) {
 	manager.helperOwnershipCorrupt = false
 	manager.helperProbe = helperProbeFallback
 	manager.metrics = CollectionMetrics{}
-	if sourceID != "" {
-		return alias, manager.cache.RemoveSource(sourceID)
-	}
-	return alias, nil
+	return alias
 }
 
-func (manager *Manager) loadCacheLocked() error {
-	v2, ok, err := manager.cache.LoadV2(manager.cfg.ID)
+type cachedView struct {
+	snapshot                     *CachedSnapshotV2
+	legacyStale                  bool
+	sessions                     []*session.Session
+	familyStale                  map[remoteSessionKey]bool
+	lastSuccessAt, lastCheckedAt *int64
+}
+
+func (manager *Manager) readCache(sourceID string) (cachedView, error) {
+	v2, ok, err := manager.cache.LoadV2(sourceID)
 	if err != nil {
-		return err
+		return cachedView{}, err
 	}
 	if ok {
-		manager.snapshot = &v2
-		manager.legacyStale = false
-		manager.sessions = composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0)
-		manager.familyStale = staleSessions(v2)
-		manager.lastSuccessAt = int64Ptr(v2.FetchedAtMs)
-		manager.lastCheckedAt = int64Ptr(v2.FetchedAtMs)
-		return nil
+		return cachedView{snapshot: &v2, sessions: composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0), familyStale: staleSessions(v2), lastSuccessAt: int64Ptr(v2.FetchedAtMs), lastCheckedAt: int64Ptr(v2.FetchedAtMs)}, nil
 	}
-	legacy, ok, err := manager.cache.Load(manager.cfg.ID)
-	if err != nil {
-		return err
+	legacy, ok, err := manager.cache.Load(sourceID)
+	if err != nil || !ok {
+		return cachedView{}, err
 	}
-	if !ok {
-		manager.snapshot = nil
-		manager.legacyStale = false
-		manager.sessions = nil
-		manager.familyStale = nil
-		return nil
-	}
-	// A v1 card stays visible as stale display data only: Families and
-	// BaselineID stay empty so the next refresh starts from an empty
-	// generation instead of reinterpreting v1 fingerprints as v2 state.
-	manager.snapshot = &CachedSnapshotV2{
-		Version: cacheV2Version, CoverageSinceMs: legacy.CoverageSinceMs,
-		FetchedAtMs: legacy.FetchedAtMs, RoundTripMs: legacy.RoundTripMs,
-		Coverage: legacy.Coverage,
-	}
-	manager.legacyStale = true
-	manager.sessions = legacy.sessions()
-	manager.familyStale = nil
-	manager.lastSuccessAt = int64Ptr(legacy.FetchedAtMs)
-	manager.lastCheckedAt = int64Ptr(legacy.FetchedAtMs)
-	return nil
+	// A v1 card stays visible as stale display data only, without a v2 baseline.
+	return cachedView{
+		snapshot:    &CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: legacy.CoverageSinceMs, FetchedAtMs: legacy.FetchedAtMs, RoundTripMs: legacy.RoundTripMs, Coverage: legacy.Coverage},
+		legacyStale: true, sessions: legacy.sessions(), lastSuccessAt: int64Ptr(legacy.FetchedAtMs), lastCheckedAt: int64Ptr(legacy.FetchedAtMs),
+	}, nil
 }
 
 func (manager *Manager) startLifeLocked() {
@@ -1250,6 +1347,13 @@ func limitedResultReason(result refreshOutcome) *Reason {
 }
 
 func classifyError(err error) Reason {
+	if reason := classifyKnownError(err); reason != "" {
+		return reason
+	}
+	return ReasonConnectionFailed
+}
+
+func classifyKnownError(err error) Reason {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return ReasonRefreshTimeout
@@ -1295,9 +1399,13 @@ func classifyError(err error) Reason {
 		strings.Contains(message, "decode") {
 		return ReasonInvalidData
 	}
-	return ReasonConnectionFailed
+	return ""
 }
 
 func retryBackoff(failures int) time.Duration {
 	return RemoteRetryInterval
+}
+
+func (manager *Manager) CleanupRemovedSources(local *settings.Store) {
+	manager.cache.SweepRemovedSources(local)
 }

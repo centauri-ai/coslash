@@ -128,6 +128,46 @@ describe('SessionBoard', () => {
     expect(markup).toContain('size-[7px] shrink-0 rounded-full bg-warning');
   });
 
+  it('includes every visible session in board group totals', () => {
+    const markup = renderBoard(
+      [
+        session('complete', {
+          branch: 'shared',
+          tokens: {
+            model: {
+              input_tokens: 1000,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_creation_1h_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+          cost: 1,
+          eligibleForAggregates: true,
+        }),
+        session('incomplete', {
+          branch: 'shared',
+          tokens: {
+            model: {
+              input_tokens: 2000,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_creation_1h_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+          cost: 9,
+          eligibleForAggregates: false,
+        }),
+      ],
+      'branch',
+      'branch',
+    );
+
+    expect(markup).toContain('2 sessions · 3k tok ·');
+    expect(markup).toContain('≈$10.00');
+  });
+
   it('clamps prompt-derived titles to two lines', () => {
     const markup = renderBoard([session('one', { name: null, firstPrompt: 'A long prompt-derived title' })]);
 

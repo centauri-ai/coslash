@@ -58,6 +58,8 @@ export type ShareEligibility =
 
 export type Session = {
   sourceId: string;
+  hubSyncChip?: 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out' | 'parked_failed' | 'none';
+  hubSyncFailureCode?: string;
   sourceLabel: string;
   /** Stable across a remote alias rename. Never contains host or path data. */
   sourceClass?: SourceClass;
@@ -291,12 +293,12 @@ export function goalSourceLabel(source: GoalSource): string {
 export function resolveGoal(
   session: Pick<Session, 'declaredGoal' | 'synthesis'> & { firstPrompt?: string | null },
 ): { texts: string[]; source: GoalSource } {
-  if (session.declaredGoal?.trim()) {
-    return { texts: [session.declaredGoal], source: 'declared' };
-  }
   const goals = session.synthesis?.goals.filter((goal) => goal.trim()) ?? [];
   if (goals.length > 0) {
     return { texts: goals, source: 'inferred' };
+  }
+  if (session.declaredGoal?.trim()) {
+    return { texts: [session.declaredGoal], source: 'declared' };
   }
   return { texts: [session.firstPrompt?.trim() || '—'], source: 'floor' };
 }
@@ -553,9 +555,25 @@ export function sumTokens(
   return Object.values(tokens).reduce((sum, modelTokens) => sum + modelTokens[key], 0);
 }
 
+const tokenCounterKeys = [
+  'input_tokens',
+  'output_tokens',
+  'cache_creation_input_tokens',
+  'cache_creation_1h_input_tokens',
+  'cache_read_input_tokens',
+] as const;
+
+function hasValidTokenCounters(values: ModelTokens[]): boolean {
+  return values.every((modelTokens) =>
+    tokenCounterKeys.every((key) => Number.isFinite(modelTokens[key]) && modelTokens[key] >= 0),
+  );
+}
+
 export function getTotalTokens(tokens: Session['tokens']): number | null {
   if (Object.keys(tokens).length === 0) return null;
-  return Object.values(tokens).reduce(
+  const values = Object.values(tokens);
+  if (!hasValidTokenCounters(values)) return null;
+  const total = values.reduce(
     (sum, modelTokens) =>
       sum +
       modelTokens.input_tokens +
@@ -565,6 +583,7 @@ export function getTotalTokens(tokens: Session['tokens']): number | null {
       modelTokens.cache_read_input_tokens,
     0,
   );
+  return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
 type Accounting = Pick<
@@ -583,7 +602,8 @@ export function sessionTotalTokens(session: Omit<Accounting, 'cost' | 'costUnava
   if (session.tokensUnavailable) return null;
   const values = accountingTokens(session);
   if (!values.length) return session.tokensKnown ? 0 : null;
-  return values.reduce(
+  if (!hasValidTokenCounters(values)) return null;
+  const total = values.reduce(
     (total, value) =>
       total +
       value.input_tokens +
@@ -593,10 +613,13 @@ export function sessionTotalTokens(session: Omit<Accounting, 'cost' | 'costUnava
       value.cache_read_input_tokens,
     0,
   );
+  return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
 export function sessionCost(session: Pick<Accounting, 'cost' | 'costUnavailable'>): number | null {
-  return session.costUnavailable ? null : session.cost;
+  return session.costUnavailable || session.cost == null || !Number.isFinite(session.cost) || session.cost < 0
+    ? null
+    : session.cost;
 }
 
 export type SessionReadiness = {

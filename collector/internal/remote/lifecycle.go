@@ -676,6 +676,11 @@ func digest(content []byte) string {
 // Uninstall authenticates the release document and probes the platform before
 // deriving an exact known artifact path. Revoked artifacts remain removable.
 func (lifecycle Lifecycle) Uninstall(ctx context.Context, document SignedReleaseMetadata, version string) error {
+	return lifecycle.uninstall(ctx, document, version, false)
+}
+
+// Local ownership can outlive the release metadata's current-plus-previous window.
+func (lifecycle Lifecycle) uninstall(ctx context.Context, document SignedReleaseMetadata, version string, locallyOwned bool) error {
 	if lifecycle.Remote == nil {
 		return ErrHelperInstallation
 	}
@@ -698,7 +703,7 @@ func (lifecycle Lifecycle) Uninstall(ctx context.Context, document SignedRelease
 			break
 		}
 	}
-	if !known {
+	if !known && !locallyOwned {
 		return ErrUnknownHelperPath
 	}
 	path, err := helperPath(version)
