@@ -218,6 +218,8 @@ jobs:
           go-version-file: collector/go.mod
           cache: true
           cache-dependency-path: collector/go.sum
+      - name: Test collector on macOS
+        run: go test ./...
       - name: Build release packages
         run: make dist
       - name: Verify release leaves worktree clean
