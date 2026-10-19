@@ -1,0 +1,889 @@
+package syncv4
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
+	_ "modernc.org/sqlite"
+)
+
+const fixtureRootID = "11111111-2222-3333-4444-555555555555"
+const cursorFixtureID = "11111111-2222-4333-8444-555555555555"
+
+type fixedCredential struct{}
+
+func (fixedCredential) Load(context.Context) (string, error) { return "fixture-device-key", nil }
+func (fixedCredential) Save(context.Context, string) error   { return nil }
+func (fixedCredential) Delete(context.Context) error         { return nil }
+
+func fixtureBundle(t *testing.T) (*sessionbackupproducer.Manager, *sessionbackupproducer.Prepared, string) {
+	t.Helper()
+	fixture := filepath.Join("..", "..", "sessionbackup", "v1", "testdata", "fixtures", "valid", "family")
+	data, err := os.ReadFile(filepath.Join(fixture, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		CompleteBackupSHA256 string `json:"completeBackupSha256"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.CopyFS(filepath.Join(root, manifest.CompleteBackupSHA256), os.DirFS(fixture)); err != nil {
+		t.Fatal(err)
+	}
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: root})
+	prepared, err := manager.Open(manifest.CompleteBackupSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manager, prepared, root
+}
+
+func TestWarmStartUploadFailuresRespectBackoff(t *testing.T) {
+	for _, code := range []string{"destination_changed", "http_409"} {
+		t.Run(code, func(t *testing.T) {
+			manager, prepared, _ := fixtureBundle(t)
+			root := t.TempDir()
+			queue, err := Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+			now := started
+			plan := hubclient.V4ImportPlan{Version: 1, Window: "all"}
+			if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, started); err != nil {
+				t.Fatal(err)
+			}
+			entry := Entry{Key: "conflict", Session: hubclient.V4Session{Agent: "codex"},
+				Activity: now.UnixMilli(), BundleID: prepared.BundleID, ContentBytes: 1024}
+			if err := queue.Merge([]Entry{entry}, now); err != nil {
+				t.Fatal(err)
+			}
+			creates, limit := 0, 1
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/v4/uploads" {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				creates++
+				if creates > limit {
+					// Bound the reproduction even when the picker ignores backoff.
+					w.WriteHeader(http.StatusTooManyRequests)
+					io.WriteString(w, `{"code":"rate_limited"}`)
+					return
+				}
+				w.WriteHeader(http.StatusConflict)
+				json.NewEncoder(w).Encode(hubclient.V4Problem{Code: code})
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			runner := &Runner{Queue: queue, Backup: manager, checkedAt: now, Now: func() time.Time { return now },
+				Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}}}
+			run := func() {
+				t.Helper()
+				if err := runner.warmStart(t.Context(), plan, started, 10*time.Minute, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run()
+			failed := queue.Entries()[0]
+			if creates != 1 || failed.FailureCode != code || !failed.RetryAt.Equal(started.Add(time.Minute)) || queue.Progress().Failing != 1 {
+				t.Fatalf("creates=%d entry=%+v progress=%+v", creates, failed, queue.Progress())
+			}
+			lines, _ := queue.PendingLog(now)
+			if len(lines) != 1 || lines[0].Code != "server_error" || lines[0].Level != "error" {
+				t.Fatalf("failure log=%+v", lines)
+			}
+			runner.Queue, err = Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now = started.Add(time.Minute - time.Nanosecond)
+			run()
+			if creates != 1 {
+				t.Fatalf("retried before backoff elapsed: creates=%d", creates)
+			}
+			now = started.Add(time.Minute)
+			limit = 2
+			run()
+			if creates != 2 || !runner.Queue.Entries()[0].RetryAt.Equal(now.Add(5*time.Minute)) {
+				t.Fatalf("retry did not back off: creates=%d entry=%+v", creates, runner.Queue.Entries()[0])
+			}
+		})
+	}
+}
+
+func TestOpenCodeDiscoveryRetainsSourceIdentity(t *testing.T) {
+	items := discoveredEntries([]*session.Session{
+		{Agent: "opencode", ID: "shared", StartedAt: 1, LastActivityTime: 2, DetailRevision: "source-revision"},
+		{Agent: "codex", ID: "shared", StartedAt: 1, LastActivityTime: 2},
+		{Agent: "cursor", ID: "ignored"},
+		{Agent: "opencode", ID: "child", ParentSessionID: "shared"},
+	}, "install", nil)
+	if len(items) != 2 || items[0].Key == items[1].Key || items[0].Selection.Agent != "opencode" ||
+		items[0].Selection.SessionID != "shared" || items[0].SourceRevision != "source-revision" {
+		t.Fatalf("discovered entries = %#v", items)
+	}
+}
+
+func TestCodexV4HTTPResumeAndNoUnchangedBytes(t *testing.T) {
+	manager, prepared, spool := fixtureBundle(t)
+	runV4HTTPResume(t, manager, prepared, spool, "Fixture Codex", true)
+}
+
+func TestClaudeV4HTTPRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	workspace := filepath.Join(home, "project")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(claude.ProjectsRoot(home), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	row := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:00:00Z","cwd":%q,"message":{"content":"hello"}}`, fixtureRootID, workspace) + "\n"
+	if err := os.WriteFile(filepath.Join(root, fixtureRootID+".jsonl"), []byte(row), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spool := t.TempDir()
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: spool, OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+		return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentClaude, SessionID: fixtureRootID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runV4HTTPResume(t, manager, prepared, spool, "Fixture Claude", false)
+}
+
+type blockedCreateTransport struct {
+	Transport
+	started chan struct{}
+	release chan struct{}
+}
+
+func (transport *blockedCreateTransport) V4Create(ctx context.Context, _ hubclient.V4Create) (hubclient.V4Status, error) {
+	close(transport.started)
+	select {
+	case <-transport.release:
+		return hubclient.V4Status{UploadID: "upload-preparing", SessionID: "ses_preparing", State: "open"}, nil
+	case <-ctx.Done():
+		return hubclient.V4Status{}, ctx.Err()
+	}
+}
+
+func TestEnsureCreatedReportsSessionAsSyncingDuringCreate(t *testing.T) {
+	manager, prepared, _ := fixtureBundle(t)
+	manifest, err := (&Runner{Backup: manager}).manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := prepared.Selection
+	entry := Entry{Key: localKey(selection.SourceID, selection.Agent, selection.SessionID), Selection: selection,
+		Session: hubclient.V4Session{Agent: selection.Agent}, Activity: 1, BundleID: prepared.BundleID,
+		Manifest: &manifest, ContentSHA256: manifest.ContentSHA256}
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &blockedCreateTransport{started: make(chan struct{}), release: make(chan struct{})}
+	runner := &Runner{Queue: queue, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now}
+	done := make(chan error, 1)
+	go func() { done <- runner.ensureCreated(t.Context(), &entry) }()
+	<-hub.started
+	statusKey := selection.SourceID + ":" + selection.Agent + ":" + selection.SessionID
+	if got := queue.SessionStates()[statusKey]; got != "syncing" {
+		t.Fatalf("session state during Hub create = %q, want syncing", got)
+	}
+	close(hub.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepared *sessionbackupproducer.Prepared, spool, name string, discover bool) {
+	t.Helper()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	source := &session.Session{Agent: prepared.Selection.Agent, ID: fixtureRootID, Name: &name, StartedAt: now.Add(-time.Hour).UnixMilli(), LastActivityTime: now.UnixMilli()}
+	testV4HTTPResume(t, manager, prepared, spool, source, discover)
+}
+
+func TestCursorIDEAndCLIV4HTTPRoundTrip(t *testing.T) {
+	for _, lane := range []string{"cursor-ide", "cursor-cli"} {
+		t.Run(lane, func(t *testing.T) {
+			manager, prepared, spool := fixtureCursorBundle(t, lane)
+			name := "Fixture Cursor"
+			now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+			source := &session.Session{Agent: "cursor", ID: cursorFixtureID, Name: &name, Entrypoint: &lane,
+				StartedAt: now.Add(-time.Hour).UnixMilli(), LastActivityTime: now.UnixMilli()}
+			testV4HTTPResume(t, manager, prepared, spool, source, true)
+		})
+	}
+}
+
+func cursorFixtureIDEStateDB(home string) string {
+	return filepath.Join(cursor.GlobalStorage(home), "state.vscdb")
+}
+
+func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Manager, *sessionbackupproducer.Prepared, string) {
+	t.Helper()
+	home, workspace, spool := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(home, ".cursor", "projects", "repo", "agent-transcripts", cursorFixtureID, cursorFixtureID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcript, []byte(`{"role":"user","message":{"content":[{"type":"text","text":"Build this"}]}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if lane == "cursor-ide" {
+		path := cursorFixtureIDEStateDB(home)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, value TEXT, createdAt INTEGER, lastUpdatedAt INTEGER);
+			CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+			t.Fatal(err)
+		}
+		value := `{"name":"Fixture Cursor","workspaceIdentifier":{"uri":{"fsPath":` + string(workspaceJSON) + `}}}`
+		if _, err := db.Exec(`INSERT INTO composerHeaders VALUES (?, ?, 1700000000000, 1700000001000)`, cursorFixtureID, value); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		path := filepath.Join(home, ".cursor", "chats", "workspace", cursorFixtureID, "store.db")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(path), "meta.json"), []byte(`{"cwd":`+string(workspaceJSON)+`}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+			t.Fatal(err)
+		}
+		value := hex.EncodeToString([]byte(`{"agentId":"` + cursorFixtureID + `","name":"Fixture Cursor","createdAt":1700000000000}`))
+		if _, err := db.Exec(`INSERT INTO meta VALUES ('0', ?)`, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: spool, OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+		return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorFixtureID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manager, prepared, spool
+}
+
+func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepared *sessionbackupproducer.Prepared, spool string, source *session.Session, discover bool) {
+	t.Helper()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	manifestRunner := &Runner{Backup: manager}
+	preparedManifest, err := manifestRunner.manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	totalChunks := 0
+	for _, artifact := range preparedManifest.Artifacts {
+		totalChunks += len(artifact.Chunks)
+	}
+	exerciseResume := totalChunks > 1
+	queueRoot := t.TempDir()
+	queue, err := Open(queueRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID := queue.InstallID()
+	entry := Entry{Key: localKey("local", source.Agent, source.ID), Selection: prepared.Selection,
+		Session: sessionMetadata(source, installID), Activity: source.LastActivityTime, BundleID: prepared.BundleID}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	var server *httptest.Server
+	var created hubclient.V4Create
+	received := map[string]bool{}
+	createCount, putCount, confirmCount, checkInCount := 0, 0, 0, 0
+	var checkInLogs [][]hubclient.V4LogEntry
+	confirmRequests := 0
+	finalizing, interruptAfterFirst := false, exerciseResume
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Device fixture-device-key" && !strings.HasPrefix(r.URL.Path, "/blob/") {
+			t.Errorf("missing device credential on %s", r.URL.Path)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v4/devices/me/check-in":
+			checkInCount++
+			var input struct {
+				Log []hubclient.V4LogEntry `json:"log"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			checkInLogs = append(checkInLogs, input.Log)
+			io.WriteString(w, `{"configVersion":1,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"minVersion":"0.0.3"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/v4/uploads":
+			createCount++
+			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
+				t.Error(err)
+			}
+			if created.Session.InstallID != installID || created.Session.LocalKeyHash != entry.Key || created.Session.Title != *source.Name || created.Session.Agent != source.Agent {
+				t.Errorf("metadata = %+v", created.Session)
+			}
+			curated := curatedArtifacts(prepared)
+			if len(created.Manifest.Artifacts) != len(curated) {
+				t.Errorf("V4 artifacts = %d, want %d curated records", len(created.Manifest.Artifacts), len(curated))
+			}
+			for ordinal, artifact := range created.Manifest.Artifacts {
+				if ordinal >= len(curated) || artifact.Ordinal != ordinal || artifact.Kind != sessionbackupv1.KindParsedSessionRecord ||
+					artifact.Bytes != curated[ordinal].ByteLength || artifact.SHA256 != curated[ordinal].SHA256 {
+					t.Errorf("V4 artifact %d = %+v, want curated parsed record", ordinal, artifact)
+				}
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(hubclient.V4Status{UploadID: "upload-1", SessionID: "ses_fixture", State: "open", Missing: missing(created.Manifest, received)})
+		case r.Method == http.MethodGet && r.URL.Path == "/v4/uploads/upload-1":
+			status := hubclient.V4Status{UploadID: "upload-1", SessionID: "ses_fixture", State: "open", Missing: missing(created.Manifest, received)}
+			if finalizing {
+				status.State, status.RevisionID = "completed", "rev_fixture"
+			}
+			json.NewEncoder(w).Encode(status)
+		case r.Method == http.MethodPost && r.URL.Path == "/v4/uploads/upload-1/chunks:sign":
+			if interruptAfterFirst && putCount == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				io.WriteString(w, `{"code":"temporary_unavailable"}`)
+				return
+			}
+			var input struct {
+				Coords []struct {
+					ArtifactOrdinal int `json:"artifactOrdinal"`
+					ChunkOrdinal    int `json:"chunkOrdinal"`
+				} `json:"coords"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			if len(input.Coords) != 1 {
+				t.Errorf("sign coords=%d", len(input.Coords))
+				return
+			}
+			coord := input.Coords[0]
+			json.NewEncoder(w).Encode(map[string]any{"urls": []map[string]any{{"artifactOrdinal": coord.ArtifactOrdinal, "chunkOrdinal": coord.ChunkOrdinal,
+				"url": server.URL + "/blob/" + strconv.Itoa(coord.ArtifactOrdinal) + "/" + strconv.Itoa(coord.ChunkOrdinal), "headers": map[string]string{"X-Upload-Test": "signed"}}}})
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/blob/"):
+			if r.Header.Get("Authorization") != "" || r.Header.Get("X-Upload-Test") != "signed" {
+				t.Error("signed PUT leaked credential or lost header")
+			}
+			coord := strings.TrimPrefix(r.URL.Path, "/blob/")
+			var a, c int
+			if _, err := fmt.Sscanf(coord, "%d/%d", &a, &c); err != nil {
+				t.Error(err)
+			}
+			body, _ := io.ReadAll(r.Body)
+			chunk := created.Manifest.Artifacts[a].Chunks[c]
+			sum := sha256.Sum256(body)
+			if int64(len(body)) != chunk.Bytes || hex.EncodeToString(sum[:]) != chunk.SHA256 {
+				t.Error("changed signed chunk")
+			}
+			putCount++
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/v4/uploads/upload-1/chunks:confirm":
+			var input struct {
+				Coords []struct {
+					ArtifactOrdinal int `json:"artifactOrdinal"`
+					ChunkOrdinal    int `json:"chunkOrdinal"`
+				} `json:"coords"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			if len(input.Coords) < 1 || len(input.Coords) > 50 {
+				t.Errorf("confirm coords=%d", len(input.Coords))
+			}
+			confirmRequests++
+			for _, coord := range input.Coords {
+				received[strconv.Itoa(coord.ArtifactOrdinal)+"/"+strconv.Itoa(coord.ChunkOrdinal)] = true
+				confirmCount++
+			}
+			json.NewEncoder(w).Encode(hubclient.V4Status{UploadID: "upload-1", SessionID: "ses_fixture", State: "open", Missing: missing(created.Manifest, received)})
+		case r.Method == http.MethodPost && r.URL.Path == "/v4/uploads/upload-1/finalize":
+			if len(missing(created.Manifest, received)) != 0 {
+				t.Error("finalized with missing chunks")
+			}
+			finalizing = true
+			w.WriteHeader(http.StatusAccepted)
+			json.NewEncoder(w).Encode(hubclient.V4Status{UploadID: "upload-1", SessionID: "ses_fixture", State: "finalizing"})
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v4/uploads/upload-1/chunks/") && interruptAfterFirst:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			io.WriteString(w, `{"code":"temporary_unavailable"}`)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.3"}
+	runner := &Runner{Queue: queue, Backup: manager, Hub: client, Discover: func(context.Context) ([]*session.Session, error) {
+		if discover {
+			return []*session.Session{source}, nil
+		}
+		return nil, nil
+	},
+		Conditions: func(context.Context) (bool, int, error) { return false, -1, nil }, Now: func() time.Time { return now }}
+	firstErr := runner.SyncOnce(t.Context())
+	if exerciseResume && firstErr == nil {
+		t.Fatal("interrupted upload unexpectedly completed")
+	}
+	if !exerciseResume && firstErr != nil {
+		t.Fatalf("round-trip upload failed: %v", firstErr)
+	}
+	if createCount != 1 || putCount != min(totalChunks, 1) || confirmCount != putCount {
+		t.Fatalf("create=%d put=%d confirm=%d chunks=%d", createCount, putCount, confirmCount, totalChunks)
+	}
+	interruptAfterFirst = false
+	queue, err = Open(queueRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queue.InstallID() != installID {
+		t.Fatal("install identity changed after restart")
+	}
+	runner.Queue = queue
+	runner.Backup = sessionbackupproducer.New(sessionbackupproducer.Options{Root: spool})
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if putCount != 1 || confirmCount != 1 {
+		t.Fatalf("retry before backoff elapsed sent bytes: put=%d confirm=%d", putCount, confirmCount)
+	}
+	now = now.Add(time.Minute)
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if createCount != 1 || putCount != len(missing(created.Manifest, nil)) || confirmCount != putCount {
+		t.Fatalf("resume resent accepted bytes: create=%d put=%d confirm=%d", createCount, putCount, confirmCount)
+	}
+	// The interrupted pass confirmed the chunk it sent; the resumed pass
+	// confirmed the rest of these small chunks in one batch.
+	if confirmRequests != totalChunks {
+		t.Fatalf("confirm requests=%d for %d chunks", confirmRequests, confirmCount)
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if progress := queue.Progress(); progress.FirstSync.RecentDone != 1 || progress.FirstSync.RecentTotal != 1 || progress.Pending != 0 {
+		t.Fatalf("progress=%+v", progress)
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if createCount != 1 || putCount != confirmCount || checkInCount != 5 {
+		t.Fatalf("unchanged upload retried: create=%d put=%d confirm=%d checkins=%d", createCount, putCount, confirmCount, checkInCount)
+	}
+	// The interrupted transfer is reported once, for its Hub session, on the
+	// check-in after it, and never again.
+	if exerciseResume {
+		if len(checkInLogs[0]) != 0 || len(checkInLogs[1]) != 1 || len(checkInLogs[2]) != 0 || len(checkInLogs[3]) != 0 || len(checkInLogs[4]) != 0 {
+			t.Fatalf("check-in logs=%+v", checkInLogs)
+		}
+		if line := checkInLogs[1][0]; line.SessionID != "ses_fixture" || line.Level != "error" || line.Code != "server_error" ||
+			line.Message != "coSlash Hub could not store this sync." || !line.At.Equal(now.Add(-time.Minute)) {
+			t.Fatalf("interrupted transfer line=%+v", line)
+		}
+	}
+}
+
+func missing(manifest hubclient.V4Manifest, received map[string]bool) []hubclient.V4Missing {
+	result := []hubclient.V4Missing{}
+	for _, artifact := range manifest.Artifacts {
+		for _, chunk := range artifact.Chunks {
+			if received[strconv.Itoa(artifact.Ordinal)+"/"+strconv.Itoa(chunk.Ordinal)] {
+				continue
+			}
+			result = append(result, hubclient.V4Missing{ArtifactOrdinal: artifact.Ordinal, ChunkOrdinal: chunk.Ordinal,
+				Offset: chunk.Offset, Bytes: chunk.Bytes, SHA256: chunk.SHA256})
+		}
+	}
+	return result
+}
+
+func TestPauseAndLeaveOutPreventCreate(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	entry := Entry{Key: "fixture", Session: hubclient.V4Session{Agent: "codex", Repo: "owner/private", CWDLabel: "~/private"}, Activity: now.UnixMilli()}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, config := range []hubclient.V4Config{{Paused: true}, {DeviceOff: true}} {
+		runner := Runner{Queue: queue, Now: func() time.Time { return now }, config: config, checkedAt: now}
+		if err := runner.allowed(t.Context(), entry.Session); err != ErrPaused {
+			t.Fatalf("config=%+v err=%v", config, err)
+		}
+	}
+	if !leftOut(entry.Session, []string{"owner/*"}) || !leftOut(entry.Session, []string{"~/private"}) {
+		t.Fatal("leave-out did not match source")
+	}
+	runner := Runner{Queue: queue, Now: func() time.Time { return now }, checkedAt: now,
+		Conditions: func(context.Context) (bool, int, error) { return true, -1, nil }}
+	if err := runner.allowed(t.Context(), entry.Session); err != ErrPaused {
+		t.Fatalf("metered err=%v", err)
+	}
+	runner.Conditions = func(context.Context) (bool, int, error) { return false, 19, nil }
+	if err := runner.allowed(t.Context(), entry.Session); err != ErrPaused {
+		t.Fatalf("battery err=%v", err)
+	}
+	runner.Now = func() time.Time { return now.Add(consentAge) }
+	if err := runner.allowed(t.Context(), entry.Session); err != ErrStaleConsent {
+		t.Fatalf("stale err=%v", err)
+	}
+}
+
+func TestPausedOrOfflineCheckInSendsNoUpload(t *testing.T) {
+	for _, offline := range []bool{false, true} {
+		t.Run(strconv.FormatBool(offline), func(t *testing.T) {
+			var uploads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v4/devices/me/check-in" {
+					if offline {
+						w.WriteHeader(http.StatusServiceUnavailable)
+						return
+					}
+					io.WriteString(w, `{"configVersion":1,"config":{"paused":true,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"minVersion":"0.0.3"}`)
+					return
+				}
+				uploads.Add(1)
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			queue, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := Runner{Queue: queue, Backup: sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}),
+				Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.3"},
+				Discover: func(context.Context) ([]*session.Session, error) {
+					t.Error("discovered before policy")
+					return nil, nil
+				}}
+			if err := runner.SyncOnce(t.Context()); err == nil {
+				t.Fatal("sync proceeded without current consent")
+			}
+			if uploads.Load() != 0 {
+				t.Fatal("upload was attempted despite pause/offline")
+			}
+		})
+	}
+}
+
+func TestPolicyStopCodesDoNotRecordFailures(t *testing.T) {
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: []string{}}}
+	if err := queue.ApplyPolicyAt(policy, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "policy-stop", Activity: 1, Session: hubclient.V4Session{Agent: "codex"},
+		FailureCode: "server_error", ParkedVersion: "1.2.3", LoggedFailure: "server_error", BackoffAttempt: 3, RetryAt: time.Now().Add(time.Hour)}
+	if err := queue.Merge([]Entry{entry}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Queue: queue, configVersion: 1}
+	for _, test := range []struct {
+		code string
+		want error
+	}{{"sync_paused", ErrPolicyBlocked}, {"device_sync_off", ErrDeviceSyncOff}} {
+		t.Run(test.code, func(t *testing.T) {
+			stored := queue.Entries()[0]
+			stored.FailureCode, stored.ParkedVersion, stored.LoggedFailure = "server_error", "1.2.3", "server_error"
+			stored.BackoffAttempt, stored.RetryAt = 3, time.Now().Add(time.Hour)
+			if err := queue.Update(stored); err != nil {
+				t.Fatal(err)
+			}
+			err := runner.persistPolicyStop(&stored, hubclient.V4Problem{Code: test.code, HTTPStatus: http.StatusConflict})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("recordFailure error=%v, want %v", err, test.want)
+			}
+			got := queue.Entries()[0]
+			if got.FailureCode != "" || got.ParkedVersion != "" || got.LoggedFailure != "" || got.BackoffAttempt != 0 || !got.RetryAt.IsZero() || len(queue.state.Log) != 0 || !queue.PolicyBlocked() {
+				t.Fatalf("policy stop recorded failure state: entry=%+v log=%v", got, queue.state.Log)
+			}
+		})
+	}
+	reopened, err := Open(root)
+	if err != nil || !reopened.PolicyBlocked() {
+		t.Fatalf("policy stop was not persisted: queue=%v err=%v", reopened, err)
+	}
+	if err := reopened.ApplyPolicyAt(policy, time.Now()); err != nil || !reopened.PolicyBlocked() {
+		t.Fatalf("unchanged policy cleared stop state: err=%v blocked=%t", err, reopened.PolicyBlocked())
+	}
+	policy.ConfigVersion++
+	if err := reopened.ApplyPolicyAt(policy, time.Now()); err != nil || reopened.PolicyBlocked() {
+		t.Fatalf("new policy did not clear stop state: err=%v blocked=%t", err, reopened.PolicyBlocked())
+	}
+}
+
+func TestRecentBeforeDurableHistoryNewestFirst(t *testing.T) {
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := []Entry{
+		{Key: "oldest", Activity: now.Add(-10 * 24 * time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}},
+		{Key: "recent", Activity: now.Add(-time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}},
+		{Key: "older", Activity: now.Add(-4 * 24 * time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}},
+	}
+	if err := queue.Merge(items, now); err != nil {
+		t.Fatal(err)
+	}
+	queue, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := queue.Entries()
+	if len(entries) != 3 || entries[0].Key != "recent" || entries[1].Key != "older" || entries[2].Key != "oldest" {
+		t.Fatalf("priority=%+v", entries)
+	}
+	if progress := queue.Progress(); progress.FirstSync.RecentTotal != 1 || progress.FirstSync.RecentDone != 0 || progress.FirstSync.HistoryState != "syncing" {
+		t.Fatalf("progress=%+v", progress)
+	}
+}
+
+// A first sync of hundreds of sessions meets the Hub's active-upload limit
+// (rate_limited) on every pass. The next pass must follow in seconds, not a
+// full interval, and other errors keep the regular interval.
+func TestNextSyncDelayRetriesSoonAtTheActiveUploadLimit(t *testing.T) {
+	busy := hubclient.V4Problem{Code: "rate_limited"}
+	for _, tc := range []struct {
+		err      error
+		inFlight int
+		want     time.Duration
+	}{
+		{nil, 0, 5 * time.Minute},
+		{busy, 0, busyRetry},
+		{errors.Join(busy, errors.New("other entry failed")), 0, busyRetry},
+		{fmt.Errorf("create: %w", busy), 0, busyRetry},
+		{hubclient.V4Problem{Code: "hash_mismatch"}, 0, 5 * time.Minute},
+		{errors.New("server error"), 0, 5 * time.Minute},
+		{ErrPolicyBlocked, 3, 5 * time.Minute},
+		{ErrDeviceSyncOff, 3, 5 * time.Minute},
+		{hubclient.ErrNotPaired, 3, 5 * time.Minute},
+		{hubclient.V4Problem{Code: "device_revoked"}, 3, 5 * time.Minute},
+	} {
+		if got := NextSyncDelay(tc.err, tc.inFlight, 5*time.Minute); got != tc.want {
+			t.Errorf("NextSyncDelay(%v, %d) = %s, want %s", tc.err, tc.inFlight, got, tc.want)
+		}
+	}
+	// A finalizing upload is recorded on the next pass; history waits for it.
+	if got := NextSyncDelay(errors.New("other entry failed"), 3, 5*time.Minute); got != busyRetry {
+		t.Fatalf("in-flight uploads waited %s", got)
+	}
+	if busyRetry >= time.Minute {
+		t.Fatalf("busy retry %s is not short", busyRetry)
+	}
+}
+
+func TestDeferReasonIsClosedAndContentFree(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{hubclient.V4Problem{Code: "rate_limited"}, "hub:rate_limited"},
+		{fmt.Errorf("%w: v4 check-in omitted current policy", ErrStaleConsent), "consent_unavailable"},
+		{ErrPaused, "paused"},
+		{errors.New("open /Users/someone/private/session.jsonl: no such file"), "local_error"},
+	} {
+		if got := DeferReason(tc.err); got != tc.want {
+			t.Errorf("DeferReason(%v) = %q, want %q", tc.err, got, tc.want)
+		}
+	}
+}
+
+// A failed check-in identifies a removed device as unpaired, not as a consent
+// problem.
+func TestFailedCheckInMapsRevocationToNotPaired(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, _ := checkInServer(t, func(int, []byte) int { return http.StatusForbidden })
+	runner := Runner{Queue: queue, Hub: client, Now: time.Now}
+	err = runner.refreshConsent(t.Context())
+	if !errors.Is(err, ErrStaleConsent) || DeferReason(err) != "not_paired" {
+		t.Fatalf("revoked check-in err=%v reason=%q", err, DeferReason(err))
+	}
+}
+
+func TestInFlightCountsUploadsWithoutARecordedRevision(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []Entry
+	for i := range 3 {
+		entries = append(entries, Entry{Key: fmt.Sprintf("codex-%d", i), Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}})
+	}
+	if err := queue.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	for i, state := range []struct{ upload, revision string }{{"u1", ""}, {"", "r2"}, {"u3", "r3"}} {
+		entry := queue.Entries()[i]
+		entry.UploadID, entry.RevisionID = state.upload, state.revision
+		if err := queue.Update(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := queue.InFlight(); got != 1 {
+		t.Fatalf("in flight=%d", got)
+	}
+}
+
+// A failure the same source would hit again is parked, so Local stops
+// re-reading or re-uploading it every pass; transient failures keep retrying.
+// A different Local version retries parked entries.
+func TestDeterministicFailuresParkUntilLocalChanges(t *testing.T) {
+	notRetryable := &sessionbackupproducer.PreparationError{Coverage: sessionbackupproducer.Coverage{
+		Problems: []sessionbackupv1.CaptureProblem{{Code: sessionbackupv1.ProblemInvalid, Kind: sessionbackupv1.KindParsedSessionRecord}}}}
+	retryable := &sessionbackupproducer.PreparationError{Coverage: sessionbackupproducer.Coverage{
+		Problems: []sessionbackupv1.CaptureProblem{{Code: sessionbackupv1.ProblemUnstable, Kind: sessionbackupv1.KindRawMetadataRows, Retryable: true}}}}
+	for _, tc := range []struct {
+		err  error
+		code string
+		want bool
+	}{
+		{notRetryable, "unreadable_source", true},
+		{retryable, "unreadable_source", false},
+		{hubclient.V4Problem{Code: "malformed_artifact"}, "malformed_artifact", true},
+		{hubclient.V4Problem{Code: "idempotency_conflict", HTTPStatus: 409}, "idempotency_conflict", true},
+		{hubclient.V4Problem{Code: "rate_limited"}, "rate_limited", false},
+		{errors.New("network down"), "server_error", false},
+	} {
+		if got := repeats(tc.err, tc.code); got != tc.want {
+			t.Errorf("repeats(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry := queue.Entries()[0]
+	entry.BundleID = strings.Repeat("a", 64)
+	if err := queue.Update(entry); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Version: "0.0.5", Queue: queue}
+	if err := runner.recordFailure(&entry, notRetryable); err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Entries()[0]; got.ParkedVersion != "0.0.5" || got.FailureCode != "unreadable_source" || got.BundleID != "" {
+		t.Fatalf("not parked: %+v", got)
+	}
+	if got := queue.Discards(); len(got) != 1 || got[0] != strings.Repeat("a", 64) {
+		t.Fatalf("parked bundle not released: %v", got)
+	}
+	if err := runner.releaseParked(); err != nil || queue.Entries()[0].ParkedVersion != "0.0.5" {
+		t.Fatalf("same version released a parked entry: %+v, %v", queue.Entries()[0], err)
+	}
+	upgraded := Runner{Version: "0.0.6", Queue: queue}
+	if err := upgraded.releaseParked(); err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Entries()[0]; got.ParkedVersion != "" || got.FailureCode != "" {
+		t.Fatalf("new version kept the entry parked: %+v", got)
+	}
+}
+
+func TestDiscardAbandonedDeletesPreparedBundles(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	abandoned, gone := strings.Repeat("b", 64), strings.Repeat("e", 64)
+	if err := os.MkdirAll(filepath.Join(root, abandoned), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entry := queue.Entries()[0]
+	for _, id := range []string{abandoned, gone, ""} {
+		entry.BundleID = id
+		if err := queue.Update(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := Runner{Queue: queue, Backup: sessionbackupproducer.New(sessionbackupproducer.Options{Root: root})}
+	if err := runner.discardAbandoned(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, abandoned)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned bundle kept: %v", err)
+	}
+	if got := queue.Discards(); len(got) != 0 {
+		t.Fatalf("discards left: %v", got)
+	}
+}
