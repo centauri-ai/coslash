@@ -196,7 +196,9 @@ Both switches default on. The server's separate v4 upload flag and device
 policy also control whether it accepts uploads. A 409 `sync_paused` or
 `device_sync_off` clears transient failure and backoff state and leaves the
 worker idle until the Hub policy version changes. `device_revoked` removes the
-keychain credential and stops the sync loop. v1–v3 sharing remains available.
+stored credential and stops the sync loop. Local's V3 complete-backup preview
+and upload flow is retired; existing Hub backups and workspace links remain.
+See [the sync consent decision](../../../docs/decisions/personal-hub-sync-consent.md).
 `COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
 payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new
