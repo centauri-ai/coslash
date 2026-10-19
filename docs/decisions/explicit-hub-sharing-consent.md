@@ -1,6 +1,6 @@
 # Hub sharing is explicit and consent binds to the exact reviewed audience
 
-- Status: Accepted
+- Status: Superseded by [Personal Hub sync uses paired-device consent](personal-hub-sync-consent.md)
 - Date: 2026-08-11
 - Source: eb6e2ca5, 87121d50, 752d0940, 249c6962
 

@@ -160,9 +160,12 @@ arguments. Each agent manages its own credential storage. Disconnect or switch
 the connection in that agent to clear its local OAuth credential; the Hub
 checks access on each tool request and denies revoked access.
 
-Experimental personal v4 sync of Codex, local Claude, OpenCode and Cursor
-sessions starts by default when Local pairs with Hub or starts with a stored
-credential. The first check-in advertises sync capabilities and reports the
+Pairing a device authorizes personal V4 background sync of local Codex, Claude,
+OpenCode, and Cursor sessions under the Hub policy and Local settings.
+Eligible activity can upload without a separate preview or approval for each
+session. Sync starts by default after pairing or startup with a stored
+credential, but uploads require a compatible Hub import plan.
+The first check-in advertises sync capabilities and reports the
 normalized Local version, install channel, operating system, and content-free
 queue state. A new owner's default Hub policy (version 0) is enough to start.
 Each check-in reports which agents this install has sessions for. It sends
@@ -197,7 +200,8 @@ this pause; automatic personal sync does not enable team sharing.
 Hub-led device setup sends Local an opaque, expiring launch intent through the
 `coslash:` app handoff. Local claims that intent with Hub, then uses the
 existing device-authorization poll and saves the returned device credential in
-the operating-system keychain. The browser does not receive the device code,
+the OS keychain on macOS and Windows, or a private file on Linux.
+The browser does not receive the device code,
 device credential, or Local API access token. The initial check-in contains
 device version, install channel, operating system, capabilities, and empty
 content-free queue state; it does not upload a session or enable team sharing.
@@ -210,8 +214,16 @@ session details. It shows a local preview and does not approve or upload a
 session.
 
 New session transfer from Local uses personal V4 sync under the paired device's
-Hub policy and Local sync settings. Personal sync does not create a workspace
-share link.
+Hub policy and Local sync settings. Pairing does not authorize workspace
+sharing. Personal sync does not create a workspace share link.
+
+V4 uploads contain only parsed session-record artifacts from the verified
+local bundle. Separate raw transcript, metadata, exact-change-body,
+enrichment, and synthesis artifacts remain in the private local spool.
+Parsed records can still contain prompts, commands, source snippets, working
+directories, and derived synthesis. Local does not scan these records for
+secrets. File-edit paths are sanitized, but that does not redact record
+contents. See [the sync consent decision](decisions/personal-hub-sync-consent.md).
 
 This client change removes Local's V3 complete-backup preview and upload path.
 It does not change Hub V3 routes, stored backups, revisions, chunks, existing
@@ -221,9 +233,7 @@ chooses a migration or sunset policy and the supported Local-client rollout
 window has elapsed.
 
 The local session-family producer and private spool remain in use by V4 sync.
-This change does not redirect the V3 request or payload to a V4 endpoint and
-does not change V4 upload selection. Issue 011's V4 artifact boundary is tracked
-separately.
+V3 requests and payloads are not redirected to a V4 endpoint.
 
 The library card for an SSH session carries the canonical origin remote when
 `git remote get-url origin` succeeds on that host, and its live status from the
