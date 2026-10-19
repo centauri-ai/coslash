@@ -1,0 +1,284 @@
+package syncv4
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
+)
+
+func TestCommandRedeliveryAndMonotonicPolicySurviveRestart(t *testing.T) {
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "one", SessionID: "ses_one", Session: hubclient.V4Session{Agent: "codex", Repo: "owner/repo"}}
+	if err := queue.Merge([]Entry{entry}, time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	checkins, launches := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		checkins++
+		var input struct {
+			AppliedConfigVersion int64                       `json:"appliedConfigVersion"`
+			Results              []hubclient.V4CommandResult `json:"results"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+		}
+		if checkins == 2 && (input.AppliedConfigVersion != 8 || len(input.Results) != 1 || input.Results[0].Result != "done") {
+			t.Errorf("second check-in = %+v", input)
+		}
+		if checkins == 3 && (input.AppliedConfigVersion != 8 || len(input.Results) != 0) {
+			t.Errorf("restart check-in = %+v", input)
+		}
+		if checkins == 1 {
+			io.WriteString(w, `{"configVersion":8,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[{"id":"11111111-2222-3333-4444-555555555555","type":"launch","payload":{"sessionId":"ses_one","mode":"resume"}}],"minVersion":"0.0.3"}`)
+		} else {
+			io.WriteString(w, `{"configVersion":7,"config":{"paused":false,"deviceOff":false,"leaveOut":["owner/repo"],"agentKnowledge":true},"commands":[{"id":"11111111-2222-3333-4444-555555555555","type":"launch","payload":{"sessionId":"ses_one","mode":"resume"}}],"minVersion":"0.0.3"}`)
+		}
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "v0.0.5"}
+	run := func(q *Queue) {
+		runner := &Runner{Queue: q, Hub: client, Command: func(context.Context, hubclient.V4Command) error { launches++; return nil }}
+		if err := runner.refreshConsent(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(queue)
+	run(queue)
+	reopened, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(reopened)
+	version, config, _ := reopened.Policy()
+	if launches != 1 || version != 8 || len(config.LeaveOut) != 0 {
+		t.Fatalf("launches=%d policy=%d %+v", launches, version, config)
+	}
+}
+
+func TestLeaveOutAndLocalPauseDenyRetryAndLaunch(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "one", SessionID: "ses_one", Session: hubclient.V4Session{Agent: "codex", Repo: "owner/repo"}}}, time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"configVersion":2,"config":{"paused":false,"deviceOff":false,"leaveOut":["owner/repo"],"agentKnowledge":true},"commands":[{"id":"11111111-2222-3333-4444-555555555555","type":"launch","payload":{"sessionId":"ses_one","mode":"resume"}},{"id":"22222222-2222-3333-4444-555555555555","type":"retry","payload":{"sessionId":"ses_one"}}],"minVersion":"0.0.3"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: queue, Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "v0.0.5"}, Command: func(context.Context, hubclient.V4Command) error { t.Fatal("excluded command executed"); return nil }}
+	if err := runner.refreshConsent(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	results := queue.Results()
+	if len(results) != 2 || results[0].Result != "failed" || results[1].Result != "failed" {
+		t.Fatalf("results=%+v", results)
+	}
+}
+
+func TestUpdatePromptAndIdentityPersistAcrossReplacement(t *testing.T) {
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := queue.InstallID()
+	if err := queue.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 3, MinVersion: "0.0.5", RecommendedVersion: "0.0.6", RecommendedDownloadURL: "https://download.example/app", UpdateRequired: true}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := reopened.UpdatePrompt()
+	if reopened.InstallID() != id || !prompt.Available || !prompt.Required || prompt.DownloadURL != "https://download.example/app" {
+		t.Fatalf("identity/prompt = %s %+v", reopened.InstallID(), prompt)
+	}
+	if err := reopened.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 3, MinVersion: "0.0.5", RecommendedVersion: "0.0.6", RecommendedDownloadURL: "http://unsafe.example/app", RecommendedUpdate: false}); err != nil {
+		t.Fatal(err)
+	}
+	if update := reopened.UpdatePrompt(); update.Available || update.DownloadURL != "" {
+		t.Fatalf("stale or unsafe prompt = %+v", update)
+	}
+}
+
+func TestInterruptedCommandCannotLaunchAgain(t *testing.T) {
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := queue.StartCommand("11111111-2222-3333-4444-555555555555")
+	if err != nil || !started {
+		t.Fatalf("start=%v err=%v", started, err)
+	}
+	reopened, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err = reopened.StartCommand("11111111-2222-3333-4444-555555555555")
+	if err != nil || started {
+		t.Fatalf("duplicate start=%v err=%v", started, err)
+	}
+	results := reopened.Results()
+	if len(results) != 1 || results[0].Error != "execution_interrupted" {
+		t.Fatalf("interrupted result=%+v", results)
+	}
+}
+
+func TestLocalPauseWinsOverFreshServerPolicy(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"configVersion":1,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.3"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: queue, Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "v0.0.5"}, LocalPause: func() bool { return true }}
+	if err := runner.refreshConsent(context.Background()); err != ErrPaused {
+		t.Fatalf("local pause error=%v", err)
+	}
+}
+
+// A Hub retry is reported by its own session's outcome, not by whether the
+// whole pass ended cleanly: IC-1 found retries reported as failed during a
+// large sync (every pass ends at the Hub's active-upload limit) although the
+// session synced a pass later.
+func TestRetryResultFollowsTheSessionOutcome(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []Entry{
+		{Key: "done", SessionID: "ses_done", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, SyncedActivity: 1, RevisionID: "rev_done"},
+		{Key: "waiting", SessionID: "ses_waiting", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, FailureCode: "rate_limited"},
+		{Key: "broken", SessionID: "ses_broken", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, FailureCode: "unreadable_source"},
+	}
+	if err := queue.Merge(entries, time.UnixMilli(1)); err != nil {
+		t.Fatal(err)
+	}
+	commands := map[string]string{
+		"11111111-2222-3333-4444-555555555555": "ses_done",
+		"22222222-2222-3333-4444-555555555555": "ses_waiting",
+		"33333333-2222-3333-4444-555555555555": "ses_broken",
+		"44444444-2222-3333-4444-555555555555": "ses_unknown",
+	}
+	for id := range commands {
+		if _, err := queue.StartCommand(id); err != nil {
+			t.Fatal(err)
+		}
+		queue.HoldCommand(id)
+	}
+	root := queue.path
+	runner := &Runner{Queue: queue, retryCommands: commands}
+	if err := runner.finishRetryCommands(); err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]string{}
+	for _, result := range queue.Results() {
+		results[result.CommandID] = result.Result
+	}
+	if results["11111111-2222-3333-4444-555555555555"] != "done" || results["33333333-2222-3333-4444-555555555555"] != "failed" ||
+		results["44444444-2222-3333-4444-555555555555"] != "failed" || len(results) != 3 {
+		t.Fatalf("first pass results=%v", results)
+	}
+	if _, open := runner.retryCommands["22222222-2222-3333-4444-555555555555"]; !open || len(runner.retryCommands) != 1 {
+		t.Fatalf("waiting retry not kept open: %v", runner.retryCommands)
+	}
+	// A restart forgets the hold, so the open retry reports as interrupted.
+	if reopened, err := Open(filepath.Dir(root)); err != nil {
+		t.Fatal(err)
+	} else {
+		interrupted := false
+		for _, result := range reopened.Results() {
+			interrupted = interrupted || (result.CommandID == "22222222-2222-3333-4444-555555555555" && result.Error == "execution_interrupted")
+		}
+		if !interrupted {
+			t.Fatal("held retry was not reported as interrupted after a restart")
+		}
+	}
+	var waiting Entry
+	for _, entry := range queue.Entries() {
+		if entry.Key == "waiting" {
+			waiting = entry
+		}
+	}
+	waiting.FailureCode, waiting.RevisionID, waiting.SyncedActivity = "", "rev_waiting", 1
+	if err := queue.Update(waiting); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.finishRetryCommands(); err != nil {
+		t.Fatal(err)
+	}
+	for _, result := range queue.Results() {
+		if result.CommandID == "22222222-2222-3333-4444-555555555555" && result.Result != "done" {
+			t.Fatalf("waiting retry finished as %+v", result)
+		}
+	}
+	if len(runner.retryCommands) != 0 {
+		t.Fatalf("settled retries still open: %v", runner.retryCommands)
+	}
+}
+
+func TestCommandErrorSSHCodes(t *testing.T) {
+	cases := []struct {
+		reason remote.Reason
+		want   string
+	}{
+		{remote.ReasonAuthentication, "ssh_auth_failed"},
+		{remote.ReasonConnectionFailed, "ssh_unreachable"},
+		{remote.ReasonRefreshTimeout, "ssh_unreachable"},
+		{remote.ReasonHostKeyChanged, "ssh_host_key_changed"},
+		{remote.ReasonHostKeyConfirmation, "ssh_host_key_unknown"},
+		{remote.ReasonSFTPUnavailable, "ssh_sftp_unavailable"},
+		{remote.ReasonInvalidData, "command_failed"},
+		{remote.Reason("future_reason"), "command_failed"},
+	}
+	for _, tc := range cases {
+		for _, install := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/install=%t", tc.reason, install), func(t *testing.T) {
+				want := tc.want
+				if install && want == "command_failed" {
+					want = "connector_install_failed"
+				}
+				err := fmt.Errorf("wrapped: %w", &SSHCommandError{Reason: &tc.reason, Install: install})
+				if got := commandError(err); got != want {
+					t.Fatalf("code = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+	for _, reason := range []remote.Reason{"", remote.ReasonHelperMissing, remote.ReasonHelperIncompatible, remote.ReasonHelperInstallation} {
+		if got := commandError(&SSHCommandError{Reason: &reason, Install: true}); got != "connector_install_failed" {
+			t.Fatalf("install %q code = %q", reason, got)
+		}
+	}
+	for _, err := range []error{context.Canceled, context.DeadlineExceeded} {
+		if got := commandError(fmt.Errorf("wrapped: %w", err)); got != "command_cancelled" {
+			t.Fatalf("cancellation code = %q", got)
+		}
+	}
+	if got := commandError(errors.New("Permission denied (publickey)")); got != "command_failed" {
+		t.Fatalf("unclassified code = %q", got)
+	}
+}
