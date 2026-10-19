@@ -12,7 +12,7 @@ func credentialCommand(ctx context.Context, store OSKeychain, credential string)
 }
 
 func darwinCredentialCommand(ctx context.Context, store OSKeychain, credential string) *exec.Cmd {
-	command := exec.CommandContext(ctx, "/usr/bin/security", "add-generic-password", "-U", "-s", store.Service, "-a", store.Account, "-w")
+	command := keychainCommandContext(ctx, "/usr/bin/security", "add-generic-password", "-U", "-s", store.Service, "-a", store.Account, "-w")
 	command.Stdin = darwinCredentialInput(credential)
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return command

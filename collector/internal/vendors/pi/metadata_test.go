@@ -320,7 +320,7 @@ func TestOptionalEntrypointDecodePreservesStatus(t *testing.T) {
 }
 
 func TestUnsupportedPlatformDoesNotInstallPiExtension(t *testing.T) {
-	if vendors.PiSupported() {
+	if vendors.PiCollectionSupported() {
 		t.Skip("unsupported-platform check")
 	}
 	agent := t.TempDir()

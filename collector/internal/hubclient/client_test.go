@@ -2,6 +2,7 @@ package hubclient
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -16,12 +17,18 @@ import (
 )
 
 type memoryCredentials struct {
-	saved string
+	saved   string
+	deleted bool
 }
 
 type contextCredentials struct {
 	saved  string
 	cancel context.CancelFunc
+}
+
+type failOnceCredentials struct {
+	saved    string
+	attempts int
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -36,10 +43,21 @@ func response(status int, body string) *http.Response {
 	}
 }
 
-func (s *memoryCredentials) Load(context.Context) (string, error) { return "credential", nil }
+func (s *memoryCredentials) Load(context.Context) (string, error) {
+	if s.deleted {
+		return "", ErrNotPaired
+	}
+	return "credential", nil
+}
 
 func (s *memoryCredentials) Save(_ context.Context, credential string) error {
 	s.saved = credential
+	s.deleted = false
+	return nil
+}
+
+func (s *memoryCredentials) Delete(context.Context) error {
+	s.deleted = true
 	return nil
 }
 
@@ -53,6 +71,21 @@ func (s *contextCredentials) Save(ctx context.Context, credential string) error 
 	s.saved = credential
 	return nil
 }
+
+func (s *contextCredentials) Delete(context.Context) error { return nil }
+
+func (s *failOnceCredentials) Load(context.Context) (string, error) { return "credential", nil }
+
+func (s *failOnceCredentials) Save(_ context.Context, credential string) error {
+	s.attempts++
+	if s.attempts == 1 {
+		return errors.New("keychain unavailable")
+	}
+	s.saved = credential
+	return nil
+}
+
+func (s *failOnceCredentials) Delete(context.Context) error { return nil }
 
 func TestEndpointPreservesBasePath(t *testing.T) {
 	base, _ := url.Parse("https://hub.example.test/coSlash/")
@@ -168,6 +201,29 @@ func TestPollPairingSavesCredentialAfterRequestCancellation(t *testing.T) {
 	result, err := client.PollPairing(ctx, "pair")
 	if err != nil || result.State != "paired" || credentials.saved != "secret" {
 		t.Fatalf("result = %#v, saved = %q, error = %v", result, credentials.saved, err)
+	}
+}
+
+func TestPollPairingRetriesKeychainSaveWithoutExchangingCredentialAgain(t *testing.T) {
+	credentials := &failOnceCredentials{}
+	base, _ := url.Parse("https://hub.example")
+	tokenRequests := 0
+	client := Client{
+		BaseURL: base, Credentials: credentials,
+		pairings: map[string]pairingSecret{"pair": {deviceCode: "code", expiresAt: time.Now().Add(time.Minute)}},
+		HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			tokenRequests++
+			return response(http.StatusOK, `{"deviceId":"device","credential":"one-time-secret","tokenType":"Device","scope":"ingest"}`), nil
+		})},
+	}
+	first, err := client.PollPairing(context.Background(), "pair")
+	if err != nil || first.State != PairingStateRetrying {
+		t.Fatal("first credential-store failure was not retryable")
+	}
+	result, err := client.PollPairing(context.Background(), "pair")
+	if err != nil || result.State != PairingStatePaired || credentials.saved != "one-time-secret" ||
+		credentials.attempts != 2 || tokenRequests != 1 {
+		t.Fatal("credential save retry did not complete without a second exchange")
 	}
 }
 

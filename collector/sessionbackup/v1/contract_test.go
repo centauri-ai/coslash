@@ -3,6 +3,7 @@ package sessionbackupv1
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -280,6 +281,63 @@ func TestValidateRejectsNilProblems(t *testing.T) {
 	}
 }
 
+// Each agent's source kind and database rows version are bound together:
+// only OpenCode and Cursor carry rows, and only Codex may come over SSH.
+func TestValidateBindsAgentSourceKindAndRowsVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, kind, want string
+		rows                    bool
+	}{
+		{"claude with rows", "claude", SourceLocal, "database projection version mismatch", true},
+		{"codex with rows", "codex", SourceLocal, "database projection version mismatch", true},
+		{"opencode without rows", "opencode", SourceLocal, "database projection version mismatch", false},
+		{"cursor without rows", "cursor", SourceLocal, "database projection version mismatch", false},
+		{"claude over ssh", "claude", SourceSSH, "invalid source identity", false},
+		{"opencode over ssh", "opencode", SourceSSH, "invalid source identity", true},
+		{"cursor over ssh", "cursor", SourceSSH, "invalid source identity", true},
+		{"unknown agent", "gemini", SourceLocal, "invalid source identity", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, _, _ := loadValidFixture(t)
+			manifest.Source.Agent, manifest.Source.Kind = tc.agent, tc.kind
+			manifest.RequiredVersions = []string{ParsedRecordVersion, SchemaVersion}
+			if tc.rows {
+				manifest.RequiredVersions = []string{ParsedRecordVersion, DatabaseRowsVersion, SchemaVersion}
+			}
+			if err := Validate(manifest); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Validate() error = %v; want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Only agents whose exporters capture database projections may carry row
+// artifacts; a Claude family with one is rejected like a Codex family.
+func TestValidateRejectsRowArtifactsForAgentsWithoutRows(t *testing.T) {
+	for _, agent := range []string{"codex", "claude"} {
+		t.Run(agent, func(t *testing.T) {
+			manifest, _, _ := loadValidFixture(t)
+			manifest.Source.Agent = agent
+			changed := false
+			for index := range manifest.Artifacts {
+				artifact := &manifest.Artifacts[index]
+				if strings.HasPrefix(artifact.Kind, "raw-") {
+					artifact.Source = agent
+					if !changed && artifact.Kind == KindRawSidecar {
+						artifact.Kind, changed = KindRawMetadataRows, true
+					}
+				}
+			}
+			if !changed {
+				t.Fatal("fixture has no sidecar artifact to turn into rows")
+			}
+			if err := Validate(manifest); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "artifact kind does not match agent") {
+				t.Fatalf("Validate() error = %v; want row artifact rejection", err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsNonCanonicalSiblingOrder(t *testing.T) {
 	manifest, _, _ := loadValidFixture(t)
 	childID := manifest.Members[1].MemberID
@@ -469,6 +527,77 @@ func TestDatabaseValueSchemaMatchesDecoder(t *testing.T) {
 	}
 }
 
+// A value is bounded by its projection document, not by 1 MiB: real Cursor
+// CLI stores hold attributed blobs of several MiB.
+func TestDatabaseValuesUpToTheDocumentBound(t *testing.T) {
+	for name, value := range map[string]string{
+		"3 MiB text": `{"type":"text","value":"` + strings.Repeat("x", 3<<20) + `"}`,
+		"2 MiB blob": `{"type":"blob","value":"` + base64.StdEncoding.EncodeToString(make([]byte, 2<<20)) + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := databaseRowsWithValue(value)
+			validateAgainstSchema(t, "database-rows.schema.json", data)
+			if _, err := DecodeDatabaseRows(data, "member"); err != nil {
+				t.Fatalf("DecodeDatabaseRows: %v", err)
+			}
+		})
+	}
+	if validDatabaseValue(DatabaseValue{Type: "text", Value: strings.Repeat("x", MaxDatabaseValueBytes+1)}) {
+		t.Fatal("text over the document bound accepted")
+	}
+	if validDatabaseValue(DatabaseValue{Type: "text", Value: "\xff"}) {
+		t.Fatal("invalid UTF-8 text accepted")
+	}
+}
+
+// A session with no working folder records an explicit empty repository;
+// every other repository is a named Git repository.
+func TestRepositoryIsGitOrExplicitlyNone(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		repository RepositoryIdentity
+		valid      bool
+	}{
+		{"named git", RepositoryIdentity{Canonical: "github.com/example/other", VCS: RepositoryVCSGit}, true},
+		{"no folder", RepositoryIdentity{VCS: RepositoryVCSNone}, true},
+		{"empty git", RepositoryIdentity{VCS: RepositoryVCSGit}, false},
+		{"named none", RepositoryIdentity{Canonical: "github.com/example/other", VCS: RepositoryVCSNone}, false},
+		{"other vcs", RepositoryIdentity{Canonical: "github.com/example/other", VCS: "hg"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, _, blobs := loadValidFixture(t)
+			manifest.Repository = tc.repository
+			frozen, err := Freeze(manifest, blobs)
+			if !tc.valid {
+				if !errors.Is(err, ErrInvalid) {
+					t.Fatalf("Freeze() error = %v; want invalid", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate(frozen); err != nil {
+				t.Fatal(err)
+			}
+			data, err := Marshal(frozen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			validateAgainstSchema(t, "schema.json", data)
+		})
+	}
+	manifest, _, _ := loadValidFixture(t)
+	manifest.Repository = RepositoryIdentity{Canonical: "github.com/example/other", VCS: RepositoryVCSNone}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schemaValidationError(t, "schema.json", data); err == nil {
+		t.Fatal("schema accepted a named repository without Git")
+	}
+}
+
 func databaseRowsWithValue(value string) []byte {
 	return []byte(`{"schemaVersion":"session-backup-db-rows/v1","database":"cache","tables":[{"name":"records","columns":["value"],"rows":[{"memberId":"member","values":[` + value + `]}]}]}`)
 }
@@ -553,9 +682,9 @@ func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
 	}
 	wantCoverage := map[string]bool{
 		"codex/local": true, "codex/ssh": true,
-		"claude/local": false, "claude/ssh": false,
-		"cursor/local": false, "cursor/ssh": false,
-		"opencode/local": false, "opencode/ssh": false,
+		"claude/local": true, "claude/ssh": false,
+		"cursor/local": true, "cursor/ssh": false,
+		"opencode/local": true, "opencode/ssh": false,
 	}
 	for _, status := range CoverageMatrix {
 		key := status.Agent + "/" + status.SourceKind

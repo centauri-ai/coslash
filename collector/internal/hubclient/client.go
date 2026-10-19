@@ -38,6 +38,7 @@ type Client struct {
 	Credentials       CredentialStore
 	DeviceName        string
 	CollectorVersion  string
+	InstallChannel    string
 	LoadSession       SessionLoader
 	LoadSourceSession SourceSessionLoader
 	LoadFullSession   FullSessionLoader
@@ -48,9 +49,13 @@ type Client struct {
 }
 
 type pairingSecret struct {
-	deviceCode string
-	expiresAt  time.Time
+	deviceCode   string
+	expiresAt    time.Time
+	credential   string
+	saveFailures int
 }
+
+const maxPairingCredentialSaveAttempts = 3
 
 func (c *Client) configured() bool {
 	return c != nil && c.BaseURL != nil && c.Credentials != nil
@@ -70,9 +75,10 @@ func (c *Client) httpClient() *http.Client {
 
 func (c *Client) endpoint(path string) string {
 	endpoint := *c.BaseURL
+	path, query, _ := strings.Cut(path, "?")
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	endpoint.RawPath = ""
-	endpoint.RawQuery = ""
+	endpoint.RawQuery = query
 	endpoint.Fragment = ""
 	return endpoint.String()
 }
@@ -169,7 +175,14 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 	c.pairingMu.Lock()
 	secret, ok := c.pairings[pairingID]
 	c.pairingMu.Unlock()
-	if !ok || time.Now().After(secret.expiresAt) {
+	if !ok {
+		return PairingResult{State: PairingStateExpired}, nil
+	}
+	if secret.credential != "" {
+		return c.savePairingCredential(ctx, pairingID, secret.credential)
+	}
+	if time.Now().After(secret.expiresAt) {
+		c.forgetPairing(pairingID)
 		return PairingResult{State: "expired"}, nil
 	}
 	body, _ := json.Marshal(map[string]string{"deviceCode": secret.deviceCode})
@@ -188,6 +201,10 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 		if problem.Code == "pairing_pending" {
 			return PairingResult{State: "pending", PairingID: pairingID}, nil
 		}
+		if problem.Code == "onboarding_declined" {
+			c.forgetPairing(pairingID)
+			return PairingResult{State: "declined"}, nil
+		}
 		if problem.Code == "pairing_expired" || response.StatusCode == http.StatusGone {
 			c.forgetPairing(pairingID)
 			return PairingResult{State: "expired"}, nil
@@ -204,13 +221,41 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 		token.Credential == "" || token.TokenType != "Device" || token.Scope != "ingest" {
 		return PairingResult{}, errors.New("decode Hub credential: invalid response")
 	}
+	c.pairingMu.Lock()
+	secret = c.pairings[pairingID]
+	if secret.deviceCode == "" {
+		c.pairingMu.Unlock()
+		return PairingResult{State: PairingStateExpired}, nil
+	}
+	secret.credential = token.Credential
+	c.pairings[pairingID] = secret
+	c.pairingMu.Unlock()
+	return c.savePairingCredential(ctx, pairingID, token.Credential)
+}
+
+func (c *Client) savePairingCredential(ctx context.Context, pairingID, credential string) (PairingResult, error) {
 	saveContext, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancelSave()
-	if err := c.Credentials.Save(saveContext, token.Credential); err != nil {
-		return PairingResult{}, err
+	if c.Credentials == nil || c.Credentials.Save(saveContext, credential) != nil {
+		c.pairingMu.Lock()
+		secret, ok := c.pairings[pairingID]
+		if ok {
+			secret.saveFailures++
+			c.pairings[pairingID] = secret
+		}
+		attempts := secret.saveFailures
+		c.pairingMu.Unlock()
+		if !ok {
+			return PairingResult{State: PairingStateRetrying}, nil
+		}
+		if attempts >= maxPairingCredentialSaveAttempts {
+			c.forgetPairing(pairingID)
+			return PairingResult{State: PairingStateCredentialStoreFailed}, nil
+		}
+		return PairingResult{State: PairingStateRetrying, PairingID: pairingID}, nil
 	}
 	c.forgetPairing(pairingID)
-	return PairingResult{State: "paired"}, nil
+	return PairingResult{State: PairingStatePaired}, nil
 }
 
 func (c *Client) forgetPairing(id string) {

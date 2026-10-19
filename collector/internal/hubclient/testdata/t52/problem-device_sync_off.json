@@ -1,0 +1,7 @@
+{
+  "type": "https://problems.coslash.dev/device_sync_off",
+  "title": "Request unavailable",
+  "status": 409,
+  "code": "device_sync_off",
+  "requestId": "synthetic-request-id"
+}
