@@ -575,7 +575,7 @@ func TestRootHelpVersionAndUnknownCommand(t *testing.T) {
 		if code := runCLI(&stdout, &stderr, args); code != 0 || stderr.Len() != 0 {
 			t.Fatalf("%v: code=%d stderr=%q", args, code, stderr.String())
 		}
-		for _, want := range []string{"connect", "sessions", "doctor", "status", "version", "check local setup and Hub sync health"} {
+		for _, want := range []string{"connect", "sessions", "doctor", "status", "mcp", "version", "check local setup and Hub sync health"} {
 			if !strings.Contains(stdout.String(), want) {
 				t.Fatalf("%v help omitted %q: %s", args, want, stdout.String())
 			}
