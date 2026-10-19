@@ -257,6 +257,8 @@ var cliCommandHelp = []struct {
 	{"review", "review a session with another agent", reviewHelp()},
 	{"doctor", "check local setup and Hub sync health", "coslash doctor [--json] [--fix-links [--yes]]"},
 	{"status", "show sync health and optionally retry Hub sync", "coslash status [--json] [--retry]"},
+	{"hub", "connect to the Hub agent tools", hubUsage},
+	{"mcp", "configure the Hub MCP server", mcpUsage},
 	{"ui-url", "print the authenticated web UI URL", "coslash ui-url"},
 	{"version", "print the Local version", "coslash version"},
 }
@@ -339,6 +341,10 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 			fmt.Fprintln(stdout, "usage: coslash doctor [--json] [--fix-links [--yes]]")
 		case "status":
 			fmt.Fprintln(stdout, "usage: coslash status [--json] [--retry]")
+		case "hub":
+			fmt.Fprintln(stdout, hubUsage)
+		case "mcp":
+			fmt.Fprintln(stdout, mcpUsage)
 		case "ui-url":
 			fmt.Fprintln(stdout, "usage: coslash ui-url")
 		default:
@@ -368,6 +374,10 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		return runDoctor(stdout, stderr, args[1:])
 	case "status":
 		return runStatus(stdout, stderr, args[1:])
+	case "hub":
+		err = runHubCLI(stdout, args[1:])
+	case "mcp":
+		err = runMCP(stdout, args[1:])
 	case "ui-url":
 		err = runUIURL(stdout, args[1:])
 	default:

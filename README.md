@@ -190,6 +190,37 @@ In **Settings → Machines**, choose **Add remote host** and enter an alias from
 
 Remote Claude Code and Codex sessions support **Resume** and **Start fresh with handoff** while the host is connected. Cached sessions stay readable while the host is offline. Synthesis and Commands are local-only. For setup errors, see [Troubleshooting](docs/troubleshooting.md#sessions-are-missing).
 
+### Remote Hub MCP for local agents
+
+When your Hub has enabled its remote MCP service and your account has **Agent
+knowledge** enabled, configure an installed agent with `coslash mcp setup
+claude|codex|cursor|opencode`. Choose one agent name per command. Then run
+`coslash mcp login <agent>` and approve its `mcp:read` and `mcp:ask` access in
+the coSlash browser. The endpoint is `https://mcp.hub.coslash.io/mcp`; use
+`--url <https://host/mcp>` on `setup` only for another deployment. Pairing a
+Local device does not authorize MCP.
+OpenCode setup preserves an existing `opencode.jsonc`, including comments and
+other servers.
+
+On a headless host, `coslash hub login --hub <MCP URL>` connects the Local CLI
+with device-code authorization. Copy the MCP URL from Hub Settings → Coding
+agents. It requests `hub:read` by default. Repeat
+`--scope SCOPE` to request additional access, for example
+`coslash hub login --scope hub:write --scope hub:share`; review the requested
+scopes in Hub before the CLI stores its separate Hub credential. Search session
+text with `coslash hub search "retry backoff"`; use `coslash hub call` for other
+tools. On macOS, the CLI stores its encryption key in Keychain and the encrypted
+credential in a private `0600` file under `$COSLASH_HOME/hub-credentials`.
+
+The agent stores its own OAuth credential. To switch Hub accounts for Claude
+Code, Codex, or OpenCode, run `coslash mcp switch <agent>`, change the account
+in the coSlash browser, then run `coslash mcp login <agent>`. For Cursor,
+disconnect coSlash in Cursor's MCP settings first, change the browser account,
+and run `coslash mcp login cursor`; Cursor's CLI does not expose MCP credential
+logout. Existing tokens also stop working when the Hub revokes access or turns
+off Agent knowledge. Ask the agent to use a `coslash.*` tool to confirm that
+the intended account can read the expected sessions.
+
 ## What you get
 
 ### One board for every agent
