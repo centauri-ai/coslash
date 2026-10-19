@@ -14,36 +14,77 @@ backup.
 
 ## Producer and artifact inventory
 
-Complete backup v1 supports local Codex and SSH Codex only. Claude, Cursor,
-and OpenCode, whether local or SSH, must surface the blocking code
+Complete backup v1 supports local Codex, SSH Codex, local Claude, local
+OpenCode, and local Cursor IDE/CLI. Claude SSH, OpenCode SSH, and Cursor SSH
+must surface the blocking code
 `complete_backup_unsupported`; they must not fall back to a metadata-only
-success.
+success. The table below specifies the Codex inputs.
+
+The [local source and transport proof matrix](local-source-transport-proof-v1.md)
+records per-source evidence, build gaps, and the v4 compatibility boundary.
 
 | Kind | Source bytes | Local Codex | SSH Codex | Completeness rule |
 | --- | --- | --- | --- | --- |
 | `raw-transcript` | Exact rollout JSONL for each family member under `.codex/sessions` or `.codex/archived_sessions` | Read every discovered family rollout from both trees | Read every discovered family rollout from both trees during freeze | Exactly one per discovered rollout; an absent, unreadable, malformed, or changing discovered file blocks completion |
-| `raw-sidecar` | Every exactly attributed `session_index.jsonl` row whose `id` is a family member | Project matching rows when the file exists | Project matching rows when the file exists | Preserve repeated matching rows verbatim in one member sidecar; malformed, unidentifiable, unreadable, or over-bound row data blocks completion because it might belong to a member |
+| `raw-sidecar` | Every exactly attributed `session_index.jsonl` row whose `id` is a family member or hidden guardian | Project matching rows when the file exists | Project matching rows when the file exists | Preserve repeated matching rows verbatim in one member sidecar; malformed, unidentifiable, unreadable, or over-bound row data blocks completion because it might belong to a member |
 | `raw-metadata-rows` | Not a Codex v1 input | Prohibited | Prohibited | Codex v1 has no shared SQLite artifact; `session_index.jsonl` is its only shared metadata source |
 | `parsed-session-record` | Canonical `full-session-record/v1` | Required for every represented member | Same | Exactly one per declared member; it must match source, agent, member identity, lineage, and revision |
 | `exact-change-body` | Exact UTF-8 body keyed by the parsed record's change ID | Present for every parsed change | Same | Bytes must equal the body in the referenced parsed record |
 | `session-enrichment` | Canonical [`enrichment.schema.json`](enrichment.schema.json) document containing only repository identity, repository-local-only state, filesystem fallback branch, Git drift, and last-edit time | Required per represented member | Required from the remote cached/frozen overlay | Capture all five fields, using JSON `null` for absent nullable values |
 | `synthesis` | Canonical [`synthesis.schema.json`](synthesis.schema.json) persisted cache record: `agent`, `sessionId`, `mtime`, `model`, `generatedAt`, and `synthesis` | Present when persisted for the frozen revision | Present when persisted for the frozen revision | `mtime` must equal the member's `synthesisRevisionMs`; parsed synthesis, when present, must equal the cache record's synthesis object |
 
+Codex's guardian (auto-review) subagent rollouts are hidden from the product,
+so they have no card, member, or parsed record. Each is still a discovered
+family rollout: its exact bytes are a `raw-transcript` artifact of the nearest
+represented ancestor it reviewed and count toward that member's source
+revision. Any exactly attributed `session_index.jsonl` rows for a guardian
+are retained verbatim in a separate `raw-sidecar` artifact of that same ancestor and count
+toward its source revision. The guardian ID distinguishes its sidecar from the
+ancestor's own sidecar; guardian names never become ancestor metadata. The
+rollout's own header and the parser must agree that it is hidden; otherwise
+completion is blocked.
+
 The fixture includes every Codex v1 input kind, root and child parsed records,
 two exact change bodies, both enrichment branches, and a persisted synthesis
 record. It deliberately contains no invented Codex database. No credentials,
 absolute user paths, private transcripts, or customer identities are present.
+
+Local Claude uses the same parsed-record, exact-change, enrichment, and
+revision-matched synthesis artifacts. Its `raw-transcript` artifacts retain
+every selected root, subagent, and workflow-agent JSONL byte. Its
+`raw-sidecar` artifacts retain present subagent `.meta.json`, workflow state
+JSON, and workflow journal JSONL inputs consumed by the parser. It has no
+`raw-metadata-rows` database input. A skipped discovery path, malformed or
+changing selected transcript or sidecar, or changing sidecar presence blocks
+completion; an absent optional sidecar remains absent. Claude SSH remains
+unsupported until its remote input allowlist and complete capture are proven.
 
 For SSH, these inputs are reachable only through the existing allowlist:
 `.codex/sessions`, `.codex/archived_sessions`, and
 `.codex/session_index.jsonl`. A producer must not infer or open another remote
 Codex path.
 
+**Cursor producer handoff:** `cursor-complete-local/v1`. Local Cursor uses
+`agent=cursor` and requires `raw-transcript` plus
+`raw-metadata-rows` for every member. IDE rows come from the attributed
+`composerHeaders` and `cursorDiskKV` entries in `state.vscdb`, with matching
+conversation search and tracking rows when present. CLI rows come from the
+single per-session chat store whose `meta` agent ID matches the transcript;
+its exact `meta.json` is a `raw-sidecar`. Whole database files and unrelated
+rows are excluded. The parsed record's `entrypoint` is `cursor-ide` or
+`cursor-cli`. The former supports opening a workspace, never exact chat
+resume; the latter supports exact CLI chat resume. An ambiguous entrypoint or
+an absent, changing, or unattributable required source blocks completion.
+Cursor SSH collection remains unsupported until the relay path proves its
+allowlist and frozen source.
+Cursor manifests require `session-backup-db-rows/v1` in `requiredVersions`;
+Codex manifests continue to require only the original two versions.
+
 ## Canonical manifest and identity
 
 [`schema.json`](schema.json) is the language-neutral manifest shape and
 [`database-rows.schema.json`](database-rows.schema.json) defines the generic
-attributed shared-database projection reserved for a future named producer.
+attributed shared-database projection used by OpenCode and by Cursor IDE and CLI.
 [`enrichment.schema.json`](enrichment.schema.json) and
 [`synthesis.schema.json`](synthesis.schema.json) pin the two processed
 documents. Canonical bytes are
@@ -68,7 +109,9 @@ revisions, and every artifact length/hash, any membership or artifact change
 invalidates approval. `source.sourceRevision` identifies the producer's frozen
 source snapshot; `producer` records collector and parser provenance;
 `repository` records stable repository identity without requiring an absolute
-filesystem path.
+filesystem path. A session with no working folder, such as a Cursor chat in an
+empty window, records `{"canonical": "", "vcs": "none"}`; every other session
+names a Git repository with `"vcs": "git"`.
 
 Canonical object member order is normative:
 
@@ -115,8 +158,9 @@ must not assign a complete hash or present it as a verified manifest.
 
 Required semantic versions are closed for v1. Consumers reject a version they
 do not understand rather than guessing. `requiredVersions` is sorted and must
-contain both `full-session-record/v1` and `session-backup/v1`; the optional
-database projection version does not make that projection a Codex input. This
+contain both `full-session-record/v1` and `session-backup/v1`. OpenCode and
+Cursor also require `session-backup-db-rows/v1`; Codex and Claude prohibit it.
+This
 is exercised by the published unknown-version fixture.
 
 The canonical manifest is limited to 64 MiB and 100,000 members and artifacts.
@@ -133,6 +177,14 @@ below remains defined and separately tested so a future producer can name an
 allowed database and attribution rule without copying whole database files;
 it is not permission for HS-02 to open a Codex database locally or over SSH.
 
+Local OpenCode uses the `opencode` database label. For each family member the
+producer projects its selected `session` or `session_v2` row, rows with the
+member's `session_id`, and rows whose `message_id` joins an attributed message.
+It retains all source columns and SQLite storage classes, including fields the
+parser does not yet interpret. The projection and parsed record come from one
+read transaction; a database write during preparation blocks completion. SSH
+OpenCode remains unsupported until the SSH source relay is connected.
+
 Shared databases are projected, not copied. `session-backup-db-rows/v1` has a
 stable database label and tables sorted by name. Columns retain source schema
 order. Each selected row has the manifest member ID used for attribution and
@@ -147,6 +199,9 @@ SQLite values serialize as follows:
 | REAL | `real` | 16 lowercase hexadecimal digits containing the big-endian IEEE-754 binary64 bits |
 | TEXT | `text` | exact UTF-8 text |
 | BLOB | `blob` | canonical padded RFC 4648 base64 |
+
+A TEXT value or a BLOB's base64 text may use up to 64 MiB, the bound of the
+whole projection document, so a large attributed value is carried exactly.
 
 The producer selects rows with the source's authoritative session key inside a
 read transaction, assigns each row to exactly one family member, and freezes

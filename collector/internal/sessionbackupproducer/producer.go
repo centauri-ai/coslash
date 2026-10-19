@@ -1,4 +1,4 @@
-// Package sessionbackupproducer freezes complete local and SSH Codex session
+// Package sessionbackupproducer freezes complete Codex and local Claude session
 // families into retryable session-backup/v1 spools.
 package sessionbackupproducer
 
@@ -82,6 +82,7 @@ type operation struct {
 
 type PreparationError struct {
 	Coverage Coverage
+	TooLarge bool
 }
 
 func (err *PreparationError) Error() string {
@@ -122,6 +123,7 @@ type Options struct {
 
 type Manager struct {
 	root             string
+	localHome        func() (string, error)
 	collectorVersion string
 	parserVersion    string
 	synthesis        SynthesisStore
@@ -180,7 +182,7 @@ func New(options Options) *Manager {
 		now = time.Now
 	}
 	return &Manager{
-		root: root, collectorVersion: identifierOr(options.CollectorVersion, "development"),
+		root: root, localHome: localHome, collectorVersion: identifierOr(options.CollectorVersion, "development"),
 		parserVersion: identifierOr(options.ParserVersion, vendors.ParserVersion),
 		synthesis:     options.Synthesis, openSource: openSource, afterRawCopy: options.AfterRawCopy,
 		afterRename: options.AfterRename, lifecycle: lifecycle, lifecycleCancel: lifecycleCancel, now: now,
@@ -345,6 +347,14 @@ func problem(selection Selection, code, kind string, retryable bool) (*Prepared,
 	return nil, &PreparationError{Coverage: report}
 }
 
+func captureProblem(selection Selection, failure *captureError) (*Prepared, error) {
+	_, err := problem(selection, failure.code, failure.kind, failure.retryable)
+	if prepared, ok := err.(*PreparationError); ok {
+		prepared.TooLarge = failure.tooLarge
+	}
+	return nil, err
+}
+
 func (manager *Manager) Open(bundleID string) (*Prepared, error) {
 	if !digest(bundleID) {
 		return nil, ErrNotPrepared
@@ -374,28 +384,46 @@ func (manager *Manager) Open(bundleID string) (*Prepared, error) {
 // Read reads a bounded caller-owned slice from one declared artifact. It never
 // materializes the complete artifact in memory.
 func (manager *Manager) Read(bundleID, logicalName string, offset int64, destination []byte) (int, error) {
+	reader, err := manager.Reader(bundleID)
+	if err != nil {
+		return 0, err
+	}
+	return reader.Read(logicalName, offset, destination)
+}
+
+// BundleReader reads the declared artifacts of one bundle. Reader decodes the
+// bundle manifest once, so reading every chunk of a family with thousands of
+// artifacts does not decode the whole manifest again for each chunk.
+type BundleReader struct {
+	root, bundleID string
+	declared       map[string]bool
+}
+
+func (manager *Manager) Reader(bundleID string) (*BundleReader, error) {
 	if !digest(bundleID) {
-		return 0, ErrNotPrepared
+		return nil, ErrNotPrepared
 	}
 	manifestBytes, err := os.ReadFile(filepath.Join(manager.root, bundleID, sessionbackupv1.ManifestFileName))
 	if err != nil {
-		return 0, ErrNotPrepared
+		return nil, ErrNotPrepared
 	}
 	manifest, err := sessionbackupv1.Decode(manifestBytes)
 	if err != nil || manifest.CompleteBackupSHA256 != bundleID {
-		return 0, ErrNotPrepared
+		return nil, ErrNotPrepared
 	}
-	declared := false
+	declared := make(map[string]bool, len(manifest.Artifacts))
 	for _, artifact := range manifest.Artifacts {
-		if artifact.LogicalName == logicalName {
-			declared = true
-			break
-		}
+		declared[artifact.LogicalName] = true
 	}
-	if !declared || offset < 0 {
+	return &BundleReader{root: manager.root, bundleID: bundleID, declared: declared}, nil
+}
+
+// Read reads a bounded caller-owned slice from one declared artifact.
+func (reader *BundleReader) Read(logicalName string, offset int64, destination []byte) (int, error) {
+	if !reader.declared[logicalName] || offset < 0 {
 		return 0, ErrNotPrepared
 	}
-	file, err := openRegular(manager.root, bundleID, logicalName)
+	file, err := openRegular(reader.root, reader.bundleID, logicalName)
 	if err != nil {
 		return 0, ErrNotPrepared
 	}

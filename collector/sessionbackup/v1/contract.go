@@ -34,8 +34,16 @@ const (
 	SourceLocal = "local"
 	SourceSSH   = "ssh"
 
-	ArtifactSourceCodex   = "codex"
-	ArtifactSourceCoSlash = "coslash"
+	// RepositoryVCSNone marks a session with no working folder, such as a
+	// Cursor chat in an empty window. Its canonical repository is empty.
+	RepositoryVCSGit  = "git"
+	RepositoryVCSNone = "none"
+
+	ArtifactSourceCodex    = "codex"
+	ArtifactSourceClaude   = "claude"
+	ArtifactSourceCursor   = "cursor"
+	ArtifactSourceOpenCode = "opencode"
+	ArtifactSourceCoSlash  = "coslash"
 
 	KindRawTranscript       = "raw-transcript"
 	KindRawSidecar          = "raw-sidecar"
@@ -62,6 +70,7 @@ var (
 	ArtifactKinds = []string{
 		KindRawTranscript,
 		KindRawSidecar,
+		KindRawMetadataRows,
 		KindParsedSessionRecord,
 		KindExactChangeBody,
 		KindSessionEnrichment,
@@ -94,6 +103,18 @@ type SourceIdentity struct {
 type RepositoryIdentity struct {
 	Canonical string `json:"canonical"`
 	VCS       string `json:"vcs"`
+}
+
+// validRepository accepts a named Git repository, or no repository for a
+// session that has no working folder.
+func validRepository(repository RepositoryIdentity) bool {
+	switch repository.VCS {
+	case RepositoryVCSGit:
+		return repository.Canonical != "" && plainText(repository.Canonical)
+	case RepositoryVCSNone:
+		return repository.Canonical == ""
+	}
+	return false
 }
 
 type ProducerIdentity struct {
@@ -164,12 +185,20 @@ type SupportStatus struct {
 var CoverageMatrix = []SupportStatus{
 	{Agent: "codex", SourceKind: SourceLocal, Supported: true},
 	{Agent: "codex", SourceKind: SourceSSH, Supported: true},
-	{Agent: "claude", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
+	{Agent: "claude", SourceKind: SourceLocal, Supported: true},
+	{Agent: "opencode", SourceKind: SourceLocal, Supported: true},
 	{Agent: "claude", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
-	{Agent: "cursor", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
+	{Agent: "cursor", SourceKind: SourceLocal, Supported: true},
 	{Agent: "cursor", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
-	{Agent: "opencode", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
 	{Agent: "opencode", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
+}
+
+// usesDatabaseRows reports whether an agent's exporter captures database
+// projections (OpenCode, Cursor). Only those agents carry
+// session-backup-db-rows/v1 and raw-metadata-rows artifacts; Codex and Claude
+// never produce rows and must not declare them.
+func usesDatabaseRows(agent string) bool {
+	return agent == ArtifactSourceOpenCode || agent == ArtifactSourceCursor
 }
 
 // Freeze orders a complete family deterministically, fills byte evidence, and
@@ -317,7 +346,7 @@ func validate(manifest Manifest, requireHash bool) error {
 	if manifest.SchemaVersion != SchemaVersion || manifest.CanonicalVersion != CanonicalVersion {
 		return fmt.Errorf("%w: unsupported manifest semantics", ErrInvalid)
 	}
-	knownVersions := map[string]bool{SchemaVersion: true, ParsedRecordVersion: true}
+	knownVersions := map[string]bool{SchemaVersion: true, ParsedRecordVersion: true, DatabaseRowsVersion: true}
 	previous := ""
 	for _, version := range manifest.RequiredVersions {
 		if !knownVersions[version] || version <= previous {
@@ -328,11 +357,18 @@ func validate(manifest Manifest, requireHash bool) error {
 	if !contains(manifest.RequiredVersions, SchemaVersion) || !contains(manifest.RequiredVersions, ParsedRecordVersion) {
 		return fmt.Errorf("%w: required version missing", ErrInvalid)
 	}
-	if manifest.Source.Agent != "codex" || (manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
+	usesRows := usesDatabaseRows(manifest.Source.Agent)
+	if contains(manifest.RequiredVersions, DatabaseRowsVersion) != usesRows {
+		return fmt.Errorf("%w: database projection version mismatch", ErrInvalid)
+	}
+	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude &&
+		manifest.Source.Agent != ArtifactSourceOpenCode && manifest.Source.Agent != ArtifactSourceCursor) ||
+		(manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Kind != SourceLocal) ||
+		(manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
 		return fmt.Errorf("%w: invalid source identity", ErrInvalid)
 	}
-	if !plainText(manifest.Repository.Canonical) || manifest.Repository.Canonical == "" || manifest.Repository.VCS != "git" ||
+	if !validRepository(manifest.Repository) ||
 		!identifier(manifest.Producer.Name) || !identifier(manifest.Producer.Version) || !identifier(manifest.Producer.ParserVersion) ||
 		!identifier(manifest.Family.FamilyID) || !identifier(manifest.Family.RootMemberID) {
 		return fmt.Errorf("%w: invalid repository, producer, or family identity", ErrInvalid)
@@ -382,14 +418,18 @@ func validate(manifest Manifest, requireHash bool) error {
 			return fmt.Errorf("%w: unsafe artifact name", ErrInvalid)
 		}
 		if artifact.Ordinal != index || !ok ||
-			(artifact.Source != ArtifactSourceCodex && artifact.Source != ArtifactSourceCoSlash) || !contains(ArtifactKinds, artifact.Kind) ||
+			(artifact.Source != manifest.Source.Agent && artifact.Source != ArtifactSourceCoSlash) || !contains(ArtifactKinds, artifact.Kind) ||
 			artifact.SourceKey == "" || !plainText(artifact.SourceKey) || artifact.MediaType == "" || !plainText(artifact.MediaType) || artifact.Encoding != EncodingIdentity ||
 			artifact.ByteLength < 0 || artifact.ByteLength > MaxArtifactBytes || !digest(artifact.SHA256) {
 			return fmt.Errorf("%w: invalid artifact", ErrInvalid)
 		}
-		if (strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCodex) ||
+		if (strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != manifest.Source.Agent) ||
 			(!strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCoSlash) {
 			return fmt.Errorf("%w: artifact source does not match kind", ErrInvalid)
+		}
+		if (!usesRows && artifact.Kind == KindRawMetadataRows) ||
+			(manifest.Source.Agent == "opencode" && (artifact.Kind == KindRawTranscript || artifact.Kind == KindRawSidecar)) {
+			return fmt.Errorf("%w: artifact kind does not match agent", ErrInvalid)
 		}
 		sourceKey := artifact.MemberID + "\x00" + artifact.Kind + "\x00" + artifact.SourceKey
 		if seenSourceKeys[sourceKey] {
@@ -413,11 +453,19 @@ func validate(manifest Manifest, requireHash bool) error {
 	}
 	for _, member := range manifest.Members {
 		kinds := memberKinds[member.MemberID]
-		if kinds[KindParsedSessionRecord] == 0 || kinds[KindRawTranscript] == 0 || kinds[KindSessionEnrichment] == 0 {
+		rawKind := KindRawTranscript
+		if manifest.Source.Agent == "opencode" {
+			rawKind = KindRawMetadataRows
+		}
+		if kinds[KindParsedSessionRecord] == 0 || kinds[rawKind] == 0 || kinds[KindSessionEnrichment] == 0 {
 			return fmt.Errorf("%w: member %q lacks required artifacts", ErrIncomplete, member.MemberID)
 		}
 		if kinds[KindParsedSessionRecord] != 1 || kinds[KindSessionEnrichment] != 1 {
 			return fmt.Errorf("%w: member %q has duplicate singleton artifacts", ErrInvalid, member.MemberID)
+		}
+		if (manifest.Source.Agent == "cursor" && kinds[KindRawMetadataRows] == 0) ||
+			(!usesRows && kinds[KindRawMetadataRows] != 0) {
+			return fmt.Errorf("%w: source metadata rows mismatch", ErrIncomplete)
 		}
 		if member.SynthesisRevisionMs > 0 && kinds[KindSynthesis] == 0 {
 			return fmt.Errorf("%w: member %q lacks required synthesis", ErrIncomplete, member.MemberID)
@@ -461,6 +509,10 @@ func validateArtifactContents(manifest Manifest, blobs map[string][]byte) error 
 		case KindSessionEnrichment:
 			if _, err := DecodeEnrichment(blob); err != nil {
 				return fmt.Errorf("%w: enrichment %q: %v", ErrInvalid, artifact.LogicalName, err)
+			}
+		case KindRawMetadataRows:
+			if _, err := DecodeDatabaseRows(blob, member.MemberID); err != nil {
+				return err
 			}
 		case KindSynthesis:
 			record, err := DecodeSynthesisRecord(blob)

@@ -1,0 +1,656 @@
+package hubclient
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// V4 types match sync-v4/v2. They deliberately do not reuse v3 share receipts.
+type V4Chunk struct {
+	Ordinal int    `json:"ordinal"`
+	Offset  int64  `json:"offset"`
+	Bytes   int64  `json:"bytes"`
+	SHA256  string `json:"sha256"`
+}
+
+type V4Artifact struct {
+	Ordinal int       `json:"ordinal"`
+	Kind    string    `json:"kind"`
+	Bytes   int64     `json:"bytes"`
+	SHA256  string    `json:"sha256"`
+	Chunks  []V4Chunk `json:"chunks"`
+}
+
+type V4Manifest struct {
+	ContentSHA256   string       `json:"contentSha256"`
+	ProducerVersion string       `json:"producerVersion"`
+	Artifacts       []V4Artifact `json:"artifacts"`
+}
+
+type V4Session struct {
+	InstallID    string     `json:"installId"`
+	LocalKeyHash string     `json:"localKeyHash"`
+	Agent        string     `json:"agent"`
+	Title        string     `json:"title"`
+	Summary      string     `json:"summary,omitempty"`
+	Repo         string     `json:"repo,omitempty"`
+	Branch       string     `json:"branch,omitempty"`
+	CWDLabel     string     `json:"cwdLabel,omitempty"`
+	StartedAt    *time.Time `json:"startedAt,omitempty"`
+	EndedAt      *time.Time `json:"endedAt,omitempty"`
+	Tokens       int64      `json:"tokens,omitempty"`
+	CostMicroUSD int64      `json:"costMicroUsd,omitempty"`
+}
+
+type V4Create struct {
+	IdempotencyKey string     `json:"idempotencyKey"`
+	Session        V4Session  `json:"session"`
+	Manifest       V4Manifest `json:"manifest"`
+}
+
+type V4Missing struct {
+	ArtifactOrdinal int    `json:"artifactOrdinal"`
+	ChunkOrdinal    int    `json:"chunkOrdinal"`
+	Offset          int64  `json:"offset"`
+	Bytes           int64  `json:"bytes"`
+	SHA256          string `json:"sha256"`
+}
+
+type V4Status struct {
+	UploadID    string      `json:"uploadId"`
+	SessionID   string      `json:"sessionId"`
+	State       string      `json:"state"`
+	Missing     []V4Missing `json:"missing"`
+	RevisionID  string      `json:"revisionId"`
+	FailureCode string      `json:"failureCode"`
+	Dedup       bool        `json:"dedup"`
+}
+
+type V4Queue struct {
+	Pending   int       `json:"pending"`
+	Failing   int       `json:"failing"`
+	Import    *V4Import `json:"import,omitempty"`
+	FirstSync struct {
+		RecentDone   int    `json:"recentDone"`
+		RecentTotal  int    `json:"recentTotal"`
+		HistoryState string `json:"historyState"`
+	} `json:"firstSync"`
+	// Inventory is sent only after the Hub advertised CapabilityScaleImport.
+	Inventory *DeviceInventory `json:"inventory,omitempty"`
+}
+
+type V4ImportCurrent struct {
+	BytesDone  int64  `json:"bytesDone"`
+	BytesTotal int64  `json:"bytesTotal"`
+	SessionID  string `json:"sessionId,omitempty"`
+}
+
+type V4ImportRate struct {
+	P25       float64 `json:"p25"`
+	P75       float64 `json:"p75"`
+	WindowSec int64   `json:"windowSec"`
+}
+
+type V4ImportWait struct {
+	Reason string    `json:"reason"`
+	Since  time.Time `json:"since"`
+}
+
+type V4Import struct {
+	PlanVersion     int64            `json:"planVersion"`
+	Phase           string           `json:"phase"`
+	Listed          int64            `json:"listed"`
+	ContentSessions int64            `json:"contentSessions"`
+	ContentBytes    int64            `json:"contentBytes"`
+	TotalSessions   int64            `json:"totalSessions"`
+	TotalBytes      int64            `json:"totalBytes"`
+	QueuePositions  map[string]int64 `json:"queuePositions,omitempty"`
+	Current         *V4ImportCurrent `json:"current"`
+	LastProgressAt  *time.Time       `json:"lastProgressAt"`
+	Rate            *V4ImportRate    `json:"rate"`
+	HistoryCursorAt *time.Time       `json:"historyCursorAt"`
+	Wait            *V4ImportWait    `json:"wait"`
+}
+
+type V4ImportPlan struct {
+	Version             int64  `json:"version"`
+	Window              string `json:"window"`
+	History             bool   `json:"history"`
+	Backfill            bool   `json:"backfill"`
+	HistoryPaused       bool   `json:"historyPaused"`
+	WarmStartSeconds    int64  `json:"warmStartSeconds"`
+	MaxSessionsPerAgent int64  `json:"maxSessionsPerAgent,omitempty"`
+	MaxSessions         int64  `json:"maxSessions,omitempty"`
+}
+
+type V4Config struct {
+	Paused         bool          `json:"paused"`
+	AutoUpdate     bool          `json:"autoUpdate"`
+	DeviceOff      bool          `json:"deviceOff"`
+	LeaveOut       []string      `json:"leaveOut"`
+	AgentKnowledge bool          `json:"agentKnowledge"`
+	ImportPlan     *V4ImportPlan `json:"importPlan,omitempty"`
+}
+
+type V4Command struct {
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type V4CommandResult struct {
+	CommandID string             `json:"commandId"`
+	Result    string             `json:"result"`
+	Error     string             `json:"error,omitempty"`
+	Progress  *V4CommandProgress `json:"progress,omitempty"`
+}
+
+type V4CommandProgress struct {
+	Stage      string `json:"stage"`
+	BytesDone  int64  `json:"bytesDone"`
+	BytesTotal int64  `json:"bytesTotal"`
+}
+
+// V4LogEntry is one content-free sync log line sent with a check-in. The Hub
+// keeps only its closed failure codes and replaces Message with its own text.
+type V4LogEntry struct {
+	At        time.Time `json:"at"`
+	SessionID string    `json:"sessionId,omitempty"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	Code      string    `json:"code,omitempty"`
+	Attempts  int       `json:"attempts,omitempty"`
+	Parked    bool      `json:"parked,omitempty"`
+}
+
+type V4SSHHost struct {
+	ID    string `json:"id"`
+	Alias string `json:"alias"`
+}
+
+type V4CheckIn struct {
+	ConfigVersion          int64       `json:"configVersion"`
+	Config                 V4Config    `json:"config"`
+	Commands               []V4Command `json:"commands"`
+	MinVersion             string      `json:"minVersion"`
+	RecommendedVersion     string      `json:"recommendedVersion"`
+	RecommendedDownloadURL string      `json:"recommendedDownloadUrl"`
+	NextCheckInSeconds     int         `json:"nextCheckInSeconds"`
+	SSHHosts               []V4SSHHost `json:"sshHosts,omitempty"`
+	// Capabilities lists what the Hub accepts beyond the Tier4 check-in;
+	// an older Hub omits it.
+	Capabilities      []string `json:"capabilities,omitempty"`
+	UpdateRequired    bool     `json:"-"`
+	RecommendedUpdate bool     `json:"-"`
+}
+
+type v4CheckInRequest struct {
+	ClientVersion        string            `json:"clientVersion"`
+	Capabilities         []string          `json:"capabilities"`
+	OS                   string            `json:"os"`
+	InstallChannel       string            `json:"installChannel"`
+	AppliedConfigVersion int64             `json:"appliedConfigVersion"`
+	AgentsFound          []string          `json:"agentsFound"`
+	Queue                V4Queue           `json:"queue"`
+	Results              []V4CommandResult `json:"results,omitempty"`
+	Log                  []V4LogEntry      `json:"log,omitempty"`
+}
+
+func (result *V4CheckIn) UnmarshalJSON(data []byte) error {
+	type alias V4CheckIn
+	var decoded alias
+	var required struct {
+		Config *struct {
+			Paused         *bool         `json:"paused"`
+			DeviceOff      *bool         `json:"deviceOff"`
+			LeaveOut       *[]string     `json:"leaveOut"`
+			AgentKnowledge *bool         `json:"agentKnowledge"`
+			ImportPlan     *V4ImportPlan `json:"importPlan,omitempty"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &required); err != nil {
+		return err
+	}
+	if required.Config == nil || required.Config.Paused == nil || required.Config.DeviceOff == nil || required.Config.LeaveOut == nil || required.Config.AgentKnowledge == nil {
+		return errors.New("v4 check-in omitted current policy fields")
+	}
+	for _, host := range decoded.SSHHosts {
+		if host.ID == "" || host.Alias == "" {
+			return errors.New("v4 check-in included invalid SSH host")
+		}
+	}
+	*result = V4CheckIn(decoded)
+	return nil
+}
+
+type V4Wait struct {
+	ConfigVersion     int64 `json:"configVersion"`
+	Changed           bool  `json:"changed"`
+	CommandsAvailable bool  `json:"commandsAvailable"`
+	SyncRequested     bool  `json:"syncRequested"`
+}
+
+type V4Problem struct {
+	Code       string        `json:"code"`
+	HTTPStatus int           `json:"-"`
+	RetryAfter time.Duration `json:"-"`
+}
+
+func (c *Client) V4Binding(ctx context.Context) (string, error) {
+	if !c.configured() {
+		return "", ErrNotPaired
+	}
+	credential, err := c.Credentials.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(c.BaseURL.String() + "\x00" + credential))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (p V4Problem) Error() string { return "Hub v4: " + p.Code }
+
+func (c *Client) v4Request(ctx context.Context, method, path string, body any, result any) error {
+	if !c.configured() {
+		return ErrNotPaired
+	}
+	credential, err := c.Credentials.Load(ctx)
+	if err != nil {
+		return err
+	}
+	var payload io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		payload = bytes.NewReader(encoded)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.endpoint(path), payload)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Device "+credential)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := c.httpClient()
+	if method == http.MethodGet && path == "/v4/devices/me/wait" || strings.HasPrefix(path, "/v4/devices/me/wait?") {
+		client.Timeout = 60 * time.Second
+	}
+	response, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var problem V4Problem
+		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&problem)
+		problem.HTTPStatus = response.StatusCode
+		problem.RetryAfter = parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
+		if problem.Code == "" {
+			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
+		}
+		if problem.Code == "device_revoked" {
+			deleteContext := context.WithoutCancel(ctx)
+			var deleteErr error
+			if deleter, ok := c.Credentials.(ConditionalCredentialDeleter); ok {
+				_, deleteErr = deleter.DeleteIfMatches(deleteContext, credential)
+			} else {
+				deleteErr = c.Credentials.Delete(deleteContext)
+			}
+			if deleteErr != nil {
+				return errors.Join(problem, fmt.Errorf("delete revoked Hub credential: %w", deleteErr))
+			}
+		}
+		return problem
+	}
+	if result != nil {
+		return json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(result)
+	}
+	return nil
+}
+
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+		if seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		return 0
+	}
+	if retryAt, err := http.ParseTime(value); err == nil && retryAt.After(now) {
+		return retryAt.Sub(now)
+	}
+	return 0
+}
+
+// V4CheckIn reports the device state and returns the Hub's current policy.
+// agentsFound lists the agents with sessions this install has discovered, and
+// log carries the unsent sync log lines (at most 200).
+func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVersion int64, results []V4CommandResult, agentsFound []string, log []V4LogEntry) (V4CheckIn, error) {
+	var result V4CheckIn
+	version := strings.TrimPrefix(c.CollectorVersion, "v")
+	if !validClientVersion(version) {
+		return result, errors.New("v4 sync requires a semantic Local version")
+	}
+	input := v4CheckInRequest{
+		ClientVersion: version, Capabilities: localCapabilities(), OS: runtime.GOOS,
+		InstallChannel: normalizedInstallChannel(c.InstallChannel), AppliedConfigVersion: appliedConfigVersion,
+		AgentsFound: agentsFound, Queue: queue, Results: results, Log: log,
+	}
+	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
+	// Version 0 is the owner's default policy before any settings save, and
+	// UnmarshalJSON already requires every policy field.
+	if err == nil && (result.ConfigVersion < 0 || !validClientVersion(result.MinVersion)) {
+		return V4CheckIn{}, errors.New("v4 check-in omitted current policy")
+	}
+	if err == nil {
+		result.UpdateRequired = clientVersionLess(version, result.MinVersion)
+		result.RecommendedUpdate = validClientVersion(result.RecommendedVersion) && clientVersionLess(version, result.RecommendedVersion)
+	}
+	return result, err
+}
+
+// ScaleImportEnabled reports the Local kill switch for scale import:
+// COSLASH_SCALE_IMPORT=0 restores full-parse discovery and stops advertising
+// the capability.
+func ScaleImportEnabled() bool {
+	return os.Getenv("COSLASH_SCALE_IMPORT") != "0"
+}
+
+func localCapabilities() []string {
+	capabilities := []string{}
+	if V4SyncEnabled() {
+		capabilities = append(capabilities, "sync-v4")
+	}
+	capabilities = append(capabilities, "session-backup/v1", "launch", "ssh-relay")
+	if ScaleImportEnabled() {
+		capabilities = append(capabilities, CapabilityScaleImport)
+	}
+	if SyncPolicyEnabled() {
+		capabilities = append(capabilities, CapabilitySyncPolicy)
+	}
+	return capabilities
+}
+
+const CapabilitySyncPolicy = "sync-policy/1"
+
+func V4SyncEnabled() bool {
+	return os.Getenv("COSLASH_V4_SYNC") != "0"
+}
+
+func SyncPolicyEnabled() bool {
+	return os.Getenv("COSLASH_SYNC_POLICY") != "0"
+}
+
+func normalizedInstallChannel(channel string) string {
+	switch channel {
+	case "brew", "script", "windows-script", "unknown":
+		return channel
+	default:
+		return "unknown"
+	}
+}
+
+func (c *Client) V4Wait(ctx context.Context, since int64) (V4Wait, error) {
+	var result V4Wait
+	err := c.v4Request(ctx, http.MethodGet, "/v4/devices/me/wait?since="+fmt.Sprint(since), nil, &result)
+	return result, err
+}
+
+func clientVersionLess(left, right string) bool {
+	aCore, aPre := semverParts(left)
+	bCore, bPre := semverParts(right)
+	for i := range 3 {
+		if aCore[i] != bCore[i] {
+			return compareNumericIdentifier(aCore[i], bCore[i]) < 0
+		}
+	}
+	if aPre == "" || bPre == "" {
+		return aPre != "" && bPre == ""
+	}
+	aIDs, bIDs := strings.Split(aPre, "."), strings.Split(bPre, ".")
+	for i := 0; i < min(len(aIDs), len(bIDs)); i++ {
+		if aIDs[i] == bIDs[i] {
+			continue
+		}
+		aNumeric, bNumeric := numericIdentifier(aIDs[i]), numericIdentifier(bIDs[i])
+		switch {
+		case aNumeric && bNumeric:
+			return compareNumericIdentifier(aIDs[i], bIDs[i]) < 0
+		case aNumeric != bNumeric:
+			return aNumeric
+		default:
+			return aIDs[i] < bIDs[i]
+		}
+	}
+	return len(aIDs) < len(bIDs)
+}
+
+func validClientVersion(value string) bool {
+	return len(value) <= 128 && clientVersion.MatchString(value)
+}
+
+func semverParts(value string) ([3]string, string) {
+	value, _, _ = strings.Cut(value, "+")
+	core, prerelease, _ := strings.Cut(value, "-")
+	parts := strings.Split(core, ".")
+	return [3]string{parts[0], parts[1], parts[2]}, prerelease
+}
+
+func numericIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func compareNumericIdentifier(left, right string) int {
+	left = strings.TrimLeft(left, "0")
+	right = strings.TrimLeft(right, "0")
+	if len(left) < len(right) {
+		return -1
+	}
+	if len(left) > len(right) {
+		return 1
+	}
+	return strings.Compare(left, right)
+}
+
+func (c *Client) V4Create(ctx context.Context, input V4Create) (V4Status, error) {
+	var result V4Status
+	err := c.v4Request(ctx, http.MethodPost, "/v4/uploads", input, &result)
+	return result, err
+}
+
+func (c *Client) V4Status(ctx context.Context, uploadID string) (V4Status, error) {
+	var result V4Status
+	err := c.v4Request(ctx, http.MethodGet, "/v4/uploads/"+url.PathEscape(uploadID), nil, &result)
+	return result, err
+}
+
+func (c *Client) V4Abort(ctx context.Context, uploadID string) error {
+	return c.v4Request(ctx, http.MethodDelete, "/v4/uploads/"+url.PathEscape(uploadID), nil, nil)
+}
+
+func (c *Client) V4Finalize(ctx context.Context, uploadID string) (V4Status, error) {
+	var result V4Status
+	err := c.v4Request(ctx, http.MethodPost, "/v4/uploads/"+url.PathEscape(uploadID)+"/finalize", struct{}{}, &result)
+	return result, err
+}
+
+func (c *Client) V4PutChunk(ctx context.Context, uploadID string, missing V4Missing, body io.Reader) error {
+	if missing.Bytes < 1 || missing.Bytes > 64<<20 || missing.ArtifactOrdinal < 0 || missing.ChunkOrdinal < 0 {
+		return errors.New("invalid v4 chunk")
+	}
+	data, err := io.ReadAll(io.LimitReader(body, missing.Bytes+1))
+	if err != nil || int64(len(data)) != missing.Bytes {
+		return errors.New("v4 chunk length changed")
+	}
+	coords := struct {
+		Coords []struct {
+			ArtifactOrdinal int `json:"artifactOrdinal"`
+			ChunkOrdinal    int `json:"chunkOrdinal"`
+		} `json:"coords"`
+	}{}
+	coords.Coords = append(coords.Coords, struct {
+		ArtifactOrdinal int `json:"artifactOrdinal"`
+		ChunkOrdinal    int `json:"chunkOrdinal"`
+	}{missing.ArtifactOrdinal, missing.ChunkOrdinal})
+	var signed struct {
+		URLs []struct {
+			ArtifactOrdinal int               `json:"artifactOrdinal"`
+			ChunkOrdinal    int               `json:"chunkOrdinal"`
+			URL             string            `json:"url"`
+			Headers         map[string]string `json:"headers"`
+		} `json:"urls"`
+	}
+	signErr := c.v4Request(ctx, http.MethodPost, "/v4/uploads/"+url.PathEscape(uploadID)+"/chunks:sign", coords, &signed)
+	if signErr != nil {
+		var problem V4Problem
+		if !errors.As(signErr, &problem) || (problem.Code != "not_available" && problem.Code != "temporary_unavailable" && problem.Code != "http_501") {
+			return signErr
+		}
+	}
+	if signErr == nil && len(signed.URLs) == 1 {
+		item := signed.URLs[0]
+		if item.ArtifactOrdinal != missing.ArtifactOrdinal || item.ChunkOrdinal != missing.ChunkOrdinal {
+			return errors.New("v4 signed chunk identity changed")
+		}
+		parsed, err := url.Parse(item.URL)
+		if err != nil || parsed.User != nil || parsed.Hostname() == "" || parsed.Fragment != "" ||
+			(parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLoopback(parsed.Hostname()))) {
+			return c.v4ProxyChunk(ctx, uploadID, missing, bytes.NewReader(data))
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, item.URL, bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+		req.ContentLength = missing.Bytes
+		for name, value := range item.Headers {
+			if strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Cookie") {
+				return errors.New("v4 signed URL requested credential header")
+			}
+			req.Header.Set(name, value)
+		}
+		client := c.httpClient()
+		if c.HTTP == nil {
+			client.Timeout = 2 * time.Minute
+		}
+		response, err := client.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return c.v4ProxyChunk(ctx, uploadID, missing, bytes.NewReader(data))
+		}
+		io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		response.Body.Close()
+		if response.StatusCode >= 200 && response.StatusCode < 300 {
+			return nil
+		}
+	}
+	return c.v4ProxyChunk(ctx, uploadID, missing, bytes.NewReader(data))
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	parsed := net.ParseIP(host)
+	return parsed != nil && parsed.IsLoopback()
+}
+
+func (c *Client) v4ProxyChunk(ctx context.Context, uploadID string, missing V4Missing, body io.Reader) error {
+	firstChunk := missing.ArtifactOrdinal == 0 && missing.ChunkOrdinal == 0
+	if firstChunk {
+		slog.Debug("v4 upload: sending first chunk through Hub proxy")
+	}
+	credential, err := c.Credentials.Load(ctx)
+	if err != nil {
+		log.Printf("v4 upload: Hub proxy credential unavailable: %T", err)
+		return err
+	}
+	path := fmt.Sprintf("/v4/uploads/%s/chunks/%d/%d", url.PathEscape(uploadID), missing.ArtifactOrdinal, missing.ChunkOrdinal)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint(path), body)
+	if err != nil {
+		return err
+	}
+	req.ContentLength = missing.Bytes
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Authorization", "Device "+credential)
+	client := c.httpClient()
+	if c.HTTP == nil {
+		client.Timeout = 2 * time.Minute
+	}
+	response, err := client.Do(req)
+	if err != nil {
+		log.Printf("v4 upload: Hub proxy request failed: %T", err)
+		return err
+	}
+	defer response.Body.Close()
+	if firstChunk || response.StatusCode != http.StatusNoContent {
+		slog.Debug("v4 upload: Hub proxy returned HTTP", "status", response.StatusCode)
+	}
+	if response.StatusCode != http.StatusNoContent {
+		var problem V4Problem
+		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&problem)
+		if problem.Code == "" {
+			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
+		}
+		return problem
+	}
+	return nil
+}
+
+// V4MaxConfirm is the most chunks one chunks:confirm request names.
+const V4MaxConfirm = 50
+
+// V4Confirm asks the Hub to verify up to V4MaxConfirm staged chunks. Each
+// response lists every chunk still missing, so a large upload confirms its
+// chunks in batches rather than one request per chunk.
+func (c *Client) V4Confirm(ctx context.Context, uploadID string, missing ...V4Missing) (V4Status, error) {
+	var result V4Status
+	if len(missing) == 0 || len(missing) > V4MaxConfirm {
+		return result, errors.New("invalid v4 confirm batch")
+	}
+	type coordinate struct {
+		ArtifactOrdinal int `json:"artifactOrdinal"`
+		ChunkOrdinal    int `json:"chunkOrdinal"`
+	}
+	coords := struct {
+		Coords []coordinate `json:"coords"`
+	}{Coords: make([]coordinate, 0, len(missing))}
+	for _, chunk := range missing {
+		coords.Coords = append(coords.Coords, coordinate{chunk.ArtifactOrdinal, chunk.ChunkOrdinal})
+	}
+	err := c.v4Request(ctx, http.MethodPost, "/v4/uploads/"+url.PathEscape(uploadID)+"/chunks:confirm", coords, &result)
+	return result, err
+}

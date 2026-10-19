@@ -28,6 +28,8 @@ func (credential fixedHubCredential) Load(context.Context) (string, error) {
 
 func (fixedHubCredential) Save(context.Context, string) error { return nil }
 
+func (fixedHubCredential) Delete(context.Context) error { return nil }
+
 func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) {
 	recordData, err := os.ReadFile(filepath.Join("..", "..", "fullsession", "v1", "testdata", "fixtures", "valid", "codex.json"))
 	if err != nil {

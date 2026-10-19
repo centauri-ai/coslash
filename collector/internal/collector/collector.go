@@ -68,7 +68,7 @@ var vendorSources = func() []vendorSource {
 			health:     grok.Health,
 		},
 	}
-	if vendors.PiSupported() {
+	if vendors.PiCollectionSupported() {
 		sources = append([]vendorSource{{name: vendors.AgentPi, collect: pi.CollectContext, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health}}, sources...)
 	}
 	return sources
@@ -118,6 +118,35 @@ func List(ctx context.Context, since int64) ([]*session.Session, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		sessions = append(sessions, root.Session)
+	}
+	return sessions, nil
+}
+
+// FinalizeBatchContext composes already-parsed whole families into servable
+// root sessions with the same enrichment and environment probes as List.
+// Streamed discovery calls it once per batch.
+func FinalizeBatchContext(
+	ctx context.Context,
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+) ([]*session.Session, error) {
+	roots, err := finalizeSessionsContext(ctx, parsed, metadata)
+	if err != nil {
+		return nil, err
+	}
+	roots, err = servableRootsContext(ctx, roots)
+	if err != nil {
+		return nil, err
+	}
+	if err := probeLastEditsContext(ctx, roots); err != nil {
+		return nil, err
+	}
+	if err := probeGitEnvironmentContext(ctx, roots); err != nil {
+		return nil, err
+	}
+	sessions := make([]*session.Session, 0, len(roots))
+	for _, root := range roots {
 		sessions = append(sessions, root.Session)
 	}
 	return sessions, nil
@@ -677,7 +706,7 @@ func listRemote(
 func remoteInputs(collections map[string]vendors.RemoteCollection) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
 	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode} {
 		collection, ok := collections[agent]
 		if !ok {
 			continue

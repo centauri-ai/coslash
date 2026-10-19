@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+// cursorAgentStoresRoot matches the IDE agent store under both the macOS
+// Application Support and the Linux XDG config layouts.
+const cursorAgentStoresRoot = "/Cursor/AgentStores/cursor_agent_stores/"
+
 // loadLiveSessions returns transcript IDs backed by Cursor processes. The IDE
 // and CLI use different stores, so probe them independently and preserve the
 // lane only when the same ID is not simultaneously reported by both.
@@ -19,8 +23,8 @@ func loadLiveSessions() map[string]string {
 
 func loadLiveSessionsContext(ctx context.Context) map[string]string {
 	live := map[string]string{}
-	if output, err := exec.CommandContext(ctx, "lsof", "-a", "-c", "Cursor", "-Fn").Output(); err == nil {
-		ids, _ := liveIDsFromLSOFContext(ctx, string(output), "/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/", ".sync", "index.sqlite")
+	if output, err := exec.CommandContext(ctx, "lsof", "-a", "-c", cursorIDEProcess, "-Fn").Output(); err == nil {
+		ids, _ := liveIDsFromLSOFContext(ctx, string(output), cursorAgentStoresRoot, ".sync", "index.sqlite")
 		for id := range ids {
 			live[id] = entrypointIDE
 		}
@@ -44,7 +48,7 @@ func loadLiveSessionsContext(ctx context.Context) map[string]string {
 }
 
 func liveIDEFromLSOF(output string) map[string]bool {
-	return liveIDsFromLSOF(output, "/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/", ".sync", "index.sqlite")
+	return liveIDsFromLSOF(output, cursorAgentStoresRoot, ".sync", "index.sqlite")
 }
 
 func liveCLIFromLSOF(output string) map[string]bool {
