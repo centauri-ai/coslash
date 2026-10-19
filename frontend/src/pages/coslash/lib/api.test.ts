@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiAuthenticationError, apiFetch } from './api';
+import { API_AUTHENTICATION_MESSAGE, ApiAuthenticationError, apiFetch } from './api';
 
 describe('apiFetch', () => {
+  it('gives token-less pages a recovery path that works without a terminal log', () => {
+    expect(API_AUTHENTICATION_MESSAGE).toContain('Run coslash in Terminal to open coSlash Local');
+    expect(API_AUTHENTICATION_MESSAGE).not.toContain('Devices');
+    expect(API_AUTHENTICATION_MESSAGE).not.toContain('URL printed in your terminal');
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

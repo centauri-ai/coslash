@@ -10,6 +10,7 @@
       "const": "https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json"
     },
     "version": { "const": 1 },
+    "syncPaused": { "type": "boolean", "description": "Pause this Local device's automatic Hub sync." },
     "synthesis": {
       "type": "object",
       "additionalProperties": false,
@@ -27,7 +28,7 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
           "examples": [
             "claude-haiku-4-5",
-            "gpt-5.6-luna",
+            "gpt-6-luna",
             "auto",
             "default"
           ]
@@ -66,6 +67,7 @@
           "maxLength": 255,
           "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]*|[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*)$"
         },
+        "hostId": { "type": "string" },
         "enabled": { "type": "boolean" }
       }
     }

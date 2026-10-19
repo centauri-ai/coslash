@@ -9,6 +9,7 @@ export type SynthesisSettings = {
 
 export type RemoteHostSettings = {
   id?: string;
+  hostId?: string;
   sshAlias: string;
   enabled: boolean;
 };
@@ -20,6 +21,7 @@ export type RemoteOwnershipAction = 'release' | 'uninstall';
 export type CoslashSettings = {
   $schema: string;
   version: number;
+  syncPaused?: boolean;
   synthesis: SynthesisSettings;
   appearance: { theme: 'light' | 'dark' };
   launch: { terminal: string };
@@ -47,6 +49,7 @@ export type TerminalOption = {
 
 export type SettingsResponse = {
   settings: CoslashSettings;
+  settingsPath?: string;
   persisted: boolean;
   valid: boolean;
   error?: string;
@@ -74,6 +77,10 @@ export function decodeRemoteHostSettings(value: unknown): RemoteHostSettings | n
     if (typeof raw.id !== 'string') throw new Error('Invalid remote settings');
     remote.id = raw.id;
   }
+  if (raw.hostId != null) {
+    if (typeof raw.hostId !== 'string') throw new Error('Invalid remote settings');
+    remote.hostId = raw.hostId;
+  }
   return remote;
 }
 
@@ -89,9 +96,13 @@ export function decodeSettingsResponse(value: unknown): SettingsResponse {
     throw new Error('Invalid settings response');
   }
   const settingsRaw = raw.settings as Record<string, unknown>;
+  if (raw.settingsPath != null && typeof raw.settingsPath !== 'string') {
+    throw new Error('Invalid settings response');
+  }
   const response = value as SettingsResponse;
   return {
     ...response,
+    settingsPath: typeof raw.settingsPath === 'string' ? raw.settingsPath : undefined,
     settings: {
       ...response.settings,
       remote: decodeRemoteHostSettings(settingsRaw.remote),

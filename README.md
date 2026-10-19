@@ -14,9 +14,14 @@ Three agents are running. One finished twenty minutes ago, one is waiting on a q
 
 Then it gets you back in: resume a session in its own terminal with full context, or copy a handoff brief and pick it up cold somewhere else.
 
-Everything runs locally. Nothing leaves your machine unless you turn on synthesis or explicitly approve a Hub share.
+Local collection runs on your machine. Session data leaves it through Hub V4
+sync when the paired device and Hub policy allow uploads; Local Settings can
+pause sync.
+A separately authorized remote Hub MCP connection lets your agent query Hub
+sessions; synthesis uses the selected agent CLI. See [data and
+privacy](docs/data-and-privacy.md).
 
-**Early preview · macOS and Windows 11 amd64**
+**Early preview · macOS, Linux (amd64, arm64) and Windows 11 amd64**
 
 | Agent | Supported OS | Local sessions | Linux over SSH | Resume |
 | --- | --- | --- | --- | --- |
@@ -27,9 +32,77 @@ Everything runs locally. Nothing leaves your machine unless you turn on synthesi
 | Pi | macOS, Windows | CLI | No | Yes |
 | Grok Build | macOS, Windows | CLI | No | Yes |
 
-No account, no daemon, no telemetry.
+On Linux (amd64, arm64), Local collects these agents' local sessions and syncs them to Hub. Pi and Grok Build synthesis, resume, and handoff stay on macOS and Windows; see [Linux](#linux).
 
-## Install
+Local collection needs no Hub account or telemetry.
+
+## Install and connect from Hub
+
+In Hub, open **Devices → Add device → This computer** and copy the command for
+your computer. The command installs coSlash Local, adds it to `PATH`, starts it
+in the background, and claims your one-use setup code. Return to Hub to approve
+the computer.
+
+Hub shows a personalized command. These examples use a sample code and origin;
+run the exact command Hub provides.
+
+**macOS and Linux** (on a server, paste it in your own SSH session; Hub never
+sees SSH credentials):
+
+```sh
+curl -fsSL https://coslash.io/install.sh | bash -s -- --connect K7QX-29PD --hub https://hub.coslash.io
+```
+
+**Homebrew:**
+
+```sh
+brew install centauri-ai/tap/coslash && coslash connect K7QX-29PD --hub https://hub.coslash.io
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:COSLASH_CONNECT='K7QX-29PD'; $env:COSLASH_HUB='https://hub.coslash.io'; irm https://coslash.io/install.ps1 | iex
+```
+
+The code expires after ten minutes and can be used once. Hub switches to the
+computer's **Connect** card after Local claims the code; approving there
+connects the device.
+
+If Hub limits connect requests or is temporarily unavailable, Local reports a
+retryable failure (exit code 8). Wait for the indicated delay and rerun the
+command; get a new command in Hub if its code expires. Claims are not retried
+automatically. With `--json`, these failures have state `rate_limited` or
+`hub_temporarily_unavailable` and `retryAfterSeconds` (0 when no valid delay is
+provided; delays are bounded to one day).
+
+### Open coSlash Local
+
+When Local is not running, Hub offers **Open coSlash Local**. Click it to start
+Local on that computer and request an immediate Hub check-in. Local stays in
+the background without opening its own browser tab. The first start registers a
+per-user URL handler on macOS or Windows; neither requires administrator rights.
+On macOS, paired release builds install their login agent automatically. Homebrew
+upgrades keep the agent pointed at the stable install path. Startup preserves an
+agent owned by another installation or data home, and any existing URL handler.
+Dev builds, branch builds, and custom data homes never install the shared login
+agent, even through `coslash service install`. A custom `COSLASH_HOME` skips URL
+registration and keeps separate Hub credentials.
+Closing the browser does not stop the sync worker. The macOS login agent restarts
+Local if its process exits. On Windows, pairing registers Local to start at the
+next sign-in; on Linux, see
+[Linux](#linux). Hub asks running
+Locals to check in when My space opens and shows whether they are reachable.
+When uninstalling a paired Windows copy, remove its login entry with
+`Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'coSlash Local'`.
+Settings → Sync has an **Automatically update coSlash Local** switch, on by
+default. Script installations stage a checksum-verified release, checkpoint
+active queue work, restart, and roll back if the new Local fails to become ready.
+Homebrew and portable installs use the device's manual update action.
+
+## Install coSlash Local separately
+
+Use these options when you want to install Local before connecting it to Hub.
 
 ### macOS
 
@@ -49,17 +122,67 @@ coSlash serves <http://127.0.0.1:8787> and opens your browser with a fresh acces
 
 `brew upgrade coslash` updates it and `brew uninstall coslash` removes the binary. Your data stays in `~/.coslash` until you delete that directory. To install a specific version from a release archive, see [Install from a release archive](docs/install.md).
 
+### Linux
+
+coSlash Local runs on Linux amd64 and arm64, including headless servers. To
+connect a server, choose **Devices → Add device → A server over SSH** in
+Hub, SSH into the server, and paste the command there. To install without
+connecting:
+
+```sh
+curl -fsSL https://coslash.io/install.sh | bash
+```
+
+The script picks the `linux_amd64` or `linux_arm64` release archive from
+`uname -m`, verifies it against `checksums.txt`, and installs `coslash` to
+`~/.local/bin` (or `/usr/local/bin` when writable). It needs `curl`, `tar`, and
+`sha256sum` or `shasum`; it never uses `sudo`.
+
+After `coslash connect`, Local keeps running after you log out and starts at
+boot. When your account lingers (or can turn lingering on), Local runs as the
+systemd user service `coslash.service` (`systemctl --user status coslash`).
+If the system does not let an SSH session enable lingering without `sudo`,
+Local keeps running as a detached process and adds a `crontab` `@reboot`
+entry. To use the systemd service instead, run `sudo loginctl enable-linger
+"$USER"` before connecting. In a container without systemd or cron, run
+`coslash --background` from the entrypoint. The device
+credential is stored in `~/.coslash/hub-credentials/<hub host>` (mode `0600`)
+rather than a desktop keyring, so a reboot or a locked keyring never unpairs
+the host. Logs are in `~/.coslash/logs/coslash.log`. On a shared server each
+account connects its own Local; if another account's Local already uses port
+8787, yours listens on a free loopback port instead.
+
+The service does not read shell profiles. It keeps the `PATH`, `COSLASH_HOME`,
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `GROK_HOME`, `OPENCODE_DB`, and Pi path
+variables set when you connected; reconnect after changing them. To uninstall,
+run `systemctl --user disable --now coslash.service`, delete
+`~/.config/systemd/user/coslash.service` and the `coslash` binary, and remove
+`~/.coslash` if you no longer want its data.
+
 ### Windows
 
 Download `coslash-windows-amd64.exe` from the newest stable [release](https://github.com/centauri-ai/coslash/releases) that includes it, or from the newest prerelease if no stable release does. Double-click it. coSlash runs as a portable application and opens its UI in your browser. It needs no administrator privileges, WSL, Go, Node, or GNU tools.
 
 To upgrade, replace the executable with a newer one. To uninstall, delete it. Your data stays in `~\.coslash`. The executable is not code-signed. To verify its checksum, see [Install from a release archive](docs/install.md#windows). The supported baseline is Windows 11 24H2 amd64 ([Windows validation](docs/windows-validation.md)).
 
+### Connect this computer to Hub
+
+In Hub, open **Devices → Add device → This computer**. After installing,
+start coSlash Local once and return to Hub to start the pairing handoff. On
+macOS, the first run registers a per-user Launch Services handler. On Windows,
+the first run registers the `coslash:` URL scheme for the current Windows user;
+neither requires administrator privileges. When Hub asks the browser to open
+Local, allow the app handoff. Hub presents the account, workspace and computer
+name and waits for an explicit approval before Local stores its device key.
+Hub shows the first check-in separately from approval. After approval, Local
+starts personal v4 sync by default under the Hub's device policy. The Hub-led
+path does not use the manual pairing code screen or enable team sharing.
+
 ### First run
 
 coSlash needs at least one local agent session to read. If it finds none, it shows a checklist of every source that it looked at. Take one turn in a supported agent in a repo, then run the checks again. `coslash doctor` prints the same diagnostics in the terminal.
 
-Pi needs a managed extension for live status, which coSlash installs on startup. Restart running Pi processes after that. For Pi versions, custom session directories, and status details, see [Troubleshooting](docs/troubleshooting.md#pi-sessions-and-runtime-status).
+When Pi is installed, coSlash manages an extension for live status. Restart running Pi processes after an extension update. For Pi versions, custom session directories, and status details, see [Troubleshooting](docs/troubleshooting.md#pi-sessions-and-runtime-status).
 
 ### Linux sessions over SSH
 
@@ -162,14 +285,18 @@ Read [Data and privacy](docs/data-and-privacy.md) before you point coSlash at se
 | `coslash --port N` | Use another loopback port. |
 | `coslash --no-open` | Do not open the browser. |
 | `coslash --version` | Print the version. |
+| `coslash --help` / `coslash help` | List the CLI commands and their purpose. |
+| `coslash version` | Print the version. |
+| `coslash ui-url` | Print the authenticated web UI URL of the running app, also after `--background` or `--no-open` startup. Use the same `COSLASH_HOME` as the running app. |
 | `coslash sessions [query] --json` | List local sessions as JSON. The query filters by title, repository, branch, or agent. An exact session ID or `<agent>:<session>` selector returns only that session. |
 | `coslash handoff <agent>:<session>` | Print the handoff Markdown for a selector from `coslash sessions`. |
 | `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [message]` | Start the target agent in the working directory of the session, with the handoff and an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
 | `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor\|pi\|grok` | Start a review of a local session with an installed agent. |
-| `coslash doctor` | Check session sources, agent CLIs, and local storage. |
-| `coslash doctor --json` | Print the same diagnostics as JSON, as a shareable report. |
+| `coslash doctor` / `coslash status` | Check session sources, agent CLIs, local storage, Hub sync health, and the `coslash:` link handler. |
+| `coslash doctor --json` / `coslash status --json` | Print the same diagnostics as JSON, including Hub origin, pairing, last check-in, content-free queue counts, and link-handler state. |
+| `coslash doctor --fix-links [--yes]` | On macOS, list stale URL handlers; add `--yes` to unregister the listed bundles. |
 
-`sessions`, `handoff`, `send`, and `review` need the app to be running. Results go to standard output. Failures write `Error: <message>` to standard error and exit non-zero. The commands find the access token of the running app locally and never print it.
+`sessions`, `handoff`, `send`, and `review` need the app to be running. Results go to standard output. Failures write `Error: <message>` to standard error and exit non-zero. The commands find the access token of the running app locally and never print it. Only `coslash ui-url` prints the token, as part of the URL on standard output. It does not write the URL to the app logs.
 
 ### Agent skills
 
@@ -213,6 +340,29 @@ cd collector
 make release
 ./bin/coslash
 ```
+
+### Connect to a Hub from a source branch
+
+For local Hub testing, `collector/scripts/install-branch.sh` and
+`collector/scripts/install-branch.ps1` build the selected source branch directly;
+they do not download a release or require a release tag. Both require Git, Go
+1.26+, Node 24+, and npm. The macOS script also requires `make`.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/centauri-ai/coslash/hlu/hub-support/collector/scripts/install-branch.sh | bash -s -- --branch hlu/hub-support --connect CODE --hub http://localhost:8080
+```
+
+```powershell
+$env:COSLASH_SOURCE_BRANCH='hlu/hub-support'; $env:COSLASH_CONNECT='CODE'; $env:COSLASH_HUB='http://localhost:8080'; irm https://raw.githubusercontent.com/centauri-ai/coslash/hlu/hub-support/collector/scripts/install-branch.ps1 | iex
+```
+
+Replace `CODE` and the Hub origin with the values shown in Hub. To build another
+branch, change `--branch` on macOS or `COSLASH_SOURCE_BRANCH` on Windows (for
+example, `main`). A branch without `coslash connect` stops before replacing an
+installed binary. Branch builds report version `0.0.0`; set the local Hub's
+minimum and recommended Local versions to `0.0.0` while using them. Each source
+branch gets its own install directory and `COSLASH_HOME`, so a dev build does
+not replace the regular coSlash install or its data.
 
 See [Contributing](CONTRIBUTING.md) for the development loop and checks.
 

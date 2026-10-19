@@ -30,6 +30,31 @@ func (fixedHubCredential) Save(context.Context, string) error { return nil }
 
 func (fixedHubCredential) Delete(context.Context) error { return nil }
 
+func TestHubClientUsesDetectedInstallChannel(t *testing.T) {
+	client, err := hubClientForURL("0.1.0", "http://127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.InstallChannel != detectedInstallChannel() {
+		t.Fatalf("production Hub client install channel=%q, want %q", client.InstallChannel, detectedInstallChannel())
+	}
+}
+
+func TestDeviceCredentialStoreUsesPrivateFileOnLinux(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, ok := deviceCredentialStore("linux", "hub.example.test:8443").(hubclient.FileCredentialStore)
+	if !ok || store.Path != filepath.Join(home, "hub-credentials", "hub.example.test:8443") {
+		t.Fatalf("Linux credential store = %#v", store)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		keychain, ok := deviceCredentialStore(goos, "hub.example.test").(hubclient.OSKeychain)
+		if !ok || keychain.Service != "ai.coslash.hub-device" || keychain.Account == "hub.example.test" {
+			t.Fatalf("%s credential store = %#v", goos, keychain)
+		}
+	}
+}
+
 func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) {
 	recordData, err := os.ReadFile(filepath.Join("..", "..", "fullsession", "v1", "testdata", "fixtures", "valid", "codex.json"))
 	if err != nil {
@@ -109,7 +134,7 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 		},
 	}
 	api := http.NewServeMux()
-	registerHubRoutes(api, client, nil, nil)
+	registerHubRoutes(api, client, nil, newOnboardingManager("0.1.0"))
 
 	previewRequest := httptest.NewRequest(http.MethodGet, "/api/hub/full-session-preview?source="+record.SourceID+"&agent="+record.Agent+"&id="+record.SessionID+"&revision="+record.RevisionID, nil)
 	previewResponse := httptest.NewRecorder()
@@ -151,4 +176,64 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 
 func hubURL(request *http.Request) string {
 	return "http://" + request.Host
+}
+
+func TestRetiredV3BackupLocalRoutesAreNotRegistered(t *testing.T) {
+	onboardings := newOnboardingManager("0.1.0")
+	defer onboardings.Close()
+	api := http.NewServeMux()
+	registerHubRoutes(api, nil, nil, onboardings)
+	for _, path := range []string{"/api/hub/shares", "/api/hub/backup-previews"} {
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("%s status=%d, want %d", path, response.Code, http.StatusNotFound)
+		}
+	}
+}
+
+func TestDeviceCredentialsAreIsolatedByHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COSLASH_HOME", filepath.Join(home, "one"))
+	first, err := hubClientForURL("test", "https://hub.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "one"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	afterCreate, err := hubClientForURL("test", "https://hub.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Credentials != afterCreate.Credentials {
+		t.Fatal("creating the data home changed its credential account")
+	}
+	t.Setenv("COSLASH_HOME", filepath.Join(home, "two"))
+	second, err := hubClientForURL("test", "https://hub.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Credentials == second.Credentials {
+		t.Fatalf("two homes use the same credential account: %#v", first.Credentials)
+	}
+}
+
+func TestDeviceCredentialLegacyAccountIsOnlyForDefaultHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, localHome := range []string{filepath.Join(home, ".coslash"), filepath.Join(home, "dev")} {
+		t.Setenv("COSLASH_HOME", localHome)
+		store := deviceCredentialStore("darwin", "https://hub.example.test").(hubclient.OSKeychain)
+		if (store.LegacyAccount == "hub.example.test") != (localHome == filepath.Join(home, ".coslash")) {
+			t.Fatalf("unexpected legacy account: %#v", store)
+		}
+		other := deviceCredentialStore("darwin", "http://hub.example.test").(hubclient.OSKeychain)
+		if store.Account == other.Account {
+			t.Fatal("different origins share an account")
+		}
+	}
 }

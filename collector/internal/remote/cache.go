@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -213,13 +215,178 @@ func (c *Cache) Store(sourceID string, cached CachedSnapshot) error {
 }
 
 func (c *Cache) RemoveSource(sourceID string) error {
+	return c.removeSourceWithCommit(sourceID, func() error { return nil }, nil)
+}
+
+func (c *Cache) removeSourceWithCommit(sourceID string, commit func() error, previous *settings.RemoteSettings) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	dir, err := c.sourceDir(sourceID)
 	if err != nil {
 		return err
 	}
-	return os.RemoveAll(dir)
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		return commit()
+	} else if err != nil {
+		return err
+	}
+	trash, err := os.MkdirTemp(filepath.Dir(dir), ".removed-*")
+	if err != nil {
+		return err
+	}
+	record := removedSource{SourceID: sourceID}
+	if previous != nil {
+		record.PreviousAlias = previous.SSHAlias
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		_ = os.Remove(trash)
+		return err
+	}
+	marker := trash + ".json"
+	file, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		_ = os.Remove(trash)
+		return err
+	}
+	_, writeErr := file.Write(data)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		_ = os.Remove(marker)
+		_ = os.Remove(trash)
+		return err
+	}
+	staged := filepath.Join(trash, "source")
+	if err := os.Rename(dir, staged); err != nil {
+		_ = os.Remove(trash)
+		_ = os.Remove(marker)
+		return err
+	}
+	syncDirBestEffort(filepath.Dir(dir))
+	if err := commit(); err != nil {
+		if restoreErr := os.Rename(staged, dir); restoreErr != nil {
+			return errors.Join(err, fmt.Errorf("restore remote cache: %w", restoreErr))
+		}
+		_ = os.Remove(trash)
+		_ = os.Remove(marker)
+		return err
+	}
+	// The rename committed removal; cleanup cannot roll back a deleted tree.
+	if err := cleanupRemovedSource(trash); err != nil {
+		LogSSHFailure("removed remote cache cleanup", err)
+	}
+	return nil
+}
+
+type removedSource struct {
+	SourceID      string `json:"sourceId"`
+	PreviousAlias string `json:"previousAlias,omitempty"`
+}
+
+func removedSourceName(name string) bool {
+	suffix, ok := strings.CutPrefix(name, ".removed-")
+	if !ok {
+		return false
+	}
+	_, err := strconv.ParseUint(suffix, 10, 64)
+	return err == nil
+}
+
+func cleanupRemovedSource(trash string) error {
+	if err := os.RemoveAll(trash); err != nil {
+		return err
+	}
+	if err := os.Remove(trash + ".json"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// SweepRemovedSources retries only Local's recorded removals.
+func (c *Cache) SweepRemovedSources(local *settings.Store) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var current *settings.RemoteSettings
+	if local != nil {
+		state := local.State()
+		if !state.Valid {
+			LogSSHFailure("removed remote cache retry", ErrInvalidRemoteSettings)
+			return
+		}
+		current = state.Config.Remote
+	}
+	parent := filepath.Join(c.Root, "remotes")
+	directory, err := os.Open(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		LogSSHFailure("removed remote cache retry", err)
+		return
+	}
+	defer directory.Close()
+	for {
+		entries, readErr := directory.ReadDir(64)
+		for _, entry := range entries {
+			name := entry.Name()
+			if !entry.Type().IsRegular() || !strings.HasSuffix(name, ".json") {
+				continue
+			}
+			base := strings.TrimSuffix(name, ".json")
+			if !removedSourceName(base) {
+				continue
+			}
+			if err := c.sweepRecordedRemoval(filepath.Join(parent, base), current); err != nil {
+				LogSSHFailure("removed remote cache retry", err)
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				LogSSHFailure("removed remote cache retry", readErr)
+			}
+			return
+		}
+	}
+}
+
+func (c *Cache) sweepRecordedRemoval(trash string, current *settings.RemoteSettings) error {
+	file, err := os.Open(trash + ".json")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, 1025))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		return errors.Join(readErr, closeErr)
+	}
+	var record removedSource
+	if len(data) > 1024 || json.Unmarshal(data, &record) != nil || !settings.ValidRemoteID(record.SourceID) || record.PreviousAlias != "" && !settings.ValidSSHAlias(record.PreviousAlias) {
+		return errors.New("invalid removed source record")
+	}
+	if info, err := os.Lstat(trash); err == nil && !info.IsDir() {
+		return errors.New("removed source is not a directory")
+	} else if errors.Is(err, os.ErrNotExist) {
+		return cleanupRemovedSource(trash)
+	} else if err != nil {
+		return err
+	}
+	if current != nil && record.SourceID == current.ID && record.PreviousAlias == current.SSHAlias {
+		original, err := c.sourceDir(record.SourceID)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Lstat(original); !errors.Is(err, os.ErrNotExist) {
+			return errors.New("removed source is still configured")
+		}
+		if err := os.Rename(filepath.Join(trash, "source"), original); err != nil {
+			return err
+		}
+	}
+	return cleanupRemovedSource(trash)
 }
 
 func age(fetchedAtMs int64, now time.Time) time.Duration {

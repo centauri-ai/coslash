@@ -7,7 +7,9 @@ import {
   freshLaunchDisabledHint,
   getModality,
   getSessionVendors,
+  getTotalTokens,
   LOCAL_SOURCE_ID,
+  resolveGoal,
   resumeDisabled,
   resumeDisabledHint,
   sessionKey,
@@ -15,11 +17,28 @@ import {
   sessionReadiness,
   sessionsForAggregates,
   sessionShareEligibility,
+  sessionTotalTokens,
   sumKnown,
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
 import { HOUR } from '@/pages/coslash/lib/time';
+
+describe('resolveGoal', () => {
+  it('uses every ordered Local synthesis goal for the debrief when a declared goal also exists', () => {
+    expect(
+      resolveGoal({
+        declaredGoal: 'Original request',
+        synthesis: {
+          goals: ['First synthesized goal', 'Second synthesized goal'],
+          outcome: 'Done',
+          keyDecisions: [],
+          nextStep: 'Measure',
+        },
+      }),
+    ).toEqual({ texts: ['First synthesized goal', 'Second synthesized goal'], source: 'inferred' });
+  });
+});
 
 describe('getModality', () => {
   it('labels OpenCode client entrypoints without changing the shared CLI modality', () => {
@@ -117,6 +136,23 @@ describe('sumKnown', () => {
     expect(sumKnown([10_000, null])).toBeNull();
     expect(sumKnown([10_000, 2_000])).toBe(12_000);
     expect(sumKnown([])).toBeNull();
+  });
+});
+
+describe('token totals', () => {
+  it('returns unknown when a negative counter is masked by another counter', () => {
+    const tokens = {
+      model: {
+        input_tokens: -500,
+        output_tokens: 1000,
+        cache_creation_input_tokens: 0,
+        cache_creation_1h_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    };
+
+    expect(getTotalTokens(tokens)).toBeNull();
+    expect(sessionTotalTokens({ tokens })).toBeNull();
   });
 });
 

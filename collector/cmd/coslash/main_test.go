@@ -55,7 +55,7 @@ func TestValidateCursorLaunch(t *testing.T) {
 }
 
 func TestListenBindsIPv4Loopback(t *testing.T) {
-	listener, err := listen(0)
+	listener, err := listen(0, false)
 	if err != nil {
 		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
 			t.Skipf("sandbox does not permit opening a loopback listener: %v", err)
@@ -73,9 +73,67 @@ func TestListenBindsIPv4Loopback(t *testing.T) {
 	}
 }
 
+func TestListenFallsBackOnlyForDefaultPort(t *testing.T) {
+	held, err := listen(0, false)
+	if err != nil {
+		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+			t.Skipf("sandbox does not permit opening a loopback listener: %v", err)
+		}
+		t.Fatal(err)
+	}
+	defer held.Close()
+	port := held.Addr().(*net.TCPAddr).Port
+
+	if _, err := listen(port, false); err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("explicit port error = %v, want already in use", err)
+	}
+	listener, err := listen(port, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if got := listener.Addr().(*net.TCPAddr); got.Port == port || !got.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("fallback listener = %s, want another 127.0.0.1 port", got)
+	}
+}
+
+func TestIsAddressInUseRecognizesWindowsSocketError(t *testing.T) {
+	err := &net.OpError{Op: "listen", Net: "tcp", Err: syscall.Errno(10048)}
+	if !isAddressInUse(err) {
+		t.Fatalf("isAddressInUse(%v) = false, want true", err)
+	}
+}
+
+func TestParseOptionsRecordsExplicitPort(t *testing.T) {
+	for _, test := range []struct {
+		args     []string
+		explicit bool
+	}{
+		{args: nil},
+		{args: []string{"--background"}},
+		{args: []string{"--port", "8787"}, explicit: true},
+		{args: []string{"--port=0"}, explicit: true},
+	} {
+		opts, err := parseOptions(test.args)
+		if err != nil || opts.portExplicit != test.explicit {
+			t.Fatalf("parseOptions(%q) = %#v, %v; want portExplicit=%t", test.args, opts, err, test.explicit)
+		}
+	}
+}
+
+func TestStartupAccessInstructionsGiveARecoveryPathWithoutLoggingTheToken(t *testing.T) {
+	instructions := startupAccessInstructions()
+	if instructions != "run coslash in Terminal to open coSlash Local" {
+		t.Fatalf("startup instructions = %q, want the supported Terminal recovery path", instructions)
+	}
+	if strings.Contains(instructions, "#t=") {
+		t.Fatalf("startup instructions include a token fragment: %q", instructions)
+	}
+}
+
 func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	for _, test := range []struct {
 		method string
 		path   string
@@ -130,7 +188,7 @@ func TestStartupAccountingFailureKeepsCachedSessionsAvailable(t *testing.T) {
 	listSessions = func(context.Context, int64) ([]*session.Session, error) {
 		return []*session.Session{{Agent: "codex", ID: "kept", LastActivityTime: 42}}, nil
 	}
-	handler := routes(manager, reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(manager, reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
 	if response.Code != 200 || !strings.Contains(response.Body.String(), `"outcome":"valid"`) {
@@ -178,7 +236,7 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 		t.Fatal("review did not start")
 	}
 	<-started
-	handler := routes(synthesis.NewManager(nil, nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	get := func(agent, id string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/reviews?agent="+agent+"&id="+id, nil))
@@ -212,7 +270,7 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 
 func TestSynthesisRouteRequiresAgent(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
 	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/synthesis?id=same", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -848,6 +906,23 @@ func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 	}
 }
 
+func TestWriteSettingsReportsConfiguredSettingsPath(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "custom-coslash-home")
+	t.Setenv("COSLASH_HOME", home)
+	response := httptest.NewRecorder()
+	writeSettings(context.Background(), response, settings.State{Config: settings.Defaults(), Valid: true})
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := body["settingsPath"], filepath.Join(home, "settings.json"); got != want {
+		t.Fatalf("settingsPath = %#v, want %q", got, want)
+	}
+}
+
 func TestBoardRemoteSessionSerializesCollectionsAsArrays(t *testing.T) {
 	encoded, err := json.Marshal(boardRemoteSession(remote.IndexedSession{
 		Key:     remote.SessionKey{SourceID: "r_0123456789abcdef"},
@@ -1215,12 +1290,84 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 		settings.Open(),
 		remote.NewManager(remote.Options{}),
 		nil,
+		serverServices{onboardings: newOnboardingManager("0.1.0")},
 	)
 	request := httptest.NewRequest(http.MethodGet, "http://evil.example:8787/", nil)
 	response := httptest.NewRecorder()
 	server.Handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
+
+func TestLateHubPairingBindsSessionReaders(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	onboardings := newOnboardingManager("1.2.3")
+	defer onboardings.Close()
+	remoteManager := remote.NewManager(remote.Options{})
+	routesWithOnboarding(
+		synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remoteManager, nil, onboardings,
+	)
+	client, err := hubClientForURL("1.2.3", "https://hub.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardings.setHubClient(client)
+	if client.LoadSourceSession == nil || client.LoadFullSession == nil {
+		t.Fatal("Hub client paired after startup has no source-bound session readers")
+	}
+}
+
+func TestRetiredShareSynthesisRouteIsNotRegistered(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	onboardings := newOnboardingManager("1.2.3")
+	defer onboardings.Close()
+	routes := routesWithOnboarding(
+		synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, onboardings,
+	)
+	response := httptest.NewRecorder()
+	routes.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hub/share-synthesis", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want %d", response.Code, http.StatusNotFound)
+	}
+}
+
+func TestServerShutdownEndpointRequiresTokenAndRequestsGracefulShutdown(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	shutdown := make(chan struct{}, 1)
+	server := newServer(
+		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
+		synthesis.NewManager(nil, nil),
+		reviewpkg.NewManager(nil),
+		settings.Open(),
+		remote.NewManager(remote.Options{}),
+		nil,
+		serverServices{onboardings: newOnboardingManager("0.1.0"), shutdown: shutdown},
+	)
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	unauthorizedResponse := httptest.NewRecorder()
+	server.Handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorizedResponse.Code, http.StatusUnauthorized)
+	}
+	select {
+	case <-shutdown:
+		t.Fatal("unauthorized request requested shutdown")
+	default:
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	request.Header.Set("X-Coslash-Token", "secret")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("authorized status = %d, want %d", response.Code, http.StatusAccepted)
+	}
+	select {
+	case <-shutdown:
+	default:
+		t.Fatal("authorized request did not request shutdown")
 	}
 }
 

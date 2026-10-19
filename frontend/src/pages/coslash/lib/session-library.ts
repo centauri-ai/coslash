@@ -1,5 +1,4 @@
 import {
-  isEligibleForSharing,
   isLocalSession,
   sessionLogicalId,
   sessionRevision,
@@ -84,9 +83,4 @@ export function filterSessionLibrary<T extends Session>(
     if (!search) return true;
     return sessionSearchDocument(session).includes(search);
   });
-}
-
-/** Stable, source-neutral handoff for LB-04's explicit-review workflow. */
-export function eligibleSessionCandidates<T extends Session>(sessions: readonly T[]): T[] {
-  return latestLogicalSessions(sessions).filter(isEligibleForSharing);
 }

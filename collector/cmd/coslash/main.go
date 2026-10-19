@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,15 +24,17 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/inventory"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
@@ -37,11 +42,29 @@ import (
 var version = "dev"
 
 const defaultPort = 8787
+const windowsWSAEADDRINUSE syscall.Errno = 10048
+
+func startupAccessInstructions() string {
+	return "run coslash in Terminal to open coSlash Local"
+}
 
 type options struct {
-	port        int
-	noOpen      bool
-	showVersion bool
+	port         int
+	portExplicit bool
+	noOpen       bool
+	background   bool
+	showVersion  bool
+}
+
+func gracefulShutdown(server *http.Server, grace time.Duration) error {
+	shutdownContext, cancel := context.WithTimeout(context.Background(), grace)
+	err := server.Shutdown(shutdownContext)
+	cancel()
+	if err != nil {
+		log.Printf("graceful shutdown exceeded %s: %v; waiting for active requests", grace, err)
+		return server.Shutdown(context.Background())
+	}
+	return nil
 }
 
 func parseOptions(arguments []string) (options, error) {
@@ -54,10 +77,12 @@ func parseOptions(arguments []string) (options, error) {
 		"port to serve on, loopback only; 0 picks any free port",
 	)
 	flags.BoolVar(&opts.noOpen, "no-open", false, "do not open a browser on startup")
+	flags.BoolVar(&opts.background, "background", false, "run coSlash Local in the background")
 	flags.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
 	if err := flags.Parse(arguments); err != nil {
 		return options{}, err
 	}
+	flags.Visit(func(set *flag.Flag) { opts.portExplicit = opts.portExplicit || set.Name == "port" })
 	// 0 asks the kernel for a free port; the bound one is logged at startup.
 	if opts.port < 0 || opts.port > 65535 {
 		return options{}, fmt.Errorf("--port must be between 0 and 65535, got %d", opts.port)
@@ -65,12 +90,32 @@ func parseOptions(arguments []string) (options, error) {
 	if extra := flags.Args(); len(extra) > 0 {
 		return options{}, fmt.Errorf("unexpected argument %q", extra[0])
 	}
+	if opts.background {
+		opts.noOpen = true
+	}
 	return opts, nil
 }
 
 func main() {
-	if len(os.Args) > 1 {
+	arguments := os.Args[1:]
+	var startupIntent *hubclient.LaunchIntent
+	protocolRequest := len(arguments) > 0 && arguments[0] == "--protocol-url"
+	if protocolRequest {
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "coSlash activation could not be started; return to Hub and retry.")
+			return
+		}
+		var alreadyRunning bool
+		startupIntent, alreadyRunning = handleProtocolActivation(arguments[1])
+		if alreadyRunning {
+			return
+		}
+		arguments = []string{"--background"}
+	}
+	if !protocolRequest && len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "help", "version", "status", "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
+			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		case "ssh-auth":
 			if len(os.Args) != 3 {
 				log.Fatal("coslash ssh-auth requires one attempt ID")
@@ -87,12 +132,21 @@ func main() {
 			}
 			fmt.Println("SSH authentication ready; return to coSlash.")
 			return
-		case "sessions", "handoff", "send", "review", "doctor":
-			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
+		case "update-apply":
+			runUpdateApply(os.Args[2:])
+			return
+		default:
+			if os.Args[1] != "" && os.Args[1][0] != '-' {
+				os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
+			}
 		}
 	}
+	if !protocolRequest && len(arguments) > 0 && (arguments[0] == "--help" || arguments[0] == "-h") {
+		printCLIHelp(os.Stdout)
+		return
+	}
 
-	opts, err := parseOptions(os.Args[1:])
+	opts, err := parseOptions(arguments)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
@@ -103,18 +157,58 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	if opts.background {
+		ignoreBackgroundHangup()
+		if err := configureBackgroundLog(); err != nil {
+			fmt.Fprintln(os.Stderr, "coSlash Local could not start in the background.")
+			return
+		}
+	}
 	runtimeLock, err := acquireRuntimeLock()
+	if opts.background && runtime.GOOS != "windows" && errors.Is(err, errRuntimeAlreadyRunning) {
+		waitContext, stopWaiting := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		runtimeLock, err = waitForRuntimeLock(waitContext)
+		stopWaiting()
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+	}
 	if err != nil {
+		if startupIntent != nil && errors.Is(err, errRuntimeAlreadyRunning) && forwardWhenReady(startupIntent) {
+			return
+		}
+		if !opts.background && len(os.Args) == 1 && errors.Is(err, errRuntimeAlreadyRunning) {
+			fmt.Fprintln(os.Stdout, "coSlash Local is already running.")
+			if baseURL, token, readErr := readRuntime(); readErr == nil {
+				if openErr := openBrowser(baseURL + "/#t=" + token); openErr != nil {
+					fmt.Fprintln(os.Stderr, "coSlash Local is running, but its window could not be opened.")
+				}
+			}
+			return
+		}
 		log.Fatalf("coslash: %v", err)
 	}
 	defer runtimeLock.Close()
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		if err := ensureProtocolHandler(); err != nil {
+			log.Printf("Hub app launch handoff is unavailable; return to Hub and use the install/open recovery steps")
+		}
+	}
 
 	settingsStore := settings.Open()
 	accountingStore := startupAccountingStore(settings.Home(), time.Now().UnixMilli())
 	if accountingStore != nil {
 		defer accountingStore.Close()
 	}
-	if err := pi.EnsureExtension(); err != nil {
+	var fingerprints *syncv4.Fingerprints
+	if hubclient.ScaleImportEnabled() {
+		if fingerprints, err = syncv4.OpenFingerprints(""); err != nil {
+			log.Printf("parse cache unavailable: %v; parsing every pass", err)
+		} else {
+			vendors.SetParseCache(fingerprints)
+		}
+	}
+	if err := ensurePiExtensionIfDetected(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
 	if err := opencode.EnsurePlugin(); err != nil {
@@ -151,11 +245,15 @@ func main() {
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		return collector.List(ctx, today.UnixMilli())
 	})
-	go cleanupHandoffs(settingsStore)
 	remoteManager, err := newProductionRemoteManager()
 	if err != nil {
 		log.Fatalf("remote manager: %v", err)
 	}
+	remoteManager.CleanupRemovedSources(settingsStore)
+	go cleanupHandoffs(settingsStore, remoteManager)
+	backupManager := sessionbackupproducer.New(sessionbackupproducer.Options{
+		CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
+	})
 	if settingsState.Valid {
 		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
 			log.Printf("remote settings: %v", err)
@@ -167,7 +265,7 @@ func main() {
 
 	// Bind before opening the browser, so a port conflict is an error the user
 	// reads rather than a browser tab pointed at nothing.
-	listener, err := listen(opts.port)
+	listener, err := listen(opts.port, !opts.portExplicit)
 	if err != nil {
 		log.Fatalf("coslash: %v", err)
 	}
@@ -188,26 +286,134 @@ func main() {
 		}
 	}()
 	accessURL := baseURL + "/#t=" + token
-	log.Printf("listening on %s", baseURL)
-	log.Printf("open %s", accessURL)
+	log.Printf("listening on %s; %s", baseURL, startupAccessInstructions())
 	if !opts.noOpen {
 		if err := openBrowser(accessURL); err != nil {
-			log.Printf("could not open a browser (%v); use the URL above", err)
+			log.Printf("could not open a browser (%v); %s", err, startupAccessInstructions())
 		}
 	}
 	guard := httpsec.Guard{Addr: listener.Addr().String(), Token: token}
-	hub, err := hubClientFromEnvironment(version)
+	collectorVersion := normalizedVersion()
+	hub, err := hubClientFromEnvironment(collectorVersion)
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
 	}
-	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, directedStore)
+	onboardings := newOnboardingManager(collectorVersion)
+	inventoryTracker := &inventory.Tracker{}
+	var controller *syncController
+	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retryWake chan struct{}) {
+		var inventoryRequest chan struct{}
+		if fingerprints != nil {
+			inventoryRequest = make(chan struct{}, 1)
+			go runInventoryWithRequests(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
+				current := onboardings.currentHubClient()
+				if current == nil || current.Credentials == nil {
+					return false
+				}
+				credential, err := current.Credentials.Load(ctx)
+				return err == nil && credential != ""
+			}, inventoryRequest)
+		}
+		syncHub := currentHubTransport{current: onboardings.currentHubClient, queue: queue}
+		runner := &syncv4.Runner{
+			Version: collectorVersion,
+			Queue:   queue, Backup: backupManager, Hub: syncHub,
+			RequireImportPlan:  true,
+			Discover:           func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+			InventoryProgress:  func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
+			Conditions:         syncv4.LocalConditions,
+			LocalPause:         func() bool { return settingsStore.State().Config.SyncPaused },
+			Command:            v4CommandRunner(queue, settingsStore, remoteManager),
+			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
+			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
+		}
+		if fingerprints != nil {
+			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
+				var resume *inventory.Cursor
+				if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
+					resume = inventory.DecodeCursor(saved)
+				}
+				plan, startedAt := queue.DiscoveryPlan()
+				planVersion := int64(0)
+				if plan != nil {
+					planVersion = plan.Version
+				}
+				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume, PlanVersion: planVersion, MinActivityMs: syncv4.DiscoveryMinActivity(plan, startedAt), BatchFamilies: 64, FirstBatchFamilies: 8}) {
+					if err != nil {
+						return err
+					}
+					if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes}); err != nil {
+						return err
+					}
+					encoded, err := json.Marshal(batch.Cursor)
+					if err != nil {
+						return err
+					}
+					if err := fingerprints.SaveDiscoveryCursor(encoded); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+		}
+		loopControl := newSyncLoopControl(func() bool {
+			_, config, _ := queue.Policy()
+			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
+		})
+		go runActivePoller(syncContext, "", loopControl)
+		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, controller.observedWait(syncHub.V4Wait, client), loopControl, wake, retryWake, inventoryRequest)
+	}, func() bool { return settingsStore.State().Config.SyncPaused })
+	if err != nil {
+		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
+	}
+	onboardings.SetV4SyncActive(controller.Queue() != nil)
+	onboardings.setSyncHooks(controller)
+	onboardings.setBackgroundRegistration(registerBackgroundLogin)
+	shutdownRequests := make(chan struct{}, 1)
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
+		serverServices{queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
+	onboardings.ensureSync(hub)
+	shutdownComplete := make(chan error, 1)
+	var shutdownOnce sync.Once
+	shutdown := func(grace time.Duration) {
+		shutdownOnce.Do(func() {
+			go func() {
+				shutdownComplete <- gracefulShutdown(server, grace)
+			}()
+		})
+	}
+	if queue := controller.Queue(); queue != nil {
+		go watchAutomaticUpdates(queue, func(staged string) error {
+			if err := launchUpdateHelper(staged); err != nil {
+				return err
+			}
+			shutdown(15 * time.Second)
+			return nil
+		})
+	}
+	if startupIntent != nil {
+		switch startupIntent.Action {
+		case "pair":
+			if err := onboardings.StartPairing(startupIntent.HubURL.String(), startupIntent.AttemptID, startupIntent.LaunchToken); err != nil {
+				fmt.Fprintln(os.Stderr, "coSlash could not start Hub pairing; return to Hub and retry.")
+			}
+		case "check-in":
+			go func() { _ = onboardings.RetryCheckIn(startupIntent.HubURL.String()) }()
+		case "wake":
+			if err := onboardings.RequestWake(startupIntent.HubURL.String()); err != nil {
+				log.Printf("wake request was ignored")
+			}
+		}
+	}
 	go func() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-		<-signals
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdownContext)
+		select {
+		case <-signals:
+			shutdown(5 * time.Second)
+		case <-shutdownRequests:
+			shutdown(3 * time.Minute)
+		}
 	}()
 	runtimeReady, err := acquireRuntimeReadiness()
 	if err != nil {
@@ -215,6 +421,12 @@ func main() {
 	}
 	defer runtimeReady.Close()
 	serveErr := server.Serve(listener)
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		if err := <-shutdownComplete; err != nil {
+			log.Printf("coSlash Local shutdown: %v", err)
+		}
+	}
+	controller.Stop()
 	stopDiscovery()
 	directedStore.Shutdown()
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -230,8 +442,194 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 	return store
 }
 
+// runInventory takes the stat-only inventory at startup and every sync
+// interval, records it for check-in, prunes cache entries whose source is
+// gone, and wakes discovery when sources change or a requested refresh finishes.
+func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool) {
+	runInventoryWithRequests(ctx, fingerprints, queue, wake, tracker, paired, nil)
+}
+
+func runInventoryWithInterval(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration) {
+	runInventoryWithIntervalAndRequests(ctx, fingerprints, queue, wake, tracker, paired, interval, nil)
+}
+
+func runInventoryWithRequests(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, requests <-chan struct{}) {
+	runInventoryWithIntervalAndRequests(ctx, fingerprints, queue, wake, tracker, paired, 5*time.Minute, requests)
+}
+
+func runInventoryWithIntervalAndRequests(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration, requests <-chan struct{}) {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context, retryAfter time.Duration, lastRequest time.Time) (bool, bool, bool) {
+		return waitForInventory(ctx, interval, retryAfter, requests, lastRequest)
+	}, nil)
+}
+
+func runInventoryWithTicks(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, ticks <-chan struct{}, scanComplete chan<- struct{}) {
+	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context, _ time.Duration, _ time.Time) (bool, bool, bool) {
+		select {
+		case <-ctx.Done():
+			return false, false, false
+		case <-ticks:
+			return true, false, false
+		}
+	}, scanComplete)
+}
+
+func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, wait func(context.Context, time.Duration, time.Time) (bool, bool, bool), scanComplete chan<- struct{}) {
+	var previous *inventory.Snapshot
+	var lastRequest time.Time
+	forceDiscovery := false
+	var continueScan, requested bool
+	for {
+		if !paired(ctx) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+				continue
+			}
+		}
+		snapshot, err := inventory.Scan(ctx, inventory.Options{Tracker: tracker})
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("inventory: %v", err)
+		} else {
+			report := snapshot.Inventory()
+			log.Printf("inventory: %d files, %d bytes in %d ms", report.Files, report.Bytes, report.DurationMs)
+			if queue != nil {
+				if err := queue.SetInventory(report); err != nil {
+					log.Printf("inventory: record for check-in: %v", err)
+				}
+			}
+			if removed, err := fingerprints.Prune(inventory.KeepCached(ctx, snapshot)); err != nil {
+				log.Printf("parse cache prune: %v", err)
+			} else if removed > 0 {
+				log.Printf("parse cache: pruned %d entries", removed)
+			}
+			if forceDiscovery || inventorySourcesChanged(previous, snapshot) {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
+			previous = snapshot
+		}
+		if scanComplete != nil {
+			select {
+			case scanComplete <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		retryAfter := inventorySettleRetry(snapshot)
+		continueScan, forceDiscovery, requested = wait(ctx, retryAfter, lastRequest)
+		if !continueScan {
+			return
+		}
+		if requested {
+			lastRequest = time.Now()
+		}
+	}
+}
+
+const inventorySettleRetryDelay = 30 * time.Second
+
+func inventorySettleRetry(snapshot *inventory.Snapshot) time.Duration {
+	if snapshot == nil {
+		return 0
+	}
+	cutoff := snapshot.ScannedAt.Add(-inventorySettleRetryDelay).UnixMilli()
+	scanEnd := snapshot.ScannedAt.Add(snapshot.Duration).UnixMilli()
+	for _, file := range snapshot.Files {
+		if file.ModTimeMs > cutoff && file.ModTimeMs <= scanEnd {
+			return inventorySettleRetryDelay
+		}
+	}
+	return 0
+}
+
+func inventoryRequestDebounceDelay(lastRequest, now time.Time) time.Duration {
+	if lastRequest.IsZero() || !now.Before(lastRequest.Add(syncNowInventoryDebounce)) {
+		return 0
+	}
+	return lastRequest.Add(syncNowInventoryDebounce).Sub(now)
+}
+
+func waitForInventory(ctx context.Context, interval, retryAfter time.Duration, requests <-chan struct{}, lastRequest time.Time) (continueScan, forceDiscovery, requested bool) {
+	intervalTimer := time.NewTimer(interval)
+	defer intervalTimer.Stop()
+	var retryTimer *time.Timer
+	var retryC <-chan time.Time
+	if retryAfter > 0 {
+		retryTimer = time.NewTimer(retryAfter)
+		retryC = retryTimer.C
+		defer retryTimer.Stop()
+	}
+	requestC := requests
+	var debounceTimer *time.Timer
+	var debounceC <-chan time.Time
+	defer func() {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+	}()
+	pendingRequest := false
+	for {
+		select {
+		case <-ctx.Done():
+			return false, false, false
+		case <-intervalTimer.C:
+			return true, pendingRequest, pendingRequest
+		case <-retryC:
+			return true, true, pendingRequest
+		case <-requestC:
+			if delay := inventoryRequestDebounceDelay(lastRequest, time.Now()); delay > 0 {
+				pendingRequest = true
+				requestC = nil
+				debounceTimer = time.NewTimer(delay)
+				debounceC = debounceTimer.C
+				continue
+			}
+			return true, true, true
+		case <-debounceC:
+			return true, true, true
+		}
+	}
+}
+
+func inventorySourcesChanged(previous, current *inventory.Snapshot) bool {
+	if previous == nil || current == nil || previous.Skipped != current.Skipped || len(previous.Files) != len(current.Files) || len(previous.Missing) != len(current.Missing) {
+		return true
+	}
+	for i := range previous.Missing {
+		if previous.Missing[i] != current.Missing[i] {
+			return true
+		}
+	}
+	files := make(map[string]inventory.File, len(previous.Files))
+	for _, file := range previous.Files {
+		files[file.Agent+"\x00"+file.Path] = file
+	}
+	for _, file := range current.Files {
+		prior, ok := files[file.Agent+"\x00"+file.Path]
+		if !ok || prior.Size != file.Size || prior.ModTimeMs != file.ModTimeMs {
+			return true
+		}
+	}
+	return false
+}
+
 func newProductionRemoteManager() (*remote.Manager, error) {
 	return remote.NewProductionManager()
+}
+
+type serverServices struct {
+	queue          *syncv4.Queue
+	directedStore  *directedhandoff.Store
+	onboardings    *onboardingManager
+	syncController *syncController
+	shutdown       chan struct{}
 }
 
 func newServer(
@@ -241,10 +639,17 @@ func newServer(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
-	directedStores ...*directedhandoff.Store,
+	services ...serverServices,
 ) *http.Server {
+	var service serverServices
+	if len(services) > 0 {
+		service = services[0]
+	}
+	if service.onboardings == nil {
+		service.onboardings = newOnboardingManager(version)
+	}
 	server := &http.Server{
-		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, directedStores...)),
+		Handler:           guard.Wrap(routesWithOnboarding(mgr, reviewManager, settingsStore, remoteManager, hub, service.onboardings, service)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -253,22 +658,61 @@ func newServer(
 	}
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
-	if len(directedStores) > 0 && directedStores[0] != nil {
-		server.RegisterOnShutdown(directedStores[0].Shutdown)
+	server.RegisterOnShutdown(service.onboardings.Close)
+	if service.syncController != nil {
+		server.RegisterOnShutdown(service.syncController.Stop)
+	}
+	if service.directedStore != nil {
+		server.RegisterOnShutdown(service.directedStore.Shutdown)
 	}
 	return server
 }
 
-func routes(
+func routesWithOnboarding(
 	mgr *synthesis.Manager,
 	reviewManager *review.Manager,
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
-	directedStores ...*directedhandoff.Store,
+	onboardings *onboardingManager,
+	services ...serverServices,
 ) *http.ServeMux {
+	var service serverServices
+	if len(services) > 0 {
+		service = services[0]
+	}
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
+	if service.shutdown != nil {
+		api.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, _ *http.Request) {
+			select {
+			case service.shutdown <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusAccepted)
+		})
+	}
+	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
+		if service.queue == nil {
+			writeJSON(w, syncv4.UpdatePrompt{})
+			return
+		}
+		writeJSON(w, service.queue.UpdatePrompt())
+	})
+	api.HandleFunc("GET /api/sync/status", func(w http.ResponseWriter, _ *http.Request) {
+		if service.syncController == nil {
+			writeJSON(w, syncStatus{State: "not_connected", Sessions: map[string]string{}})
+			return
+		}
+		writeJSON(w, service.syncController.Status())
+	})
+	api.HandleFunc("POST /api/sync/retry", func(w http.ResponseWriter, _ *http.Request) {
+		if service.syncController == nil || !service.syncController.RetryNow() {
+			writeAPIError(w, http.StatusConflict, "sync_unavailable", "Hub sync is not available")
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
@@ -310,7 +754,11 @@ func routes(
 		writeSettings(r.Context(), w, settingsStore.State())
 	})
 	api.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		wasPaused := settingsStore.State().Config.SyncPaused
 		handleSaveSettings(w, r, settingsStore, mgr, remoteManager)
+		if service.syncController != nil && wasPaused != settingsStore.State().Config.SyncPaused {
+			service.syncController.RequestPass("settings")
+		}
 	})
 	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
 		handleLaunch(w, r, settingsStore, remoteManager)
@@ -352,10 +800,7 @@ func routes(
 	api.HandleFunc("GET /api/handoff", func(w http.ResponseWriter, r *http.Request) {
 		handleHandoff(w, r, getCanonicalSession)
 	})
-	var directedStore *directedhandoff.Store
-	if len(directedStores) > 0 {
-		directedStore = directedStores[0]
-	}
+	directedStore := service.directedStore
 	api.HandleFunc("GET /api/directed-handoffs/targets", func(w http.ResponseWriter, r *http.Request) {
 		handleDirectedHandoffTargets(w, r, settingsStore)
 	})
@@ -389,15 +834,11 @@ func routes(
 		handleRemoteHelperSetup(w, r, remoteManager)
 	})
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
+		snapshot := diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager))
+		addProtocolHandlerDoctorCheck(snapshot)
+		writeJSON(w, snapshot)
 	})
-	var backupManager *sessionbackupproducer.Manager
-	if hub != nil {
-		backupManager = sessionbackupproducer.New(sessionbackupproducer.Options{
-			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
-		})
-	}
-	registerHubRoutes(api, hub, remoteManager, backupManager)
+	registerHubRoutes(api, hub, remoteManager, onboardings)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 
@@ -445,11 +886,18 @@ func remoteHealthFact(manager *remote.Manager) *diagnostics.RemoteHealth {
 	return remoteHealth
 }
 
-func listen(port int) (net.Listener, error) {
+// listen binds the loopback API. With fallback, a default port held by another
+// process, such as a second user's Local on a shared server, gives way to any
+// free port: the CLI finds Local through the runtime descriptor, not the port.
+func listen(port int, fallback bool) (net.Listener, error) {
 	address := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", address)
+	if err != nil && fallback && isAddressInUse(err) {
+		log.Printf("port %d is in use by another process; using a free port instead", port)
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
-		if errors.Is(err, syscall.EADDRINUSE) {
+		if isAddressInUse(err) {
 			return nil, fmt.Errorf(
 				"port %d is already in use; quit the other process or pass --port",
 				port,
@@ -458,6 +906,10 @@ func listen(port int) (net.Listener, error) {
 		return nil, fmt.Errorf("listen on %s: %w", address, err)
 	}
 	return listener, nil
+}
+
+func isAddressInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, windowsWSAEADDRINUSE)
 }
 
 func unavailable() http.Handler {

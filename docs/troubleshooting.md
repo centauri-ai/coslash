@@ -1,10 +1,21 @@
 # Troubleshooting
 
-Start with `coslash doctor`. It checks session sources, agent CLIs, and storage. Use `coslash doctor --json` for a shareable report, and check the terminal where coSlash started for logs.
+Start with `coslash doctor` (or `coslash status`). It checks session sources, agent CLIs, storage, Hub sync health, and which coSlash Local copy handles `coslash:` links. Hub sync health includes pending, failing, and parked queue counts. Use `coslash doctor --json` for a report; it includes the Hub origin, device identity, and link-handler state but no session titles or content. Check the terminal where coSlash started for logs.
+
+## coSlash links open the wrong Local copy
+
+Run `coslash doctor` and check **Open coSlash Local link**. A healthy registration
+reports `registered (this copy)`. If it points at another executable, restart
+the current Local so it can update the per-user handler. On macOS, run
+`coslash doctor --fix-links` to list old or missing coSlash handler bundles.
+Review the paths, then run `coslash doctor --fix-links --yes` to unregister the
+listed bundles. The command does not remove bundle files.
 
 ## Sessions are missing
 
 Create at least one local Claude Code, Codex, Cursor, or OpenCode session, then reload. Run `coslash doctor` for unreadable or missing sources. In the UI, select **All** vendors and time windows and clear search.
+
+On macOS, coSlash does not need access to a session's project folder to discover or sync its transcript. Background enrichment skips project files in Desktop, Documents, Downloads, iCloud Drive, and mounted volumes, so repository details, Git drift, and file modification times may be unavailable for those sessions. A source transcript stored in one of those locations, or an explicit action that opens the project, can still require macOS folder permission. If macOS asks again after each coSlash update, note the folder named in the prompt and the coSlash install method when reporting it; macOS tracks privacy access by the program's code identity.
 
 For Cursor, `coslash doctor` reports the IDE (`cursor`) and CLI (`agent`) separately. coSlash reads only local Cursor IDE and CLI sessions: Cursor SDK sessions and remote Cursor collection are unsupported. Cursor CLI token and compaction data can be unavailable because Cursor does not store them reliably; Cursor IDE exposes current context occupancy separately, not cumulative token usage.
 
@@ -37,7 +48,7 @@ the host is offline and leaves its optional helper installed on the host.
 
 ## Pi sessions and runtime status
 
-Pi support is available for local macOS and Windows sessions. Local Pi CLI reviews on both platforms work independently of collection and terminal support. Linux Pi sessions, runtime integration, synthesis, and launch actions are not supported.
+Pi support is available for local macOS and Windows sessions. Local Pi CLI reviews on both platforms work independently of collection and terminal support. On Linux, coSlash collects Pi sessions and manages the runtime extension for live status when the Pi CLI or `~/.pi` is present; Pi synthesis, reviews, and launch actions are not supported there.
 
 Run `coslash doctor` and inspect the Pi source, CLI release, and managed-extension checks. Transcript schema 3 is supported; older and future schemas are skipped with diagnostics. Runtime hooks and terminal launch allow stable Pi releases at least 0.99.1. Pi 0.99.1, 0.99.2, and 1.0.0 are tested baselines; newer releases remain enabled with an untested-release diagnostic. Older releases, prereleases, and unrecognizable versions are excluded. An excluded runtime can have a readable schema-3 transcript while its status stays Unknown. An eligible release still needs valid runtime evidence to establish status.
 

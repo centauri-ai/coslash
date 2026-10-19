@@ -35,7 +35,11 @@ func sshArgs(alias string, connectTimeoutSeconds int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(sshOptions(connectTimeoutSeconds), destination.Args()...), nil
+	options, err := sshOptions(connectTimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	return append(options, destination.Args()...), nil
 }
 
 func SSHArgs(alias string, connectTimeoutSeconds int) ([]string, error) {

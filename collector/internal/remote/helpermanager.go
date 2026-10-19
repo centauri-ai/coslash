@@ -370,6 +370,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	}
 	document, err := provider.LoadMetadata(ctx)
 	if err != nil {
+		LogSSHFailure("ssh.install", err)
 		manager.mu.Lock()
 		status := unavailableHelperStatus(err)
 		manager.helper = &status
@@ -379,6 +380,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	}
 	lifecycle, err := factory(config.SSHAlias)
 	if err != nil {
+		LogSSHFailure("ssh.install", err)
 		manager.mu.Lock()
 		status := unavailableHelperStatus(err)
 		manager.helper = &status
@@ -395,6 +397,9 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 			activeLifecycle = retryLifecycle
 		}
 	}
+	if result.Reason != nil {
+		LogSSHFailure("ssh.install", result.Reason)
+	}
 	manager.mu.Lock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
 		health := manager.healthLocked(manager.lastRequestedMs)
@@ -410,6 +415,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 			manager.helperTarget = nil
 			health := manager.healthLocked(manager.lastRequestedMs)
 			manager.mu.Unlock()
+			LogSSHFailure("ssh.install", err)
 			return health, nil
 		}
 		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
@@ -470,7 +476,7 @@ func (manager *Manager) ReleaseHelperOwnership() error {
 	return nil
 }
 
-// UninstallHelper removes exactly the currently verified artifact. It leaves
+// UninstallHelper removes exactly the verified or locally owned artifact. It leaves
 // the local host configuration untouched on error so the caller can retry or
 // deliberately choose remove-only.
 func (manager *Manager) UninstallHelper(ctx context.Context) error {
@@ -488,6 +494,7 @@ func (manager *Manager) UninstallHelper(ctx context.Context) error {
 	if manager.helperTarget != nil {
 		version = manager.helperTarget.version
 	}
+	locallyOwned := manager.helperVersion != "" && manager.helperVersion == version
 	provider, factory := manager.releaseProvider, manager.lifecycleFactory
 	manager.mu.Unlock()
 	if provider == nil || factory == nil {
@@ -501,7 +508,7 @@ func (manager *Manager) UninstallHelper(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := lifecycle.Uninstall(ctx, document, version); err != nil {
+	if err := lifecycle.uninstall(ctx, document, version, locallyOwned); err != nil {
 		return err
 	}
 	if err := manager.cache.RemoveHelperVersion(config.ID); err != nil {

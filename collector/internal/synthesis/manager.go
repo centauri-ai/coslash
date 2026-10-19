@@ -110,6 +110,27 @@ func (m *Manager) LookupLatest(agent, id string) *session.SessionSynthesis {
 	return m.cache.LookupLatest(agent, id)
 }
 
+func (m *Manager) Available() bool { return m != nil && m.currentRunner() != nil }
+
+func (m *Manager) BackendUnavailable() bool {
+	if !m.Available() || m.cliMissingUntil.Load() > m.now().UnixNano() {
+		return true
+	}
+	if runner, ok := m.currentRunner().(*CLIRunner); ok {
+		_, err := exec.LookPath(runner.Bin)
+		return err != nil
+	}
+	return false
+}
+
+func (m *Manager) Running(agent, id string) bool {
+	if m == nil {
+		return false
+	}
+	_, running := m.inFlight.Load(cacheKey{agent: agent, id: id})
+	return running
+}
+
 // LoadRecord returns the exact persisted synthesis record for immutable
 // backup capture. A nil manager behaves like an empty cache.
 func (m *Manager) LoadRecord(agent, id string) (Record, error) {
@@ -120,10 +141,20 @@ func (m *Manager) LoadRecord(agent, id string) (Record, error) {
 }
 
 func (m *Manager) Ensure(s *session.Session, revision int64) bool {
+	return m.ensure(s, revision, false)
+}
+
+// EnsureForShare runs synthesis on demand for a session the user chose to share.
+// Background eligibility only controls automatic synthesis work.
+func (m *Manager) EnsureForShare(s *session.Session, revision int64) bool {
+	return m.ensure(s, revision, true)
+}
+
+func (m *Manager) ensure(s *session.Session, revision int64, requested bool) bool {
 	if s != nil && s.Agent == "pi" {
 		revision = Revision(s)
 	}
-	if m == nil || revision <= 0 || !Eligible(s) {
+	if m == nil || s == nil || revision <= 0 || (!requested && !Eligible(s)) {
 		return false
 	}
 	if m.currentRunner() == nil {
@@ -266,7 +297,7 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 	}
 	if err != nil {
 		m.recordFailure(agent, id, revision, err)
-		log.Printf("synthesize session %s: %v", id, err)
+		log.Printf("synthesize session %s: failed", id)
 	}
 	if roundID != "" && !accountingFailed {
 		outcome := "success"

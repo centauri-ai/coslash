@@ -39,7 +39,7 @@ const (
 	// Retained for explicit selections saved before OpenCode default became preferred.
 	OpenCodeSynthesisModel = "opencode/deepseek-v4-flash-free"
 	// These backend defaults run with high reasoning effort.
-	CodexSynthesisModel  = "gpt-5.6-luna"
+	CodexSynthesisModel  = "gpt-6-luna"
 	ClaudeSynthesisModel = "claude-haiku-4-5"
 
 	TerminalWindows = "windows-terminal"
@@ -48,6 +48,7 @@ const (
 type Config struct {
 	Schema     string             `json:"$schema"`
 	Version    int                `json:"version"`
+	SyncPaused bool               `json:"syncPaused,omitempty"`
 	Synthesis  SynthesisSettings  `json:"synthesis"`
 	Appearance AppearanceSettings `json:"appearance"`
 	Launch     LaunchSettings     `json:"launch"`
@@ -57,6 +58,7 @@ type Config struct {
 // RemoteSettings is the optional one-host SSH configuration.
 type RemoteSettings struct {
 	ID       string `json:"id"`
+	HostID   string `json:"hostId,omitempty"`
 	SSHAlias string `json:"sshAlias"`
 	Enabled  bool   `json:"enabled"`
 }
@@ -120,10 +122,6 @@ func Path() string {
 	return filepath.Join(Home(), "settings.json")
 }
 
-func SSHControlPath() string {
-	return filepath.Join(Home(), "ssh", "cm-%C")
-}
-
 func Defaults() Config {
 	return Config{
 		Schema:  SchemaURL,
@@ -153,9 +151,8 @@ func BackendOptions() []BackendOption {
 			ID:    BackendCodex,
 			Label: "Codex CLI",
 			Models: []ModelOption{
-				{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", Default: true},
-				{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra"},
-				{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol"},
+				{ID: "gpt-6-luna", Label: "GPT-6 Luna", Default: true},
+				{ID: "gpt-6-sol", Label: "GPT-6 Sol"},
 			},
 		},
 		{
@@ -368,12 +365,14 @@ func Decode(data []byte) (Config, error) {
 	}
 	type remoteDocument struct {
 		ID       *string `json:"id"`
+		HostID   string  `json:"hostId"`
 		SSHAlias *string `json:"sshAlias"`
 		Enabled  *bool   `json:"enabled"`
 	}
 	type configDocument struct {
 		Schema     *string             `json:"$schema"`
 		Version    *int                `json:"version"`
+		SyncPaused *bool               `json:"syncPaused"`
 		Synthesis  *synthesisDocument  `json:"synthesis"`
 		Appearance *appearanceDocument `json:"appearance"`
 		Launch     *launchDocument     `json:"launch"`
@@ -405,6 +404,9 @@ func Decode(data []byte) (Config, error) {
 		Appearance: AppearanceSettings{Theme: "light"},
 		Launch:     LaunchSettings{Terminal: migrateTerminal(*document.Launch.Terminal)},
 	}
+	if document.SyncPaused != nil {
+		config.SyncPaused = *document.SyncPaused
+	}
 	if document.Appearance != nil {
 		if document.Appearance.Theme == nil {
 			return Config{}, errors.New("appearance must include theme")
@@ -417,6 +419,7 @@ func Decode(data []byte) (Config, error) {
 		}
 		config.Remote = &RemoteSettings{
 			ID:       *document.Remote.ID,
+			HostID:   document.Remote.HostID,
 			SSHAlias: *document.Remote.SSHAlias,
 			Enabled:  *document.Remote.Enabled,
 		}
@@ -464,6 +467,25 @@ func (store *Store) State() State {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	return store.state
+}
+
+func (store *Store) Restore(state State) error {
+	if !state.Valid {
+		return errors.New("cannot restore invalid settings")
+	}
+	if err := Validate(state.Config); err != nil {
+		return err
+	}
+	if state.Persisted {
+		return store.Save(state.Config)
+	}
+	if err := os.Remove(Path()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove settings.json: %w", err)
+	}
+	store.mu.Lock()
+	store.state = state
+	store.mu.Unlock()
+	return nil
 }
 
 func (store *Store) Save(config Config) error {

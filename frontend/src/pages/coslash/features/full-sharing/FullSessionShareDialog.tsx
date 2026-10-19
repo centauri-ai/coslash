@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { hubRouteURL, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import type { Session } from '@/pages/coslash/lib/session';
 import { fetchFullSessionPreview, submitFullSessionShare } from './api';
 import {
@@ -18,6 +17,8 @@ import {
   fullSessionResultNeedsReview,
   fullSessionReviewStillCurrent,
   fullSessionSelection,
+  hubRouteURL,
+  type DestinationResult,
   type FullSessionPreview,
   type FullSessionShareRequest,
   type FullSessionShareResult,

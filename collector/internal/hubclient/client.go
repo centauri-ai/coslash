@@ -19,7 +19,6 @@ import (
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/session"
-	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
 )
@@ -42,7 +41,6 @@ type Client struct {
 	LoadSession       SessionLoader
 	LoadSourceSession SourceSessionLoader
 	LoadFullSession   FullSessionLoader
-	Backup            *sessionbackupproducer.Manager
 
 	pairingMu sync.Mutex
 	pairings  map[string]pairingSecret

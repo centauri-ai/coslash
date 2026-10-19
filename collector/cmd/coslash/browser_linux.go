@@ -1,7 +1,14 @@
 package main
 
-import "fmt"
+import (
+	"errors"
+	"os"
+	"os/exec"
+)
 
-func openBrowserNative(string) error {
-	return fmt.Errorf("opening a browser is not supported on linux")
+func openBrowserNative(rawURL string) error {
+	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		return errors.New("no graphical session is available to open a browser")
+	}
+	return exec.Command("xdg-open", rawURL).Run()
 }

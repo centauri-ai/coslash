@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
+import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
@@ -20,7 +21,6 @@ import {
   sessionCost,
   sessionKey,
   sessionReadiness,
-  sessionsForAggregates,
   sessionTotalTokens,
   sumKnown,
   type Session,
@@ -68,14 +68,13 @@ const pillClass =
   'text-meta max-w-full shrink-0 truncate rounded-full px-[7px] py-0.5 leading-[1.55] font-[550]';
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
-  const aggregate = sessionsForAggregates(sessions);
-  const tokens = sumKnown(aggregate.map((session) => sessionTotalTokens(session)));
-  const cost = sumKnown(aggregate.map(sessionCost));
+  const tokens = sumKnown(sessions.map((session) => sessionTotalTokens(session)));
+  const cost = sumKnown(sessions.map(sessionCost));
 
   return (
     <span className="text-meta text-coslash-muted tabular-nums">
       {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
-      <UnpricedModelWarning unpriced={aggregate.flatMap((session) => session.unpricedModels)}>
+      <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
         {formatEstimatedCost(cost)}
       </UnpricedModelWarning>
     </span>
@@ -214,6 +213,9 @@ function BoardCard({
             <span className={cn(pillClass, 'bg-coslash-soft text-coslash-muted font-medium')}>
               {session.sourceLabel}
             </span>
+          )}
+          {isLocalSession(session) && session.hubSyncChip && (
+            <SyncChip state={session.hubSyncChip} failureCode={session.hubSyncFailureCode} />
           )}
         </div>
         <span className="text-meta shrink-0 font-[650] whitespace-nowrap tabular-nums">

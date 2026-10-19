@@ -1,8 +1,5 @@
 # Local v4 sync contract
 
-Application startup integration lands separately. This package alone does not
-start background uploads; the contract below describes the integrated worker.
-
 **Identity:** `local-sync-v4/v2`. The wire producer is the verified
 `session-backup/v1` spool. The Hub consumer is `sync-v4/v2` at server
 integration SHA `b39c4e942c9f1c8ed9bc78cc835c773c630f7685`.
@@ -201,6 +198,7 @@ policy also control whether it accepts uploads. A 409 `sync_paused` or
 worker idle until the Hub policy version changes. `device_revoked` removes the
 stored credential and stops the sync loop. Local's V3 complete-backup preview
 and upload flow is retired; existing Hub backups and workspace links remain.
+See [the sync consent decision](../../../docs/decisions/personal-hub-sync-consent.md).
 `COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
 payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new

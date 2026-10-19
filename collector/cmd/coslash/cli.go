@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -30,6 +31,7 @@ const (
 const sessionListTimeout = 3 * time.Minute
 
 var writeCursorClipboard = copyToClipboard
+var errRuntimeAlreadyRunning = errors.New("another coSlash app is already running")
 
 type runtimeDescriptor struct {
 	BaseURL string `json:"baseURL"`
@@ -46,7 +48,7 @@ func acquireRuntimeLock() (*os.File, error) {
 	}
 	if err := lockRuntimeFileExclusive(file, true); err != nil {
 		file.Close()
-		return nil, errors.New("another coSlash app is already running")
+		return nil, errRuntimeAlreadyRunning
 	}
 	for _, name := range []string{runtimeFilename, "token"} {
 		if err := os.Remove(filepath.Join(home, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -206,6 +208,13 @@ func (client *localAPIClient) request(method, path string, body io.Reader) ([]by
 		return nil, fmt.Errorf("read coSlash response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if path == "/api/hub/onboarding/connect" {
+			var claimError hubclient.ConnectClaimError
+			if json.Unmarshal(data, &claimError) == nil && (claimError.Code == "rate_limited" || claimError.Code == "hub_temporarily_unavailable") {
+				claimError.RetryAfterSeconds = max(0, min(86400, claimError.RetryAfterSeconds))
+				return nil, claimError
+			}
+		}
 		message := strings.TrimSpace(string(data))
 		var apiError apiErrorBody
 		if json.Unmarshal(data, &apiError) == nil && apiError.Error != "" {
@@ -235,9 +244,78 @@ func reviewHelp() string {
 	return reviewUsage() + " | coslash review status <agent>:<session> --json"
 }
 
+var cliCommandHelp = []struct {
+	name        string
+	description string
+	usage       string
+}{
+	{"service", "install login and URL handlers on macOS", "coslash service install"},
+	{"connect", "pair this Local with Hub", "coslash connect <code> --hub <origin> [--json]"},
+	{"sessions", "list local sessions as JSON", sessionsUsage()},
+	{"handoff", "print a session handoff", "coslash handoff <agent>:<session>"},
+	{"send", "start an agent with a session handoff", sendUsage()},
+	{"review", "review a session with another agent", reviewHelp()},
+	{"doctor", "check local setup and Hub sync health", "coslash doctor [--json] [--fix-links [--yes]]"},
+	{"status", "show sync health and optionally retry Hub sync", "coslash status [--json] [--retry]"},
+	{"ui-url", "print the authenticated web UI URL", "coslash ui-url"},
+	{"version", "print the Local version", "coslash version"},
+}
+
+func printCLIHelp(w io.Writer) {
+	fmt.Fprintln(w, "Usage: coslash [options]")
+	fmt.Fprintln(w, "       coslash <command> [arguments]")
+	fmt.Fprintln(w, "       coslash help [command]")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Options:")
+	fmt.Fprintln(w, "  --background  run coSlash Local in the background")
+	fmt.Fprintln(w, "  --no-open     do not open a browser on startup")
+	fmt.Fprintln(w, "  --port N      serve on a loopback port; 0 picks a free port")
+	fmt.Fprintln(w, "  --version     print the Local version")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Commands:")
+	for _, command := range cliCommandHelp {
+		fmt.Fprintf(w, "  %-10s %s\n", command.name, command.description)
+	}
+}
+
+func printCommandHelp(w io.Writer, name string) bool {
+	if name == "status" {
+		fmt.Fprintln(w, "usage: coslash status [--json] [--retry]")
+		return true
+	}
+	for _, command := range cliCommandHelp {
+		if command.name == name {
+			fmt.Fprintln(w, command.usage)
+			return true
+		}
+	}
+	return false
+}
+
 func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 0 {
+		printCLIHelp(stdout)
+		return 0
+	}
+	if args[0] == "help" {
+		if len(args) == 1 {
+			printCLIHelp(stdout)
+			return 0
+		}
+		if len(args) == 2 && printCommandHelp(stdout, args[1]) {
+			return 0
+		}
+		fmt.Fprintf(stderr, "coslash: unknown help topic %q\n", args[1])
+		printCLIHelp(stderr)
 		return 2
+	}
+	if args[0] == "--help" || args[0] == "-h" {
+		printCLIHelp(stdout)
+		return 0
+	}
+	if args[0] == "version" {
+		fmt.Fprintln(stdout, version)
+		return 0
 	}
 	if len(args) == 3 && args[0] == "review" && args[1] == "status" && (args[2] == "--help" || args[2] == "-h") {
 		fmt.Fprintln(stdout, "usage: coslash review status <agent>:<session> --json")
@@ -245,6 +323,10 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	}
 	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 		switch args[0] {
+		case "service":
+			fmt.Fprintln(stdout, "usage: coslash service install")
+		case "connect":
+			return runConnectCLI(stdout, stderr, args[1:])
 		case "sessions":
 			fmt.Fprintln(stdout, sessionsUsage())
 		case "handoff":
@@ -254,7 +336,11 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		case "review":
 			fmt.Fprintln(stdout, reviewHelp())
 		case "doctor":
-			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
+			fmt.Fprintln(stdout, "usage: coslash doctor [--json] [--fix-links [--yes]]")
+		case "status":
+			fmt.Fprintln(stdout, "usage: coslash status [--json] [--retry]")
+		case "ui-url":
+			fmt.Fprintln(stdout, "usage: coslash ui-url")
 		default:
 			return 2
 		}
@@ -262,6 +348,14 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	}
 	var err error
 	switch args[0] {
+	case "service":
+		if len(args) != 2 || args[1] != "install" {
+			fmt.Fprintln(stderr, "usage: coslash service install")
+			return 2
+		}
+		err = installService()
+	case "connect":
+		return runConnectCLI(stdout, stderr, args[1:])
 	case "sessions":
 		err = runSessions(stdout, args[1:])
 	case "handoff":
@@ -272,7 +366,13 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		err = runReview(stdout, args[1:])
 	case "doctor":
 		return runDoctor(stdout, stderr, args[1:])
+	case "status":
+		return runStatus(stdout, stderr, args[1:])
+	case "ui-url":
+		err = runUIURL(stdout, args[1:])
 	default:
+		fmt.Fprintf(stderr, "coslash: unknown command %q\n", args[0])
+		printCLIHelp(stderr)
 		return 2
 	}
 	if err != nil {
@@ -280,6 +380,18 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runUIURL(stdout io.Writer, args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: coslash ui-url")
+	}
+	baseURL, token, err := readRuntime()
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(stdout, baseURL+"/#t="+token)
+	return err
 }
 
 func runSessions(stdout io.Writer, args []string) error {

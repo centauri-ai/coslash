@@ -1,31 +1,29 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { setTheme, type Theme } from '@/lib/theme';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
+import { LocalUpdateBanner } from '@/pages/coslash/components/LocalUpdateBanner';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
-import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
-import {
-  HUB_SHARE_VERSION,
-  type DestinationResult,
-  type ShareWindow,
-} from '@/pages/coslash/features/sharing/model';
-import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
+import { retrySyncNow } from '@/pages/coslash/features/sync/api';
+import { chipOf, syncMode } from '@/pages/coslash/features/sync/model';
+import { SyncHeader } from '@/pages/coslash/features/sync/SyncHeader';
+import { useSyncStatus } from '@/pages/coslash/features/sync/use-sync-status';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useDirectedHandoffs } from '@/pages/coslash/hooks/use-directed-handoffs';
-import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessions';
+import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { apiFetch } from '@/pages/coslash/lib/api';
 import { handoffSelection, newestHandoffs, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
+import { isLocalUpdate, type LocalUpdate } from '@/pages/coslash/lib/local-update';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
-import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
+import { latestLogicalSessions } from '@/pages/coslash/lib/session-library';
 import {
   loadSessionViewPreferences,
   type SessionRange,
@@ -37,34 +35,6 @@ import {
   shouldPromptForSynthesisConsent,
 } from '@/pages/coslash/lib/settings';
 import type { TimeWindow } from '@/pages/coslash/lib/time-window';
-
-function fixtureDestination(search: string): DestinationResult {
-  const state = new URLSearchParams(search).get('share-state');
-  if (
-    state === 'signed_out' ||
-    state === 'pairing_required' ||
-    state === 'credential_dormant' ||
-    state === 'credential_revoked'
-  ) {
-    return { contractVersion: HUB_SHARE_VERSION, state, configured: true };
-  }
-  return {
-    contractVersion: HUB_SHARE_VERSION,
-    configured: true,
-    state: 'ready',
-    destination: {
-      workspaceId: '10000000-0000-4000-8000-000000000001',
-      workspaceName: 'Compiler Team',
-      currentMemberCount: 2,
-      resultingMemberCount: 2,
-      currentApprovedSessionCount: 3,
-      historyDisclosure:
-        "Sharing this revision makes it visible to the workspace's current members. Membership and approved-session counts are current when viewed.",
-      credentialState: 'paired',
-      audienceVersion: 'audience-fixture-v1',
-    },
-  };
-}
 
 function apiWindowForRange(range: SessionRange): TimeWindow {
   if (range === 'this-week') return 'week';
@@ -98,10 +68,7 @@ function SettingsErrorBanner({
 export function CoslashPage() {
   const [range, setRange] = useState<SessionRange>(() => loadSessionViewPreferences().range);
   const [view, setView] = useState<SessionView>(() => loadSessionViewPreferences().view);
-  const shareParams = new URLSearchParams(window.location.search);
-  const shareFixtureEnabled = shareParams.get('team-share') === '1';
-  const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
-  const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
+  const [localUpdate, setLocalUpdate] = useState<LocalUpdate | null>(null);
   const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
   const {
     sessions,
@@ -113,7 +80,7 @@ export function CoslashPage() {
     retrySessions,
     refreshSessions,
   } = useSessions({
-    localWindow: shareFixtureEnabled ? 'all' : apiWindow,
+    localWindow: apiWindow,
     remoteWindow: apiWindow,
   });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
@@ -124,8 +91,6 @@ export function CoslashPage() {
   });
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [shareWindow, setShareWindow] = useState<ShareWindow>('7d');
   const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
@@ -136,13 +101,22 @@ export function CoslashPage() {
   } = useDiagnostics(diagnosticsEnabled);
   const remoteRetryPromise = useRef<Promise<MachineFact | undefined> | null>(null);
   const settingsState = useSettings();
-  const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
-  const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
-  const shareCandidateResult = useShareCandidates({
-    enabled: shareDialogOpen && !shareFixtureEnabled && shareDestination?.state === 'ready',
-    window: shareWindow,
-  });
-  const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
+  const syncStatusState = useSyncStatus();
+  const syncStatus = syncStatusState.status;
+  const librarySessions = useMemo(
+    () =>
+      latestLogicalSessions(sessions).map((session) => {
+        if (!isLocalSession(session) || !syncStatusState.hasStatus) return session;
+        const key = sessionKey(session);
+        const state = syncStatus.sessions[key] ?? 'not_in_hub';
+        return {
+          ...session,
+          hubSyncChip: chipOf(syncMode(syncStatus.state), state),
+          hubSyncFailureCode: syncStatus.sessionFailures?.[key],
+        };
+      }),
+    [sessions, syncStatus, syncStatusState.hasStatus],
+  );
   const reviewIndex = useMemo(() => buildReviewIndex(librarySessions), [librarySessions]);
   const selectedSession =
     librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
@@ -205,15 +179,6 @@ export function CoslashPage() {
   const { reason: remoteReviewUnavailableReason, retryable: canRetryRemoteReviewers } =
     remoteReviewAvailability(remoteMachine, currentRemoteReview);
   const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
-  const shareCandidates = useMemo(() => {
-    const eligible = eligibleSessionCandidates(
-      shareFixtureEnabled ? sessions : shareCandidateResult.sessions,
-    );
-    return eligible.map((session, index) => ({
-      session,
-      previouslyShared: shareFixtureEnabled && index === 0,
-    }));
-  }, [sessions, shareCandidateResult.sessions, shareFixtureEnabled]);
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
@@ -223,34 +188,31 @@ export function CoslashPage() {
       ].join(':')
     : 'loading';
 
-  const refreshHubDestination = useCallback(async () => {
-    const destination = await loadHubDestination();
-    setHubDestination(destination);
-    return destination;
-  }, [setHubDestination]);
-
-  /* oxlint-disable react/set-state-in-effect -- load the Hub destination when fixture mode is inactive */
+  /* oxlint-disable react/set-state-in-effect -- poll V4 update guidance without blocking rendering */
   useEffect(() => {
-    if (shareFixtureEnabled) return;
-    void refreshHubDestination().catch(() => undefined);
-  }, [refreshHubDestination, shareFixtureEnabled]);
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await apiFetch('/api/hub/v4-update');
+        if (!response.ok) return;
+        const next: unknown = await response.json();
+        if (active && isLocalUpdate(next)) setLocalUpdate(next);
+      } catch {
+        // Keep the last acknowledged update guidance during a transient local read failure.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
   /* oxlint-enable react/set-state-in-effect */
 
-  /* oxlint-disable react/set-state-in-effect -- open required synthesis consent when selection changes */
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
   }, [settingsState.response]);
-
-  useEffect(() => {
-    if (
-      selectedSession != null &&
-      isLocalSession(selectedSession) &&
-      shouldPromptForSynthesisConsent(selectedSession, settingsState.response)
-    ) {
-      setSettingsDialogMode((current) => current ?? 'synthesis-consent');
-    }
-  }, [selectedSession, settingsState.response]);
-  /* oxlint-enable react/set-state-in-effect */
 
   /* oxlint-disable react/set-state-in-effect -- clear a selection removed by a session refresh */
   useEffect(() => {
@@ -335,6 +297,7 @@ export function CoslashPage() {
 
   return (
     <>
+      <LocalUpdateBanner update={localUpdate} />
       <CoslashLayout
         sessions={librarySessions}
         reviewIndex={reviewIndex}
@@ -379,6 +342,22 @@ export function CoslashPage() {
         banner={
           <>
             {settingsBanner}
+            {settingsState.response?.valid &&
+              librarySessions.some(
+                (session) =>
+                  isLocalSession(session) && shouldPromptForSynthesisConsent(session, settingsState.response),
+              ) && (
+                <div className="border-coslash-line bg-coslash-soft flex flex-wrap items-center justify-between gap-2 border-b px-5 py-2 text-sm">
+                  <span>AI synthesis is off. You can enable it in Settings.</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettingsDialogMode('synthesis-consent')}
+                  >
+                    Choose synthesis settings
+                  </Button>
+                </div>
+              )}
             {handoffsError && (
               <SettingsErrorBanner
                 message={handoffsError}
@@ -389,22 +368,19 @@ export function CoslashPage() {
           </>
         }
         headerActions={
-          shareEnabled ? (
-            <>
-              {shareDestination?.state === 'ready' && (
-                <Badge
-                  variant="secondary"
-                  className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
-                >
-                  <ShieldCheck className="size-3.5" aria-hidden="true" />
-                  {shareDestination.destination.workspaceName} paired
-                </Badge>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
-                Share to Hub
-              </Button>
-            </>
-          ) : undefined
+          <>
+            <SyncHeader
+              status={syncStatus}
+              loaded={syncStatusState.hasStatus}
+              onSettings={() => setSettingsDialogMode('full-settings')}
+              onRetry={retrySyncNow}
+            />
+            {selectedSession?.hubSyncChip === 'in_hub' && isLocalSession(selectedSession) && (
+              <Badge variant="secondary" className="shrink-0 text-xs font-semibold">
+                Already in My space
+              </Badge>
+            )}
+          </>
         }
         inspectorOpen={selectedSession != null}
         reviewerOptions={settingsState.response?.options.reviewers ?? []}
@@ -430,29 +406,6 @@ export function CoslashPage() {
         }}
         onClose={() => selectSession(null)}
       />
-      {shareEnabled && shareDestination && (
-        <ShareToHubDialog
-          open={shareDialogOpen}
-          onOpenChange={(open) => {
-            setShareDialogOpen(open);
-            if (!open) setShareWindow('7d');
-          }}
-          candidates={shareCandidates}
-          candidatesLoading={!shareFixtureEnabled && shareCandidateResult.isLoading}
-          candidatesError={shareFixtureEnabled ? null : shareCandidateResult.loadError}
-          window={shareWindow}
-          onWindowChange={setShareWindow}
-          destinationResult={shareDestination}
-          fixtureMode={shareFixtureEnabled}
-          fixtureOutcome={shareFixtureOutcome}
-          onDestinationRefresh={refreshHubDestination}
-          onOpenSettings={() => {
-            setShareDialogOpen(false);
-            setShareWindow('7d');
-            setSettingsDialogMode('full-settings');
-          }}
-        />
-      )}
       <SettingsDialog
         open={settingsDialogMode != null}
         mode={settingsDialogMode ?? 'full-settings'}
@@ -468,6 +421,8 @@ export function CoslashPage() {
         onRemoteConnectionVerified={handleRemoteConnectionVerified}
         onRemoteRetry={handleRemoteRetry}
         remoteRetryInFlight={remoteRetryInFlight}
+        syncStatus={syncStatusState.hasStatus ? syncStatus : undefined}
+        syncStatusLoadState={syncStatusState.loadState}
       />
     </>
   );

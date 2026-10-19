@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { TokenBreakdown } from '../components/SessionCard';
 import { DigestSection } from '../components/SessionInspector';
 import { handoffTargetsPath } from './directed-handoff';
+import { formatEstimatedCost, formatTokens } from './format';
 import { handoffBrief } from './handoff';
 import { buildInsights } from './insights';
 import {
@@ -66,6 +67,27 @@ describe('Pi accounting and local affordances', () => {
     expect(sessionTotalTokens({ tokens: {} })).toBeNull();
     expect(sumKnown([48, sessionTotalTokens({ ...accounting, tokensUnavailable: true })])).toBeNull();
     expect(sumKnown([0, sessionCost({ ...accounting, costUnavailable: true })])).toBeNull();
+  });
+
+  it('treats negative usage and costs as unknown', () => {
+    const negativeUsage = {
+      tokens: {
+        model: {
+          ...usage,
+          input_tokens: -3916,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_creation_1h_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+      cost: -0.42,
+    };
+
+    expect(sessionTotalTokens(negativeUsage)).toBeNull();
+    expect(sessionCost(negativeUsage)).toBeNull();
+    expect(formatTokens(-3916)).toBe('—');
+    expect(formatEstimatedCost(-0.42)).toBe('—');
   });
 
   it('does not render partial usage as a complete breakdown', () => {

@@ -1,7 +1,7 @@
 import { MINUTE } from '@/pages/coslash/lib/time';
 
 export function formatEstimatedCost(usd: number | null): string {
-  if (usd == null) return '—';
+  if (usd == null || !Number.isFinite(usd) || usd < 0) return '—';
   if (usd > 0 && usd < 0.01) return '<$0.01';
   return `≈$${usd.toFixed(2)}`;
 }
@@ -15,7 +15,7 @@ export function formatDuration(ms: number | null): string {
 }
 
 export function formatTokens(count: number | null): string {
-  if (count == null) return '—';
+  if (count == null || !Number.isFinite(count) || count < 0) return '—';
   if (count < 1000) return String(count);
   if (count >= 1e6) return `${(count / 1e6).toFixed(2).replace(/\.?0+$/, '')}M`;
   return `${Math.round(count / 1000)}k`;

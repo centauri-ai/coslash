@@ -168,7 +168,11 @@ func RemoteReviewerOptions(ctx context.Context, alias string) ([]ReviewerOption,
 		}
 		probe += `if [ "$supported" -eq 1 ]; then printf '` + option.ID + `\n'; fi; fi; `
 	}
-	command := reviewCommandContext(ctx, "ssh", remoteReviewSSHArgs(destination, probe)...)
+	args, err := remoteReviewSSHArgs(destination, probe)
+	if err != nil {
+		return nil, err
+	}
+	command := reviewCommandContext(ctx, "ssh", args...)
 	configureReviewProcess(command)
 	output := boundedBuffer{limit: 128}
 	command.Stdout = &output
@@ -334,7 +338,11 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		remoteCommand += `child=; trap 'if [ -n "$child" ]; then kill "$child" 2>/dev/null || true; fi; exit 143' HUP TERM; `
 		remoteCommand += `trap 'rm -f "$marker"' EXIT; `
 		remoteCommand += shellJoin(append([]string{bin}, args...)...) + ` <&0 & child=$!; wait "$child"`
-		bin, args = "ssh", remoteReviewSSHArgs(destination, remoteCommand)
+		bin = "ssh"
+		args, err = remoteReviewSSHArgs(destination, remoteCommand)
+		if err != nil {
+			return "", err
+		}
 	}
 	command := reviewCommandContext(ctx, bin, args...)
 	if request.SSHAlias == "" {
@@ -427,7 +435,12 @@ func cleanupRemoteReview(destination settings.SSHDestination, marker string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	remoteCommand := `marker=` + shellQuote(marker) + `; pid=$(cat "$marker" 2>/dev/null) || exit 0; kill -TERM "$pid" 2>/dev/null || true`
-	command := reviewCommandContext(ctx, "ssh", remoteReviewSSHArgs(destination, remoteCommand)...)
+	args, err := remoteReviewSSHArgs(destination, remoteCommand)
+	if err != nil {
+		log.Printf("remote review cleanup failed: %v", err)
+		return
+	}
+	command := reviewCommandContext(ctx, "ssh", args...)
 	command.Stdout = &boundedBuffer{limit: 128}
 	command.Stderr = &boundedBuffer{limit: 1024}
 	command.WaitDelay = 5 * time.Second
@@ -725,7 +738,10 @@ func RemoteTerminalWithPrompt(ctx context.Context, terminal, alias, agent, worki
 	if err != nil {
 		return err
 	}
-	command := remoteSSHCommand(destination, remoteCommand)
+	command, err := remoteSSHCommand(destination, remoteCommand)
+	if err != nil {
+		return err
+	}
 	if prompt == "" {
 		return openTerminal(ctx, terminal, ".", command)
 	}
@@ -749,8 +765,12 @@ func SSHAuthentication(ctx context.Context, terminal, executable, attemptID stri
 	return openTerminal(ctx, terminal, ".", sshAuthenticationCommand(executable, attemptID))
 }
 
-func remoteSSHCommand(destination settings.SSHDestination, command string) string {
-	return localCommandJoin(remoteSSHArgs(destination, command)...)
+func remoteSSHCommand(destination settings.SSHDestination, command string) (string, error) {
+	args, err := remoteSSHArgs(destination, command)
+	if err != nil {
+		return "", err
+	}
+	return localCommandJoin(args...), nil
 }
 
 func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName string) (string, error) {

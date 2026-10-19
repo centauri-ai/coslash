@@ -1,3 +1,5 @@
+/// <reference types="node" />
+import { readFileSync } from 'node:fs';
 import { type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -98,6 +100,28 @@ function dotFor(markup: string, tone: 'success' | 'warning' | 'danger'): string 
 
 function orderOf(markup: string, ...titles: string[]): number[] {
   return titles.map((title) => markup.indexOf(title));
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (color: string) => {
+    const channels = color
+      .slice(1)
+      .match(/.{2}/g)
+      ?.map((channel) => parseInt(channel, 16) / 255);
+    if (!channels || channels.length !== 3) throw new Error(`Invalid color ${color}`);
+    const linear = channels.map((channel) =>
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+    );
+    return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  };
+  const values = [luminance(foreground), luminance(background)].sort((left, right) => right - left);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+
+function cssColor(block: string, variable: string): string {
+  const value = block.match(new RegExp(`${variable}:\\s*(#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?)`))?.[1];
+  if (!value) throw new Error(`Missing ${variable} CSS token`);
+  return value.length === 4 ? `#${[...value.slice(1)].map((digit) => digit + digit).join('')}` : value;
 }
 
 describe('CoslashLayout', () => {
@@ -224,6 +248,33 @@ describe('CoslashLayout', () => {
     expect(compact.every((cell) => !cell.includes('border-b'))).toBe(true);
   });
 
+  it('keeps muted facet text above 4.5:1 contrast in both themes', () => {
+    const css = readFileSync(new URL('./coslash-layout.css', import.meta.url), 'utf8');
+    const light = css.match(/\.coslash-shell\s*\{([^}]*)\}/)?.[1];
+    const dark = css.match(/\.dark \.coslash-shell\s*\{([^}]*)\}/)?.[1];
+    if (!light || !dark) throw new Error('Could not find coSlash theme tokens');
+
+    expect(
+      contrastRatio(cssColor(light, '--coslash-muted'), cssColor(light, '--coslash-surface')),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      contrastRatio(cssColor(dark, '--coslash-muted'), cssColor(dark, '--coslash-surface')),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(renderLayout()).not.toContain('opacity-55');
+  });
+
+  it('keeps the In Hub pill text above 4.5:1 contrast in both themes', () => {
+    const css = readFileSync(new URL('../../../index.css', import.meta.url), 'utf8');
+    const light = css.match(/:root\s*\{([^}]*)\}/)?.[1];
+    const dark = css.match(/\.dark\s*\{([^}]*)\}/)?.[1];
+    if (!light || !dark) throw new Error('Could not find success theme tokens');
+
+    const lightContrast = contrastRatio(cssColor(light, '--success-fg'), cssColor(light, '--success-bg'));
+    const darkContrast = contrastRatio(cssColor(dark, '--success-fg'), cssColor(dark, '--success-bg'));
+    expect(lightContrast).toBeGreaterThanOrEqual(4.5);
+    expect(darkContrast).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('offers agent facets for the vendors present, not the reviewer CLIs installed', () => {
     const markup = renderLayout({
       sessions: [
@@ -300,17 +351,31 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('>remote-private-prompt<');
   });
 
-  it('keeps sessions with truncated history out of the header totals', () => {
+  it('totals all visible rows and describes the count as the current scope', () => {
     const markup = renderLayout({
       sessions: [
         session({ id: 'counted' }),
-        session({ id: 'truncated', cost: 9, eligibleForAggregates: false }),
+        session({
+          id: 'truncated',
+          cost: 9,
+          eligibleForAggregates: false,
+          tokens: {
+            'gpt-5': {
+              input_tokens: 2000,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_creation_1h_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        }),
       ],
     });
 
     expect(markup).toContain('2 sessions');
-    expect(markup).toContain('≈$1.00');
-    expect(markup).not.toContain('$10.00');
+    expect(markup).toContain('in this scope');
+    expect(markup).toContain('3k tokens');
+    expect(markup).toContain('≈$10.00');
     expect(markup).toContain('>$9.00<');
   });
 
