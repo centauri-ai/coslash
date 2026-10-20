@@ -208,6 +208,9 @@ export function SettingsDialog({
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
   const initializedForOpen = useRef(false);
+  const firstRunDraftAwaitingDiscovery = useRef(false);
+  const synthesisSelectionEdited = useRef(false);
+  const discoveryReconciled = useRef(false);
   const openAttempt = useRef(0);
   const saveChain = useRef(Promise.resolve());
   const draftRef = useRef(draft);
@@ -236,6 +239,12 @@ export function SettingsDialog({
     initializedForOpen.current = true;
   }, [open, response, updateDraft]);
 
+  useEffect(() => {
+    if (response && !response.persisted && !discoveryReconciled.current) {
+      firstRunDraftAwaitingDiscovery.current = true;
+    }
+  }, [response]);
+
   const synthesisBackends = availableSynthesisBackends(response?.options.synthesisBackends ?? []);
   const hasSynthesisBackends = synthesisBackends.length > 0;
   const selectedBackend = synthesisBackends.find((option) => option.id === draft?.synthesis.backend);
@@ -254,6 +263,33 @@ export function SettingsDialog({
     },
     [onSave],
   );
+
+  useEffect(() => {
+    if (
+      !firstRunDraftAwaitingDiscovery.current ||
+      discoveryReconciled.current ||
+      !response ||
+      response.options.refreshing ||
+      isSaving
+    ) {
+      return;
+    }
+    discoveryReconciled.current = true;
+    if (synthesisSelectionEdited.current) return;
+
+    const availableBackend = availableSynthesisBackends(response.options.synthesisBackends)[0];
+    const current = draftRef.current ?? response.settings;
+    if (!availableBackend) return;
+    const model = modelForBackend(response, availableBackend.id);
+    if (current.synthesis.backend === availableBackend.id && current.synthesis.model === model) return;
+
+    const next = {
+      ...current,
+      synthesis: { ...current.synthesis, backend: availableBackend.id, model },
+    };
+    updateDraft(next);
+    if (response.persisted) void saveSettings(next);
+  }, [isSaving, response, saveSettings, updateDraft]);
 
   const save = async () => {
     if (!draft || !synthesisBackendAvailable) return;
@@ -387,7 +423,8 @@ export function SettingsDialog({
                               key={option.id}
                               option={option}
                               selected={option.id === draft.synthesis.backend}
-                              onSelect={() =>
+                              onSelect={() => {
+                                synthesisSelectionEdited.current = true;
                                 saveChange({
                                   ...draft,
                                   synthesis: {
@@ -395,8 +432,8 @@ export function SettingsDialog({
                                     backend: option.id,
                                     model: modelForBackend(response, option.id),
                                   },
-                                })
-                              }
+                                });
+                              }}
                             />
                           ))}
                           {!hasSynthesisBackends && (
@@ -432,9 +469,10 @@ export function SettingsDialog({
                             label="Synthesis model"
                             value={draft.synthesis.model}
                             mono
-                            onChange={(model) =>
-                              saveChange({ ...draft, synthesis: { ...draft.synthesis, model } })
-                            }
+                            onChange={(model) => {
+                              synthesisSelectionEdited.current = true;
+                              saveChange({ ...draft, synthesis: { ...draft.synthesis, model } });
+                            }}
                           >
                             {selectedBackend && !selectedModel && draft.synthesis.model && (
                               <option value={draft.synthesis.model}>{draft.synthesis.model}</option>
