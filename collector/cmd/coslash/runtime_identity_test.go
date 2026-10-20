@@ -24,11 +24,11 @@ func TestInstallChannelDetector(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := installChannelForPaths(test.executable, test.resolved, test.home, test.localAppData, test.goos); got != test.want {
-				t.Fatalf("install channel=%q, want %q", got, test.want)
+			channel := installChannelForPaths(test.executable, test.resolved, test.home, test.localAppData, test.goos)
+			if channel != test.want {
+				t.Fatalf("install channel=%q, want %q", channel, test.want)
 			}
 			if test.goos == "windows" {
-				channel := installChannelForPaths(test.executable, test.resolved, test.home, test.localAppData, test.goos)
 				if got := automaticUpdatesSupported(test.goos, channel, false); got != (test.want == "windows-script") {
 					t.Fatalf("automatic updates supported=%t for channel %q", got, channel)
 				}
