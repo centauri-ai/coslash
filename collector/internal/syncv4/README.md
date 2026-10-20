@@ -187,6 +187,13 @@ lines older than 29 days are dropped. If the Hub refuses a log batch as invalid,
 Local checks in without it so sync can continue, keeps the refused lines, and
 retries them after one minute. A binding change drops unsent lines.
 
+Exhausting the warm-start budget yields with the entry pending, including when
+preparation was estimating its size; it does not park the source or report
+malformed content. A planned source-preparation deadline schedules the normal
+retry backoff and reports `unreadable_source`. Both paths can retry unchanged
+input without a Hub retry command. Owner cancellation stops work without
+recording a content failure; genuinely invalid capture problems remain parked.
+
 The v4 worker starts by default, including before pairing, so Hub can start
 sync without a Local restart. It never uploads until a Hub advertising
 `scale-import/v1` supplies an import plan; the Local pause setting still wins.

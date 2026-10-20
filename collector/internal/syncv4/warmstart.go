@@ -14,6 +14,13 @@ const firstWarmMaxBytes = 25 << 20
 const plannedContentBudget = 2 * time.Minute
 const sourcePreparationBudget = 15 * time.Second
 
+func (r *Runner) withTimeout(ctx context.Context, budget time.Duration) (context.Context, context.CancelFunc) {
+	if r.timeout != nil {
+		return r.timeout(ctx, budget)
+	}
+	return context.WithTimeout(ctx, budget)
+}
+
 type listingTransport interface {
 	V4ListBatch(context.Context, []hubclient.V4ListItem) ([]hubclient.V4ListResult, error)
 }
@@ -109,12 +116,16 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 			}
 			if entry.ContentBytes <= 0 && !attemptedUnknown[entry.Key] {
 				attemptedUnknown[entry.Key] = true
-				estimateCtx, cancel := context.WithTimeout(ctx, budget-r.now().Sub(started))
+				estimateCtx, cancel := r.withTimeout(ctx, budget-r.now().Sub(started))
 				err := r.estimateContentBytes(estimateCtx, &entry)
+				estimateExpired := estimateCtx.Err() == context.DeadlineExceeded
 				cancel()
 				if err != nil {
 					if ctx.Err() != nil {
 						return ctx.Err()
+					}
+					if estimateExpired {
+						return nil
 					}
 					if stopSync(err) {
 						return r.persistPolicyStop(&entry, err)
@@ -134,13 +145,14 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 			return nil
 		}
 		start := r.now()
-		pickCtx, cancel := context.WithTimeout(ctx, budget-r.now().Sub(started))
+		pickCtx, cancel := r.withTimeout(ctx, budget-r.now().Sub(started))
 		if err := r.ensureCreated(pickCtx, pick); err != nil {
+			pickExpired := pickCtx.Err() == context.DeadlineExceeded
 			cancel()
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			if pickExpired || errors.Is(err, context.DeadlineExceeded) {
 				return nil
 			}
 			if stopSync(err) || Busy(err) {
@@ -153,11 +165,12 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 		}
 		if pick.UploadID != "" {
 			if err := r.transfer(pickCtx, pick); err != nil {
+				pickExpired := pickCtx.Err() == context.DeadlineExceeded
 				cancel()
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				if pickExpired || errors.Is(err, context.DeadlineExceeded) {
 					return nil
 				}
 				if stopSync(err) || Busy(err) {
@@ -325,7 +338,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4ImportPlan) error {
 	started := r.now()
 	activeSince := r.Queue.ActiveSince()
-	workCtx, cancel := context.WithTimeout(ctx, plannedContentBudget)
+	workCtx, cancel := r.withTimeout(ctx, plannedContentBudget)
 	defer cancel()
 	entries := r.Queue.PlannedEntries(plan, r.now())
 	var firstErr error
@@ -385,7 +398,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			err = r.entryAllowed(entry)
 		}
 		if err == nil && entry.UploadID == "" && entry.RevisionID == "" {
-			prepareCtx, stopPrepare := context.WithTimeout(workCtx, sourcePreparationBudget)
+			prepareCtx, stopPrepare := r.withTimeout(workCtx, sourcePreparationBudget)
 			err = r.prepareEntry(prepareCtx, &entry)
 			sourceTimedOut := prepareCtx.Err() == context.DeadlineExceeded
 			stopPrepare()
@@ -393,7 +406,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 				entry.FailureCode = "unreadable_source"
 				entry.BackoffAttempt++
 				entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
-				if updateErr := r.failed(&entry, err); updateErr != nil {
+				if updateErr := r.failed(&entry, context.DeadlineExceeded); updateErr != nil {
 					return updateErr
 				}
 				continue

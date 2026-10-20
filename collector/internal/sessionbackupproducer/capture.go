@@ -35,6 +35,15 @@ type artifactWriter struct {
 }
 
 func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prepared, error) {
+	prepared, err := manager.prepare(ctx, selection)
+	// A cancelled parser or writer does not establish that the input is malformed.
+	if err != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return prepared, err
+}
+
+func (manager *Manager) prepare(ctx context.Context, selection Selection) (*Prepared, error) {
 	if selection.Agent != vendors.AgentCodex &&
 		!((selection.Agent == vendors.AgentClaude || selection.Agent == vendors.AgentOpenCode || selection.Agent == vendors.AgentCursor) &&
 			selection.SourceKind == sessionbackupv1.SourceLocal) {

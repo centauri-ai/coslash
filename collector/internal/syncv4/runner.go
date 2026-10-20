@@ -147,6 +147,7 @@ type Runner struct {
 	ReconcileSSHHosts   func([]hubclient.V4SSHHost) error
 	CleanupRemoteCache  func()
 	Now                 func() time.Time
+	timeout             func(context.Context, time.Duration) (context.Context, context.CancelFunc)
 	config              hubclient.V4Config
 	checkedAt           time.Time
 	configVersion       int64
