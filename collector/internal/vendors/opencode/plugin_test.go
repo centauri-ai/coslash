@@ -178,7 +178,7 @@ func TestCollectRetriesPluginInstallation(t *testing.T) {
 func setOpenCodeVersionDetectorForTest(t *testing.T, detector func() (string, error)) {
 	t.Helper()
 	originalDetector := detectOpenCodeVersion
-	detectOpenCodeVersion = detector
+	detectOpenCodeVersion = func(context.Context) (string, error) { return detector() }
 	t.Cleanup(func() {
 		detectOpenCodeVersion = originalDetector
 	})

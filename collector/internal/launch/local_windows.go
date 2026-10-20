@@ -75,7 +75,12 @@ func openTerminalForAgent(ctx context.Context, terminal, agent, workingDirectory
 	return nil
 }
 
-func Available(terminal string) bool {
+func Available(terminal string) bool { return AvailableContext(context.Background(), terminal) }
+
+func AvailableContext(ctx context.Context, terminal string) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	if terminal != settings.TerminalWindows {
 		return false
 	}

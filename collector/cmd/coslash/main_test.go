@@ -910,7 +910,7 @@ func TestWriteSettingsReportsConfiguredSettingsPath(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "custom-coslash-home")
 	t.Setenv("COSLASH_HOME", home)
 	response := httptest.NewRecorder()
-	writeSettings(context.Background(), response, settings.State{Config: settings.Defaults(), Valid: true})
+	writeSettings(response, settings.State{Config: settings.Defaults(), Valid: true}, defaultSettingsOptions())
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
 	}
@@ -1150,7 +1150,7 @@ func TestSettingsSaveCommitsOwnershipReleaseOnlyWithAliasReplacement(t *testing.
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager, nil)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -1186,7 +1186,7 @@ func TestSettingsSaveRestoresOldSettingsWhenOwnershipActionFails(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager, nil)
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -1218,7 +1218,7 @@ func TestSettingsSaveRemovesHostWithoutHelperOwnership(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager, nil)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -1258,7 +1258,7 @@ func TestSettingsSaveCanExplicitlyRecoverCorruptOwnershipByRemovingHost(t *testi
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager, nil)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}

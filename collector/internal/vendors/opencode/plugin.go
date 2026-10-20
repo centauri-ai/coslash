@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 )
 
 const (
@@ -151,7 +153,7 @@ func installPluginSource(directory string, source []byte) error {
 }
 
 func managedPluginSource() ([]byte, error) {
-	version, err := detectOpenCodeVersion()
+	version, err := detectOpenCodeVersion(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("detect OpenCode version: %w", err)
 	}
@@ -188,8 +190,10 @@ func openCodeMajor(version string) int {
 	return 0
 }
 
-func CLIMajorVersion() (int, error) {
-	version, err := detectOpenCodeVersion()
+func CLIMajorVersion() (int, error) { return cliMajorVersion(context.Background()) }
+
+func cliMajorVersion(ctx context.Context) (int, error) {
+	version, err := detectOpenCodeVersion(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -200,7 +204,7 @@ func CLIMajorVersion() (int, error) {
 	return major, nil
 }
 
-func openCodeVersion() (string, error) {
+func openCodeVersion(ctx context.Context) (string, error) {
 	executable, err := exec.LookPath("opencode")
 	if err != nil {
 		return "", nil
@@ -212,10 +216,10 @@ func openCodeVersion() (string, error) {
 		return "", err
 	}
 	defer os.RemoveAll(probeDir)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	command := versionProbeCommand(ctx, executable, probeDir)
-	output, err := command.Output()
+	output, err := agentexec.ProbeOutput(command, 4<<10)
 	if err != nil {
 		return "", err
 	}

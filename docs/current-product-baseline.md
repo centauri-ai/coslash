@@ -56,7 +56,7 @@ All routes are loopback-only and protected by the process access-token guard.
 | `GET /api/diff?id=…&path=…` | Read one local session file diff (legacy path-based form) |
 | `GET /api/diff?source=…&agent=…&session=…&revision=…&change=…` | Read selected changes from an exact local or cached SSH session revision; repeat `change` to select multiple changes |
 | `GET /api/share-preview` | Build the exact privacy-bounded Hub preview for a local or SSH revision |
-| `GET /api/settings` | Read validated settings and backend/model options |
+| `GET /api/settings` | Read validated settings and cached backend/model options; `options.refreshing` signals background discovery |
 | `PUT /api/settings` | Save settings and optional remote-helper ownership action |
 | `POST /api/launch` | Resume or start fresh with a handoff in the configured terminal/agent |
 | `POST /api/reviews` | Start a local session review with a selected installed agent |
@@ -104,6 +104,15 @@ older clients, but there is no separate full-revision action in the normal UI.
   local. Previewing either flow does not upload anything.
 
 ## Settings and supported agent skills
+
+Local settings responses never wait for agent capability discovery. The first
+response includes pending options; the UI polls while `options.refreshing` is
+true. GET and PUT share a snapshot, refreshed on demand after one minute, so
+installed or updated CLIs become visible on a subsequent settings request.
+Each refresh has a 30-second budget and stops when Local shuts down. Saving
+returns persisted settings with the current snapshot rather than re-running
+CLI probes. Review execution still verifies required CLI capabilities.
+
 
 The product has no independently installed "skill registry." Its reusable
 agent-facing capabilities are session discovery, debrief synthesis, resume,

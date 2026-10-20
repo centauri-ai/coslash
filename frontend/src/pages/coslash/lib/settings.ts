@@ -54,6 +54,7 @@ export type SettingsResponse = {
   valid: boolean;
   error?: string;
   options: {
+    refreshing?: boolean;
     synthesisBackends: BackendOption[];
     terminals: TerminalOption[];
     reviewers: ReviewerOption[];

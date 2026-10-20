@@ -90,12 +90,13 @@ func (c *boundedCapture) Write(p []byte) (int, error) {
 }
 
 type CLIRunner struct {
-	Backend    string
-	Bin        string
-	Model      string
-	Timeout    time.Duration
-	openCodeV2 bool
-	exec       commandExecutor
+	Backend         string
+	Bin             string
+	Model           string
+	Timeout         time.Duration
+	openCodeV2      bool
+	openCodeVersion func(string) bool
+	exec            commandExecutor
 }
 
 func NewRunner(config settings.SynthesisSettings) (Runner, error) {
@@ -113,11 +114,11 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 		return nil, fmt.Errorf("unsupported synthesis backend %q", config.Backend)
 	}
 	return &CLIRunner{
-		Backend:    config.Backend,
-		Bin:        bin,
-		Model:      config.Model,
-		Timeout:    90 * time.Second,
-		openCodeV2: config.Backend == settings.BackendOpenCode && cachedOpenCodeV2(bin),
+		Backend:         config.Backend,
+		Bin:             bin,
+		Model:           config.Model,
+		Timeout:         90 * time.Second,
+		openCodeVersion: cachedOpenCodeV2,
 	}, nil
 }
 
@@ -145,6 +146,10 @@ func (r *CLIRunner) VendorName() string {
 }
 
 func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
+	openCodeV2 := r.openCodeV2
+	if r.Backend == settings.BackendOpenCode && r.openCodeVersion != nil {
+		openCodeV2 = r.openCodeVersion(r.Bin)
+	}
 	executor := r.exec
 	if executor == nil {
 		executor = executeCommand
@@ -217,28 +222,28 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		// OpenCode has no system-prompt or schema flag, so both ride along
 		// with the message.
 		args = []string{"run"}
-		if r.openCodeV2 {
+		if openCodeV2 {
 			args = append(args, "--standalone")
 		} else {
 			args = append(args, "--dir", SynthesisCwd())
 		}
 		if r.Model != settings.OpenCodeDefaultModel {
 			model := r.Model
-			if r.openCodeV2 && model == settings.OpenCodeSynthesisModel {
+			if openCodeV2 && model == settings.OpenCodeSynthesisModel {
 				model += "#high"
 			}
 			args = append(args, "--model", model)
 		}
-		if !r.openCodeV2 && r.Model == settings.OpenCodeSynthesisModel {
+		if !openCodeV2 && r.Model == settings.OpenCodeSynthesisModel {
 			args = append(args, "--variant", "high")
 		}
 		args = append(args, "--format", "json")
-		if !r.openCodeV2 {
+		if !openCodeV2 {
 			args = append(args, "--pure")
 		}
 		args = append(args, "--", systemPrompt+jsonInstruction)
-		env = openCodeEnv(scratchDir, r.openCodeV2)
-		if r.openCodeV2 && r.Model == settings.OpenCodeDefaultModel {
+		env = openCodeEnv(scratchDir, openCodeV2)
+		if openCodeV2 && r.Model == settings.OpenCodeDefaultModel {
 			config, err := openCodeDefaultConfig(ctx, r.Bin, executor)
 			if err != nil {
 				return RunResult{}, err
@@ -377,7 +382,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 	} else if r.Backend == settings.BackendCursor {
 		result.Usage = parseCursorUsage(output)
 	} else if r.Backend == settings.BackendOpenCode {
-		result.Usage = parseOpenCodeUsage(output, filepath.Join(scratchDir, "opencode.db"), r.openCodeV2)
+		result.Usage = parseOpenCodeUsage(output, filepath.Join(scratchDir, "opencode.db"), openCodeV2)
 		if err != nil && result.Usage.Coverage == "complete" {
 			result.Usage.Coverage = "partial"
 		}
