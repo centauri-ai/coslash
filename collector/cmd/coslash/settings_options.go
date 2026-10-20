@@ -58,19 +58,20 @@ func discoverSettingsOptions(ctx context.Context) settingsOptions {
 
 // Requests read immutable options while one service-owned refresh does CLI work.
 type settingsOptionsCache struct {
-	mu       sync.Mutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	options  settingsOptions
-	loaded   time.Time
-	running  chan struct{}
-	now      func() time.Time
-	discover func(context.Context) settingsOptions
+	mu          sync.Mutex
+	ctx         context.Context
+	cancel      context.CancelFunc
+	options     settingsOptions
+	loaded      time.Time
+	running     chan struct{}
+	now         func() time.Time
+	withTimeout func(context.Context, time.Duration) (context.Context, context.CancelFunc)
+	discover    func(context.Context) settingsOptions
 }
 
 func newSettingsOptionsCache() *settingsOptionsCache {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &settingsOptionsCache{ctx: ctx, cancel: cancel, options: defaultSettingsOptions(), now: time.Now, discover: discoverSettingsOptions}
+	return &settingsOptionsCache{ctx: ctx, cancel: cancel, options: defaultSettingsOptions(), now: time.Now, withTimeout: context.WithTimeout, discover: discoverSettingsOptions}
 }
 
 func (cache *settingsOptionsCache) snapshot() settingsOptions {
@@ -89,12 +90,12 @@ func (cache *settingsOptionsCache) snapshot() settingsOptions {
 }
 
 func (cache *settingsOptionsCache) refresh(done chan struct{}) {
-	ctx, cancel := context.WithTimeout(cache.ctx, settingsOptionsTimeout)
+	ctx, cancel := cache.withTimeout(cache.ctx, settingsOptionsTimeout)
 	defer cancel()
 	options := cache.discover(ctx)
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	if cache.ctx.Err() == nil {
+	if cache.ctx.Err() == nil && ctx.Err() == nil {
 		cache.options = options
 		cache.loaded = cache.now()
 	}
