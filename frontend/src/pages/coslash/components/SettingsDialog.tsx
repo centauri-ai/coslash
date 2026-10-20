@@ -203,7 +203,7 @@ export function SettingsDialog({
   syncStatusLoadState: SyncStatusLoad;
 }) {
   const [draft, setDraft] = useState<CoslashSettings | null>(
-    response ? initialSettingsDraft(response) : null,
+    response && (response.persisted || !response.options.refreshing) ? initialSettingsDraft(response) : null,
   );
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
@@ -231,6 +231,7 @@ export function SettingsDialog({
       return;
     }
     if (!response || initializedForOpen.current) return;
+    if (!response.persisted && response.options.refreshing) return;
     updateDraft(initialSettingsDraft(response));
     setDisclosureOpen(false);
     initializedForOpen.current = true;
@@ -344,6 +345,10 @@ export function SettingsDialog({
           ) : loadError ? (
             <div role="alert" className="text-danger-fg py-4 text-sm">
               Could not load settings: {loadError}
+            </div>
+          ) : response?.options.refreshing && !draft ? (
+            <div role="status" className="text-coslash-muted py-8 text-sm">
+              Checking installed agents...
             </div>
           ) : response && draft ? (
             <div className="flex flex-col gap-5">

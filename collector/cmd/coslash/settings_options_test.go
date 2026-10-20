@@ -145,6 +145,49 @@ func TestSettingsOptionsExpiryServesPreviousSnapshotAndCachesMissingAgents(t *te
 	}
 }
 
+func TestSettingsOptionsIncompleteDiscoveryPreservesSnapshotAndRetries(t *testing.T) {
+	cache := newSettingsOptionsCache()
+	defer cache.close()
+	cache.options.SynthesisBackends[0].Available = true
+	var cancelDiscovery context.CancelFunc
+	cache.withTimeout = func(parent context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(parent)
+		cancelDiscovery = cancel
+		return ctx, cancel
+	}
+	var calls atomic.Int32
+	started := make(chan struct{})
+	cache.discover = func(ctx context.Context) settingsOptions {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-ctx.Done()
+			return defaultSettingsOptions()
+		}
+		options := defaultSettingsOptions()
+		options.SynthesisBackends[1].Available = true
+		return options
+	}
+
+	cache.snapshot()
+	<-started
+	cancelDiscovery()
+	waitSettingsRefresh(t, cache)
+	cache.mu.Lock()
+	firstAvailable := cache.options.SynthesisBackends[0].Available
+	cache.mu.Unlock()
+	if !firstAvailable {
+		t.Fatal("incomplete discovery replaced the last complete snapshot")
+	}
+
+	cache.snapshot()
+	waitSettingsRefresh(t, cache)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if calls.Load() != 2 || !cache.options.SynthesisBackends[1].Available {
+		t.Fatal("incomplete discovery was not retried")
+	}
+}
+
 func TestSettingsOptionsShutdownCancelsRefreshAndDiscardsCompletion(t *testing.T) {
 	cache := newSettingsOptionsCache()
 	started := make(chan struct{})
