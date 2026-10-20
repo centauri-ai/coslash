@@ -231,6 +231,7 @@ export function SettingsDialog({
       return;
     }
     if (!response || initializedForOpen.current) return;
+    if (!response.persisted && response.options.refreshing) return;
     updateDraft(initialSettingsDraft(response));
     setDisclosureOpen(false);
     initializedForOpen.current = true;
