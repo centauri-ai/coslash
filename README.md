@@ -39,9 +39,16 @@ Local collection needs no Hub account or telemetry.
 ## Install and connect from Hub
 
 In Hub, open **Devices → Add device → This computer** and copy the command for
-your computer. The command installs coSlash Local, adds it to `PATH`, starts it
+your computer. The command installs coSlash Local, starts it
 in the background, and claims your one-use setup code. Return to Hub to approve
 the computer.
+
+The public Windows installer places `coslash.exe` in
+`%LOCALAPPDATA%\coSlash\bin` by default (`COSLASH_INSTALL_DIR` overrides it).
+It does not change `PATH`; the Hub command invokes the installed executable
+directly. To run it yourself in PowerShell, use
+`& "$env:LOCALAPPDATA\coSlash\bin\coslash.exe"`, or add your chosen install
+directory to your user `PATH` before using commands or skills that call `coslash`.
 
 Hub shows a personalized command. These examples use a sample code and origin;
 run the exact command Hub provides.
