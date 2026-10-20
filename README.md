@@ -46,9 +46,17 @@ the computer.
 The public Windows installer places `coslash.exe` in
 `%LOCALAPPDATA%\coSlash\bin` by default (`COSLASH_INSTALL_DIR` overrides it).
 It does not change `PATH`; the Hub command invokes the installed executable
-directly. To run it yourself in PowerShell, use
-`& "$env:LOCALAPPDATA\coSlash\bin\coslash.exe"`, or add your chosen install
-directory to your user `PATH` before using commands or skills that call `coslash`.
+directly. To run it yourself in PowerShell, use the selected install directory
+when set, or the default otherwise:
+
+```powershell
+$installDir = $env:COSLASH_INSTALL_DIR
+if (-not $installDir) { $installDir = Join-Path $env:LOCALAPPDATA 'coSlash\bin' }
+& (Join-Path $installDir 'coslash.exe')
+```
+
+You can also add your chosen install directory to your user `PATH` before using
+commands or skills that call `coslash`.
 
 Hub shows a personalized command. These examples use a sample code and origin;
 run the exact command Hub provides.
