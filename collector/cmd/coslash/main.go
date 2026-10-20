@@ -370,8 +370,10 @@ func main() {
 	onboardings.setSyncHooks(controller)
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	shutdownRequests := make(chan struct{}, 1)
+	settingsOptions := newSettingsOptionsCache()
+	defer settingsOptions.close()
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
+		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
 	onboardings.ensureSync(hub)
 	shutdownComplete := make(chan error, 1)
 	var shutdownOnce sync.Once
@@ -625,11 +627,12 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 }
 
 type serverServices struct {
-	queue          *syncv4.Queue
-	directedStore  *directedhandoff.Store
-	onboardings    *onboardingManager
-	syncController *syncController
-	shutdown       chan struct{}
+	queue           *syncv4.Queue
+	directedStore   *directedhandoff.Store
+	onboardings     *onboardingManager
+	syncController  *syncController
+	shutdown        chan struct{}
+	settingsOptions *settingsOptionsCache
 }
 
 func newServer(
@@ -648,6 +651,9 @@ func newServer(
 	if service.onboardings == nil {
 		service.onboardings = newOnboardingManager(version)
 	}
+	if service.settingsOptions == nil {
+		service.settingsOptions = newSettingsOptionsCache()
+	}
 	server := &http.Server{
 		Handler:           guard.Wrap(routesWithOnboarding(mgr, reviewManager, settingsStore, remoteManager, hub, service.onboardings, service)),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -656,6 +662,7 @@ func newServer(
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 16,
 	}
+	server.RegisterOnShutdown(service.settingsOptions.close)
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
 	server.RegisterOnShutdown(service.onboardings.Close)
@@ -751,11 +758,11 @@ func routesWithOnboarding(
 		handleSharePreview(w, r, collector.GetSessionForPreview, remoteManager, version)
 	})
 	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
-		writeSettings(r.Context(), w, settingsStore.State())
+		writeSettings(w, settingsStore.State(), service.settingsOptions.snapshot())
 	})
 	api.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		wasPaused := settingsStore.State().Config.SyncPaused
-		handleSaveSettings(w, r, settingsStore, mgr, remoteManager)
+		handleSaveSettings(w, r, settingsStore, mgr, remoteManager, service.settingsOptions)
 		if service.syncController != nil && wasPaused != settingsStore.State().Config.SyncPaused {
 			service.syncController.RequestPass("settings")
 		}

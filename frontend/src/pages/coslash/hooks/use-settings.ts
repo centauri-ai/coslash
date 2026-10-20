@@ -40,6 +40,31 @@ export function useSettings() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (!response?.options.refreshing) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const result = await apiFetch('/api/settings', { signal: controller.signal });
+        if (!result.ok) throw new Error(await readError(result));
+        const loaded = decodeSettingsResponse(await result.json());
+        if (controller.signal.aborted) return;
+        // A discovery response must never overwrite a save completed in the meantime.
+        setResponse((current) => current && { ...current, options: loaded.options });
+        if (!loaded.options.refreshing) return;
+      } catch {
+        if (controller.signal.aborted) return;
+      }
+      timer = setTimeout(refresh, 1000);
+    };
+    timer = setTimeout(refresh, 1000);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [response?.options.refreshing]);
+
   const save = async (
     settings: CoslashSettings,
     remoteOwnershipAction?: RemoteOwnershipAction,

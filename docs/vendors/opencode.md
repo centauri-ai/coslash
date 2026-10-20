@@ -2,6 +2,14 @@
 
 Code: `collector/internal/vendors/opencode/`. The package reads OpenCode sessions from its shared SQLite database and manages a small coSlash plugin that records permission and client state.
 
+## Settings discovery
+
+Settings model discovery runs in the shared background capability refresh. It
+uses the refresh context for both version and model probes, limits their output,
+and cancels owned subprocesses on shutdown. The settings snapshot caches the
+result; there is no separate model-list TTL. This preserves the isolated v1/v2
+configuration and free-model filtering (`collector/internal/vendors/opencode/models.go`).
+
 ## Storage
 
 - OpenCode keeps all sessions in one shared SQLite database, not one transcript per session. The default path is `~/.local/share/opencode/opencode.db`. coSlash uses the same fallback on Windows. Observed: OpenCode 1.18.4, 2026-08-10, commit 9603e871.

@@ -33,7 +33,7 @@ func TestModelProbeUsesVersionSpecificCLIAndIsolatesV2Database(t *testing.T) {
 				return command
 			}
 			t.Cleanup(func() { commandContext = original })
-			if got := loadModels(); !reflect.DeepEqual(got, []string{"opencode/free"}) || !reflect.DeepEqual(gotArgs, wantArgs) {
+			if got := SynthesisModels(context.Background()); !reflect.DeepEqual(got, []string{"opencode/free"}) || !reflect.DeepEqual(gotArgs, wantArgs) {
 				t.Fatalf("models = %v, command = %v", got, gotArgs)
 			}
 			env := map[string]string{}
@@ -125,5 +125,23 @@ opencode/paid
 	}
 	if got := parseVerboseModels([]byte(strings.Repeat(output, modelsLimit+1))); len(got) != modelsLimit {
 		t.Fatalf("legacy model limit = %d", len(got))
+	}
+}
+
+func TestModelProbeHonorsParentCancellation(t *testing.T) {
+	original := detectOpenCodeVersion
+	defer func() { detectOpenCodeVersion = original }()
+	detected := false
+	detectOpenCodeVersion = func(ctx context.Context) (string, error) {
+		detected = true
+		if ctx.Err() != context.Canceled {
+			t.Error("version probe did not receive parent cancellation")
+		}
+		return "", ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if models := SynthesisModels(ctx); len(models) != 0 || !detected {
+		t.Fatalf("canceled models=%v detected=%v", models, detected)
 	}
 }

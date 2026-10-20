@@ -31,12 +31,17 @@ func openTerminalForAgent(ctx context.Context, terminal, _ string, workingDirect
 	return openTerminal(ctx, terminal, workingDirectory, command)
 }
 
-func Available(terminal string) bool {
+func Available(terminal string) bool { return AvailableContext(context.Background(), terminal) }
+
+func AvailableContext(ctx context.Context, terminal string) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	switch terminal {
 	case settings.TerminalApple:
-		return macApplicationAvailable(context.Background(), "Terminal") == nil
+		return macApplicationAvailable(ctx, "Terminal") == nil
 	case settings.TerminalITerm:
-		return macApplicationAvailable(context.Background(), macITermBundleID) == nil
+		return macApplicationAvailable(ctx, macITermBundleID) == nil
 	default:
 		return false
 	}

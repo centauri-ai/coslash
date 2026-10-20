@@ -9,35 +9,22 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 )
 
 const (
-	modelsTTL    = 10 * time.Minute
 	modelsLimit  = 50
 	zenPrefix    = "opencode/"
 	modelTimeout = 10 * time.Second
 )
 
-var modelsCache struct {
-	mu     sync.Mutex
-	models []string
-	loaded time.Time
-}
-
-// SynthesisModels lists the free OpenCode Zen models, so the picker cannot
-// bill the user for a model they did not name.
-func SynthesisModels() []string {
-	modelsCache.mu.Lock()
-	defer modelsCache.mu.Unlock()
-	// Empty results are cached too, so a broken CLI is only paid for once.
-	if !modelsCache.loaded.IsZero() && time.Since(modelsCache.loaded) < modelsTTL {
-		return modelsCache.models
-	}
-	modelsCache.models = loadModels()
-	modelsCache.loaded = time.Now()
-	return modelsCache.models
+// SynthesisModels probes free OpenCode Zen models; the settings snapshot owns caching.
+func SynthesisModels(ctx context.Context) []string {
+	ctx, cancel := context.WithTimeout(ctx, modelTimeout)
+	defer cancel()
+	return loadModels(ctx)
 }
 
 type verboseModel struct {
@@ -58,15 +45,13 @@ type verboseModel struct {
 // starting coSlash in an untrusted checkout would run repository code. It runs
 // from an empty directory instead, with external plugins disabled and PWD set
 // because OpenCode reads it before cwd.
-func loadModels() []string {
+func loadModels(ctx context.Context) []string {
 	directory, err := os.MkdirTemp("", "coslash-models-*")
 	if err != nil {
 		return []string{}
 	}
 	defer os.RemoveAll(directory)
-	ctx, cancel := context.WithTimeout(context.Background(), modelTimeout)
-	defer cancel()
-	major, err := CLIMajorVersion()
+	major, err := cliMajorVersion(ctx)
 	if err != nil {
 		return []string{}
 	}
@@ -88,7 +73,7 @@ func loadModels() []string {
 			"OPENCODE_DB="+filepath.Join(directory, "opencode.db"),
 			`OPENCODE_CONFIG_CONTENT={"update":"disable","plugins":["-*","opencode.*"]}`)
 	}
-	output, err := cmd.Output()
+	output, err := agentexec.ProbeOutput(cmd, 8<<20)
 	if err != nil {
 		return []string{}
 	}

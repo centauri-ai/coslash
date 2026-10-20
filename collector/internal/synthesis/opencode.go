@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
@@ -262,7 +263,7 @@ func detectOpenCodeV2(bin string) bool {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "--version")
 	cmd.Env = append(os.Environ(), "XDG_DATA_HOME="+dataDir)
-	output, err := cmd.Output()
+	output, err := agentexec.ProbeOutput(cmd, 4<<10)
 	if err != nil {
 		return false
 	}

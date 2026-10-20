@@ -116,6 +116,7 @@ func TestBoundedCaptureDrainsBeyondLimit(t *testing.T) {
 func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 	original := cachedOpenCodeV2
 	t.Cleanup(func() { cachedOpenCodeV2 = original })
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	directory := t.TempDir()
 	name := "opencode"
 	if runtime.GOOS == "windows" {
@@ -137,12 +138,23 @@ func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 	config := settings.SynthesisSettings{Enabled: true, Backend: settings.BackendOpenCode, Model: settings.OpenCodeSynthesisModel}
 	check := func(wantV2 bool) {
 		t.Helper()
+		before := probes
 		created, err := NewRunner(config)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if created.(*CLIRunner).openCodeV2 != wantV2 {
-			t.Fatalf("OpenCode v2 = %v, want %v", created.(*CLIRunner).openCodeV2, wantV2)
+		if probes != before {
+			t.Fatal("creating settings runner performed CLI discovery")
+		}
+		runner := created.(*CLIRunner)
+		runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+			if got := slices.Contains(spec.args, "--standalone"); got != wantV2 {
+				t.Fatalf("OpenCode v2 flags=%v, want %v", got, wantV2)
+			}
+			return []byte("{\"type\":\"text\",\"part\":{\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
+		}
+		if _, err := runner.Run(context.Background(), "facts"); err != nil {
+			t.Fatal(err)
 		}
 	}
 	check(false)

@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os/exec"
 	"slices"
 	"strconv"
 	"time"
@@ -26,7 +25,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
 var (
@@ -878,47 +876,14 @@ type settingsResponse struct {
 	Persisted    bool            `json:"persisted"`
 	Valid        bool            `json:"valid"`
 	Error        string          `json:"error,omitempty"`
-	Options      struct {
-		SynthesisBackends []availableBackend  `json:"synthesisBackends"`
-		Terminals         []availableTerminal `json:"terminals"`
-		Reviewers         []availableReviewer `json:"reviewers"`
-	} `json:"options"`
+	Options      settingsOptions `json:"options"`
 }
 
-func writeSettings(ctx context.Context, w http.ResponseWriter, state settings.State) {
-	response := settingsResponse{
-		Settings:     state.Config,
-		SettingsPath: settings.Path(),
-		Persisted:    state.Persisted,
-		Valid:        state.Valid,
-		Error:        state.Error,
-	}
-	for _, option := range settings.BackendOptions() {
-		_, err := exec.LookPath(settings.BackendExecutable(option.ID))
-		available := err == nil
-		if option.ID == settings.BackendOpenCode && available {
-			option.Models = openCodeModels(opencode.SynthesisModels())
-		}
-		response.Options.SynthesisBackends = append(
-			response.Options.SynthesisBackends,
-			availableBackend{
-				BackendOption: option,
-				Available:     available,
-			},
-		)
-	}
-	for _, option := range settings.TerminalOptions() {
-		response.Options.Terminals = append(response.Options.Terminals, availableTerminal{
-			TerminalOption: option,
-			Available:      launch.Available(option.ID),
-		})
-	}
-	for _, option := range launch.ReviewerOptions() {
-		response.Options.Reviewers = append(response.Options.Reviewers, availableReviewer{
-			ID: option.ID, Label: option.Label, Available: launch.ReviewCLIAvailable(ctx, option.ID),
-		})
-	}
-	writeJSON(w, response)
+func writeSettings(w http.ResponseWriter, state settings.State, options settingsOptions) {
+	writeJSON(w, settingsResponse{
+		Settings: state.Config, SettingsPath: settings.Path(), Persisted: state.Persisted,
+		Valid: state.Valid, Error: state.Error, Options: options,
+	})
 }
 
 // Paid providers are reached through OpenCodeDefaultModel rather than listed:
@@ -944,6 +909,7 @@ func handleSaveSettings(
 	store *settings.Store,
 	mgr *synthesis.Manager,
 	remoteManager *remote.Manager,
+	options *settingsOptionsCache,
 ) {
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSettingsBytes))
 	if err != nil {
@@ -1022,7 +988,7 @@ func handleSaveSettings(
 		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
 		return
 	}
-	writeSettings(r.Context(), w, store.State())
+	writeSettings(w, store.State(), options.snapshot())
 }
 
 func readHandoff(w http.ResponseWriter, r *http.Request) (string, error) {

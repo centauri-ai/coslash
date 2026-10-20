@@ -347,6 +347,11 @@ export function SettingsDialog({
             </div>
           ) : response && draft ? (
             <div className="flex flex-col gap-5">
+              {response.options.refreshing && (
+                <div role="status" className="text-coslash-muted text-sm">
+                  Checking installed agents...
+                </div>
+              )}
               {!response.valid && (
                 <div role="alert" className="text-danger-fg rounded-xl border p-3 text-sm">
                   {response.error} Save valid settings below to repair the file.
@@ -392,7 +397,9 @@ export function SettingsDialog({
                           ))}
                           {!hasSynthesisBackends && (
                             <div className="text-coslash-muted py-2 text-xs sm:col-span-2">
-                              No supported CLI detected
+                              {response.options.refreshing
+                                ? 'Checking installed agents...'
+                                : 'No supported CLI detected'}
                             </div>
                           )}
                         </div>
@@ -498,7 +505,11 @@ export function SettingsDialog({
                         {response.options.terminals.map((option) => (
                           <option key={option.id} value={option.id} disabled={!option.available}>
                             {option.label}
-                            {option.available ? '' : ' — not detected'}
+                            {option.available
+                              ? ''
+                              : response.options.refreshing
+                                ? ' — checking'
+                                : ' — not detected'}
                           </option>
                         ))}
                       </SelectControl>
