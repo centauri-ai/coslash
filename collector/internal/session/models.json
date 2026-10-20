@@ -693,7 +693,7 @@
     "cache_creation_input_token_cost": 0.00000375,
     "cache_read_input_token_cost": 3E-7,
     "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
   "anthropic.claude-sonnet-4-5-20250929-v1:0": {
@@ -895,7 +895,7 @@
     "cache_creation_input_token_cost": 0.00000375,
     "cache_read_input_token_cost": 3E-7,
     "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
   "apac.anthropic.claude-sonnet-4-6": {
@@ -3063,11 +3063,29 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000012
   },
+  "baseten/deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+    "cache_read_input_token_cost": 7E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
+  "baseten/deepseek-ai/DeepSeek-V4.1-Flash-1017-Fast": {
+    "cache_read_input_token_cost": 1.4E-8,
+    "input_cost_per_token": 6E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000024
+  },
   "baseten/deepseek-ai/DeepSeek-V4.1-Flash-Fast": {
     "cache_read_input_token_cost": 1.4E-8,
     "input_cost_per_token": 6E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000024
+  },
+  "baseten/meta-models/muse-spark-open": {
+    "cache_read_input_token_cost": 1.5E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000425
   },
   "baseten/moonshotai/Kimi-K2-Instruct-0905": {
     "input_cost_per_token": 6E-7,
@@ -3105,6 +3123,12 @@
     "max_input_tokens": 202800,
     "output_cost_per_token": 0.0000024
   },
+  "baseten/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B": {
+    "cache_read_input_token_cost": 4E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
+  },
   "baseten/nvidia/Nemotron-120B-A12B": {
     "input_cost_per_token": 3E-7,
     "output_cost_per_token": 7.5E-7
@@ -3114,6 +3138,12 @@
     "input_cost_per_token": 1E-7,
     "max_input_tokens": 128072,
     "output_cost_per_token": 5E-7
+  },
+  "baseten/reflection/Beam-1.0": {
+    "cache_read_input_token_cost": 1.3E-7,
+    "input_cost_per_token": 0.0000013,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000043
   },
   "baseten/thinkingmachines/inkling": {
     "cache_read_input_token_cost": 1.7E-7,
@@ -4072,7 +4102,7 @@
     "cache_creation_input_token_cost": 0.0000171875,
     "cache_read_input_token_cost": 0.000001375,
     "input_cost_per_token": 0.00001375,
-    "max_input_tokens": 272000,
+    "max_input_tokens": 1050000,
     "output_cost_per_token": 0.0000825
   },
   "bedrock_mantle/openai.gpt-5.6-luna": {
@@ -4128,7 +4158,7 @@
     "cache_creation_input_token_cost": 0.0000055,
     "cache_read_input_token_cost": 4.4E-7,
     "input_cost_per_token": 0.0000044,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 1050000,
     "output_cost_per_token": 0.000022
   },
   "bedrock_mantle/openai.gpt-oss-120b": {
@@ -4168,7 +4198,7 @@
   },
   "bedrock_mantle/qwen.qwen3-coder-480b-a35b-instruct": {
     "input_cost_per_token": 4.5E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000018
   },
   "bedrock_mantle/qwen.qwen3-next-80b-a3b-instruct": {
@@ -5793,6 +5823,18 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000026
   },
+  "deepinfra/deepseek-ai/DeepSeek-V4.1-Flash": {
+    "cache_read_input_token_cost": 4.2E-9,
+    "input_cost_per_token": 1.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 4.2E-7
+  },
+  "deepinfra/deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+    "cache_read_input_token_cost": 4.2E-9,
+    "input_cost_per_token": 1.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 4.2E-7
+  },
   "deepinfra/google/gemini-2.5-flash": {
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 1000000,
@@ -6423,7 +6465,7 @@
     "cache_creation_input_token_cost": 0.00000375,
     "cache_read_input_token_cost": 3E-7,
     "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
   "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": {
@@ -6758,6 +6800,12 @@
     "output_cost_per_token": 0.00000396
   },
   "fireworks_ai/accounts/fireworks/models/deepseek-v4p1-flash": {
+    "cache_read_input_token_cost": 6E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
+  "fireworks_ai/accounts/fireworks/models/deepseek-v4p1-flash-1017": {
     "cache_read_input_token_cost": 6E-9,
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 1048576,
@@ -7192,6 +7240,12 @@
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 512000,
     "output_cost_per_token": 0.0000012
+  },
+  "fireworks_ai/accounts/fireworks/models/minimax-m3p1-flash": {
+    "cache_read_input_token_cost": 1.5E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 6E-7
   },
   "fireworks_ai/accounts/fireworks/models/ministral-3-14b-instruct-2512": {
     "input_cost_per_token": 2E-7,
@@ -8582,6 +8636,20 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.0
   },
+  "github_copilot/claude-fable-5": {
+    "cache_creation_input_token_cost": 0.0000125,
+    "cache_read_input_token_cost": 0.000001,
+    "input_cost_per_token": 0.00001,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00005
+  },
+  "github_copilot/claude-fable-5.1": {
+    "cache_creation_input_token_cost": 0.0000125,
+    "cache_read_input_token_cost": 2.5E-7,
+    "input_cost_per_token": 0.00001,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00005
+  },
   "github_copilot/claude-haiku-4.5": {
     "cache_creation_input_token_cost": 0.00000125,
     "cache_read_input_token_cost": 1E-7,
@@ -8595,6 +8663,67 @@
     "input_cost_per_token": 1E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 5E-7
+  },
+  "github_copilot/claude-opus-4.8": {
+    "cache_creation_input_token_cost": 0.00000625,
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000005,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000025
+  },
+  "github_copilot/claude-opus-4.8-fast": {
+    "cache_creation_input_token_cost": 0.0000125,
+    "cache_read_input_token_cost": 0.000001,
+    "input_cost_per_token": 0.00001,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00005
+  },
+  "github_copilot/claude-opus-5": {
+    "cache_creation_input_token_cost": 0.00000625,
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000005,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000025
+  },
+  "github_copilot/claude-opus-5.5": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00002
+  },
+  "github_copilot/claude-sonnet-4.6": {
+    "cache_creation_input_token_cost": 0.00000375,
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000015
+  },
+  "github_copilot/claude-sonnet-5": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00001
+  },
+  "github_copilot/claude-sonnet-5.5": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00001
+  },
+  "github_copilot/gemini-3.7-flash": {
+    "cache_read_input_token_cost": 7.5E-8,
+    "input_cost_per_token": 7.5E-7,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00000375
+  },
+  "github_copilot/gemini-3.8-flash": {
+    "cache_read_input_token_cost": 7.5E-8,
+    "input_cost_per_token": 7.5E-7,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00000375
   },
   "github_copilot/gemini-4-argon": {
     "cache_read_input_token_cost": 1E-7,
@@ -8613,6 +8742,109 @@
     "input_cost_per_token": 0.00000175,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.000014
+  },
+  "github_copilot/gpt-5.4": {
+    "cache_read_input_token_cost": 2.5E-7,
+    "input_cost_per_token": 0.0000025,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.000015
+  },
+  "github_copilot/gpt-5.4-mini": {
+    "cache_read_input_token_cost": 7.5E-8,
+    "input_cost_per_token": 7.5E-7,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.0000045
+  },
+  "github_copilot/gpt-5.4-nano": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00000125
+  },
+  "github_copilot/gpt-5.5": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000005,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00003
+  },
+  "github_copilot/gpt-5.6-luna": {
+    "cache_creation_input_token_cost": 2.5E-7,
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.0000012
+  },
+  "github_copilot/gpt-5.6-sol": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_read_input_token_cost": 4E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00002
+  },
+  "github_copilot/gpt-5.6-terra": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.000012
+  },
+  "github_copilot/gpt-6-astra": {
+    "cache_creation_input_token_cost": 0.0000125,
+    "cache_read_input_token_cost": 0.000001,
+    "input_cost_per_token": 0.00001,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00005
+  },
+  "github_copilot/gpt-6-luna": {
+    "cache_creation_input_token_cost": 1.25E-7,
+    "cache_read_input_token_cost": 1E-8,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 5E-7
+  },
+  "github_copilot/gpt-6-sol": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00001
+  },
+  "github_copilot/gpt-6.1-sol": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00001
+  },
+  "github_copilot/grok-4.5": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.000006
+  },
+  "github_copilot/grok-4.6": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.000006
+  },
+  "github_copilot/grok-4.7": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.000006
+  },
+  "github_copilot/kimi-k3": {
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 917504,
+    "output_cost_per_token": 0.000015
+  },
+  "github_copilot/mai-code-1.1-flash": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 128000,
+    "output_cost_per_token": 0.0000012
   },
   "glm-4-7-251222": {
     "input_cost_per_token": 0.0,
@@ -8717,7 +8949,7 @@
     "cache_creation_input_token_cost": 0.00000375,
     "cache_read_input_token_cost": 3E-7,
     "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
   "global.anthropic.claude-sonnet-4-5-20250929-v1:0": {
@@ -8829,7 +9061,7 @@
   "global.xai.grok-4.7": {
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000002,
-    "max_input_tokens": 500000,
+    "max_input_tokens": 524288,
     "output_cost_per_token": 0.000006
   },
   "global.zai.glm-5.3": {
@@ -11097,6 +11329,11 @@
     "max_input_tokens": 32000,
     "output_cost_per_token": 0.00000111
   },
+  "nebius/reflection/beam": {
+    "input_cost_per_token": 2.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000001
+  },
   "nebius/zai-org/GLM-5.1": {
     "input_cost_per_token": 0.0000014,
     "max_input_tokens": 202752,
@@ -12332,6 +12569,12 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 2E-7
   },
+  "opencode/beam-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0
+  },
   "opencode/big-pickle": {
     "cache_creation_input_token_cost": 0,
     "cache_read_input_token_cost": 0,
@@ -12618,6 +12861,12 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 5e-07
   },
+  "opencode/glm-5.3-flash-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0
+  },
   "opencode/gpt-5": {
     "cache_read_input_token_cost": 1.0699999999999999e-07,
     "input_cost_per_token": 1.0700000000000001e-06,
@@ -12888,6 +13137,12 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 0
   },
+  "opencode/ll-alpha-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0
+  },
   "opencode/longcat-2.0-free": {
     "cache_read_input_token_cost": 0,
     "input_cost_per_token": 0,
@@ -12970,6 +13225,12 @@
     "cache_read_input_token_cost": 0,
     "input_cost_per_token": 0,
     "max_input_tokens": 200000,
+    "output_cost_per_token": 0
+  },
+  "opencode/minimax-m3.1-flash-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 1000000,
     "output_cost_per_token": 0
   },
   "opencode/mistral-large-4": {
@@ -13098,6 +13359,21 @@
     "input_cost_per_token": 0,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0
+  },
+  "openinfer/@oi/GLM-5.3-Flash": {
+    "input_cost_per_token": 1.95E-7,
+    "max_input_tokens": 393216,
+    "output_cost_per_token": 0.00000156
+  },
+  "openinfer/@oi/Qwen3.5-27B": {
+    "input_cost_per_token": 1.95E-7,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 0.00000156
+  },
+  "openinfer/@oi/Qwen3.5-9B": {
+    "input_cost_per_token": 0.000005,
+    "max_input_tokens": 100000,
+    "output_cost_per_token": 1.5E-7
   },
   "ovhcloud/DeepSeek-R1-Distill-Llama-70B": {
     "input_cost_per_token": 6.7E-7,
@@ -13659,7 +13935,7 @@
   },
   "qwen.qwen3-coder-480b-a35b-v1:0": {
     "input_cost_per_token": 4.5E-7,
-    "max_input_tokens": 131072,
+    "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000018
   },
   "qwen.qwen3-coder-next": {
@@ -14855,6 +15131,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000012
   },
+  "together_ai/deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+    "cache_read_input_token_cost": 6E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
   "together_ai/deepseek-ai/deepseek-coder-33b-instruct": {
     "input_cost_per_token": 8E-7,
     "max_input_tokens": 16384,
@@ -15015,6 +15297,12 @@
     "input_cost_per_token": 5E-8,
     "max_input_tokens": 131072,
     "output_cost_per_token": 2E-7
+  },
+  "together_ai/reflection/Beam-1.0-501B-A23B": {
+    "cache_read_input_token_cost": 4E-8,
+    "input_cost_per_token": 4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
   },
   "together_ai/thinkingmachines/Inkling": {
     "cache_read_input_token_cost": 1.7E-7,
@@ -15358,7 +15646,7 @@
     "cache_creation_input_token_cost": 0.00000375,
     "cache_read_input_token_cost": 3E-7,
     "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
   "us.anthropic.claude-sonnet-4-5-20250929-v1:0": {
@@ -15545,7 +15833,7 @@
   "us.xai.grok-4.7": {
     "cache_read_input_token_cost": 5.5E-7,
     "input_cost_per_token": 0.0000022,
-    "max_input_tokens": 500000,
+    "max_input_tokens": 524288,
     "output_cost_per_token": 0.0000066
   },
   "us.zai.glm-5.3": {
@@ -16413,10 +16701,10 @@
     "output_cost_per_token": 0.00000168
   },
   "vertex_ai/deepseek-ai/deepseek-v4.1-flash-maas": {
-    "cache_read_input_token_cost": 0.0,
-    "input_cost_per_token": 0.0,
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 3E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0
+    "output_cost_per_token": 0.0000012
   },
   "vertex_ai/gemini-2.0-flash": {
     "input_cost_per_token": 1.5E-7,
@@ -16950,6 +17238,12 @@
     "input_cost_per_token": 7E-8,
     "max_input_tokens": 262000,
     "output_cost_per_token": 2E-7
+  },
+  "wandb/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1049000,
+    "output_cost_per_token": 7.5E-7
   },
   "wandb/openai/gpt-oss-120b": {
     "input_cost_per_token": 3E-8,
