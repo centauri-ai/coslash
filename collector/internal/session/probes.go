@@ -4,13 +4,13 @@ import (
 	"context"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
@@ -74,7 +74,7 @@ func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bo
 	if root == "" {
 		return fallback, true
 	}
-	if output, err := exec.CommandContext(ctx, "git", "-C", root, "remote", "get-url", "origin").Output(); err == nil {
+	if output, err := backgroundexec.CommandContext(ctx, "git", "-C", root, "remote", "get-url", "origin").Output(); err == nil {
 		if remote := CanonicalOriginURL(string(output)); remote != "" {
 			return remote, false
 		}
@@ -177,7 +177,7 @@ func CurrentBranchContext(ctx context.Context, cwd string) *string {
 	if !backgroundFilesystemProbeAllowed(cwd) {
 		return nil
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	out, err := backgroundexec.CommandContext(ctx, "git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
 	if err != nil {
 		return nil
 	}
@@ -213,7 +213,7 @@ func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string)
 	if !strings.HasPrefix(branchRef, "refs/") {
 		branchRef = "refs/heads/" + branchRef
 	}
-	out, err := exec.CommandContext(ctx,
+	out, err := backgroundexec.CommandContext(ctx,
 		"git", "-C", cwd, "rev-list", "--left-right", "--count", branchRef+"..."+baseRef, "--",
 	).
 		Output()
@@ -237,7 +237,7 @@ func findBaseBranch(cwd string) (string, string) {
 }
 
 func findBaseBranchContext(ctx context.Context, cwd string) (string, string) {
-	if out, err := exec.CommandContext(ctx,
+	if out, err := backgroundexec.CommandContext(ctx,
 		"git", "-C", cwd, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD",
 	).Output(); err == nil {
 		ref := strings.TrimSpace(string(out))
@@ -269,5 +269,5 @@ func gitRefExistsContext(ctx context.Context, cwd, ref string) bool {
 	if !backgroundFilesystemProbeAllowed(cwd) {
 		return false
 	}
-	return exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--verify", "--quiet", ref).Run() == nil
+	return backgroundexec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--verify", "--quiet", ref).Run() == nil
 }

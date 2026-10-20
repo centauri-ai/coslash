@@ -12,11 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 	_ "modernc.org/sqlite"
 )
 
 var databasePathLookupTimeout = 2 * time.Second
-var commandContext = exec.CommandContext
+var commandContext = backgroundexec.CommandContext
 
 func Root() (string, error) {
 	return RootContext(context.Background())
