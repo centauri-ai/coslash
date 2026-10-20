@@ -567,8 +567,10 @@ jobs:
           base_url="https://github.com/centauri-ai/coslash/releases/download/$TAG"
           arm_asset="coslash_${TAG}_darwin_arm64.tar.gz"
           intel_asset="coslash_${TAG}_darwin_amd64.tar.gz"
-          curl -fL "$base_url/$arm_asset" -o "downloads/$arm_asset"
-          curl -fL "$base_url/$intel_asset" -o "downloads/$intel_asset"
+          for platform in darwin_arm64 darwin_amd64 linux_arm64 linux_amd64; do
+            asset="coslash_${TAG}_${platform}.tar.gz"
+            curl -fL "$base_url/$asset" -o "downloads/$asset"
+          done
           curl -fL "$base_url/checksums.txt" -o downloads/checksums.txt
           (cd downloads && shasum -a 256 -c checksums.txt)
 
