@@ -28,12 +28,15 @@ const openCodeV2ConfigContent = `{"policies":[{"action":"tool.use","resource":"*
 
 var cachedOpenCodeV2 = newOpenCodeV2Detector(detectOpenCodeV2)
 
-func newOpenCodeV2Detector(detect func(string) bool) func(string) bool {
+func newOpenCodeV2Detector(detect func(context.Context, string) bool) func(context.Context, string) bool {
 	var mutex sync.Mutex
 	var cachedPath string
 	var cachedInfo os.FileInfo
 	var cachedV2 bool
-	return func(bin string) bool {
+	return func(ctx context.Context, bin string) bool {
+		if ctx.Err() != nil {
+			return false
+		}
 		path, err := exec.LookPath(bin)
 		if err != nil {
 			return false
@@ -44,11 +47,18 @@ func newOpenCodeV2Detector(detect func(string) bool) func(string) bool {
 		}
 		mutex.Lock()
 		defer mutex.Unlock()
+		if ctx.Err() != nil {
+			return false
+		}
 		if cachedInfo != nil && cachedPath == path && os.SameFile(cachedInfo, info) &&
 			cachedInfo.Size() == info.Size() && cachedInfo.ModTime().Equal(info.ModTime()) {
 			return cachedV2
 		}
-		cachedV2 = detect(path)
+		detected := detect(ctx, path)
+		if ctx.Err() != nil {
+			return false
+		}
+		cachedV2 = detected
 		cachedPath, cachedInfo = path, info
 		return cachedV2
 	}
@@ -253,13 +263,13 @@ func openCodeDefaultConfig(ctx context.Context, bin string, execute commandExecu
 	return string(encoded), nil
 }
 
-func detectOpenCodeV2(bin string) bool {
+func detectOpenCodeV2(ctx context.Context, bin string) bool {
 	dataDir, err := os.MkdirTemp("", "coslash-opencode-version-")
 	if err != nil {
 		return false
 	}
 	defer os.RemoveAll(dataDir)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "--version")
 	cmd.Env = append(os.Environ(), "XDG_DATA_HOME="+dataDir)

@@ -128,7 +128,7 @@ func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 	}
 	t.Setenv("PATH", directory)
 	probes := 0
-	cachedOpenCodeV2 = newOpenCodeV2Detector(func(bin string) bool {
+	cachedOpenCodeV2 = newOpenCodeV2Detector(func(_ context.Context, bin string) bool {
 		if bin != path {
 			t.Fatalf("version probe binary = %q, want %q", bin, path)
 		}
@@ -283,5 +283,40 @@ func TestNormalizeKeepsTwelveIntermediateDecisions(t *testing.T) {
 	}
 	if len(synthesis.KeyDecisions) != 12 || synthesis.KeyDecisions[11] != "decision-12" {
 		t.Fatalf("key decisions = %#v, want first 12", synthesis.KeyDecisions)
+	}
+}
+
+func TestOpenCodeVersionCancellationDoesNotCacheAnUnverifiedVersion(t *testing.T) {
+	directory := t.TempDir()
+	name := "opencode"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if err := os.WriteFile(filepath.Join(directory, name), []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	detect := newOpenCodeV2Detector(func(got context.Context, _ string) bool {
+		calls++
+		if calls == 1 {
+			if got != ctx {
+				t.Error("version probe lost synthesis context")
+			}
+			cancel()
+			return false
+		}
+		return true
+	})
+	if detect(ctx, "opencode") {
+		t.Fatal("canceled probe verified a version")
+	}
+	if !detect(context.Background(), "opencode") || calls != 2 {
+		t.Fatal("canceled probe poisoned the version cache")
+	}
+	if !detect(context.Background(), "opencode") || calls != 2 {
+		t.Fatal("verified version was not cached")
 	}
 }
