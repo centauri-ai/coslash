@@ -13,6 +13,11 @@ stable selection, structural coverage, exact byte totals, and complete backup
 hash. A failed preparation returns coverage problems and leaves no completed
 manifest.
 
+Cancellation and deadline expiry retain their context error identity, including
+when parsing or writing a frozen artifact was interrupted. They do not establish
+that the source is malformed; callers may retry the unchanged input. Actual
+invalid data still returns the specific preparation coverage problem.
+
 Raw rollouts are streamed once from the live source to a private spool while
 their hashes and lengths are computed. After the live source passes its
 post-copy fingerprint check, parsing runs only against those frozen rollout
