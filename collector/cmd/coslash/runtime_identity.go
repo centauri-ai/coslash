@@ -59,10 +59,16 @@ func installChannelWithBuildMetadata(goos, detected, metadata string) string {
 func installChannelForPaths(executable, resolved, home, localAppData, goos string) string {
 	paths := []string{normalizeInstallPath(executable, goos), normalizeInstallPath(resolved, goos)}
 	if goos == "windows" {
-		root := normalizeInstallPath(path.Join(normalizeInstallPath(localAppData, goos), "Programs", "coSlash"), goos)
+		if localAppData == "" {
+			return "unknown"
+		}
+		localRoot := normalizeInstallPath(localAppData, goos)
+		roots := []string{path.Join(localRoot, "coSlash", "bin"), path.Join(localRoot, "Programs", "coSlash")}
 		for _, candidate := range paths {
-			if pathWithin(candidate, root, true) {
-				return "windows-script"
+			for _, root := range roots {
+				if pathWithin(candidate, root, true) {
+					return "windows-script"
+				}
 			}
 		}
 		return "unknown"

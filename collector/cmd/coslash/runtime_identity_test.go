@@ -13,6 +13,12 @@ func TestInstallChannelDetector(t *testing.T) {
 		{name: "usr local script", executable: "/usr/local/bin/coslash", resolved: "/usr/local/bin/coslash", goos: "linux", want: "script"},
 		{name: "user script", executable: "/Users/maya/.local/bin/coslash", resolved: "/Users/maya/.local/bin/coslash", home: "/Users/maya", goos: "darwin", want: "script"},
 		{name: "Windows script", executable: `C:\Users\Maya\AppData\Local\Programs\coSlash\coslash.exe`, resolved: `C:\Users\Maya\AppData\Local\Programs\coSlash\coslash.exe`, localAppData: `C:\Users\Maya\AppData\Local`, goos: "windows", want: "windows-script"},
+		{name: "Windows installer default", executable: `C:\Users\Maya\AppData\Local\coSlash\bin\coslash.exe`, localAppData: `C:\Users\Maya\AppData\Local`, goos: "windows", want: "windows-script"},
+		{name: "Windows resolved default with mixed case", executable: `C:\tools\coslash.exe`, resolved: `c:\USERS\Maya\AppData\Local\COSLASH\BIN\coslash.exe`, localAppData: `C:\Users\Maya\AppData\Local`, goos: "windows", want: "windows-script"},
+		{name: "Windows default prefix is not install directory", executable: `C:\Users\Maya\AppData\Local\coSlash\bin-other\coslash.exe`, localAppData: `C:\Users\Maya\AppData\Local`, goos: "windows", want: "unknown"},
+		{name: "Windows legacy prefix is not install directory", executable: `C:\Users\Maya\AppData\Local\Programs\coSlash-other\coslash.exe`, localAppData: `C:\Users\Maya\AppData\Local`, goos: "windows", want: "unknown"},
+		{name: "Windows custom install", executable: `C:\tools\coslash.exe`, localAppData: `C:\Users\Maya\AppData\Local`, goos: "windows", want: "unknown"},
+		{name: "Windows missing local app data", executable: `coSlash\bin\coslash.exe`, goos: "windows", want: "unknown"},
 		{name: "path prefix is not install directory", executable: "/usr/local/bin-other/coslash", resolved: "/usr/local/bin-other/coslash", goos: "linux", want: "unknown"},
 		{name: "unknown", executable: "/opt/coslash/coslash", resolved: "/opt/coslash/coslash", goos: "linux", want: "unknown"},
 	}
@@ -20,6 +26,12 @@ func TestInstallChannelDetector(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if got := installChannelForPaths(test.executable, test.resolved, test.home, test.localAppData, test.goos); got != test.want {
 				t.Fatalf("install channel=%q, want %q", got, test.want)
+			}
+			if test.goos == "windows" {
+				channel := installChannelForPaths(test.executable, test.resolved, test.home, test.localAppData, test.goos)
+				if got := automaticUpdatesSupported(test.goos, channel, false); got != (test.want == "windows-script") {
+					t.Fatalf("automatic updates supported=%t for channel %q", got, channel)
+				}
 			}
 		})
 	}
