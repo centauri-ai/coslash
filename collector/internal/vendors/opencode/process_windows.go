@@ -6,12 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 	"unsafe"
 
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 	"github.com/centauri-ai/coslash/collector/internal/winprocess"
 	"golang.org/x/sys/windows"
 )
@@ -21,7 +21,7 @@ var listTUIProcessTimeout = 5 * time.Second
 var (
 	currentUserExecutable = winprocess.CurrentUserExecutable
 	runTUIProcessQuery    = func(ctx context.Context) ([]byte, error) {
-		return exec.CommandContext(
+		return backgroundexec.CommandContext(
 			ctx,
 			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", listOpenCodeProcesses,
 		).Output()

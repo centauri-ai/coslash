@@ -2,9 +2,10 @@ package session
 
 import (
 	"context"
-	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 )
 
 // git commit at shell command position; excludes commit-tree and argument text.
@@ -242,12 +243,12 @@ func repositoryHistoryContext(ctx context.Context, cwd string, branch *string) (
 	if branch != nil && strings.TrimSpace(*branch) != "" {
 		ref = strings.TrimSpace(*branch)
 	}
-	output, err := exec.CommandContext(ctx,
+	output, err := backgroundexec.CommandContext(ctx,
 		"git", "-C", cwd, "log", "--format=%H%x00%s", ref, "--",
 	).Output()
 	if err != nil {
 		if !gitRefExistsContext(ctx, cwd, ref) &&
-			exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--git-dir").Run() == nil {
+			backgroundexec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--git-dir").Run() == nil {
 			return []repositoryCommit{}, true
 		}
 		return nil, false
