@@ -95,7 +95,7 @@ type CLIRunner struct {
 	Model           string
 	Timeout         time.Duration
 	openCodeV2      bool
-	openCodeVersion func(string) bool
+	openCodeVersion func(context.Context, string) bool
 	exec            commandExecutor
 }
 
@@ -148,7 +148,7 @@ func (r *CLIRunner) VendorName() string {
 func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 	openCodeV2 := r.openCodeV2
 	if r.Backend == settings.BackendOpenCode && r.openCodeVersion != nil {
-		openCodeV2 = r.openCodeVersion(r.Bin)
+		openCodeV2 = r.openCodeVersion(ctx, r.Bin)
 	}
 	executor := r.exec
 	if executor == nil {
