@@ -228,8 +228,13 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 			dir := filepath.Join(root, group.Name(), entry.Name())
 			for _, name := range []string{"summary.json", "updates.jsonl"} {
 				path := filepath.Join(dir, name)
-				if _, err := os.Lstat(path); err == nil && !claudeInputWithinProjects(path, root) {
-					return failure()
+				if info, err := os.Lstat(path); err == nil {
+					if name == "updates.jsonl" && info.Size() > sessionbackupv1.MaxArtifactBytes {
+						return grok.FamilyRef{}, captureTooLarge(sessionbackupv1.KindRawTranscript)
+					}
+					if !claudeInputWithinProjects(path, root) {
+						return failure()
+					}
 				}
 			}
 			subagents := filepath.Join(dir, "subagents")
