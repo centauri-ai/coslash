@@ -59,6 +59,8 @@ type Entry struct {
 	// this entry, so a failure that repeats on every pass or every source
 	// change is logged once. A completed sync or a Hub retry clears it.
 	LoggedFailure string `json:"loggedFailure,omitempty"`
+	// SourceBlocked retains a verified capture until discovery can hash its source again.
+	SourceBlocked bool `json:"sourceBlocked,omitempty"`
 }
 
 type state struct {
@@ -239,6 +241,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry := &q.state.Entries[i]
 			q.abandon(entry.BundleID)
 			entry.ParkedVersion, entry.LoggedFailure = "", ""
+			entry.SourceBlocked = false
 			entry.SyncedActivity, entry.SyncedSourceRevision = 0, ""
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
 			entry.Listed, entry.ListRejected, entry.ServerLeftOut = false, false, false
@@ -620,6 +623,15 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 			continue
 		}
 		prior := *entry
+		if entry.SourceBlocked {
+			entry.Priority = true
+			if err := q.save(); err != nil {
+				*entry = prior
+				return false, err
+			}
+			return true, nil
+		}
+
 		q.abandon(entry.BundleID)
 		entry.ParkedVersion, entry.LoggedFailure = "", ""
 		entry.Priority = true
@@ -709,7 +721,7 @@ func (q *Queue) Matches(entry Entry) bool {
 	defer q.mu.Unlock()
 	for _, stored := range q.state.Entries {
 		if stored.Key == entry.Key {
-			return !stored.Excluded && stored.Activity == entry.Activity && stored.SourceRevision == entry.SourceRevision &&
+			return !stored.Excluded && !stored.SourceBlocked && stored.Activity == entry.Activity && stored.SourceRevision == entry.SourceRevision &&
 				stored.Attempt == entry.Attempt && stored.BundleID == entry.BundleID && stored.UploadID == entry.UploadID
 		}
 	}
@@ -767,6 +779,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.ListRejected = false
 				entry.Activity = max(entry.Activity, item.Activity)
 				entry.SourceRevision = item.SourceRevision
+				entry.SourceBlocked = false
 				entry.Session = item.Session
 				q.abandon(entry.BundleID)
 				entry.ParkedVersion = ""
