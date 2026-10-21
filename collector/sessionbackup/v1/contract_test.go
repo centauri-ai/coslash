@@ -685,6 +685,7 @@ func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
 		"claude/local": true, "claude/ssh": false,
 		"cursor/local": true, "cursor/ssh": false,
 		"opencode/local": true, "opencode/ssh": false,
+		"grok/local": true, "grok/ssh": false,
 	}
 	for _, status := range CoverageMatrix {
 		key := status.Agent + "/" + status.SourceKind
@@ -1047,4 +1048,61 @@ func schemaValidationError(t *testing.T, name string, data []byte) error {
 		return err
 	}
 	return schema.Validate(value)
+}
+
+func TestGrokBackupRoundTripAndGuards(t *testing.T) {
+	manifest, _, blobs := loadValidFixture(t)
+	manifest.Source.Agent = "grok"
+	kept := []Artifact{}
+	for index := range manifest.Members {
+		manifest.Members[index].SynthesisRevisionMs = 0
+	}
+	for _, artifact := range manifest.Artifacts {
+		if artifact.Kind == KindSynthesis {
+			delete(blobs, artifact.LogicalName)
+			continue
+		}
+		if strings.HasPrefix(artifact.Kind, "raw-") {
+			artifact.Source = "grok"
+		}
+		if artifact.Kind == KindParsedSessionRecord {
+			record, err := fullsessionv1.Decode(blobs[artifact.LogicalName])
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.Agent = "grok"
+			record.Session.Synthesis = nil
+			record, err = fullsessionv1.Freeze(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact.SourceKey = record.RevisionID
+			blobs[artifact.LogicalName], err = fullsessionv1.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		kept = append(kept, artifact)
+	}
+	manifest.Artifacts = kept
+	frozen, err := Freeze(manifest, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := Marshal(frozen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validateAgainstSchema(t, "schema.json", data)
+	if _, err := Verify(data, func(name string) (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(blobs[name])), nil }); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct{ agent, kind string }{{"grok", SourceSSH}, {"pi", SourceLocal}, {"Grok", SourceLocal}} {
+		invalid := frozen
+		invalid.Source.Agent = change.agent
+		invalid.Source.Kind = change.kind
+		if err := Validate(invalid); err == nil {
+			t.Fatalf("accepted %s/%s", change.agent, change.kind)
+		}
+	}
 }
