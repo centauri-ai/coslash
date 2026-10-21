@@ -24,10 +24,12 @@ func IsSourceFile(path string) bool {
 // FamilyRef is a verified family, with its root directory first and children
 // in deterministic depth-first order. ActivityMs is summary-derived activity.
 type FamilyRef struct {
-	ID          string
-	Dirs        []string
-	ActivityMs  int64
-	nonChildren map[string]bool
+	ID           string
+	Dirs         []string
+	ActivityMs   int64
+	nonChildren  map[string]bool
+	nonChildDirs map[string]string
+	memberIDs    []string
 }
 
 // PlanFamiliesContext indexes only the supplied directories, once per pass.
@@ -162,8 +164,13 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 					ref.nonChildren = map[string]bool{}
 				}
 				ref.nonChildren[excludedID] = true
+				if ref.nonChildDirs == nil {
+					ref.nonChildDirs = map[string]string{}
+				}
+				ref.nonChildDirs[excludedID] = byID[excludedID]
 			}
 			ref.Dirs = append(ref.Dirs, byID[member])
+			ref.memberIDs = append(ref.memberIDs, member)
 			summary := summaries[member]
 			ref.ActivityMs = max(ref.ActivityMs, parseTime(summary.LastActiveAt), parseTime(summary.UpdatedAt), parseTime(summary.CreatedAt))
 			for i := len(children[member]) - 1; i >= 0; i-- {
@@ -207,9 +214,18 @@ func ParseFamiliesContext(ctx context.Context, families []FamilyRef) ([]*vendors
 }
 
 func parseDirsContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	refs, parents, err := planFamiliesContext(ctx, dirs, nonChildren)
+	parsed, err := parseFamilyDirsContext(ctx, dirs, nonChildren)
 	if err != nil {
 		return nil, nil, err
+	}
+	metadata, err := loadMetadataContext(ctx)
+	return parsed, metadata, err
+}
+
+func parseFamilyDirsContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, error) {
+	refs, parents, err := planFamiliesContext(ctx, dirs, nonChildren)
+	if err != nil {
+		return nil, err
 	}
 	parsed := []*vendors.ParsedSession{}
 	metas := map[string][]subagentMeta{}
@@ -217,10 +233,10 @@ func parseDirsContext(ctx context.Context, dirs []string, nonChildren map[string
 		for _, dir := range ref.Dirs {
 			item, err := parseSessionContext(ctx, dir)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			if item == nil {
-				return nil, nil, errors.New("grok: session changed during discovery")
+				return nil, errors.New("grok: session changed during discovery")
 			}
 			item.ParentID = parents[item.Session.ID]
 			for _, meta := range readSubagentMetas(ctx, dir, true) {
@@ -232,9 +248,8 @@ func parseDirsContext(ctx context.Context, dirs []string, nonChildren map[string
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	attachSubagents(parsed, metas)
-	metadata, err := loadMetadataContext(ctx)
-	return parsed, metadata, err
+	return parsed, nil
 }
