@@ -151,7 +151,7 @@ const styles = {
   shell:
     'coslash-shell flex h-svh flex-col overflow-hidden bg-coslash-bg text-ui leading-[1.45] text-coslash-ink antialiased',
   header:
-    'flex h-[60px] items-center justify-between gap-3.5 border-b border-coslash-line bg-coslash-surface px-5 max-compact:px-3',
+    'flex min-h-15 shrink-0 flex-wrap items-center justify-between gap-3.5 border-b border-coslash-line bg-coslash-surface px-5 py-2 max-compact:px-3',
   banner:
     'flex items-center gap-2.5 border-b border-danger-fg bg-danger-bg px-5 py-2.5 text-xs text-danger-fg [&>svg]:size-4',
   sidebar:
@@ -516,7 +516,7 @@ function CoslashHeader({
   return (
     <>
       <div className={styles.header}>
-        <div className="flex min-w-0 items-center gap-3.5">
+        <div className="flex min-w-0 shrink-0 items-center gap-3.5">
           <span role="img" aria-label="coSlash">
             <img src="/brand/coslash-logo.svg" alt="" className="w-[104px] dark:hidden" />
             <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden w-[104px] dark:block" />
@@ -525,7 +525,7 @@ function CoslashHeader({
             Run more agents. Lose less context.
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {actions}
           <div className="bg-coslash-soft rounded-[10px] p-0.5">{diagnostics}</div>
           <div className="bg-coslash-soft rounded-[10px] p-0.5">
