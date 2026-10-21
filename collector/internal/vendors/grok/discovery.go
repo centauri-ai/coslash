@@ -30,6 +30,7 @@ type FamilyRef struct {
 }
 
 // PlanFamiliesContext indexes only the supplied directories, once per pass.
+// An unreadable summary returns an error with any independently verified families.
 // Duplicate IDs, conflicting parents and cycles fail rather than choose a source.
 func PlanFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, error) {
 	refs, _, err := planFamiliesContext(ctx, dirs)
@@ -40,6 +41,7 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 	byID := map[string]string{}
 	summaries := map[string]*summaryFile{}
 	seenDirs := map[string]bool{}
+	var summaryErr error
 	for _, dir := range dirs {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -51,7 +53,8 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 		seenDirs[dir] = true
 		summary, err := readSummary(dir)
 		if err != nil {
-			return nil, nil, errors.New("grok: invalid session summary")
+			summaryErr = errors.New("grok: invalid session summary")
+			continue
 		}
 		if summary.ChatFormatVersion != 1 || summary.Info.ID == "" {
 			continue
@@ -74,7 +77,10 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 		}
 		for _, meta := range readSubagentMetas(ctx, dir, false) {
 			child := summaries[meta.ChildSessionID]
-			if child == nil || !isSubagentKind(child.SessionKind) {
+			if child == nil {
+				return nil, nil, errors.New("grok: missing family child")
+			}
+			if !isSubagentKind(child.SessionKind) {
 				continue
 			}
 			if parent := parentOf[meta.ChildSessionID]; parent != "" && parent != id {
@@ -128,7 +134,7 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 	if len(visited) != len(byID) {
 		return nil, nil, errors.New("grok: cyclic parent lineage")
 	}
-	return refs, parentOf, nil
+	return refs, parentOf, summaryErr
 }
 
 // ParseDirsContext parses selected whole families without scanning the source root.

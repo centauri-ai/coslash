@@ -121,13 +121,14 @@ func DiscoverAll(ctx context.Context, opts DiscoverOptions) ([]*session.Session,
 }
 
 type discoveryPlan struct {
-	families   []family
-	metadata   map[string]*vendors.SessionMetadata
-	cursor     Cursor
-	batch      int
-	firstBatch int
-	persist    func(Cursor) error
-	live       map[string]string
+	families      []family
+	metadata      map[string]*vendors.SessionMetadata
+	cursor        Cursor
+	batch         int
+	firstBatch    int
+	persist       func(Cursor) error
+	live          map[string]string
+	planningError error
 }
 
 func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, error) {
@@ -240,22 +241,23 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		plan.planningError = err
 		if err != nil {
 			failures = append(failures, err)
-		} else {
-			for _, ref := range refs {
-				members := []string{}
-				for _, dir := range ref.Dirs {
-					members = append(members, filesByDir[dir]...)
-				}
-				activityMs := max(ref.ActivityMs, newest(members))
-				if opts.MinActivityMs > 0 && activityMs < opts.MinActivityMs {
-					continue
-				}
-				plan.families = append(plan.families, family{agent: vendors.AgentGrok, id: ref.ID, activityMs: activityMs, bytes: sourceBytes(members), files: ref.Dirs})
+		}
+		for _, ref := range refs {
+			members := []string{}
+			for _, dir := range ref.Dirs {
+				members = append(members, filesByDir[dir]...)
 			}
+			activityMs := max(ref.ActivityMs, newest(members))
+			if opts.MinActivityMs > 0 && activityMs < opts.MinActivityMs {
+				continue
+			}
+			plan.families = append(plan.families, family{agent: vendors.AgentGrok, id: ref.ID, activityMs: activityMs, bytes: sourceBytes(members), files: ref.Dirs})
 		}
 	}
+
 	refs, err := opencode.FamiliesContext(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -281,7 +283,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 	sort.SliceStable(plan.families, func(i, j int) bool { return familyBefore(plan.families[i], plan.families[j]) })
 
 	plan.cursor = Cursor{StartedAtMs: time.Now().UnixMilli(), PlanVersion: opts.PlanVersion}
-	if resume := opts.Resume; resume != nil && !resume.Complete && resume.StartedAtMs > 0 && resume.PlanVersion == opts.PlanVersion {
+	if resume := opts.Resume; plan.planningError == nil && resume != nil && !resume.Complete && resume.StartedAtMs > 0 && resume.PlanVersion == opts.PlanVersion {
 		plan.cursor = *resume
 		position := family{agent: resume.Agent, id: resume.Family, activityMs: resume.ActivityMs}
 		kept := plan.families[:0]
@@ -307,6 +309,10 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 	type sessionKey struct{ agent, id string }
 	yielded := map[sessionKey]bool{}
 	cursor := plan.cursor
+	if plan.planningError != nil {
+		// A failed plan must replay omitted families, including those above the cursor.
+		cursor = Cursor{}
+	}
 	for start := 0; start < len(plan.families); {
 		if err := ctx.Err(); err != nil {
 			yield(Batch{}, err)
@@ -332,9 +338,11 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 			yielded[key] = true
 			kept = append(kept, item)
 		}
-		last := batch[len(batch)-1]
-		cursor.ActivityMs, cursor.Agent, cursor.Family = last.activityMs, last.agent, last.id
-		cursor.Complete = end == len(plan.families)
+		if plan.planningError == nil {
+			last := batch[len(batch)-1]
+			cursor.ActivityMs, cursor.Agent, cursor.Family = last.activityMs, last.agent, last.id
+			cursor.Complete = end == len(plan.families)
+		}
 		familyBytes := make(map[string]int64, len(batch))
 		agentBytes := map[string]int64{}
 		agentCount := map[string]int64{}
@@ -366,14 +374,19 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 		start = end
 	}
 	if len(plan.families) == 0 {
-		cursor.Complete = true
+		cursor.Complete = plan.planningError == nil
 		if plan.persist != nil {
 			if err := plan.persist(cursor); err != nil {
 				yield(Batch{}, err)
 				return
 			}
 		}
-		yield(Batch{Cursor: cursor}, nil)
+		if !yield(Batch{Cursor: cursor}, nil) {
+			return
+		}
+	}
+	if plan.planningError != nil {
+		yield(Batch{}, plan.planningError)
 	}
 }
 

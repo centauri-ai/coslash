@@ -265,3 +265,119 @@ func TestGrokDiscoveryKeepsSameIDAcrossAgents(t *testing.T) {
 		t.Fatalf("identities=%v", identities)
 	}
 }
+
+func TestGrokPlanningFailureReplaysRepairedFamily(t *testing.T) {
+	home := grokHome(t)
+	grokSummary(t, "healthy", "", "", now.Add(-2*time.Hour))
+	oldStamp := now.Add(-90 * 24 * time.Hour)
+	old := grokSummary(t, "old", "", "", oldStamp)
+	grokFile(t, old, "summary.json", `{`, oldStamp)
+	snapshot, err := Scan(t.Context(), Options{Home: home, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	var scanErr error
+	persisted := []Cursor{}
+	resume := Cursor{StartedAtMs: now.UnixMilli(), ActivityMs: now.Add(-3 * time.Hour).UnixMilli(), Agent: "grok", Family: "previous"}
+	for batch, err := range Discover(t.Context(), DiscoverOptions{Snapshot: snapshot, MinActivityMs: now.Add(-24 * time.Hour).UnixMilli(), Resume: &resume, Persist: func(c Cursor) error { persisted = append(persisted, c); return nil }}) {
+		if err != nil {
+			scanErr = err
+			break
+		}
+		if batch.Cursor.Complete {
+			t.Fatal("incomplete scan yielded complete cursor")
+		}
+		for _, item := range batch.Sessions {
+			ids = append(ids, item.ID)
+		}
+	}
+	if !reflect.DeepEqual(ids, []string{"healthy"}) || scanErr == nil || len(persisted) == 0 {
+		t.Fatalf("ids=%v error=%v persisted=%+v", ids, scanErr, persisted)
+	}
+	retry := persisted[len(persisted)-1]
+	encoded, err := json.Marshal(retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if DecodeCursor(encoded) != nil {
+		t.Fatalf("failed scan retained a resumable checkpoint: %+v", retry)
+	}
+	for _, cursor := range persisted {
+		if cursor.Complete {
+			t.Fatal("incomplete scan persisted complete cursor")
+		}
+	}
+	// The repaired root sorts above the last healthy batch with unchanged old mtimes.
+	grokFile(t, old, "summary.json", `{"info":{"id":"repaired"},"chat_format_version":1,"created_at":"2026-09-01T00:00:00Z","last_active_at":"2026-09-29T11:00:00Z"}`, oldStamp)
+	snapshot, err = Scan(t.Context(), Options{Home: home, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids = nil
+	complete := false
+	for batch, err := range Discover(t.Context(), DiscoverOptions{Snapshot: snapshot, MinActivityMs: now.Add(-24 * time.Hour).UnixMilli(), Resume: &retry, BatchFamilies: 1}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range batch.Sessions {
+			ids = append(ids, item.ID)
+		}
+		complete = batch.Cursor.Complete
+	}
+	if !reflect.DeepEqual(ids, []string{"repaired", "healthy"}) || !complete {
+		t.Fatalf("retry ids=%v complete=%v", ids, complete)
+	}
+}
+
+func TestGrokInvalidFamiliesNeverCompleteDiscovery(t *testing.T) {
+	for _, scenario := range []string{"only malformed", "duplicate id", "missing parent", "conflicting parents", "cycle", "malformed linked child"} {
+		t.Run(scenario, func(t *testing.T) {
+			home := grokHome(t)
+			a := grokSummary(t, "a", "", "", now)
+			switch scenario {
+			case "only malformed":
+				grokFile(t, a, "summary.json", `{`, now)
+			case "duplicate id":
+				b := grokSummary(t, "b", "", "", now)
+				grokFile(t, b, "summary.json", `{"info":{"id":"a"},"chat_format_version":1}`, now)
+			case "missing parent":
+				grokSummary(t, "b", "subagent", "absent", now)
+			case "conflicting parents":
+				grokSummary(t, "b", "subagent", "other", now)
+				grokFile(t, a, "subagents/sub/meta.json", `{"child_session_id":"b"}`, now)
+			case "cycle":
+				grokSummary(t, "a", "subagent", "b", now)
+				grokSummary(t, "b", "subagent", "a", now)
+			case "malformed linked child":
+				b := grokSummary(t, "b", "subagent", "a", now)
+				grokFile(t, a, "subagents/sub/meta.json", `{"child_session_id":"b"}`, now)
+				grokFile(t, b, "summary.json", `{`, now)
+			}
+			snapshot, err := Scan(t.Context(), Options{Home: home, Now: now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			failed := false
+			saved := 0
+			for batch, err := range Discover(t.Context(), DiscoverOptions{Snapshot: snapshot, Persist: func(c Cursor) error {
+				saved++
+				if c.Complete || c.StartedAtMs != 0 {
+					t.Fatal("failed scan persisted complete")
+				}
+				return nil
+			}}) {
+				if err != nil {
+					failed = true
+					break
+				}
+				if batch.Cursor.Complete || len(batch.Sessions) != 0 {
+					t.Fatalf("invalid family published: %+v", batch)
+				}
+			}
+			if !failed || saved == 0 {
+				t.Fatalf("failed planning was acknowledged or checkpoint was not reset: failed=%v saved=%d", failed, saved)
+			}
+		})
+	}
+}
