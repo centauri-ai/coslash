@@ -14,9 +14,9 @@ func TestGrokSourceRevisionsCoverFamilyInputs(t *testing.T) {
 	_, group, _ := grokFixture(t)
 	revisions := func() map[string]string {
 		t.Helper()
-		got, err := LocalGrokSourceRevisions(t.Context())
-		if err != nil {
-			t.Fatal(err)
+		got, failures, err := LocalGrokSourceRevisions(t.Context())
+		if err != nil || len(failures) != 0 {
+			t.Fatalf("source revisions: %v failures: %v", err, failures)
 		}
 		return got
 	}
@@ -55,15 +55,15 @@ func TestGrokSourceRevisionsCoverFamilyInputs(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := LocalGrokSourceRevisions(ctx); !errors.Is(err, context.Canceled) {
+	if _, _, err := LocalGrokSourceRevisions(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel identity=%v", err)
 	}
 }
 
 func TestGrokSourceRevisionSeesSameSizeRewrite(t *testing.T) {
 	_, group, _ := grokFixture(t)
-	first, err := LocalGrokSourceRevisions(t.Context())
-	if err != nil {
+	first, failures, err := LocalGrokSourceRevisions(t.Context())
+	if err != nil || len(failures) != 0 {
 		t.Fatal(err)
 	}
 	path := filepath.Join(group, "grandchild", "usage.json")
@@ -83,8 +83,8 @@ func TestGrokSourceRevisionSeesSameSizeRewrite(t *testing.T) {
 	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	second, err := LocalGrokSourceRevisions(t.Context())
-	if err != nil {
+	second, failures, err := LocalGrokSourceRevisions(t.Context())
+	if err != nil || len(failures) != 0 {
 		t.Fatal(err)
 	}
 	if first["root"] == second["root"] {

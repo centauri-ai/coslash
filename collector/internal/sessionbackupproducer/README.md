@@ -87,6 +87,8 @@ cost remains unknown. Grok SSH and Pi complete capture remain unsupported.
 The queue reuses this producer's input enumeration for bounded source hashes,
 including all recursive members and optional input presence. Discovery activity
 and canonical root revision do not substitute for this family source revision.
+The revision hook returns ordinary failures per family. Cancellation and deadline
+errors stop the scan and retain their context error identity.
 
 Focused verification is:
 

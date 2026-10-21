@@ -39,6 +39,14 @@ Streamed sync reads only selected families and keeps discovery activity
 separate from source revision. A grandchild update can change the family source revision
 while the canonical root record stays unchanged. Forks retain their local origin
 lineage and enter the queue as independent verified roots.
+A source-hash failure blocks only that family. Healthy families and later
+batches continue. The private queue retains prior pending captures until a fresh
+source hash succeeds, including after restart or a Hub retry. Existing failure
+codes and logs report the blocked source. No empty source hash admits a root.
+Grok metadata sums all five counters with checked integer addition. An
+unrepresentable total uses the compatible Hub's existing zero sentinel for
+unavailable metadata. Individual canonical counters and upload eligibility stay
+unchanged. Accepted parsed content remains authoritative for known zero.
 Grok inventory and uploads require a Hub that accepts Grok and its optional
 unattributed accounting. Deploy compatible check-in validation and readers before
 selecting this Local build.

@@ -434,30 +434,39 @@ func grokFamilyInputs(ctx context.Context, root string, family grok.FamilyRef) (
 
 // LocalGrokSourceRevisions hashes the existing producer inputs once per queue
 // discovery pass. Root detail revisions do not cover every descendant's usage.
-func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, error) {
+// Revisions and ordinary failures are keyed by root ID; the final error aborts.
+func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, map[string]error, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	root, err := grok.Root()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	families, _, err := grokCaptureFamilies(ctx, root)
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, nil, ctx.Err()
 	}
 	if err != nil && len(families) == 0 {
-		return nil, err
+		return nil, nil, err
 	}
 	revisions := make(map[string]string, len(families))
+	failures := map[string]error{}
 	for _, family := range families {
 		revision, err := GrokSourceRevision(ctx, family)
 		if err != nil {
-			return nil, err
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, nil, err
+			}
+			failures[family.ID] = err
+			continue
 		}
 		revisions[family.ID] = revision
 	}
-	return revisions, nil
+	return revisions, failures, nil
 }
 
 // GrokSourceRevision uses the unchanged verified planning context, including

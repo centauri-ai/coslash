@@ -229,6 +229,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	}
 	if r.DiscoverBatches != nil && (r.config.ImportPlan != nil || r.scaleEnabled) {
 		listedOnce, unlistedSince := false, 0
+		var sourceErr error
 		// A large local discovery pass can take minutes. Resume already listed
 		// uploads first so a fresh scan does not block visible content progress.
 		var transferErr error
@@ -247,12 +248,21 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			grokRevisions := make(map[string]string, len(batch.GrokFamilies))
+			failures := map[string]error{}
 			for _, family := range batch.GrokFamilies {
 				revision, err := sessionbackupproducer.GrokSourceRevision(ctx, family)
 				if err != nil {
-					return err
+					if stopSync(err) {
+						return err
+					}
+					failures[family.ID] = err
+					sourceErr = errors.Join(sourceErr, err)
+					continue
 				}
 				grokRevisions[family.ID] = revision
+			}
+			if err := r.reconcileGrokSources(grokRevisions, failures); err != nil {
+				return err
 			}
 			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, grokRevisions)
 			for i := range entries {
@@ -287,11 +297,11 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			listedOnce, unlistedSince = true, 0
 			return nil
 		}); err != nil {
-			return errors.Join(transferErr, err)
+			return errors.Join(transferErr, sourceErr, err)
 		}
 		r.completedDiscovery = discoveryRequest
 		r.lastDiscoveryAt = r.now()
-		return errors.Join(transferErr, r.runPlannedAndReport(ctx))
+		return errors.Join(transferErr, sourceErr, r.runPlannedAndReport(ctx))
 	}
 	if r.scaleEnabled && r.config.ImportPlan == nil {
 		return r.runPlannedAndReport(ctx)
@@ -314,9 +324,16 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			break
 		}
 	}
-	revisions, err := grokSourceRevisions(ctx, sessions)
+	revisions, failures, err := grokSourceRevisions(ctx, sessions)
 	if err != nil {
 		return err
+	}
+	if err := r.reconcileGrokSources(revisions, failures); err != nil {
+		return err
+	}
+	var sourceErr error
+	for _, err := range failures {
+		sourceErr = errors.Join(sourceErr, err)
 	}
 	discovered := discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions, revisions)
 	if plan := r.config.ImportPlan; plan != nil {
@@ -333,7 +350,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		return err
 	}
 	if r.config.ImportPlan != nil || r.scaleEnabled {
-		return r.runPlannedAndReport(ctx)
+		return errors.Join(sourceErr, r.runPlannedAndReport(ctx))
 	}
 	if r.scaleEnabled {
 		return r.runPlannedAndReport(ctx)
@@ -425,9 +442,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 	}
 	if busyErr != nil {
-		return errors.Join(busyErr, firstErr)
+		return errors.Join(sourceErr, busyErr, firstErr)
 	}
-	return firstErr
+	return errors.Join(sourceErr, firstErr)
 }
 
 func (r *Runner) applyExclusions() error {
@@ -445,13 +462,41 @@ func (r *Runner) applyExclusions() error {
 }
 
 // grokSourceRevisions scans once per discovery pass, only when Grok is present.
-func grokSourceRevisions(ctx context.Context, sessions []*session.Session) (map[string]string, error) {
+func grokSourceRevisions(ctx context.Context, sessions []*session.Session) (map[string]string, map[string]error, error) {
 	for _, item := range sessions {
 		if item != nil && item.Agent == "grok" {
 			return sessionbackupproducer.LocalGrokSourceRevisions(ctx)
 		}
 	}
-	return nil, nil
+	return nil, nil, nil
+}
+
+// A source-hash failure must not replace or send the last verified capture.
+func (r *Runner) reconcileGrokSources(revisions map[string]string, failures map[string]error) error {
+	for _, entry := range r.Queue.Entries() {
+		if entry.Selection.Agent != "grok" {
+			continue
+		}
+		if failure := failures[entry.Selection.SessionID]; failure != nil {
+			if stopSync(failure) {
+				return failure
+			}
+			if entry.Excluded {
+				continue
+			}
+			if err := r.recordFailureState(&entry, failure, true); err != nil {
+				return err
+			}
+		} else if _, verified := revisions[entry.Selection.SessionID]; verified && entry.SourceBlocked {
+			entry.SourceBlocked = false
+			entry.ParkedVersion, entry.FailureCode = "", ""
+			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+			if err := r.Queue.Update(entry); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // discoveredEntries selects root sessions of the synced local agents. Child
@@ -538,6 +583,11 @@ func (r *Runner) persistPolicyStop(entry *Entry, err error) error {
 }
 
 func (r *Runner) recordFailure(entry *Entry, failure error) error {
+	return r.recordFailureState(entry, failure, false)
+}
+
+func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure bool) error {
+	previous := *entry
 	if errors.Is(failure, sessionbackupproducer.ErrNotPrepared) {
 		entry.BundleID, entry.ContentSHA256, entry.UploadID = "", "", ""
 		entry.Manifest = nil
@@ -585,6 +635,11 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	} else if !Busy(failure) {
 		entry.BackoffAttempt++
 		entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
+	}
+	if sourceFailure {
+		r.park(entry)
+		entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.Manifest = previous.BundleID, previous.ContentSHA256, previous.UploadID, previous.Manifest
+		entry.SourceBlocked = true
 	}
 	return r.failed(entry, failure)
 }
@@ -643,7 +698,7 @@ func (r *Runner) park(entry *Entry) {
 // releaseParked retries entries that a different Local version parked.
 func (r *Runner) releaseParked() error {
 	for _, entry := range r.Queue.Entries() {
-		if entry.ParkedVersion == "" || r.Version != "" && entry.ParkedVersion == r.Version {
+		if entry.SourceBlocked || entry.ParkedVersion == "" || r.Version != "" && entry.ParkedVersion == r.Version {
 			continue
 		}
 		entry.ParkedVersion, entry.FailureCode = "", ""
@@ -690,12 +745,12 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 		t := time.UnixMilli(item.LastActivityTime).UTC()
 		meta.EndedAt = &t
 	}
-	for _, tokens := range item.Tokens {
-		meta.Tokens += int64(tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationInputTokens + tokens.CacheCreation1hInputTokens + tokens.CacheReadInputTokens)
-	}
-	if item.Agent == "grok" && item.UnattributedTokens != nil {
-		tokens := item.UnattributedTokens
-		meta.Tokens += int64(tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationInputTokens + tokens.CacheCreation1hInputTokens + tokens.CacheReadInputTokens)
+	if item.Agent == "grok" {
+		meta.Tokens = grokMetadataTokens(item)
+	} else {
+		for _, tokens := range item.Tokens {
+			meta.Tokens += int64(tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationInputTokens + tokens.CacheCreation1hInputTokens + tokens.CacheReadInputTokens)
+		}
 	}
 	// A source may report negative counters (a parser edge case); the Hub's
 	// listing contract requires tokens >= 0, so the metadata reports none.
@@ -711,6 +766,29 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 	meta.Branch = truncate(meta.Branch, 500)
 	meta.CWDLabel = truncate(meta.CWDLabel, 500)
 	return meta
+}
+
+// Zero is the Hub's unavailable sentinel before Grok content is parsed.
+func grokMetadataTokens(item *session.Session) int64 {
+	var total int64
+	add := func(tokens session.ModelTokens) bool {
+		for _, count := range []int{tokens.InputTokens, tokens.OutputTokens, tokens.CacheCreationInputTokens, tokens.CacheCreation1hInputTokens, tokens.CacheReadInputTokens} {
+			if count < 0 || int64(count) > math.MaxInt64-total {
+				return false
+			}
+			total += int64(count)
+		}
+		return true
+	}
+	for _, tokens := range item.Tokens {
+		if !add(tokens) {
+			return 0
+		}
+	}
+	if item.UnattributedTokens != nil && !add(*item.UnattributedTokens) {
+		return 0
+	}
+	return total
 }
 
 func stringValue(value *string) string {
