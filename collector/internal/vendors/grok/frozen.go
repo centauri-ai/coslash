@@ -63,7 +63,18 @@ func ParseFrozenFamilyContext(ctx context.Context, family FamilyRef, dirs, proof
 }
 
 func validateFrozenInputs(ctx context.Context, dir string) error {
-	return filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	if dir == "" {
+		return errors.New("grok: invalid frozen input")
+	}
+	root := filepath.Clean(dir)
+	info, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("grok: invalid frozen input")
+	}
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -73,7 +84,7 @@ func validateFrozenInputs(ctx context.Context, dir string) error {
 		if entry.Type()&fs.ModeSymlink != 0 {
 			return errors.New("grok: invalid frozen input")
 		}
-		relative, err := filepath.Rel(dir, path)
+		relative, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
