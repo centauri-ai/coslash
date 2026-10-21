@@ -24,24 +24,26 @@ func IsSourceFile(path string) bool {
 // FamilyRef is a verified family, with its root directory first and children
 // in deterministic depth-first order. ActivityMs is summary-derived activity.
 type FamilyRef struct {
-	ID         string
-	Dirs       []string
-	ActivityMs int64
+	ID          string
+	Dirs        []string
+	ActivityMs  int64
+	nonChildren map[string]bool
 }
 
 // PlanFamiliesContext indexes only the supplied directories, once per pass.
 // An unreadable summary returns an error with any independently verified families.
 // Duplicate IDs, conflicting parents and cycles fail rather than choose a source.
 func PlanFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, error) {
-	refs, _, err := planFamiliesContext(ctx, dirs)
+	refs, _, err := planFamiliesContext(ctx, dirs, nil)
 	return refs, err
 }
 
-func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[string]string, error) {
+func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]FamilyRef, map[string]string, error) {
 	byID := map[string]string{}
 	summaries := map[string]*summaryFile{}
 	seenDirs := map[string]bool{}
 	var summaryErr error
+	unreadable := []string{}
 	for _, dir := range dirs {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -54,9 +56,15 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 		summary, err := readSummary(dir)
 		if err != nil {
 			summaryErr = errors.New("grok: invalid session summary")
+			unreadable = append(unreadable, dir)
 			continue
 		}
-		if summary.ChatFormatVersion != 1 || summary.Info.ID == "" {
+		if summary.ChatFormatVersion != 1 {
+			continue
+		}
+		if summary.Info.ID == "" {
+			summaryErr = errors.New("grok: invalid session summary")
+			unreadable = append(unreadable, dir)
 			continue
 		}
 		id := summary.Info.ID
@@ -71,6 +79,18 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 			parentOf[id] = summary.ParentSessionID
 		}
 	}
+	blocked := map[string]bool{}
+	for _, dir := range unreadable {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		for _, meta := range readSubagentMetas(ctx, dir, false) {
+			if child := summaries[meta.ChildSessionID]; child != nil && isSubagentKind(child.SessionKind) {
+				blocked[meta.ChildSessionID] = true
+			}
+		}
+	}
+	excluded := map[string][]string{}
 	for id, dir := range byID {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -78,9 +98,18 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 		for _, meta := range readSubagentMetas(ctx, dir, false) {
 			child := summaries[meta.ChildSessionID]
 			if child == nil {
+				if nonChildren[meta.ChildSessionID] {
+					excluded[id] = append(excluded[id], meta.ChildSessionID)
+					continue
+				}
+				if summaryErr != nil {
+					blocked[id] = true
+					continue
+				}
 				return nil, nil, errors.New("grok: missing family child")
 			}
 			if !isSubagentKind(child.SessionKind) {
+				excluded[id] = append(excluded[id], meta.ChildSessionID)
 				continue
 			}
 			if parent := parentOf[meta.ChildSessionID]; parent != "" && parent != id {
@@ -95,9 +124,16 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 		ids = append(ids, id)
 		if parent := parentOf[id]; parent != "" {
 			if byID[parent] == "" {
-				return nil, nil, errors.New("grok: missing family parent")
+				if summaryErr == nil {
+					return nil, nil, errors.New("grok: missing family parent")
+				}
+				blocked[id] = true
+				continue
 			}
 			children[parent] = append(children[parent], id)
+		} else if summaryErr != nil && isSubagentKind(summaries[id].SessionKind) {
+			// An incomplete scan cannot establish that a parentless subagent is a true orphan.
+			blocked[id] = true
 		}
 	}
 	sort.Strings(ids)
@@ -107,10 +143,11 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 	refs := []FamilyRef{}
 	visited := map[string]bool{}
 	for _, id := range ids {
-		if parentOf[id] != "" {
+		if parent := parentOf[id]; parent != "" && byID[parent] != "" {
 			continue
 		}
 		ref := FamilyRef{ID: id}
+		withheld := false
 		stack := []string{id}
 		for len(stack) > 0 {
 			if err := ctx.Err(); err != nil {
@@ -119,6 +156,13 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 			member := stack[len(stack)-1]
 			stack = stack[:len(stack)-1]
 			visited[member] = true
+			withheld = withheld || blocked[member]
+			for _, excludedID := range excluded[member] {
+				if ref.nonChildren == nil {
+					ref.nonChildren = map[string]bool{}
+				}
+				ref.nonChildren[excludedID] = true
+			}
 			ref.Dirs = append(ref.Dirs, byID[member])
 			summary := summaries[member]
 			ref.ActivityMs = max(ref.ActivityMs, parseTime(summary.LastActiveAt), parseTime(summary.UpdatedAt), parseTime(summary.CreatedAt))
@@ -126,7 +170,9 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 				stack = append(stack, children[member][i])
 			}
 		}
-		refs = append(refs, ref)
+		if !withheld {
+			refs = append(refs, ref)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -137,9 +183,31 @@ func planFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, map[s
 	return refs, parentOf, summaryErr
 }
 
-// ParseDirsContext parses selected whole families without scanning the source root.
+// ParseDirsContext verifies a standalone set of directories without a root scan.
+// For batches selected from a larger plan, use ParseFamiliesContext.
 func ParseDirsContext(ctx context.Context, dirs []string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	refs, parents, err := planFamiliesContext(ctx, dirs)
+	return parseDirsContext(ctx, dirs, nil)
+}
+
+// ParseFamiliesContext retains verified non-child references across selected batches.
+// Pass the unchanged refs returned by PlanFamiliesContext; this never scans the root.
+func ParseFamiliesContext(ctx context.Context, families []FamilyRef) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	dirs := []string{}
+	nonChildren := map[string]bool{}
+	for _, family := range families {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		dirs = append(dirs, family.Dirs...)
+		for id := range family.nonChildren {
+			nonChildren[id] = true
+		}
+	}
+	return parseDirsContext(ctx, dirs, nonChildren)
+}
+
+func parseDirsContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	refs, parents, err := planFamiliesContext(ctx, dirs, nonChildren)
 	if err != nil {
 		return nil, nil, err
 	}

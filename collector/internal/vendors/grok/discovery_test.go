@@ -81,6 +81,18 @@ func TestPlanFamiliesKeepsNestedChildrenAndIndependentForks(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("families=%v", got)
 	}
+	for _, ref := range refs {
+		if ref.ID != "root" {
+			continue
+		}
+		selected, _, err := ParseFamiliesContext(t.Context(), []FamilyRef{ref})
+		if err != nil || len(selected) != 3 || selected[0].Session.ID != "root" {
+			t.Fatalf("selected family=%+v err=%v", selected, err)
+		}
+	}
+	if _, _, err := ParseFamiliesContext(t.Context(), []FamilyRef{{ID: "root", Dirs: []string{dirs[0]}}}); err == nil {
+		t.Fatal("unverified missing children accepted")
+	}
 	parsed, _, err := ParseDirsContext(t.Context(), dirs)
 	if err != nil || len(parsed) != 5 {
 		t.Fatalf("parsed=%v err=%v", parsed, err)
@@ -99,6 +111,9 @@ func TestPlanFamiliesKeepsNestedChildrenAndIndependentForks(t *testing.T) {
 	cancel()
 	if _, err := PlanFamiliesContext(ctx, dirs); !errors.Is(err, context.Canceled) {
 		t.Fatalf("plan cancel=%v", err)
+	}
+	if _, _, err := ParseFamiliesContext(ctx, refs); !errors.Is(err, context.Canceled) {
+		t.Fatalf("planned parse cancel=%v", err)
 	}
 	if _, _, err := ParseDirsContext(ctx, dirs); !errors.Is(err, context.Canceled) {
 		t.Fatalf("parse cancel=%v", err)
