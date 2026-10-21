@@ -174,6 +174,55 @@ func TestGrokMissingAndDefaultHome(t *testing.T) {
 	}
 }
 
+func TestGrokInventoryFollowsSymlinkedRootOnly(t *testing.T) {
+	for _, configured := range []bool{true, false} {
+		name := "default home"
+		if configured {
+			name = "configured home"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := grokHome(t)
+			root := filepath.Join(home, ".grok", "sessions")
+			if configured {
+				root = filepath.Join(os.Getenv("GROK_HOME"), "sessions")
+			} else {
+				t.Setenv("GROK_HOME", "")
+			}
+			targetRoot := filepath.Join(home, "grok session target")
+			if err := os.MkdirAll(filepath.Dir(root), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(targetRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(targetRoot, root); err != nil {
+				t.Skipf("directory symlinks unavailable: %v", err)
+			}
+
+			summary := `{"info":{"id":"root"},"chat_format_version":1,"created_at":"2026-09-01T00:00:00Z","last_active_at":"2026-09-29T12:00:00Z"}`
+			grokFile(t, targetRoot, "encoded/root/summary.json", summary, now)
+			grokFile(t, targetRoot, "encoded/root/signals.json", `{"turnCount":1}`, now)
+			outside := filepath.Join(home, "outside session")
+			grokFile(t, outside, "summary.json", strings.Replace(summary, `"root"`, `"outside"`, 1), now)
+			if err := os.Symlink(outside, filepath.Join(targetRoot, "encoded", "linked")); err != nil {
+				t.Skipf("nested directory symlinks unavailable: %v", err)
+			}
+
+			snapshot, err := Scan(t.Context(), Options{Home: home, Now: now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(snapshot.Files) != 2 {
+				t.Fatalf("inventory files = %+v, want only the real session inputs", snapshot.Files)
+			}
+			sessions, err := DiscoverAll(t.Context(), DiscoverOptions{Snapshot: snapshot})
+			if err != nil || len(sessions) != 1 || sessions[0].ID != "root" {
+				t.Fatalf("discovered sessions = %+v, err = %v", sessions, err)
+			}
+		})
+	}
+}
+
 func TestGrokDiscoveryWindowBoundariesAndChangedCursor(t *testing.T) {
 	home := grokHome(t)
 	cutoff := now.Add(-24 * time.Hour)
