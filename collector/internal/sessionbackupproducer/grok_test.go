@@ -713,3 +713,60 @@ func TestGrokMissingMetadataStillRecoversSpawn(t *testing.T) {
 		t.Fatalf("recovered spawn=%+v", children)
 	}
 }
+
+func TestGrokMixedModelUsageDoesNotPublishPartialEstimate(t *testing.T) {
+	for _, tc := range []struct {
+		name, flags string
+		knownZero   bool
+	}{
+		{"withheld", "", false},
+		{"partial", `"costUsdTicks":10000000000,"costIsPartial":true,`, false},
+		{"incomplete", `"costUsdTicks":10000000000,"usageIsIncomplete":true,`, false},
+		{"source zero", `"costUsdTicks":0,`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, group, selection := grokFixture(t)
+			usage := []byte(`{"session":{"inputTokens":24,` + tc.flags + `"modelUsage":{"gpt-5":{"inputTokens":12},"unpriced-synthetic-model":{"inputTokens":12}}}}`)
+			for _, id := range []string{"root", "child"} {
+				writeGrokInput(t, filepath.Join(group, id, "usage.json"), usage)
+			}
+			spool := t.TempDir()
+			prepared, err := grokManager(spool, home, nil).Prepare(t.Context(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records := grokRecords(t, spool, prepared)
+			for _, id := range []string{"root", "child"} {
+				record := records[id]
+				models := map[string]int{}
+				for _, used := range record.Session.Usage {
+					models[used.Model] = used.InputTokens
+				}
+				if !reflect.DeepEqual(models, map[string]int{"gpt-5": 12, "unpriced-synthetic-model": 12}) || record.Session.UnattributedTokens != nil {
+					t.Fatalf("%s usage=%+v", id, record.Session.Usage)
+				}
+				cost := record.Session.CostMicroUSD
+				if tc.knownZero {
+					if cost == nil || *cost != 0 || len(record.Session.UnpricedModels) != 0 {
+						t.Fatalf("%s known zero=%v unpriced=%v", id, cost, record.Session.UnpricedModels)
+					}
+				} else {
+					if cost != nil || !reflect.DeepEqual(record.Session.UnpricedModels, []string{"unpriced-synthetic-model"}) {
+						t.Fatalf("%s partial aggregate=%v unpriced=%v", id, cost, record.Session.UnpricedModels)
+					}
+					if record.Session.Usage[0].Model != "gpt-5" || record.Session.Usage[0].CostMicroUSD <= 0 {
+						t.Fatal("priced model estimate lost")
+					}
+				}
+			}
+			child := records["root"].Session.Subagents[0]
+			if tc.knownZero {
+				if child.CostMicroUSD == nil || *child.CostMicroUSD != 0 {
+					t.Fatal("known-zero child projection lost")
+				}
+			} else if child.CostMicroUSD != nil {
+				t.Fatal("partial child cost became known")
+			}
+		})
+	}
+}
