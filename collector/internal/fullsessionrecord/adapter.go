@@ -5,6 +5,7 @@ package fullsessionrecord
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 
@@ -376,6 +377,7 @@ func cloneParsedFamilyContext(ctx context.Context, parsed []*vendors.ParsedSessi
 			}
 			copy.Spawns[key] = spawn
 		}
+		copy.RecordedModelCosts = maps.Clone(item.RecordedModelCosts)
 		copy.Commands = cloneSlice(item.Commands)
 		copy.StatusHint = cloneString(item.StatusHint)
 		if item.RecordedCost != nil {

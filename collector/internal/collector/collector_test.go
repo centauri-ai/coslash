@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -622,5 +623,38 @@ func TestPortableRemoteGrokRemainsExcluded(t *testing.T) {
 	}
 	if remote := ListRemote(remoteSource, collections, 0); len(remote) != 0 {
 		t.Fatalf("Grok admitted to ListRemote: %+v", remote)
+	}
+}
+
+func TestGrokSourceCostEnrichmentKeepsAvailabilityAndAgentPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent                                  string
+		unavailable, tokensUnavailable, unattributed bool
+		wantModel                                    int64
+	}{
+		{name: "source zero", agent: "grok"},
+		{name: "cost unavailable", agent: "grok", unavailable: true},
+		{name: "tokens unavailable", agent: "grok", tokensUnavailable: true},
+		{name: "unattributed", agent: "grok", unattributed: true},
+		{name: "other agent estimates", agent: "codex", wantModel: 15},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &session.Session{Agent: tc.agent, CostUnavailable: tc.unavailable, TokensUnavailable: tc.tokensUnavailable,
+				Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 12}}}
+			if tc.unattributed {
+				s.UnattributedTokens = &session.ModelTokens{InputTokens: 1}
+			}
+			item := &vendors.ParsedSession{Session: s, RecordedModelCosts: map[string]float64{"gpt-5": 0}, CostIncomplete: true}
+			enrichModelsAndCosts([]*vendors.ParsedSession{item})
+			if int64(math.Round(s.Tokens["gpt-5"].Cost*1e6)) != tc.wantModel {
+				t.Fatalf("model cost=%v want=%v", s.Tokens["gpt-5"].Cost, tc.wantModel)
+			}
+			if tc.agent == "grok" && s.Cost != nil {
+				t.Fatalf("unavailable aggregate acquired cost: %v", *s.Cost)
+			}
+			if tc.agent != "grok" && (s.Cost == nil || int64(math.Round(*s.Cost*1e6)) != tc.wantModel) {
+				t.Fatalf("other agent cost policy changed: %v", s.Cost)
+			}
+		})
 	}
 }

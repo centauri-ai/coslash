@@ -770,3 +770,114 @@ func TestGrokMixedModelUsageDoesNotPublishPartialEstimate(t *testing.T) {
 		})
 	}
 }
+
+func TestGrokSourceModelCostsSurviveAggregateAvailability(t *testing.T) {
+	for _, aggregate := range []string{"missing", "partial", "incomplete", "complete", "source zero"} {
+		for _, modelState := range []string{"positive", "zero", "absent", "partial", "incomplete"} {
+			for _, mixed := range []bool{false, true} {
+				name := aggregate + "/" + modelState
+				if mixed {
+					name += "/mixed"
+				}
+				t.Run(name, func(t *testing.T) {
+					home, group, selection := grokFixture(t)
+					model := map[string]any{"inputTokens": 12}
+					wantModel := int64(15)
+					switch modelState {
+					case "positive":
+						model["costUsdTicks"] = int64(10000000000)
+						wantModel = 1000000
+					case "zero":
+						model["costUsdTicks"] = int64(0)
+						wantModel = 0
+					case "partial":
+						model["costUsdTicks"] = int64(10000000000)
+						model["costIsPartial"] = true
+					case "incomplete":
+						model["costUsdTicks"] = int64(10000000000)
+						model["usageIsIncomplete"] = true
+					}
+					models := map[string]any{"gpt-5": model}
+					if mixed {
+						models["unpriced-synthetic-model"] = map[string]any{"inputTokens": 12}
+					}
+					used := map[string]any{"inputTokens": 12, "modelUsage": models}
+					if mixed {
+						used["inputTokens"] = 24
+					}
+					var wantTotal *int64
+					switch aggregate {
+					case "partial":
+						used["costUsdTicks"] = int64(10000000000)
+						used["costIsPartial"] = true
+					case "incomplete":
+						used["costUsdTicks"] = int64(10000000000)
+						used["usageIsIncomplete"] = true
+					case "complete":
+						used["costUsdTicks"] = int64(20000000000)
+						v := int64(2000000)
+						wantTotal = &v
+					case "source zero":
+						used["costUsdTicks"] = int64(0)
+						v := int64(0)
+						wantTotal = &v
+					case "missing":
+						if !mixed {
+							v := wantModel
+							wantTotal = &v
+						}
+					}
+					data, err := json.Marshal(map[string]any{"session": used})
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, id := range []string{"root", "child"} {
+						writeGrokInput(t, filepath.Join(group, id, "usage.json"), data)
+					}
+					spool := t.TempDir()
+					prepared, err := grokManager(spool, home, nil).Prepare(t.Context(), selection)
+					if err != nil {
+						t.Fatal(err)
+					}
+					records := grokRecords(t, spool, prepared)
+					check := func(id string, usage []fullsessionv1.ModelUsage, cost *int64) {
+						t.Helper()
+						rows := map[string]fullsessionv1.ModelUsage{}
+						for _, row := range usage {
+							rows[row.Model] = row
+						}
+						expected := 1
+						if mixed {
+							expected = 2
+						}
+						if len(rows) != expected || rows["gpt-5"].InputTokens != 12 || rows["gpt-5"].CostMicroUSD != wantModel {
+							t.Fatalf("%s model accounting=%+v want=%d", id, rows, wantModel)
+						}
+						if mixed && rows["unpriced-synthetic-model"].InputTokens != 12 {
+							t.Fatal("unpriced model counters lost")
+						}
+						if (cost == nil) != (wantTotal == nil) || (cost != nil && *cost != *wantTotal) {
+							t.Fatalf("%s aggregate=%v want=%v", id, cost, wantTotal)
+						}
+					}
+					for _, id := range []string{"root", "child"} {
+						record := records[id]
+						check(id, record.Session.Usage, record.Session.CostMicroUSD)
+						wantUnpriced := []string{}
+						if mixed && wantTotal == nil {
+							wantUnpriced = []string{"unpriced-synthetic-model"}
+						}
+						if !reflect.DeepEqual(record.Session.UnpricedModels, wantUnpriced) {
+							t.Fatalf("%s unpriced=%v want=%v", id, record.Session.UnpricedModels, wantUnpriced)
+						}
+					}
+					children := records["root"].Session.Subagents
+					if len(children) != 1 || children[0].ID != "child" {
+						t.Fatal("direct child lost")
+					}
+					check("child projection", children[0].Usage, children[0].CostMicroUSD)
+				})
+			}
+		}
+	}
+}

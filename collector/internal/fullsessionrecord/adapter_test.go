@@ -733,3 +733,19 @@ func TestGrokPreservesUnrepresentableFactGuards(t *testing.T) {
 		})
 	}
 }
+
+func TestCloneParsedFamilyPreservesIndependentSourceCostPresence(t *testing.T) {
+	original := &vendors.ParsedSession{
+		Session: &session.Session{}, CostIncomplete: true,
+		RecordedModelCosts: map[string]float64{"positive": 1, "zero": 0},
+	}
+	cloned := cloneParsedFamily([]*vendors.ParsedSession{original})[0]
+	if !cloned.CostIncomplete || !reflect.DeepEqual(cloned.RecordedModelCosts, original.RecordedModelCosts) {
+		t.Fatalf("source cost provenance lost: %+v", cloned)
+	}
+	cloned.RecordedModelCosts["zero"] = 2
+	delete(cloned.RecordedModelCosts, "positive")
+	if original.RecordedModelCosts["zero"] != 0 || original.RecordedModelCosts["positive"] != 1 {
+		t.Fatal("clone changed source cost provenance")
+	}
+}

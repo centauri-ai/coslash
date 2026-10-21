@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -465,9 +466,35 @@ func enrichModelsAndCostsContext(ctx context.Context, parsed []*vendors.ParsedSe
 		if s.ContextWindow == nil && s.Model != nil {
 			s.ContextWindow = session.ContextWindowFor(*s.Model)
 		}
-		session.AttachCost(s, item.RecordedCost)
-		if s.Agent == vendors.AgentGrok && item.RecordedCost == nil && len(s.UnpricedModels) > 0 {
-			s.Cost = nil
+		if s.Agent != vendors.AgentGrok || s.CostUnavailable || s.TokensUnavailable || s.UnattributedTokens != nil {
+			session.AttachCost(s, item.RecordedCost)
+			continue
+		}
+		missing := session.Session{Tokens: make(map[string]session.ModelTokens)}
+		for model, used := range s.Tokens {
+			if cost, known := item.RecordedModelCosts[model]; known {
+				used.Cost = cost
+				s.Tokens[model] = used
+			} else {
+				missing.Tokens[model] = used
+			}
+		}
+		session.AttachCost(&missing, nil)
+		for model, used := range missing.Tokens {
+			s.Tokens[model] = used
+		}
+		if item.RecordedCost != nil {
+			session.AttachCost(s, item.RecordedCost)
+			continue
+		}
+		s.UnpricedModels = session.UnpricedModels(s.Tokens)
+		s.Cost = nil
+		if !item.CostIncomplete && len(s.UnpricedModels) == 0 && len(s.Tokens) > 0 {
+			var total float64
+			for _, model := range slices.Sorted(maps.Keys(s.Tokens)) {
+				total += s.Tokens[model].Cost
+			}
+			s.Cost = &total
 		}
 	}
 	return nil
