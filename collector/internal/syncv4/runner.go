@@ -928,6 +928,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 				r.retryCommands[command.ID] = payload.SessionID
 				r.Queue.HoldCommand(command.ID)
 				r.newRetryCommand = true
+				r.RequestDiscovery()
 				continue
 			}
 		} else if command.Type == "prioritize" && r.scaleEnabled {
@@ -1012,7 +1013,7 @@ func (r *Runner) retryOutcome(commandID, sessionID string) (hubclient.V4CommandR
 			continue
 		}
 		switch {
-		case entry.RevisionID != "" && !pending(entry):
+		case !entry.SourceBlocked && entry.RevisionID != "" && !pending(entry):
 			total := manifestBytes(entry.Manifest)
 			return hubclient.V4CommandResult{CommandID: commandID, Result: "done",
 				Progress: &hubclient.V4CommandProgress{Stage: "landed", BytesDone: total, BytesTotal: total}}, true

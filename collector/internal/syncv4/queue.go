@@ -625,6 +625,8 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 		prior := *entry
 		if entry.SourceBlocked {
 			entry.Priority = true
+			entry.FailureCode, entry.LoggedFailure = "", ""
+			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 			if err := q.save(); err != nil {
 				*entry = prior
 				return false, err
