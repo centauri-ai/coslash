@@ -41,8 +41,9 @@ while the canonical root record stays unchanged. Forks retain their local origin
 lineage and enter the queue as independent verified roots.
 A source-hash failure blocks only that family. Healthy families and later
 batches continue. The private queue retains prior pending captures until a fresh
-source hash succeeds, including after restart or a Hub retry. Existing failure
-codes and logs report the blocked source. No empty source hash admits a root.
+source hash succeeds, including after restart or a Hub retry. A Hub retry clears
+its prior failure outcome and wakes discovery before the command can settle.
+Existing failure codes and logs report the blocked source. No empty source hash admits a root.
 Grok metadata sums all five counters with checked integer addition. An
 unrepresentable total uses the compatible Hub's existing zero sentinel for
 unavailable metadata. Individual canonical counters and upload eligibility stay

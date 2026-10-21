@@ -122,7 +122,7 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 				} else if err := os.Remove(badPath); err != nil {
 					t.Fatal(err)
 				}
-				checkBlocked := func() {
+				checkBlocked := func(wantCode string) {
 					t.Helper()
 					if len(queue.Entries()) != 4 {
 						t.Fatalf("healthy discovery starved: %+v", queue.Entries())
@@ -139,8 +139,11 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 					if queue.Matches(pendingRoot) {
 						t.Fatal("stale pending work remained uploadable")
 					}
-					if blocked.FailureCode == "" {
-						t.Fatal("source failure was not recorded")
+					if blocked.FailureCode != wantCode {
+						t.Fatalf("source failure code=%q want=%q", blocked.FailureCode, wantCode)
+					}
+					if wantCode != "" && blocked.LoggedFailure != wantCode+" "+blocked.SessionID {
+						t.Fatalf("source failure log classification=%q", blocked.LoggedFailure)
 					}
 					if _, err := manager.Open(prepared.BundleID); err != nil {
 						t.Fatalf("last good bundle lost: %v", err)
@@ -152,7 +155,11 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 				if err := runner.SyncOnce(t.Context()); err == nil {
 					t.Fatal("source failure not reported")
 				}
-				checkBlocked()
+				wantCode := "unreadable_source"
+				if failure == "oversize" {
+					wantCode = "too_large"
+				}
+				checkBlocked(wantCode)
 				for _, entry := range queue.Entries() {
 					if entry.Selection.SessionID == "root" {
 						ok, err := queue.RetrySession(entry.SessionID)
@@ -161,7 +168,7 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 						}
 					}
 				}
-				checkBlocked()
+				checkBlocked("")
 
 				// Reopen the same queue and vary Local version: neither may release a bad source.
 				queue, err = Open(queueRoot)
@@ -175,7 +182,7 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 				if err := runner.SyncOnce(t.Context()); err == nil {
 					t.Fatal("persistent source failure not reported")
 				}
-				checkBlocked()
+				checkBlocked(wantCode)
 				if len(hub.records) != 3 || hub.records["fork"].SessionID != "fork" || hub.records["worktree"].SessionID != "worktree" || hub.records[fixtureRootID].Agent != "codex" {
 					t.Fatalf("healthy sources did not upload: %+v", hub.records)
 				}
@@ -320,5 +327,179 @@ func TestGrokSourceFailureControlErrorsPropagate(t *testing.T) {
 				t.Fatal("control error changed pending state")
 			}
 		})
+	}
+}
+
+type grokSourceRetryHub struct {
+	*grokQueueHub
+	delivered bool
+}
+
+func (h *grokSourceRetryHub) V4CheckIn(ctx context.Context, q hubclient.V4Queue, v int64, results []hubclient.V4CommandResult, agents []string, logs []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+	out, err := h.planHub.V4CheckIn(ctx, q, v, results, agents, logs)
+	if !h.delivered {
+		h.delivered = true
+		out.Commands = []hubclient.V4Command{{ID: "source_retry", Type: "retry", Payload: json.RawMessage(`{"sessionId":"ses_` + localKey("local", "grok", "root") + `"}`)}}
+	}
+	return out, err
+}
+
+func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
+	for _, streamed := range []bool{false, true} {
+		for _, repaired := range []bool{false, true} {
+			t.Run(fmt.Sprintf("streamed-%v/repaired-%v", streamed, repaired), func(t *testing.T) {
+				home, group := grokQueueSource(t)
+				queue, err := Open(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+				manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), LocalHome: func() (string, error) { return home, nil }})
+				sessions, err := inventory.DiscoverAll(t.Context(), inventory.DiscoverOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				revisions, failures, err := sessionbackupproducer.LocalGrokSourceRevisions(t.Context())
+				if err != nil || len(failures) != 0 {
+					t.Fatalf("initial hash: %v %v", failures, err)
+				}
+				var entry Entry
+				for _, item := range discoveredEntries(sessions, queue.InstallID(), nil, revisions) {
+					if item.Selection.SessionID == "root" {
+						entry = item
+					}
+				}
+				if entry.Key == "" {
+					t.Fatal("missing root")
+				}
+				prepared, err := manager.Prepare(t.Context(), entry.Selection)
+				if err != nil {
+					t.Fatal(err)
+				}
+				manifest, err := (&Runner{Backup: manager}).manifest(prepared)
+				if err != nil {
+					t.Fatal(err)
+				}
+				entry.BundleID, entry.ContentSHA256, entry.Manifest = prepared.BundleID, manifest.ContentSHA256, &manifest
+				entry.SessionID, entry.UploadID = "ses_"+entry.Key, "1"
+				if err := queue.Merge([]Entry{entry}, now); err != nil {
+					t.Fatal(err)
+				}
+				entry = queue.Entries()[0]
+				hub := &grokSourceRetryHub{grokQueueHub: &grokQueueHub{planHub: &planHub{plan: &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}}, records: map[string]fullsessionv1.Record{}, requests: []hubclient.V4Create{{Session: entry.Session, Manifest: manifest}}}}
+				scans := 0
+				runner := &Runner{Version: "retry", Queue: queue, Backup: manager, Hub: hub, Now: func() time.Time { return now }, RequireImportPlan: true, Discover: func(ctx context.Context) ([]*session.Session, error) {
+					scans++
+					return inventory.DiscoverAll(ctx, inventory.DiscoverOptions{})
+				}}
+				if streamed {
+					runner.DiscoverBatches = func(ctx context.Context, emit func(DiscoveryBatch) error) error {
+						scans++
+						for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{BatchFamilies: 1}) {
+							if err != nil {
+								return err
+							}
+							if err := emit(DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes, GrokFamilies: batch.GrokFamilies}); err != nil {
+								return err
+							}
+						}
+						return nil
+					}
+				}
+				badPath := filepath.Join(group, "grandchild", "usage.json")
+				original, err := os.ReadFile(badPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				file, err := os.OpenFile(badPath, os.O_WRONLY|os.O_TRUNC, 0o600)
+				if err != nil {
+					t.Fatal(err)
+				}
+				truncateErr := file.Truncate((64 << 20) + 1)
+				if err := errors.Join(truncateErr, file.Close()); err != nil {
+					t.Fatal(err)
+				}
+				_, failures, err = sessionbackupproducer.LocalGrokSourceRevisions(t.Context())
+				if err != nil || failures["root"] == nil {
+					t.Fatalf("expected failed source: %v %v", failures, err)
+				}
+				if err := runner.reconcileGrokSources(nil, failures); err != nil {
+					t.Fatal(err)
+				}
+				if repaired {
+					grokQueueWrite(t, badPath, original)
+				}
+				// Simulate a just-finished scan: the retry must bypass discovery cooldown.
+				runner.lastDiscoveryAt = now
+				if err := runner.SyncOnce(t.Context()); !errors.Is(err, ErrCommandPickedUp) {
+					t.Fatalf("pickup=%v", err)
+				}
+				blocked := queue.Entries()[0]
+				if !blocked.SourceBlocked || queue.Matches(entry) || blocked.BundleID != entry.BundleID || blocked.UploadID != entry.UploadID || blocked.ContentSHA256 != entry.ContentSHA256 || !reflect.DeepEqual(blocked.Manifest, entry.Manifest) {
+					t.Fatalf("retry released/changed capture: %+v", blocked)
+				}
+				if blocked.FailureCode != "" {
+					t.Fatalf("old failure retained by new retry: %s", blocked.FailureCode)
+				}
+				for _, result := range queue.Results() {
+					if result.Result != "in_progress" {
+						t.Fatalf("settled before verification: %+v", result)
+					}
+				}
+				if _, err := manager.Open(entry.BundleID); err != nil {
+					t.Fatal(err)
+				}
+				// No clock advance or manual RequestDiscovery: normal retry wake must scan.
+				syncErr := runner.SyncOnce(t.Context())
+				if scans != 1 {
+					t.Fatalf("retry verification scans=%d", scans)
+				}
+				if !repaired {
+					if syncErr == nil {
+						t.Fatal("fresh failure not reported")
+					}
+					var current Entry
+					for _, item := range queue.Entries() {
+						if item.Key == entry.Key {
+							current = item
+						}
+					}
+					if !current.SourceBlocked || current.FailureCode != "too_large" || current.UploadID != entry.UploadID || current.BundleID != entry.BundleID || !reflect.DeepEqual(current.Manifest, entry.Manifest) {
+						t.Fatalf("bad source released: %+v", current)
+					}
+					if _, ok := hub.records["root"]; ok {
+						t.Fatal("unsafe family sent")
+					}
+				} else {
+					if syncErr != nil {
+						t.Fatal(syncErr)
+					}
+					now = now.Add(3 * time.Minute)
+					if err := runner.SyncOnce(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+					if hub.records["root"].SessionID != "root" || hub.records["grandchild"].ParentSessionID != "child" {
+						t.Fatal("verified repaired capture did not resume")
+					}
+					if len(hub.requests) != 3 {
+						t.Fatalf("retained upload recreated: requests=%d", len(hub.requests))
+					}
+				}
+				want := "failed"
+				if repaired {
+					want = "done"
+				}
+				results := queue.Results()
+				if len(results) != 1 || results[0].CommandID != "source_retry" || results[0].Result != want {
+					t.Fatalf("settlement=%+v want=%s", results, want)
+				}
+				if err := runner.refreshConsent(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				if len(hub.results) != 1 || hub.results[0].Result != want {
+					t.Fatalf("check-in results=%+v", hub.results)
+				}
+			})
+		}
 	}
 }
