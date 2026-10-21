@@ -78,6 +78,28 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	grok, err := fullsessionv1.Freeze(grokRecord())
+	if err != nil {
+		panic(err)
+	}
+	grokCanonical, err := fullsessionv1.Marshal(grok)
+	if err != nil {
+		panic(err)
+	}
+	inconsistentCost := grok
+	unattributed := *grok.Session.UnattributedTokens
+	unattributed.CostMicroUSD = new(int64)
+	inconsistentCost.Session.UnattributedTokens = &unattributed
+	inconsistentCostBytes, err := canonicalWithRevision(inconsistentCost)
+	if err != nil {
+		panic(err)
+	}
+	mixedUsage := grok
+	mixedUsage.Session.Usage = []fullsessionv1.ModelUsage{{Model: "grok-4.7", InputTokens: 12}}
+	mixedUsageBytes, err := canonicalWithRevision(mixedUsage)
+	if err != nil {
+		panic(err)
+	}
 	entries := []struct {
 		path   string
 		data   []byte
@@ -85,6 +107,9 @@ func main() {
 		reason string
 	}{
 		{"valid/codex.json", canonical, true, ""},
+		{"valid/grok.json", grokCanonical, true, ""},
+		{"invalid/grok-inconsistent-cost.json", inconsistentCostBytes, false, "unattributed and enclosing costs differ in presence"},
+		{"invalid/grok-mixed-usage.json", mixedUsageBytes, false, "attributed and unattributed usage coexist"},
 		{"valid/escaping.json", escapingCanonical, true, ""},
 		{"valid/boundary-values.json", boundaryValuesCanonical, true, ""},
 		{"valid/boundary-items.json", boundaryItemsCanonical, true, ""},
@@ -177,6 +202,19 @@ func record() fullsessionv1.Record {
 			Subagents:    []fullsessionv1.Subagent{{ID: "agent-1", Name: "verify", Model: &subModel, Status: "returned", Task: "run focused tests", Result: "all passed", DurationMs: &subDuration, SpawnedAtTurn: &subTurn, ToolUses: 1, Commands: []fullsessionv1.SubagentCommand{{Label: "tests", Command: "go test ./..."}}, Usage: []fullsessionv1.ModelUsage{}, CostMicroUSD: &subagentCost}},
 			Synthesis:    &fullsessionv1.SessionSynthesis{Goals: []string{goal}, Outcome: "complete", KeyDecisions: []string{"use exact revisions"}, NextStep: "handoff"},
 			DeclaredGoal: &goal,
+		},
+	}
+}
+
+func grokRecord() fullsessionv1.Record {
+	zero := int64(0)
+	return fullsessionv1.Record{
+		SourceID: "local-fixture", Agent: "grok", SessionID: "grok-unattributed",
+		Session: fullsessionv1.Session{
+			StartedAtMs: 1_800_000_000_000, LastActivityAtMs: 1_800_000_012_000,
+			Usage:              []fullsessionv1.ModelUsage{},
+			UnattributedTokens: &fullsessionv1.UnattributedUsage{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4},
+			Subagents:          []fullsessionv1.Subagent{{ID: "grok-child", UnattributedTokens: &fullsessionv1.UnattributedUsage{InputTokens: 7, CostMicroUSD: &zero}, CostMicroUSD: &zero}},
 		},
 	}
 }

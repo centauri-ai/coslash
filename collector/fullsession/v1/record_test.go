@@ -200,3 +200,158 @@ func TestValidateRejectsOversizedRecord(t *testing.T) {
 		t.Fatalf("Validate error = %v; want %v", err, ErrOversized)
 	}
 }
+
+func TestGrokRecordAdmission(t *testing.T) {
+	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "grok", "pi", "Grok", "unknown"} {
+		t.Run(agent, func(t *testing.T) {
+			_, err := Freeze(Record{SourceID: "local", Agent: agent, SessionID: "root", Session: Session{StartedAtMs: 1, LastActivityAtMs: 2}})
+			valid := agent == "codex" || agent == "claude" || agent == "cursor" || agent == "opencode" || agent == "grok"
+			if (err == nil) != valid {
+				t.Fatalf("agent %q: error = %v, want valid=%v", agent, err, valid)
+			}
+		})
+	}
+}
+
+func TestGrokUnattributedCanonicalAccounting(t *testing.T) {
+	for _, accounting := range []string{
+		`{"inputTokens":12,"outputTokens":3,"cacheCreationInputTokens":0,"cacheCreation1hInputTokens":0,"cacheReadInputTokens":4,"costMicroUsd":null}`,
+		`{"inputTokens":0,"outputTokens":0,"cacheCreationInputTokens":0,"cacheCreation1hInputTokens":0,"cacheReadInputTokens":0,"costMicroUsd":0}`,
+		`{"inputTokens":9223372036854775807,"outputTokens":0,"cacheCreationInputTokens":0,"cacheCreation1hInputTokens":0,"cacheReadInputTokens":0,"costMicroUsd":4294967295999999}`,
+	} {
+		t.Run(accounting, func(t *testing.T) {
+			record := Record{SourceID: "local", Agent: "grok", SessionID: "root"}
+			body := `{"startedAtMs":1,"lastActivityAtMs":2,"unattributedTokens":` + accounting + `,"subagents":[{"id":"child","unattributedTokens":` + accounting + `}]}`
+			if err := json.Unmarshal([]byte(body), &record.Session); err != nil {
+				t.Fatal(err)
+			}
+			var used UnattributedUsage
+			if err := json.Unmarshal([]byte(accounting), &used); err != nil {
+				t.Fatal(err)
+			}
+			record.Session.CostMicroUSD = used.CostMicroUSD
+			record.Session.Subagents[0].CostMicroUSD = used.CostMicroUSD
+			frozen, err := Freeze(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := Marshal(frozen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := bytes.Count(data, []byte(`"unattributedTokens":`+accounting)); got != 2 {
+				t.Fatalf("accounting occurrences = %d, want root and child", got)
+			}
+			decoded, err := Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roundTrip, err := Marshal(decoded)
+			if err != nil || !bytes.Equal(data, roundTrip) {
+				t.Fatalf("canonical round trip changed: %v", err)
+			}
+		})
+	}
+}
+
+func TestGrokRejectsInvalidUnattributedAccounting(t *testing.T) {
+	for _, field := range []string{"inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheCreation1hInputTokens", "cacheReadInputTokens", "costMicroUsd"} {
+		for _, child := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/child=%v", field, child), func(t *testing.T) {
+				record := Record{SourceID: "local", Agent: "grok", SessionID: "root", Session: Session{StartedAtMs: 1, LastActivityAtMs: 2}}
+				accounting := `{"` + field + `":-1}`
+				body := `{"unattributedTokens":` + accounting + `}`
+				if child {
+					body = `{"subagents":[{"id":"child","unattributedTokens":` + accounting + `}]}`
+				}
+				if err := json.Unmarshal([]byte(body), &record.Session); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
+					t.Fatalf("invalid accounting accepted: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestUnattributedAccountingBoundariesAndClone(t *testing.T) {
+	cost := MaxCostMicroUSD
+	record := Record{SourceID: "local", Agent: "grok", SessionID: "root", Session: Session{
+		StartedAtMs: 1, LastActivityAtMs: 2, CostMicroUSD: &cost, UnattributedTokens: &UnattributedUsage{InputTokens: 12, CostMicroUSD: &cost},
+		Subagents: []Subagent{{ID: "child", CostMicroUSD: &cost, UnattributedTokens: &UnattributedUsage{InputTokens: 7, CostMicroUSD: &cost}}},
+	}}
+	frozen, err := Freeze(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Session.UnattributedTokens.InputTokens = 99
+	*record.Session.UnattributedTokens.CostMicroUSD = 0
+	record.Session.Subagents[0].UnattributedTokens.InputTokens = 99
+	if frozen.Session.UnattributedTokens.InputTokens != 12 || *frozen.Session.UnattributedTokens.CostMicroUSD != MaxCostMicroUSD || frozen.Session.Subagents[0].UnattributedTokens.InputTokens != 7 || *frozen.Session.Subagents[0].UnattributedTokens.CostMicroUSD != MaxCostMicroUSD {
+		t.Fatal("Freeze aliases unattributed accounting")
+	}
+	data, err := Marshal(frozen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, replacement := range []struct{ old, new string }{
+		{`"inputTokens":12`, `"inputTokens":9223372036854775808`},
+		{`"costMicroUsd":4294967295999999`, `"costMicroUsd":4294967296000000`},
+		{`"costMicroUsd":4294967295999999`, `"costMicroUsd":-1`},
+		{`"unattributedTokens":{`, `"unattributedTokens":{"model":"invented",`},
+	} {
+		if _, err := Decode(bytes.Replace(data, []byte(replacement.old), []byte(replacement.new), 1)); err == nil {
+			t.Fatalf("accepted invalid accounting %s", replacement.new)
+		}
+	}
+	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "pi"} {
+		frozen.Agent = agent
+		if _, err := Freeze(frozen); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s accepted unattributed accounting: %v", agent, err)
+		}
+	}
+}
+
+func TestGrokUnattributedRequiresConsistentCostAndExclusiveUsage(t *testing.T) {
+	zero, other := int64(0), int64(1)
+	for _, child := range []bool{false, true} {
+		for _, bad := range []struct {
+			inner, outer *int64
+			attributed   []ModelUsage
+		}{
+			{inner: &zero}, {outer: &zero}, {inner: &zero, outer: &other},
+			{attributed: []ModelUsage{{Model: "grok-4.7"}}},
+		} {
+			record := Record{SourceID: "local", Agent: "grok", SessionID: "root", Session: Session{StartedAtMs: 1, LastActivityAtMs: 2}}
+			used := &UnattributedUsage{InputTokens: 12, CostMicroUSD: bad.inner}
+			if child {
+				record.Session.Subagents = []Subagent{{ID: "child", UnattributedTokens: used, CostMicroUSD: bad.outer, Usage: bad.attributed}}
+			} else {
+				record.Session.UnattributedTokens = used
+				record.Session.CostMicroUSD = bad.outer
+				record.Session.Usage = bad.attributed
+			}
+			if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("child=%v: inconsistent accounting accepted: %+v", child, bad)
+			}
+		}
+	}
+}
+
+func TestGrokUnattributedRejectsCostOverMaximum(t *testing.T) {
+	cost := MaxCostMicroUSD + 1
+	for _, child := range []bool{false, true} {
+		record := Record{SourceID: "local", Agent: "grok", SessionID: "root", Session: Session{StartedAtMs: 1, LastActivityAtMs: 2}}
+		used := &UnattributedUsage{InputTokens: 12, CostMicroUSD: &cost}
+		if child {
+			record.Session.Subagents = []Subagent{{ID: "child", UnattributedTokens: used, CostMicroUSD: &cost}}
+		} else {
+			record.Session.UnattributedTokens = used
+			record.Session.CostMicroUSD = &cost
+		}
+		if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("child=%v accepted cost over maximum: %v", child, err)
+		}
+	}
+}

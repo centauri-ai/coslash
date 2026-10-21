@@ -24,17 +24,19 @@ without reducing child sessions to the display-oriented `subagents` list.
 
 Canonical records use UTF-8 without a BOM, insignificant whitespace, or a
 trailing newline. Every field is present, including null pointers and empty or
-null arrays. Usage arrays declare models in ascending model-name order; all
-other arrays retain their declared order. Integers use the shortest base-10
+null arrays, except optional `unattributedTokens`, which is omitted when absent.
+Usage arrays declare models in ascending model-name order; all other arrays
+retain their declared order. Integers use the shortest base-10
 form (no leading zero or plus sign); booleans and null use their lowercase JSON
 literals.
 
 Object members occur in the following order:
 
 - Record: `schemaVersion`, `sourceId`, `agent`, `sessionId`, `parentSessionId`, `revisionId`, `session`.
-- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, `commits`, `commitShas`, `pullRequests`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
+- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, optional `unattributedTokens`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, `commits`, `commitShas`, `pullRequests`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
 - Model usage: `model`, `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
-- Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, `costMicroUsd`; a subagent command uses `label`, `command`.
+- Unattributed usage: `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
+- Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, optional `unattributedTokens`, `costMicroUsd`; a subagent command uses `label`, `command`.
 - Todo: `text`, `done`; digest entry: `turn`, `category`, `description`, `answer`, `subagentId`, `timeMs`.
 - File edit: `path`, `additions`, `deletions`, `edits`, `isNew`, `changes`; file change: `id`, `kind`, `text`, `operation`, `additions`, `deletions`, `byteCount`, `sha256`.
 - Synthesis: `goals`, `outcome`, `keyDecisions`, `nextStep`.
@@ -62,13 +64,13 @@ private floating-point dollar model.
 A consumer must reject a record unless all of these rules hold:
 
 - The input is at most 64 MiB, is one canonical JSON object as specified above,
-  has every declared field, has no unknown fields or trailing JSON value, and
+  has every required field, has no unknown fields or trailing JSON value, and
   uses `schemaVersion` exactly `full-session-record/v1`.
 - `sourceId` and `sessionId` are identifiers. `parentSessionId` is either empty
   or a different identifier from `sessionId`. An identifier is 1 through 512
   UTF-8 bytes, has no leading or trailing whitespace, contains no slash or
   reverse solidus, and contains no Unicode code point U+0000 through U+0020 or
-  U+007F. `agent` is exactly `codex`, `claude`, `cursor`, or `opencode`.
+  U+007F. `agent` is exactly `codex`, `claude`, `cursor`, `opencode`, or `grok`.
 - `revisionId` is the lowercase hexadecimal SHA-256 described above. Every
   file-change `sha256` is likewise the lowercase SHA-256 of `text`, and every
   change ID is an identifier unique across the record.
@@ -90,6 +92,13 @@ A consumer must reject a record unless all of these rules hold:
   micro-USD range above. Session and subagent costs may be null; model costs
   are always present. Session and subagent usage arrays are strictly ascending
   by nonempty model name.
+- `unattributedTokens` is allowed only for Grok sessions and their subagents.
+  Its five counters obey the same nonnegative integer bounds as model usage.
+  When present, the same session or subagent has no attributed usage entries,
+  and its inner and enclosing `costMicroUsd` must have equal presence and value.
+  Two null costs mean unknown; two present zeros mean known zero. Costs obey
+  the shared micro-USD bounds. The enclosing nullable cost is authoritative;
+  a private token struct's default float zero is not evidence of known cost.
 - Every file edit has a nonempty path, positive `edits`, and no negative count.
   Every file change has kind `diff` or `content`, a nonempty operation, exact
   UTF-8 `byteCount`, an exact body hash, and no negative count.
@@ -99,7 +108,23 @@ A consumer must reject a record unless all of these rules hold:
 
 The first C01 producers are Codex and Claude. Adding another parser requires an
 explicit field-parity decision; schema support alone does not claim producer
-coverage.
+coverage. Grok local portable composition preserves model-attributed usage,
+model-unattributed session totals, and nested child accounting. It does not add
+Grok to remote collection or enable a complete-backup producer or sync queue.
+Grok uses either model rows or unattributed counters for each member; child
+accounting is repeated in its direct parent's subagent projection and its own
+complete record, without being added to the parent's counters. Sum complete
+member records once, not their duplicate subagent projections.
+
+Grok's source parser collapses all-zero totals without model rows to absence.
+Constructed present zero counters remain distinct from absent accounting in
+this contract. Missing, partial, or incomplete source cost stays null; no model
+or price is inferred for unattributed totals. Portable inner and enclosing costs
+must agree so the existing private nullable session/subagent cost can preserve
+every valid record through both adapter directions. The adapter rejects an
+independently populated nonzero private unattributed float cost rather than
+discarding it. Pi, unavailable accounting, incomplete detail, and branch-context
+facts remain rejected by the complete-record adapter.
 
 ## Included-field inventory
 
@@ -108,6 +133,7 @@ coverage.
 | Source/session identity and revision | Remote manager + canonical record freezer | Changed-family full record; cached full-record row | Exact source, agent, session, and revision are required for reads |
 | Session envelope, timing, transcript-supplied working directory/branch, usage, and cost | Claude and Codex parsers plus allowlisted vendor metadata | Typed `session` fields | Canonical local/helper/SFTP byte equality |
 | Prompts, summary, goals, commands, commits, todos, digest | Claude and Codex parsers/composers | Typed `session` detail fields | Restart and unchanged-refresh equality |
+| Grok model-unattributed counters and nullable cost | Grok parser and local portable composition | Optional `unattributedTokens` on session and direct subagent rows | Source-fixture totals and nested-family adapter byte round trips |
 | Subagent identity, task/result, commands, usage, and cost | Claude and Codex family composition | Typed `subagents` list | Ordered value equality |
 | File-edit summaries | Claude and Codex file-edit accumulators | Typed `fileEdits` rows | Ordered value equality |
 | File-change kind, operation, counts, and exact text | Claude and Codex file-edit accumulators | Change metadata in the record row; text in cache `changeBodies` | Per-body byte count/hash and exact read assertion |

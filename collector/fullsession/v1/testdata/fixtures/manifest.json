@@ -8,6 +8,23 @@
       "valid": true
     },
     {
+      "path": "valid/grok.json",
+      "sha256": "c5452e8db07980eab409bbe744001382fa93808b4443595688efb55f83e9789e",
+      "valid": true
+    },
+    {
+      "path": "invalid/grok-inconsistent-cost.json",
+      "sha256": "a5236b5802aedf81220c0bc3f5cb9aa00d8d93aa23205f75e41cdbe1fc948491",
+      "valid": false,
+      "reason": "unattributed and enclosing costs differ in presence"
+    },
+    {
+      "path": "invalid/grok-mixed-usage.json",
+      "sha256": "25f6b4008ba629219029f684b2fd405dc55d7dd7553cd558d3ca3e1bf407241f",
+      "valid": false,
+      "reason": "attributed and unattributed usage coexist"
+    },
+    {
       "path": "valid/escaping.json",
       "sha256": "ca12295dd4ede5cf07de25dfea3628e261fe57fbbb162e4fde0c660f2a4487e8",
       "valid": true
