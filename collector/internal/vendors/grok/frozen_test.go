@@ -117,6 +117,9 @@ func TestFrozenInputsRejectSymlinkedDirectories(t *testing.T) {
 		if err := validateFrozenInputs(t.Context(), link); err == nil {
 			t.Fatal("symlinked frozen root accepted")
 		}
+		if err := validateFrozenInputs(t.Context(), link+string(os.PathSeparator)); err == nil {
+			t.Fatal("symlinked frozen root with trailing separator accepted")
+		}
 	})
 
 	t.Run("subagents", func(t *testing.T) {
