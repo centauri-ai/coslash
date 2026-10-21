@@ -2,12 +2,17 @@ package fullsessionrecord
 
 import (
 	"bytes"
+	"math"
+	"os"
+	"path/filepath"
+
 	"reflect"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 )
 
 func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
@@ -405,7 +410,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"TokensKnown":        "local accounting unavailable formats refused",
 		"TokensUnavailable":  "local accounting unavailable formats refused",
 		"CostUnavailable":    "local accounting unavailable formats refused",
-		"UnattributedTokens": "local accounting unavailable formats refused",
+		"UnattributedTokens": "included for Grok with enclosing nullable cost; other agents refused",
 		"TranscriptPath":     "excluded private resume path",
 		"Agent":              "record envelope", "ID": "record envelope", "ParentSessionID": "record envelope", "Name": "included", "Summary": "included",
 		"Status": "included", "WorkingDirectory": "included", "Branch": "parser or portable metadata only",
@@ -457,5 +462,274 @@ func TestPiFullRecordRefusesUnrepresentableLocalFacts(t *testing.T) {
 		if _, err := FromSession("source", value); err == nil {
 			t.Fatal("unrepresentable local facts silently lost")
 		}
+	}
+}
+
+func TestGrokUnattributedRoundTrip(t *testing.T) {
+	original := session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2,
+		UnattributedTokens: &session.ModelTokens{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4},
+		Subagents:          []session.Subagent{{ID: "child", UnattributedTokens: &session.ModelTokens{InputTokens: 7}}},
+	}
+	record, err := FromSession("local", original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fullsessionv1.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := fullsessionv1.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ToSession(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.UnattributedTokens, original.UnattributedTokens) || !reflect.DeepEqual(restored.Subagents[0].UnattributedTokens, original.Subagents[0].UnattributedTokens) || restored.Cost != nil || restored.Subagents[0].Cost != nil || len(restored.Tokens) != 0 {
+		t.Fatalf("unattributed accounting lost or fabricated: %+v, child %+v", restored, restored.Subagents[0])
+	}
+}
+
+func TestGrokUnattributedCostAndZeroRoundTrip(t *testing.T) {
+	zero, positive, maximum := 0.0, 0.123456, float64(fullsessionv1.MaxCostMicroUSD)/1_000_000
+	for _, cost := range []*float64{nil, &zero, &positive, &maximum} {
+		for _, input := range []int{0, 12} {
+			used := &session.ModelTokens{}
+			if input != 0 {
+				used = &session.ModelTokens{InputTokens: input, OutputTokens: 3, CacheCreationInputTokens: 5, CacheCreation1hInputTokens: 6, CacheReadInputTokens: 4}
+			}
+			original := session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2, Cost: cost,
+				UnattributedTokens: used,
+				Subagents:          []session.Subagent{{ID: "child", Cost: cost, UnattributedTokens: &session.ModelTokens{InputTokens: input}}},
+			}
+			record, err := FromSession("local", original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := ToSession(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(restored.Cost, cost) || !reflect.DeepEqual(restored.Subagents[0].Cost, cost) || !reflect.DeepEqual(restored.UnattributedTokens, original.UnattributedTokens) {
+				t.Fatalf("cost or counters changed: %+v", restored)
+			}
+			repeated, err := FromSession("local", *restored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, err := fullsessionv1.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := fullsessionv1.Marshal(repeated)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(a, b) {
+				t.Fatal("valid portable accounting did not round-trip byte for byte")
+			}
+			original.UnattributedTokens.InputTokens = 99
+			original.Subagents[0].UnattributedTokens.InputTokens = 99
+			restored.UnattributedTokens.InputTokens = 88
+			restored.Subagents[0].UnattributedTokens.InputTokens = 88
+			if record.Session.UnattributedTokens.InputTokens != input || record.Session.Subagents[0].UnattributedTokens.InputTokens != input {
+				t.Fatal("adapter aliases unattributed tokens")
+			}
+		}
+	}
+}
+
+func TestGrokUnattributedRejectsInvalidPrivateCosts(t *testing.T) {
+	for _, child := range []bool{false, true} {
+		for _, cost := range []float64{-0.0000001, math.NaN(), math.Inf(1), math.Inf(-1), float64(fullsessionv1.MaxCostMicroUSD)/1_000_000 + 1} {
+			value := session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2}
+			if child {
+				value.Subagents = []session.Subagent{{ID: "child", UnattributedTokens: &session.ModelTokens{}, Cost: &cost}}
+			} else {
+				value.UnattributedTokens = &session.ModelTokens{}
+				value.Cost = &cost
+			}
+			if _, err := FromSession("local", value); err == nil {
+				t.Fatalf("child=%v accepted cost %v", child, cost)
+			}
+		}
+		value := session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2}
+		if child {
+			value.Subagents = []session.Subagent{{ID: "child", UnattributedTokens: &session.ModelTokens{Cost: 1}}}
+		} else {
+			value.UnattributedTokens = &session.ModelTokens{Cost: 1}
+		}
+		if _, err := FromSession("local", value); err == nil {
+			t.Fatalf("child=%v discarded independently populated float cost", child)
+		}
+	}
+}
+
+func TestGrokSourceAccountingSurvivesPortableFamily(t *testing.T) {
+	for _, tt := range []struct {
+		name, usage                     string
+		tokens                          int
+		attributed, unattributed, known bool
+	}{
+		{name: "attributed", tokens: 170, attributed: true, known: true},
+		{name: "unattributed19", usage: `{"session":{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4}}`, tokens: 19, unattributed: true},
+		{name: "known zero cost", usage: `{"session":{"inputTokens":12,"costUsdTicks":0}}`, tokens: 12, unattributed: true, known: true},
+		{name: "partial cost", usage: `{"session":{"inputTokens":12,"costUsdTicks":10000000000,"costIsPartial":true}}`, tokens: 12, unattributed: true},
+		{name: "incomplete cost", usage: `{"session":{"inputTokens":12,"costUsdTicks":10000000000,"usageIsIncomplete":true}}`, tokens: 12, unattributed: true},
+		{name: "absent", usage: "absent"},
+		{name: "source zero remains absent", usage: `{"session":{"inputTokens":0,"outputTokens":0}}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("GROK_HOME", home)
+			dir := filepath.Join(home, "sessions", "fixture", "root")
+			if err := os.CopyFS(dir, os.DirFS(filepath.Join("..", "vendors", "grok", "testdata", "finished"))); err != nil {
+				t.Fatal(err)
+			}
+			if tt.usage == "absent" {
+				if err := os.Remove(filepath.Join(dir, "usage.json")); err != nil {
+					t.Fatal(err)
+				}
+			} else if tt.usage != "" {
+				if err := os.WriteFile(filepath.Join(dir, "usage.json"), []byte(tt.usage), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			parsed, metadata, err := grok.CollectContext(t.Context(), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records, err := FromParsedFamily("local", "grok", vendors.LocalReadSource, parsed, metadata)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(records) != 1 {
+				t.Fatalf("records=%d", len(records))
+			}
+			record := records[0]
+			if (len(record.Session.Usage) > 0) != tt.attributed || (record.Session.UnattributedTokens != nil) != tt.unattributed || (record.Session.CostMicroUSD != nil) != tt.known {
+				t.Fatalf("accounting presence changed: %+v", record.Session)
+			}
+			data, err := fullsessionv1.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := fullsessionv1.Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := ToSession(decoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			total := 0
+			for _, used := range restored.Tokens {
+				total += used.InputTokens + used.OutputTokens + used.CacheReadInputTokens + used.CacheCreationInputTokens + used.CacheCreation1hInputTokens
+			}
+			if used := restored.UnattributedTokens; used != nil {
+				total += used.InputTokens + used.OutputTokens + used.CacheReadInputTokens + used.CacheCreationInputTokens + used.CacheCreation1hInputTokens
+			}
+			if total != tt.tokens {
+				t.Fatalf("tokens=%d,want %d", total, tt.tokens)
+			}
+			repeated, err := FromSession("local", *restored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if repeated.RevisionID != record.RevisionID {
+				t.Fatal("source accounting revision changed on round trip")
+			}
+		})
+	}
+}
+
+func TestGrokNestedFamilyAccountingIsNotRolledIntoParent(t *testing.T) {
+	parsed := []*vendors.ParsedSession{
+		{Session: &session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2, UnattributedTokens: &session.ModelTokens{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4}}},
+		{ParentID: "root", Session: &session.Session{Agent: "grok", ID: "child", StartedAt: 1, LastActivityTime: 2, UnattributedTokens: &session.ModelTokens{InputTokens: 7}}},
+		{ParentID: "child", Session: &session.Session{Agent: "grok", ID: "grandchild", StartedAt: 1, LastActivityTime: 2, Tokens: map[string]session.ModelTokens{"grok-4.7": {InputTokens: 5}}}},
+	}
+	records, err := FromParsedFamily("local", "grok", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 || records[1].ParentSessionID != "root" || records[2].ParentSessionID != "child" {
+		t.Fatalf("incomplete lineage: %+v", records)
+	}
+	if got := records[0].Session.UnattributedTokens; got == nil || got.InputTokens != 12 || got.OutputTokens != 3 || got.CacheReadInputTokens != 4 {
+		t.Fatalf("root totals changed: %+v", got)
+	}
+	if len(records[0].Session.Subagents) != 1 || records[0].Session.Subagents[0].UnattributedTokens.InputTokens != 7 || records[1].Session.UnattributedTokens.InputTokens != 7 || len(records[1].Session.Subagents) != 1 || records[1].Session.Subagents[0].Usage[0].InputTokens != 5 || records[2].Session.Usage[0].InputTokens != 5 {
+		t.Fatalf("nested accounting lost: %+v", records)
+	}
+	total := 0
+	for _, record := range records {
+		data, err := fullsessionv1.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := fullsessionv1.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := ToSession(decoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		repeated, err := FromSession("local", *restored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if repeated.RevisionID != record.RevisionID {
+			t.Fatal("nested accounting changed revision")
+		}
+		if used := restored.UnattributedTokens; used != nil {
+			total += used.InputTokens + used.OutputTokens + used.CacheReadInputTokens
+		}
+		for _, used := range restored.Tokens {
+			total += used.InputTokens
+		}
+	}
+	if total != 31 {
+		t.Fatalf("family total=%d,want 19+7+5=31", total)
+	}
+	if len(parsed[0].Session.Subagents) != 0 || len(parsed[1].Session.Subagents) != 0 {
+		t.Fatal("composition mutated caller family")
+	}
+}
+
+func TestGrokPreservesUnrepresentableFactGuards(t *testing.T) {
+	falseValue, text := false, "context"
+	for name, mutate := range map[string]func(*session.Session){
+		"Pi":                       func(s *session.Session) { s.Agent = "pi" },
+		"tokens unavailable":       func(s *session.Session) { s.TokensUnavailable = true },
+		"cost unavailable":         func(s *session.Session) { s.CostUnavailable = true },
+		"details incomplete":       func(s *session.Session) { s.DetailsIncomplete = true },
+		"child tokens unavailable": func(s *session.Session) { s.Subagents = []session.Subagent{{ID: "child", TokensUnavailable: true}} },
+		"child cost unavailable":   func(s *session.Session) { s.Subagents = []session.Subagent{{ID: "child", CostUnavailable: true}} },
+		"source entry":             func(s *session.Session) { s.Digest = []session.DigestEntry{{SourceEntryID: "entry"}} },
+		"parent entry":             func(s *session.Session) { s.Digest = []session.DigestEntry{{ParentEntryID: "entry"}} },
+		"branch":                   func(s *session.Session) { s.Digest = []session.DigestEntry{{BranchID: "branch"}} },
+		"active":                   func(s *session.Session) { s.Digest = []session.DigestEntry{{Active: &falseValue}} },
+		"inherited":                func(s *session.Session) { s.Digest = []session.DigestEntry{{Inherited: &falseValue}} },
+		"selected":                 func(s *session.Session) { s.Digest = []session.DigestEntry{{ContextSelected: &falseValue}} },
+		"description":              func(s *session.Session) { s.Digest = []session.DigestEntry{{ContextDescription: &text}} },
+		"non-Grok root":            func(s *session.Session) { s.Agent = "codex"; s.UnattributedTokens = &session.ModelTokens{} },
+		"non-Grok child": func(s *session.Session) {
+			s.Agent = "codex"
+			s.Subagents = []session.Subagent{{ID: "child", UnattributedTokens: &session.ModelTokens{}}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			value := session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2}
+			if _, err := FromSession("local", value); err != nil {
+				t.Fatalf("valid control rejected: %v", err)
+			}
+			mutate(&value)
+			if _, err := FromSession("local", value); err == nil {
+				t.Fatal("unrepresentable fact accepted")
+			}
+		})
 	}
 }
