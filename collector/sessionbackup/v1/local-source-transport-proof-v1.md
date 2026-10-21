@@ -54,6 +54,19 @@ artifact or a completed upload. The receipt and retry repair from Tier3
 accepted base; its commit is not an ancestor. The current base additionally
 bounds `Retry-After` by the operation budget.
 
+## Current local Grok capture evidence
+
+`TestGrokCaptureCompleteFamilyAndRestart` verifies frozen root-first recursive
+families, child selection, independent forks/worktrees, unattributed accounting,
+private artifact permissions and reopening. `TestGrokFailedRefreshRetainsVerifiedBundle`
+covers malformed, changing and missing inputs plus cancellation.
+`TestGrokCaptureFreezesExternalNonChildProof` binds independent-session
+classification to its frozen summary without copying its transcript or usage.
+`TestFrozenFamilyUsesOnlyFrozenInputsAndClassification` removes the live source
+before parsing and rejects missing or reclassified external proof.
+These synthetic checks establish local capture only. Grok queue enablement and
+real upload/read acceptance remain separate gates; SSH Grok is unsupported.
+
 ## v4 transport compatibility contract
 
 **Identity:** `local-transport-v4/v1`. This is the Local input contract for

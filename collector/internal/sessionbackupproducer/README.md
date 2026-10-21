@@ -2,7 +2,7 @@
 
 `sessionbackupproducer` is the local owner of complete `session-backup/v1`
 capture. It supports local and SSH Codex plus local Claude, local OpenCode,
-and local Cursor IDE/CLI sources. Claude SSH, OpenCode SSH, and Cursor SSH
+local Cursor IDE/CLI, and local Grok sources. Claude SSH, OpenCode SSH, and Cursor SSH
 return the product-visible
 `complete_backup_unsupported` blocker and never produce a metadata-only bundle.
 
@@ -72,6 +72,18 @@ such as text that is not UTF-8 or a value over the 64 MiB document bound, also
 block publication; they are reported as non-retryable `artifact_invalid`
 metadata rows, not as unattributable. Cursor SSH remains owned by the later
 relay task.
+
+The Grok producer freezes each verified root and recursive subagent family in
+root-first order. Selecting a child resolves to that root; forks and worktree
+sessions stay independent. It retains the authoritative `updates.jsonl`,
+`summary.json`, and present usage, signals, plan, goal-state, prompt-context,
+compaction and subagent metadata/output inputs. External fork/worktree
+classification retains only the attributable summary proof, never its transcript.
+Missing required, malformed
+present, ambiguous or changing family inputs block publication. Parsing uses
+only the private frozen tree, without active-session metadata or process probes.
+Usage without a model breakdown remains unattributed, and partial or missing
+cost remains unknown. Grok SSH and Pi complete capture remain unsupported.
 
 Focused verification is:
 

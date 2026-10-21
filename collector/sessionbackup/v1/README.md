@@ -15,8 +15,8 @@ backup.
 ## Producer and artifact inventory
 
 Complete backup v1 supports local Codex, SSH Codex, local Claude, local
-OpenCode, and local Cursor IDE/CLI. Claude SSH, OpenCode SSH, and Cursor SSH
-must surface the blocking code
+OpenCode, local Cursor IDE/CLI, and local Grok. Claude SSH, OpenCode SSH, and Cursor SSH
+and Grok SSH must surface the blocking code
 `complete_backup_unsupported`; they must not fall back to a metadata-only
 success. The table below specifies the Codex inputs.
 
@@ -79,6 +79,22 @@ Cursor SSH collection remains unsupported until the relay path proves its
 allowlist and frozen source.
 Cursor manifests require `session-backup-db-rows/v1` in `requiredVersions`;
 Codex manifests continue to require only the original two versions.
+
+Local Grok has file-backed `raw-transcript` (`updates.jsonl`) and `raw-sidecar`
+artifacts (`summary.json` and present parser inputs). These include usage and
+signals, plan files, `goal/state.json`, prompt and plan-mode flags, compaction
+checkpoints, and subagent metadata/output. All candidate checkpoints and
+verified recursive family members are retained. Empty subagent directories
+needed for structured spawn recovery are preserved while freezing. Per-member
+source revisions bind their directory presence as well as file names and bytes.
+External non-child classification retains the exact referenced summary as a
+root-owned `raw-sidecar`, without importing that session or its transcript.
+The parser revalidates this proof from frozen bytes and reads no vendor-home
+liveness metadata.
+Auth, configuration, search/cache databases and redundant conversation copies
+are excluded. Missing required, malformed present, unsafe, ambiguous or changing
+inputs block completion and retain the prior verified bundle. Grok has no
+`raw-metadata-rows` input or database projection version; SSH is unsupported.
 
 ## Canonical manifest and identity
 
@@ -159,7 +175,7 @@ must not assign a complete hash or present it as a verified manifest.
 Required semantic versions are closed for v1. Consumers reject a version they
 do not understand rather than guessing. `requiredVersions` is sorted and must
 contain both `full-session-record/v1` and `session-backup/v1`. OpenCode and
-Cursor also require `session-backup-db-rows/v1`; Codex and Claude prohibit it.
+Cursor also require `session-backup-db-rows/v1`; Codex, Claude and Grok prohibit it.
 This
 is exercised by the published unknown-version fixture.
 

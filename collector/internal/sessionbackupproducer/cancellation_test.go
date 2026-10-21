@@ -35,7 +35,7 @@ func (ctx *compositionInterruptedContext) Err() error {
 
 func TestPrepareCompositionInterruptionPreservesCauseAndLastGood(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	for _, agent := range []string{vendors.AgentCodex, vendors.AgentClaude, vendors.AgentOpenCode, vendors.AgentCursor} {
+	for _, agent := range []string{vendors.AgentCodex, vendors.AgentClaude, vendors.AgentOpenCode, vendors.AgentCursor, vendors.AgentGrok} {
 		t.Run(agent, func(t *testing.T) {
 			var home string
 			selection := localSelection()
@@ -48,6 +48,8 @@ func TestPrepareCompositionInterruptionPreservesCauseAndLastGood(t *testing.T) {
 				_ = openCodeBackupDB(t)
 				home = t.TempDir()
 				selection = Selection{SourceKind: backup.SourceLocal, SourceID: "local", Agent: agent, SessionID: "root"}
+			case vendors.AgentGrok:
+				home, _, selection = grokFixture(t)
 			case vendors.AgentCursor:
 				home, _, _ = writeCursorBackupFixture(t, "cursor-ide")
 				selection = Selection{SourceKind: backup.SourceLocal, SourceID: "local", Agent: agent, SessionID: cursorTestID}
