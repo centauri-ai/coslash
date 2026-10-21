@@ -47,38 +47,39 @@ type Record struct {
 }
 
 type Session struct {
-	Name             *string           `json:"name"`
-	Summary          *string           `json:"summary"`
-	Status           *string           `json:"status"`
-	WorkingDirectory string            `json:"cwd"`
-	Branch           *string           `json:"branch"`
-	EditedFileCount  int               `json:"editedFileCount"`
-	DurationMs       *int              `json:"durationMs"`
-	Usage            []ModelUsage      `json:"usage"`
-	CostMicroUSD     *int64            `json:"costMicroUsd"`
-	UnpricedModels   []string          `json:"unpricedModels"`
-	Subagents        []Subagent        `json:"subagents"`
-	StartedAtMs      int64             `json:"startedAtMs"`
-	LastActivityAtMs int64             `json:"lastActivityAtMs"`
-	Entrypoint       *string           `json:"entrypoint"`
-	Model            *string           `json:"model"`
-	ContextTokens    *int              `json:"contextTokens"`
-	ContextWindow    *int              `json:"contextWindow"`
-	Turns            int               `json:"turns"`
-	ToolUses         int               `json:"toolUses"`
-	Errors           int               `json:"errors"`
-	Compactions      int               `json:"compactions"`
-	FirstPrompt      *string           `json:"firstPrompt"`
-	Commands         []string          `json:"commands"`
-	Commits          []string          `json:"commits"`
-	CommitSHAs       []string          `json:"commitShas"`
-	PullRequests     int               `json:"pullRequests"`
-	Todos            []Todo            `json:"todos"`
-	Digest           []DigestEntry     `json:"digest"`
-	FileEdits        []FileEdit        `json:"fileEdits"`
-	Synthesis        *SessionSynthesis `json:"synthesis"`
-	SynthesisPending bool              `json:"synthesisPending"`
-	DeclaredGoal     *string           `json:"declaredGoal"`
+	Name               *string            `json:"name"`
+	Summary            *string            `json:"summary"`
+	Status             *string            `json:"status"`
+	WorkingDirectory   string             `json:"cwd"`
+	Branch             *string            `json:"branch"`
+	EditedFileCount    int                `json:"editedFileCount"`
+	DurationMs         *int               `json:"durationMs"`
+	Usage              []ModelUsage       `json:"usage"`
+	UnattributedTokens *UnattributedUsage `json:"unattributedTokens,omitempty"`
+	CostMicroUSD       *int64             `json:"costMicroUsd"`
+	UnpricedModels     []string           `json:"unpricedModels"`
+	Subagents          []Subagent         `json:"subagents"`
+	StartedAtMs        int64              `json:"startedAtMs"`
+	LastActivityAtMs   int64              `json:"lastActivityAtMs"`
+	Entrypoint         *string            `json:"entrypoint"`
+	Model              *string            `json:"model"`
+	ContextTokens      *int               `json:"contextTokens"`
+	ContextWindow      *int               `json:"contextWindow"`
+	Turns              int                `json:"turns"`
+	ToolUses           int                `json:"toolUses"`
+	Errors             int                `json:"errors"`
+	Compactions        int                `json:"compactions"`
+	FirstPrompt        *string            `json:"firstPrompt"`
+	Commands           []string           `json:"commands"`
+	Commits            []string           `json:"commits"`
+	CommitSHAs         []string           `json:"commitShas"`
+	PullRequests       int                `json:"pullRequests"`
+	Todos              []Todo             `json:"todos"`
+	Digest             []DigestEntry      `json:"digest"`
+	FileEdits          []FileEdit         `json:"fileEdits"`
+	Synthesis          *SessionSynthesis  `json:"synthesis"`
+	SynthesisPending   bool               `json:"synthesisPending"`
+	DeclaredGoal       *string            `json:"declaredGoal"`
 }
 
 type ModelUsage struct {
@@ -91,24 +92,34 @@ type ModelUsage struct {
 	CostMicroUSD               int64  `json:"costMicroUsd"`
 }
 
+type UnattributedUsage struct {
+	InputTokens                int    `json:"inputTokens"`
+	OutputTokens               int    `json:"outputTokens"`
+	CacheCreationInputTokens   int    `json:"cacheCreationInputTokens"`
+	CacheCreation1hInputTokens int    `json:"cacheCreation1hInputTokens"`
+	CacheReadInputTokens       int    `json:"cacheReadInputTokens"`
+	CostMicroUSD               *int64 `json:"costMicroUsd"`
+}
+
 type SubagentCommand struct {
 	Label   string `json:"label"`
 	Command string `json:"command"`
 }
 
 type Subagent struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Model         *string           `json:"model"`
-	Status        string            `json:"status"`
-	Task          string            `json:"task"`
-	Result        string            `json:"result"`
-	DurationMs    *int              `json:"durationMs"`
-	SpawnedAtTurn *int              `json:"spawnedAtTurn"`
-	ToolUses      int               `json:"toolUses"`
-	Commands      []SubagentCommand `json:"commands"`
-	Usage         []ModelUsage      `json:"usage"`
-	CostMicroUSD  *int64            `json:"costMicroUsd"`
+	ID                 string             `json:"id"`
+	Name               string             `json:"name"`
+	Model              *string            `json:"model"`
+	Status             string             `json:"status"`
+	Task               string             `json:"task"`
+	Result             string             `json:"result"`
+	DurationMs         *int               `json:"durationMs"`
+	SpawnedAtTurn      *int               `json:"spawnedAtTurn"`
+	ToolUses           int                `json:"toolUses"`
+	Commands           []SubagentCommand  `json:"commands"`
+	Usage              []ModelUsage       `json:"usage"`
+	UnattributedTokens *UnattributedUsage `json:"unattributedTokens,omitempty"`
+	CostMicroUSD       *int64             `json:"costMicroUsd"`
 }
 
 type Todo struct {
@@ -210,6 +221,7 @@ func cloneRecord(record Record) Record {
 	s.Branch = clonePointer(s.Branch)
 	s.DurationMs = clonePointer(s.DurationMs)
 	s.CostMicroUSD = clonePointer(s.CostMicroUSD)
+	s.UnattributedTokens = cloneUnattributed(s.UnattributedTokens)
 	s.Entrypoint = clonePointer(s.Entrypoint)
 	s.Model = clonePointer(s.Model)
 	s.ContextTokens = clonePointer(s.ContextTokens)
@@ -229,6 +241,7 @@ func cloneRecord(record Record) Record {
 		s.Subagents[i].DurationMs = clonePointer(s.Subagents[i].DurationMs)
 		s.Subagents[i].SpawnedAtTurn = clonePointer(s.Subagents[i].SpawnedAtTurn)
 		s.Subagents[i].CostMicroUSD = clonePointer(s.Subagents[i].CostMicroUSD)
+		s.Subagents[i].UnattributedTokens = cloneUnattributed(s.Subagents[i].UnattributedTokens)
 		s.Subagents[i].Commands = cloneSlice(s.Subagents[i].Commands)
 		s.Subagents[i].Usage = cloneSlice(s.Subagents[i].Usage)
 	}
@@ -244,6 +257,15 @@ func cloneRecord(record Record) Record {
 	}
 	cloned.Session = s
 	return cloned
+}
+
+func cloneUnattributed(value *UnattributedUsage) *UnattributedUsage {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	copy.CostMicroUSD = clonePointer(value.CostMicroUSD)
+	return &copy
 }
 
 func clonePointer[T any](value *T) *T {
@@ -375,7 +397,7 @@ func Validate(record Record) error {
 
 func validate(record Record, requireRevision bool) error {
 	if record.SchemaVersion != SchemaVersion || !identifier(record.SourceID) ||
-		(record.Agent != "codex" && record.Agent != "claude" && record.Agent != "cursor" && record.Agent != "opencode") || !identifier(record.SessionID) ||
+		(record.Agent != "codex" && record.Agent != "claude" && record.Agent != "cursor" && record.Agent != "opencode" && record.Agent != "grok") || !identifier(record.SessionID) ||
 		(record.ParentSessionID != "" && (!identifier(record.ParentSessionID) || record.ParentSessionID == record.SessionID)) {
 		return fmt.Errorf("%w: invalid envelope", ErrInvalid)
 	}
@@ -390,7 +412,7 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: aggregate collection exceeds item limit", ErrInvalid)
 	}
 	if s.StartedAtMs <= 0 || s.StartedAtMs > MaxSessionTimestampMs ||
-		s.LastActivityAtMs < s.StartedAtMs || s.LastActivityAtMs > MaxSessionTimestampMs || !optionalInt64Nonnegative(s.CostMicroUSD) ||
+		s.LastActivityAtMs < s.StartedAtMs || s.LastActivityAtMs > MaxSessionTimestampMs || !optionalInt64Nonnegative(s.CostMicroUSD) || !validUnattributed(s.UnattributedTokens, s.Usage, s.CostMicroUSD, record.Agent) ||
 		!nonnegative(s.EditedFileCount, s.Turns, s.ToolUses, s.Errors, s.Compactions, s.PullRequests) ||
 		!optionalNonnegative(s.DurationMs, s.ContextTokens, s.ContextWindow) {
 		return fmt.Errorf("%w: invalid session counts or time", ErrInvalid)
@@ -449,7 +471,7 @@ func validate(record Record, requireRevision bool) error {
 	}
 	for _, subagent := range s.Subagents {
 		if !identifier(subagent.ID) || !stringsValid(subagent.Name, stringValue(subagent.Model), subagent.Status, subagent.Task, subagent.Result) ||
-			!optionalNonnegative(subagent.DurationMs, subagent.SpawnedAtTurn) || subagent.ToolUses < 0 || !optionalInt64Nonnegative(subagent.CostMicroUSD) ||
+			!optionalNonnegative(subagent.DurationMs, subagent.SpawnedAtTurn) || subagent.ToolUses < 0 || !optionalInt64Nonnegative(subagent.CostMicroUSD) || !validUnattributed(subagent.UnattributedTokens, subagent.Usage, subagent.CostMicroUSD, record.Agent) ||
 			!boundedItems(len(subagent.Commands), len(subagent.Usage)) {
 			return fmt.Errorf("%w: invalid subagent", ErrInvalid)
 		}
@@ -506,6 +528,15 @@ func validCollectionSizes(s Session) bool {
 	}
 	return s.Synthesis == nil ||
 		(budget.add(len(s.Synthesis.Goals)) && budget.add(len(s.Synthesis.KeyDecisions)))
+}
+
+func validUnattributed(usage *UnattributedUsage, attributed []ModelUsage, cost *int64, agent string) bool {
+	if usage == nil {
+		return true
+	}
+	sameCost := usage.CostMicroUSD == nil && cost == nil || usage.CostMicroUSD != nil && cost != nil && *usage.CostMicroUSD == *cost
+	return agent == "grok" && len(attributed) == 0 && sameCost && optionalInt64Nonnegative(usage.CostMicroUSD) &&
+		nonnegative(usage.InputTokens, usage.OutputTokens, usage.CacheCreationInputTokens, usage.CacheCreation1hInputTokens, usage.CacheReadInputTokens)
 }
 
 func validUsage(usage ModelUsage) bool {
