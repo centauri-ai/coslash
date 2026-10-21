@@ -6,9 +6,9 @@ integration SHA `b39c4e942c9f1c8ed9bc78cc835c773c630f7685`.
 The additive Local check-in and command consumer is `local-device-v4/1`, pinned
 to server `device-v4/2` at `e52bf98faa2b584a4ff0947358d1d7a84f2206cc`.
 
-The scheduler discovers local Codex, Claude, OpenCode, and Cursor IDE/CLI
-families. A source exporter may join this queue only after it produces a
-complete, verified family through `sessionbackupproducer`; parsed cards alone
+The scheduler discovers local Codex, Claude, OpenCode, Cursor IDE/CLI, and Grok
+families. Pi remains local and ineligible for sync. A source exporter may join
+this queue only after it produces a complete, verified family through `sessionbackupproducer`; parsed cards alone
 are ineligible. SSH relay discovery and the remaining vendor exporters have
 separate owners. A Cursor card without an unambiguous IDE or CLI entrypoint is
 ineligible. The install ID belongs to
@@ -32,6 +32,16 @@ completion markers and schedules the upload again.
 For Claude, one source-tree metadata scan also notices raw transcript and parser
 sidecar changes that leave the parsed card unchanged; the producer verifies
 the exact bytes before upload.
+For Grok, the queue hashes the verified family's complete producer input list,
+including recursive usage and optional input presence. Streamed discovery passes
+its verified family references unchanged, including independent fork context.
+Streamed sync reads only selected families and keeps discovery activity
+separate from source revision. A grandchild update can change the family source revision
+while the canonical root record stays unchanged. Forks retain their local origin
+lineage and enter the queue as independent verified roots.
+Grok inventory and uploads require a Hub that accepts Grok and its optional
+unattributed accounting. Deploy compatible check-in validation and readers before
+selecting this Local build.
 Without the Hub's `scale-import/v1` capability, recent families (activity in the newest 72 hours) are ordered first. Their
 metadata creates run before their bytes. Older families drain newest first
 after recent work has been attempted; a failed recent item does not indefinitely

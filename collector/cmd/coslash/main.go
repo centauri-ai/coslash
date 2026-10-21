@@ -342,7 +342,7 @@ func main() {
 					if err != nil {
 						return err
 					}
-					if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes}); err != nil {
+					if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes, GrokFamilies: batch.GrokFamilies}); err != nil {
 						return err
 					}
 					encoded, err := json.Marshal(batch.Cursor)
