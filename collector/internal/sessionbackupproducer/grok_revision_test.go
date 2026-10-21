@@ -7,7 +7,9 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 )
 
 func TestGrokSourceRevisionsCoverFamilyInputs(t *testing.T) {
@@ -97,5 +99,70 @@ func TestGrokFamilySourceRevisionPreservesCancellation(t *testing.T) {
 	cancel()
 	if _, err := GrokSourceRevision(ctx, grok.FamilyRef{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("family cancellation=%v", err)
+	}
+}
+
+func TestGrokSourceRevisionPreservesPreparationClassification(t *testing.T) {
+	for _, oversized := range []bool{false, true} {
+		t.Run(map[bool]string{false: "missing", true: "oversize"}[oversized], func(t *testing.T) {
+			home, group, selection := grokFixture(t)
+			refs, err := grok.PlanFamiliesContext(t.Context(), []string{filepath.Join(group, "root"), filepath.Join(group, "child"), filepath.Join(group, "grandchild"), filepath.Join(group, "fork"), filepath.Join(group, "worktree")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var family grok.FamilyRef
+			for _, ref := range refs {
+				if ref.ID == "root" {
+					family = ref
+				}
+			}
+			path := filepath.Join(group, "grandchild", "updates.jsonl")
+			if oversized {
+				path = filepath.Join(group, "grandchild", "usage.json")
+				file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
+				if err != nil {
+					t.Fatal(err)
+				}
+				truncateErr := file.Truncate((64 << 20) + 1)
+				if err := errors.Join(truncateErr, file.Close()); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			_, prepareErr := New(Options{Root: t.TempDir(), LocalHome: func() (string, error) { return home, nil }}).Prepare(t.Context(), selection)
+			var expected *PreparationError
+			if !errors.As(prepareErr, &expected) {
+				t.Fatalf("prepare=%v", prepareErr)
+			}
+			check := func(err error) {
+				t.Helper()
+				var got *PreparationError
+				if !errors.As(err, &got) || got.TooLarge != oversized || !reflect.DeepEqual(got.Coverage.Problems, expected.Coverage.Problems) {
+					t.Fatalf("source classification=%+v want=%+v", err, expected)
+				}
+				if err.Error() != expected.Error() {
+					t.Fatal("non-fixed error message")
+				}
+			}
+			revision, err := GrokSourceRevision(t.Context(), family)
+			if revision != "" {
+				t.Fatal("failed source admitted")
+			}
+			check(err)
+			revisions, failures, err := LocalGrokSourceRevisions(t.Context())
+			if err != nil || len(revisions) != 2 || len(failures) != 1 {
+				t.Fatalf("family isolation %v %v %v", revisions, failures, err)
+			}
+			check(failures["root"])
+		})
+	}
+	ctx, cancel := context.WithDeadline(t.Context(), time.Unix(1, 0))
+	defer cancel()
+	if _, err := GrokSourceRevision(ctx, grok.FamilyRef{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline=%v", err)
+	}
+	if _, _, err := LocalGrokSourceRevisions(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("local deadline=%v", err)
 	}
 }
