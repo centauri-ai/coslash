@@ -201,25 +201,22 @@ func (manager *Manager) captureGrok(ctx context.Context, staging string, selecti
 	return &Prepared{BundleID: frozen.CompleteBackupSHA256, Selection: selection, Manifest: frozen, Coverage: coverage(frozen)}, nil
 }
 
-func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, error) {
-	failure := func() (grok.FamilyRef, error) {
-		return grok.FamilyRef{}, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
-	}
+func grokCaptureFamilies(ctx context.Context, root string) ([]grok.FamilyRef, map[string]bool, error) {
 	groups, err := os.ReadDir(root)
 	if err != nil {
-		return failure()
+		return nil, nil, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
 	}
 	dirs := []string{}
 	for _, group := range groups {
 		if err := ctx.Err(); err != nil {
-			return grok.FamilyRef{}, err
+			return nil, nil, err
 		}
 		if !group.IsDir() {
 			continue
 		}
 		entries, err := os.ReadDir(filepath.Join(root, group.Name()))
 		if err != nil {
-			return failure()
+			return nil, nil, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
 		}
 		for _, entry := range entries {
 			if !entry.IsDir() {
@@ -230,18 +227,18 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 				path := filepath.Join(dir, name)
 				if _, err := os.Lstat(path); err == nil {
 					if !claudeInputWithinProjects(path, root) {
-						return failure()
+						return nil, nil, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
 					}
 				}
 			}
 			subagents := filepath.Join(dir, "subagents")
 			if info, err := os.Lstat(subagents); err == nil {
 				if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-					return failure()
+					return nil, nil, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
 				}
 				spawns, err := os.ReadDir(subagents)
 				if err != nil {
-					return failure()
+					return nil, nil, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
 				}
 				for _, spawn := range spawns {
 					if !spawn.IsDir() {
@@ -249,7 +246,7 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 					}
 					path := filepath.Join(subagents, spawn.Name(), "meta.json")
 					if _, err := os.Lstat(path); err == nil && !claudeInputWithinProjects(path, root) {
-						return failure()
+						return nil, nil, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
 					}
 				}
 			}
@@ -258,14 +255,28 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 	}
 	families, oversizedMembers, err := grok.PlanFamiliesContextWithTranscriptLimit(ctx, dirs, sessionbackupv1.MaxArtifactBytes)
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return grok.FamilyRef{}, ctxErr
-	}
-	if oversizedMembers[id] {
-		return grok.FamilyRef{}, captureTooLarge(sessionbackupv1.KindRawTranscript)
+		return nil, nil, ctxErr
 	}
 	// An incomplete scan can still return independently verified families.
 	if err != nil && len(families) == 0 {
-		return failure()
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		return nil, oversizedMembers, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
+	}
+	return families, oversizedMembers, err
+}
+
+func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, error) {
+	failure := func() (grok.FamilyRef, error) {
+		return grok.FamilyRef{}, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
+	}
+	families, oversizedMembers, err := grokCaptureFamilies(ctx, root)
+	if oversizedMembers[id] {
+		return grok.FamilyRef{}, captureTooLarge(sessionbackupv1.KindRawTranscript)
+	}
+	if err != nil && len(families) == 0 {
+		return grok.FamilyRef{}, err
 	}
 	for _, family := range families {
 		for _, dir := range family.Dirs {
@@ -419,4 +430,85 @@ func grokFamilyInputs(ctx context.Context, root string, family grok.FamilyRef) (
 		return nil, nil, captureTooLarge("")
 	}
 	return inputs, ids, nil
+}
+
+// LocalGrokSourceRevisions hashes the existing producer inputs once per queue
+// discovery pass. Root detail revisions do not cover every descendant's usage.
+func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	root, err := grok.Root()
+	if err != nil {
+		return nil, err
+	}
+	families, _, err := grokCaptureFamilies(ctx, root)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil && len(families) == 0 {
+		return nil, err
+	}
+	revisions := make(map[string]string, len(families))
+	for _, family := range families {
+		revision, err := GrokSourceRevision(ctx, family)
+		if err != nil {
+			return nil, err
+		}
+		revisions[family.ID] = revision
+	}
+	return revisions, nil
+}
+
+// GrokSourceRevision uses the unchanged verified planning context, including
+// independent fork proof. It reads only this family's attributable inputs.
+func GrokSourceRevision(ctx context.Context, family grok.FamilyRef) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	root, err := grok.Root()
+	if err != nil {
+		return "", err
+	}
+
+	inputs, _, err := grokFamilyInputs(ctx, root, family)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if err != nil {
+		return "", err
+	}
+
+	parts := make([]string, 0, len(inputs))
+	var total int64
+	for _, input := range inputs {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		identity := input.memberID + ":" + filepath.ToSlash(input.relative)
+		if input.directory {
+			parts = append(parts, identity+":directory")
+			continue
+		}
+		file, err := os.Open(input.path)
+		if err != nil {
+			return "", sourceReadFailure(err, "")
+		}
+		hash := sha256.New()
+		maximum := min(sessionbackupv1.MaxArtifactBytes, sessionbackupv1.MaxTotalBytes-total)
+		n, readErr := io.Copy(hash, io.LimitReader(&contextReader{ctx: ctx, reader: file}, maximum+1))
+		closeErr := file.Close()
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if readErr != nil || closeErr != nil {
+			return "", sourceReadFailure(errors.Join(readErr, closeErr), "")
+		}
+		if n > maximum {
+			return "", captureTooLarge("")
+		}
+		total += n
+		parts = append(parts, identity+":"+hex.EncodeToString(hash.Sum(nil)))
+	}
+	return hashStrings(parts), nil
 }
