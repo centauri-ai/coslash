@@ -249,7 +249,10 @@ export function CoslashPage() {
 
   const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
     const ok = await settingsState.save(...args);
-    if (ok) handleRemoteRetry();
+    if (ok) {
+      if (args[0].remote?.enabled) handleRemoteRetry();
+      else handleRemoteConnectionVerified();
+    }
     return ok;
   };
 
