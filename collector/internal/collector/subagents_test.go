@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -148,5 +149,122 @@ func writeGrokFile(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	group := filepath.Join(home, "sessions", "repo")
+	dirs := []string{}
+	for _, item := range []struct{ id, kind, parent string }{
+		{"root", "", ""}, {"child", "subagent", ""},
+		{"fork", "fork", "root"}, {"worktree", "worktree", "root"},
+	} {
+		dir := filepath.Join(group, item.id)
+		dirs = append(dirs, dir)
+		writeGrokFile(t, filepath.Join(dir, "summary.json"), `{"info":{"id":"`+item.id+`"},"chat_format_version":1,"session_kind":"`+item.kind+`","parent_session_id":"`+item.parent+`"}`)
+		if item.id != "root" {
+			writeGrokFile(t, filepath.Join(group, "root", "subagents", item.id, "meta.json"), `{"child_session_id":"`+item.id+`","description":"task","status":"completed"}`)
+		}
+		at := time.Unix(1000, 0)
+		if item.id == "fork" || item.id == "worktree" {
+			at = time.Unix(3000, 0)
+		}
+		if err := os.Chtimes(filepath.Join(dir, "summary.json"), at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refs, err := grok.PlanFamiliesContext(t.Context(), dirs)
+	if err != nil || len(refs) != 3 {
+		t.Fatalf("families=%v err=%v", refs, err)
+	}
+	check := func(t *testing.T, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, want map[string][]string) {
+		t.Helper()
+		roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+		got := map[string][]string{}
+		for _, root := range roots {
+			got[root.Session.ID] = []string{}
+			for _, child := range root.Session.Subagents {
+				got[root.Session.ID] = append(got[root.Session.ID], child.ID)
+			}
+			if root.Session.ID == "fork" || root.Session.ID == "worktree" {
+				if root.ParentID != "" || root.Session.ParentSessionID != "root" {
+					t.Fatalf("lost independent origin: %+v", root)
+				}
+			}
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("roots/subagents=%v want=%v", got, want)
+		}
+	}
+	want := map[string][]string{"root": {"child"}, "fork": {}, "worktree": {}}
+	t.Run("live all time", func(t *testing.T) {
+		parsed, metadata, err := grok.CollectContext(t.Context(), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, parsed, metadata, want)
+	})
+	t.Run("recent independent roots exclude old origin", func(t *testing.T) {
+		parsed, metadata, err := grok.CollectContext(t.Context(), time.Unix(2000, 0).UnixMilli())
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, parsed, metadata, map[string][]string{"fork": {}, "worktree": {}})
+	})
+	t.Run("planned", func(t *testing.T) {
+		parsed, metadata, err := grok.ParseFamiliesContext(t.Context(), refs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, parsed, metadata, want)
+	})
+	t.Run("frozen", func(t *testing.T) {
+		parsed := []*vendors.ParsedSession{}
+		for _, ref := range refs {
+			frozen := t.TempDir()
+			frozenDirs := []string{}
+			for i, dir := range ref.Dirs {
+				dest := filepath.Join(frozen, "members", string(rune('a'+i)))
+				if err := os.CopyFS(dest, os.DirFS(dir)); err != nil {
+					t.Fatal(err)
+				}
+				frozenDirs = append(frozenDirs, dest)
+			}
+			proofs := []string{}
+			for i, path := range ref.NonChildSummaryPaths() {
+				dest := filepath.Join(frozen, "proofs", string(rune('a'+i)), "summary.json")
+				body, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeGrokFile(t, dest, string(body))
+				proofs = append(proofs, dest)
+			}
+			family, err := grok.ParseFrozenFamilyContext(t.Context(), ref, frozenDirs, proofs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed = append(parsed, family...)
+		}
+		check(t, parsed, vendors.EmptySessionMetadata(), want)
+	})
+	for _, id := range []string{"root", "fork", "worktree"} {
+		t.Run("detail "+id, func(t *testing.T) {
+			facts, err := grok.GetSessionFacts(id)
+			if err != nil || facts == nil || facts.Session.ID != id {
+				t.Fatalf("facts=%+v err=%v", facts, err)
+			}
+			check(t, []*vendors.ParsedSession{facts}, vendors.EmptySessionMetadata(), map[string][]string{id: want[id]})
+			family, _, err := grok.GetSessionFamily(id)
+			count := 1
+			if id == "root" {
+				count = 2
+			}
+			if err != nil || len(family) != count || family[0].Session.ID != id {
+				t.Fatalf("family size=%d want=%d err=%v", len(family), count, err)
+			}
+		})
 	}
 }

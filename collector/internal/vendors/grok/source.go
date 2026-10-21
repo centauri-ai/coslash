@@ -218,6 +218,16 @@ func sessionIndex(ctx context.Context, dirs []string) (map[string]string, map[st
 			}
 		}
 	}
+	for childID := range parentOf {
+		if ctx.Err() != nil {
+			break
+		}
+		if dir := byID[childID]; dir != "" {
+			if summary, err := readSummary(dir); err == nil && !isSubagentKind(summary.SessionKind) {
+				delete(parentOf, childID)
+			}
+		}
+	}
 	return byID, parentOf
 }
 
@@ -349,7 +359,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	family := []*vendors.ParsedSession{root}
 	metasByDir := map[string][]subagentMeta{dir: readSubagentMetas(context.Background(), dir, true)}
 	for _, meta := range metasByDir[dir] {
-		if childDir := byID[meta.ChildSessionID]; childDir != "" {
+		if childDir := byID[meta.ChildSessionID]; childDir != "" && parentOf[meta.ChildSessionID] == rootID {
 			child, err := parseSession(childDir)
 			if err != nil {
 				return nil, vendors.EmptySessionMetadata(), err
