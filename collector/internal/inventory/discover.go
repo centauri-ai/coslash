@@ -82,6 +82,7 @@ type family struct {
 	activityMs int64
 	bytes      int64
 	files      []string
+	grok       *grok.FamilyRef
 }
 
 func familyBefore(a, b family) bool {
@@ -254,7 +255,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 			if opts.MinActivityMs > 0 && activityMs < opts.MinActivityMs {
 				continue
 			}
-			plan.families = append(plan.families, family{agent: vendors.AgentGrok, id: ref.ID, activityMs: activityMs, bytes: sourceBytes(members), files: ref.Dirs})
+			plan.families = append(plan.families, family{agent: vendors.AgentGrok, id: ref.ID, activityMs: activityMs, bytes: sourceBytes(members), grok: &ref})
 		}
 	}
 
@@ -393,7 +394,12 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*session.Session, error) {
 	files := map[string][]string{}
 	var opencodeIDs []string
+	var grokFamilies []grok.FamilyRef
 	for _, item := range batch {
+		if item.agent == vendors.AgentGrok {
+			grokFamilies = append(grokFamilies, *item.grok)
+			continue
+		}
 		if item.agent == vendors.AgentOpenCode {
 			opencodeIDs = append(opencodeIDs, item.id)
 			continue
@@ -427,8 +433,8 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		parsed = append(parsed, items...)
 		metadata[vendors.AgentCursor] = mergeMetadata(plan.metadata[vendors.AgentCursor], batchMetadata)
 	}
-	if dirs := files[vendors.AgentGrok]; len(dirs) > 0 {
-		items, grokMetadata, err := grok.ParseDirsContext(ctx, dirs)
+	if len(grokFamilies) > 0 {
+		items, grokMetadata, err := grok.ParseFamiliesContext(ctx, grokFamilies)
 		if err != nil {
 			return nil, err
 		}

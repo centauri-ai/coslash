@@ -331,7 +331,7 @@ func TestGrokPlanningFailureReplaysRepairedFamily(t *testing.T) {
 }
 
 func TestGrokInvalidFamiliesNeverCompleteDiscovery(t *testing.T) {
-	for _, scenario := range []string{"only malformed", "duplicate id", "missing parent", "conflicting parents", "cycle", "malformed linked child"} {
+	for _, scenario := range []string{"only malformed", "duplicate id", "missing parent", "conflicting parents", "cycle", "missing child", "malformed linked child"} {
 		t.Run(scenario, func(t *testing.T) {
 			home := grokHome(t)
 			a := grokSummary(t, "a", "", "", now)
@@ -349,6 +349,8 @@ func TestGrokInvalidFamiliesNeverCompleteDiscovery(t *testing.T) {
 			case "cycle":
 				grokSummary(t, "a", "subagent", "b", now)
 				grokSummary(t, "b", "subagent", "a", now)
+			case "missing child":
+				grokFile(t, a, "subagents/sub/meta.json", `{"child_session_id":"absent"}`, now)
 			case "malformed linked child":
 				b := grokSummary(t, "b", "subagent", "a", now)
 				grokFile(t, a, "subagents/sub/meta.json", `{"child_session_id":"b"}`, now)
@@ -379,5 +381,144 @@ func TestGrokInvalidFamiliesNeverCompleteDiscovery(t *testing.T) {
 				t.Fatalf("failed planning was acknowledged or checkpoint was not reset: failed=%v saved=%d", failed, saved)
 			}
 		})
+	}
+}
+
+func TestGrokMalformedParentWithholdsComponentUntilRepair(t *testing.T) {
+	for _, damage := range []struct{ name, parent, summary string }{{"omitted-parent", "", "{"}, {"declared-parent", "actual-parent", "{"}, {"missing-id", "", `{"chat_format_version":1}`}} {
+		t.Run(damage.name, func(t *testing.T) {
+			home := grokHome(t)
+			parent := grokSummary(t, "parent-directory", "", "", now)
+			child := grokSummary(t, "child", "subagent", damage.parent, now)
+			grokSummary(t, "grandchild", "subagent", "child", now)
+			grokSummary(t, "healthy", "", "", now.Add(-time.Hour))
+			grokFile(t, parent, "subagents/sub/meta.json", `{"child_session_id":"child"}`, now)
+			grokFile(t, child, "subagents/sub/meta.json", `{"child_session_id":"grandchild"}`, now)
+			grokFile(t, parent, "summary.json", damage.summary, now)
+			snapshot, err := Scan(t.Context(), Options{Home: home, Now: now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := []string{}
+			failed := false
+			saved := Cursor{}
+			for batch, err := range Discover(t.Context(), DiscoverOptions{Snapshot: snapshot, BatchFamilies: 1, Persist: func(c Cursor) error {
+				saved = c
+				if c.Complete {
+					t.Fatal("incomplete scan persisted Complete")
+				}
+				return nil
+			}}) {
+				if err != nil {
+					failed = true
+					break
+				}
+				if batch.Cursor.Complete {
+					t.Fatal("incomplete scan yielded Complete")
+				}
+				for _, item := range batch.Sessions {
+					ids = append(ids, item.ID)
+				}
+			}
+			if !failed || !reflect.DeepEqual(ids, []string{"healthy"}) {
+				t.Fatalf("partial roots=%v failed=%v", ids, failed)
+			}
+			// The real identity differs from the directory name; only repaired evidence links it.
+			grokFile(t, parent, "summary.json", `{"info":{"id":"actual-parent"},"chat_format_version":1,"created_at":"2026-09-01T00:00:00Z","last_active_at":"2026-09-29T12:00:00Z"}`, now)
+			snapshot, err = Scan(t.Context(), Options{Home: home, Now: now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = nil
+			complete := false
+			for batch, err := range Discover(t.Context(), DiscoverOptions{Snapshot: snapshot, BatchFamilies: 1, Resume: &saved}) {
+				if err != nil {
+					t.Fatal(err)
+				}
+				complete = batch.Cursor.Complete
+				for _, item := range batch.Sessions {
+					ids = append(ids, item.ID)
+					if item.ID == "actual-parent" && (len(item.Subagents) != 1 || item.Subagents[0].ID != "child") {
+						t.Fatalf("repaired children=%+v", item.Subagents)
+					}
+				}
+			}
+			if !complete || !reflect.DeepEqual(ids, []string{"actual-parent", "healthy"}) {
+				t.Fatalf("repaired roots=%v complete=%v", ids, complete)
+			}
+		})
+	}
+}
+
+func TestGrokOrphanRequiresCompleteAncestryScan(t *testing.T) {
+	home := grokHome(t)
+	grokSummary(t, "orphan", "subagent", "", now)
+	grokSummary(t, "healthy", "", "", now.Add(-time.Hour))
+	snapshot, err := Scan(t.Context(), Options{Home: home, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := DiscoverAll(t.Context(), DiscoverOptions{Snapshot: snapshot, BatchFamilies: 1})
+	if err != nil || len(sessions) != 2 || sessions[0].ID != "orphan" {
+		t.Fatalf("true orphan=%+v err=%v", sessions, err)
+	}
+	broken := grokSummary(t, "unreadable", "", "", now)
+	grokFile(t, broken, "summary.json", `{`, now)
+	snapshot, err = Scan(t.Context(), Options{Home: home, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	failed := false
+	for batch, err := range Discover(t.Context(), DiscoverOptions{Snapshot: snapshot, BatchFamilies: 1}) {
+		if err != nil {
+			failed = true
+			break
+		}
+		if batch.Cursor.Complete {
+			t.Fatal("incomplete ancestry scan completed")
+		}
+		for _, item := range batch.Sessions {
+			ids = append(ids, item.ID)
+		}
+	}
+	if !failed || !reflect.DeepEqual(ids, []string{"healthy"}) {
+		t.Fatalf("uncertain orphan roots=%v failed=%v", ids, failed)
+	}
+}
+
+func TestGrokIndependentReferencesSurviveBatchAndWindow(t *testing.T) {
+	for _, kind := range []string{"fork", "worktree"} {
+		for _, age := range []time.Duration{time.Hour, 48 * time.Hour} {
+			t.Run(kind+"/"+age.String(), func(t *testing.T) {
+				home := grokHome(t)
+				parent := grokSummary(t, "parent", "", "", now)
+				grokSummary(t, "independent", kind, "parent", now.Add(-age))
+				grokFile(t, parent, "subagents/stale/meta.json", `{"child_session_id":"independent"}`, now)
+				snapshot, err := Scan(t.Context(), Options{Home: home, Now: now})
+				if err != nil {
+					t.Fatal(err)
+				}
+				ids := []string{}
+				for batch, err := range Discover(t.Context(), DiscoverOptions{Snapshot: snapshot, BatchFamilies: 1, MinActivityMs: now.Add(-24 * time.Hour).UnixMilli()}) {
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, item := range batch.Sessions {
+						ids = append(ids, item.ID)
+						if len(item.Subagents) != 0 {
+							t.Fatalf("independent root nested: %+v", item)
+						}
+					}
+				}
+				want := []string{"parent"}
+				if age < 24*time.Hour {
+					want = append(want, "independent")
+				}
+				if !reflect.DeepEqual(ids, want) {
+					t.Fatalf("roots=%v want=%v", ids, want)
+				}
+			})
+		}
 	}
 }
