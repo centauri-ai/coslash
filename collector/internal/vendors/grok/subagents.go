@@ -166,6 +166,10 @@ func attachSubagents(parsed []*vendors.ParsedSession, metasByDir map[string][]su
 				continue
 			}
 			// The child summary often omits parent_session_id.
+			summary, err := readSummary(filepath.Dir(child.LogPath))
+			if err != nil || !isSubagentKind(summary.SessionKind) {
+				continue
+			}
 			child.ParentID = parent.Session.ID
 			if parent.Spawns == nil {
 				parent.Spawns = map[string]vendors.SpawnState{}
