@@ -378,6 +378,9 @@ func grokCaptureInputs(ctx context.Context, root string, dirs []string) ([]grokI
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, errArtifactTooLarge) {
+				return nil, nil, captureTooLarge("")
+			}
 			if errors.Is(err, sessionbackupv1.ErrInvalid) {
 				return nil, nil, captureFailure(sessionbackupv1.ProblemInvalid, "", false)
 			}
@@ -448,6 +451,10 @@ func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, map[strin
 		return nil, nil, ctx.Err()
 	}
 	if err != nil && len(families) == 0 {
+		var failure *captureError
+		if errors.As(err, &failure) {
+			_, err = captureProblem(Selection{SourceKind: sessionbackupv1.SourceLocal, Agent: vendors.AgentGrok}, failure)
+		}
 		return nil, nil, err
 	}
 	revisions := make(map[string]string, len(families))
@@ -471,7 +478,13 @@ func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, map[strin
 
 // GrokSourceRevision uses the unchanged verified planning context, including
 // independent fork proof. It reads only this family's attributable inputs.
-func GrokSourceRevision(ctx context.Context, family grok.FamilyRef) (string, error) {
+func GrokSourceRevision(ctx context.Context, family grok.FamilyRef) (revision string, err error) {
+	defer func() {
+		var failure *captureError
+		if errors.As(err, &failure) {
+			_, err = captureProblem(Selection{SourceKind: sessionbackupv1.SourceLocal, Agent: vendors.AgentGrok, SessionID: family.ID}, failure)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
