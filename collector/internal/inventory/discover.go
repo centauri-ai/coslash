@@ -60,6 +60,7 @@ type Batch struct {
 	// ContentBytes is a bounded source-byte estimate by agent and root ID.
 	// The scheduler uses it before a full backup has been captured.
 	ContentBytes map[string]int64
+	GrokFamilies []grok.FamilyRef
 	Cursor       Cursor
 	Remaining    int
 }
@@ -344,6 +345,12 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 			cursor.ActivityMs, cursor.Agent, cursor.Family = last.activityMs, last.agent, last.id
 			cursor.Complete = end == len(plan.families)
 		}
+		grokFamilies := []grok.FamilyRef{}
+		for _, family := range batch {
+			if family.grok != nil {
+				grokFamilies = append(grokFamilies, *family.grok)
+			}
+		}
 		familyBytes := make(map[string]int64, len(batch))
 		agentBytes := map[string]int64{}
 		agentCount := map[string]int64{}
@@ -362,7 +369,7 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 				contentBytes[key] = agentBytes[item.Agent] / agentCount[item.Agent]
 			}
 		}
-		continued := yield(Batch{Sessions: kept, ContentBytes: contentBytes, Cursor: cursor, Remaining: len(plan.families) - end}, nil)
+		continued := yield(Batch{Sessions: kept, ContentBytes: contentBytes, GrokFamilies: grokFamilies, Cursor: cursor, Remaining: len(plan.families) - end}, nil)
 		if plan.persist != nil {
 			if err := plan.persist(cursor); err != nil {
 				yield(Batch{}, err)

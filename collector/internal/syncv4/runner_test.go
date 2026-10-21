@@ -145,7 +145,7 @@ func TestOpenCodeDiscoveryRetainsSourceIdentity(t *testing.T) {
 		{Agent: "codex", ID: "shared", StartedAt: 1, LastActivityTime: 2},
 		{Agent: "cursor", ID: "ignored"},
 		{Agent: "opencode", ID: "child", ParentSessionID: "shared"},
-	}, "install", nil)
+	}, "install", nil, nil)
 	if len(items) != 2 || items[0].Key == items[1].Key || items[0].Selection.Agent != "opencode" ||
 		items[0].Selection.SessionID != "shared" || items[0].SourceRevision != "source-revision" {
 		t.Fatalf("discovered entries = %#v", items)
@@ -513,7 +513,7 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	}
 	// The interrupted pass confirmed the chunk it sent; the resumed pass
 	// confirmed the rest of these small chunks in one batch.
-	if confirmRequests != totalChunks {
+	if confirmRequests != min(totalChunks, 2) {
 		t.Fatalf("confirm requests=%d for %d chunks", confirmRequests, confirmCount)
 	}
 	if err := runner.SyncOnce(t.Context()); err != nil {

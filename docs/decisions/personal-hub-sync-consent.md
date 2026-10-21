@@ -13,7 +13,7 @@
 - A one-time backfill covers the selected window. Completion returns the device to live activity without another automatic history import.
 - Local pause, Hub pause, device-off policy, leave-out rules, and network or battery conditions restrict uploads. Failed check-ins or stale consent stop uploads.
 - Device revocation removes the stored credential and stops sync. Pairing or changing the Hub resets upload state for the new binding.
-- V4 transfers only parsed session-record artifacts for supported local Codex, Claude, OpenCode, and Cursor families. Other artifact kinds remain in the private local spool.
+- V4 transfers only parsed session-record artifacts for supported local Codex, Claude, OpenCode, Cursor, and Grok families. Other artifact kinds remain in the private local spool.
 - Parsed records can contain prompts, commands, source snippets, working directories, and derived synthesis. File-edit path sanitization does not redact secrets from record contents.
 - Personal sync does not authorize workspace sharing or create a workspace share link. Workspace sharing requires separate authorization for its destination audience.
 - Local no longer offers the V3 complete-backup preview and upload flow. This client change does not delete existing Hub backups or workspace links.

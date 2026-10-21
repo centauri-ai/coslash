@@ -26,6 +26,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
@@ -173,6 +174,7 @@ type Runner struct {
 type DiscoveryBatch struct {
 	Sessions     []*session.Session
 	ContentBytes map[string]int64 // keyed by agent + "\x00" + session ID
+	GrokFamilies []grok.FamilyRef // verified planning context, unchanged across batching
 }
 
 func (r *Runner) now() time.Time {
@@ -244,7 +246,15 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			return transferErr
 		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
-			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
+			grokRevisions := make(map[string]string, len(batch.GrokFamilies))
+			for _, family := range batch.GrokFamilies {
+				revision, err := sessionbackupproducer.GrokSourceRevision(ctx, family)
+				if err != nil {
+					return err
+				}
+				grokRevisions[family.ID] = revision
+			}
+			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, grokRevisions)
 			for i := range entries {
 				entries[i].ContentBytes = batch.ContentBytes[entries[i].Selection.Agent+"\x00"+entries[i].Selection.SessionID]
 			}
@@ -304,7 +314,11 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			break
 		}
 	}
-	discovered := discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions)
+	revisions, err := grokSourceRevisions(ctx, sessions)
+	if err != nil {
+		return err
+	}
+	discovered := discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions, revisions)
 	if plan := r.config.ImportPlan; plan != nil {
 		if _, err := r.Queue.MergePlannedDiscovery(discovered, r.now(), *plan, r.activeSince); err != nil {
 			return err
@@ -430,14 +444,31 @@ func (r *Runner) applyExclusions() error {
 	return nil
 }
 
+// grokSourceRevisions scans once per discovery pass, only when Grok is present.
+func grokSourceRevisions(ctx context.Context, sessions []*session.Session) (map[string]string, error) {
+	for _, item := range sessions {
+		if item != nil && item.Agent == "grok" {
+			return sessionbackupproducer.LocalGrokSourceRevisions(ctx)
+		}
+	}
+	return nil, nil
+}
+
 // discoveredEntries selects root sessions of the synced local agents. Child
-// sessions travel inside their root's family bundle. A Claude revision also
-// covers its sidecar files, whose changes the detail revision does not see.
-func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions map[string]string) []Entry {
+// sessions travel inside their root's family bundle. Source revisions also
+// cover family inputs whose changes the root detail revision does not see.
+func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions, grokRevisions map[string]string) []Entry {
 	found := make([]Entry, 0, len(sessions))
 	for _, item := range sessions {
-		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode" && item.Agent != "cursor") ||
-			item.ID == "" || item.ParentSessionID != "" {
+		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode" && item.Agent != "cursor" && item.Agent != "grok") ||
+			item.ID == "" {
+			continue
+		}
+		_, grokRoot := grokRevisions[item.ID]
+		if item.Agent == "grok" && !grokRoot {
+			continue
+		}
+		if item.ParentSessionID != "" && item.Agent != "grok" {
 			continue
 		}
 		// A Cursor card is eligible only with an unambiguous IDE or CLI lane.
@@ -447,6 +478,9 @@ func discoveredEntries(sessions []*session.Session, installID string, claudeRevi
 		revision := item.DetailRevision
 		if item.Agent == "claude" {
 			revision += ":" + claudeRevisions[item.ID]
+		}
+		if item.Agent == "grok" {
+			revision += ":" + grokRevisions[item.ID]
 		}
 		live := false
 		if item.Status != nil {
@@ -477,6 +511,8 @@ func agentLabel(agent string) string {
 		return "Cursor"
 	case "opencode":
 		return "OpenCode"
+	case "grok":
+		return "Grok"
 	default:
 		return "Codex"
 	}
@@ -655,6 +691,10 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 		meta.EndedAt = &t
 	}
 	for _, tokens := range item.Tokens {
+		meta.Tokens += int64(tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationInputTokens + tokens.CacheCreation1hInputTokens + tokens.CacheReadInputTokens)
+	}
+	if item.Agent == "grok" && item.UnattributedTokens != nil {
+		tokens := item.UnattributedTokens
 		meta.Tokens += int64(tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationInputTokens + tokens.CacheCreation1hInputTokens + tokens.CacheReadInputTokens)
 	}
 	// A source may report negative counters (a parser edge case); the Hub's
