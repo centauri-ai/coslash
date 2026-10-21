@@ -97,11 +97,11 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 }
 
 func fromSession(sourceID, parentSessionID string, value session.Session) (fullsessionv1.Record, error) {
-	if value.Agent == "pi" || value.TokensUnavailable || value.CostUnavailable || value.UnattributedTokens != nil || value.DetailsIncomplete {
+	if value.Agent == "pi" || value.TokensUnavailable || value.CostUnavailable || (value.UnattributedTokens != nil && value.Agent != "grok") || value.DetailsIncomplete {
 		return fullsessionv1.Record{}, fmt.Errorf("local session facts cannot be represented by full-session/v1")
 	}
 	for _, child := range value.Subagents {
-		if child.TokensUnavailable || child.CostUnavailable || child.UnattributedTokens != nil {
+		if child.TokensUnavailable || child.CostUnavailable || (child.UnattributedTokens != nil && value.Agent != "grok") {
 			return fullsessionv1.Record{}, fmt.Errorf("subagent accounting cannot be represented by full-session/v1")
 		}
 	}
@@ -109,6 +109,10 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 		if row.SourceEntryID != "" || row.ParentEntryID != "" || row.BranchID != "" || row.Active != nil || row.Inherited != nil || row.ContextSelected != nil || row.ContextDescription != nil {
 			return fullsessionv1.Record{}, fmt.Errorf("branch context cannot be represented by full-session/v1")
 		}
+	}
+	unattributed, err := unattributedFromTokens(value.UnattributedTokens, value.Cost)
+	if err != nil {
+		return fullsessionv1.Record{}, err
 	}
 	record := fullsessionv1.Record{
 		SourceID: sourceID, Agent: value.Agent, SessionID: value.ID, ParentSessionID: parentSessionID,
@@ -127,15 +131,20 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 		},
 	}
 	record.Session.Usage = usageFromTokens(value.Tokens)
+	record.Session.UnattributedTokens = unattributed
 	if value.Subagents != nil {
 		record.Session.Subagents = make([]fullsessionv1.Subagent, 0, len(value.Subagents))
 	}
 	for _, value := range value.Subagents {
+		unattributed, err := unattributedFromTokens(value.UnattributedTokens, value.Cost)
+		if err != nil {
+			return fullsessionv1.Record{}, err
+		}
 		item := fullsessionv1.Subagent{
 			ID: value.ID, Name: value.Name, Model: cloneString(value.Model), Status: value.Status,
 			Task: value.Task, Result: value.Result, DurationMs: cloneInt(value.DurationMs),
 			SpawnedAtTurn: cloneInt(value.SpawnedAtTurn), ToolUses: value.ToolUses,
-			Usage: usageFromTokens(value.Tokens), CostMicroUSD: optionalMicros(value.Cost),
+			Usage: usageFromTokens(value.Tokens), CostMicroUSD: optionalMicros(value.Cost), UnattributedTokens: unattributed,
 		}
 		if value.Commands != nil {
 			item.Commands = make([]fullsessionv1.SubagentCommand, 0, len(value.Commands))
@@ -198,7 +207,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
 		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
 		DurationMs: cloneInt(record.Session.DurationMs), Tokens: tokensFromUsage(record.Session.Usage),
-		Cost: optionalDollars(record.Session.CostMicroUSD), UnpricedModels: cloneSlice(record.Session.UnpricedModels),
+		UnattributedTokens: tokensFromUnattributed(record.Session.UnattributedTokens),
+		Cost:               optionalDollars(record.Session.CostMicroUSD), UnpricedModels: cloneSlice(record.Session.UnpricedModels),
 		StartedAt: record.Session.StartedAtMs, LastActivityTime: record.Session.LastActivityAtMs,
 		Entrypoint: cloneString(record.Session.Entrypoint),
 		SessionDetails: session.SessionDetails{
@@ -218,7 +228,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		subagent := session.Subagent{
 			ID: item.ID, Name: item.Name, Model: cloneString(item.Model), Status: item.Status, Task: item.Task,
 			Result: item.Result, DurationMs: cloneInt(item.DurationMs), SpawnedAtTurn: cloneInt(item.SpawnedAtTurn),
-			ToolUses: item.ToolUses, Tokens: tokensFromUsage(item.Usage), Cost: optionalDollars(item.CostMicroUSD),
+			UnattributedTokens: tokensFromUnattributed(item.UnattributedTokens),
+			ToolUses:           item.ToolUses, Tokens: tokensFromUsage(item.Usage), Cost: optionalDollars(item.CostMicroUSD),
 		}
 		if item.Commands != nil {
 			subagent.Commands = make([]session.SubagentCommand, 0, len(item.Commands))
@@ -271,6 +282,29 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		}
 	}
 	return value, nil
+}
+
+func unattributedFromTokens(tokens *session.ModelTokens, cost *float64) (*fullsessionv1.UnattributedUsage, error) {
+	if tokens == nil {
+		return nil, nil
+	}
+	if tokens.Cost != 0 || cost != nil && (math.IsNaN(*cost) || math.IsInf(*cost, 0) || *cost < 0 || *cost > float64(fullsessionv1.MaxCostMicroUSD)/1_000_000) {
+		return nil, fmt.Errorf("invalid unattributed accounting cost")
+	}
+	return &fullsessionv1.UnattributedUsage{
+		InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens, CacheCreationInputTokens: tokens.CacheCreationInputTokens,
+		CacheCreation1hInputTokens: tokens.CacheCreation1hInputTokens, CacheReadInputTokens: tokens.CacheReadInputTokens, CostMicroUSD: optionalMicros(cost),
+	}, nil
+}
+
+func tokensFromUnattributed(usage *fullsessionv1.UnattributedUsage) *session.ModelTokens {
+	if usage == nil {
+		return nil
+	}
+	return &session.ModelTokens{
+		InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheCreationInputTokens: usage.CacheCreationInputTokens,
+		CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens, CacheReadInputTokens: usage.CacheReadInputTokens,
+	}
 }
 
 func usageFromTokens(tokens map[string]session.ModelTokens) []fullsessionv1.ModelUsage {

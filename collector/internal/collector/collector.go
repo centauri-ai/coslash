@@ -644,7 +644,7 @@ func ComposePortableContext(
 	source vendors.ReadSource,
 	collections map[string]vendors.RemoteCollection,
 ) ([]PortableSession, error) {
-	parsed, metadata := remoteInputs(collections)
+	parsed, metadata := remoteInputs(collections, source == vendors.LocalReadSource)
 	finalized, err := finalizeSessionsSourceContext(ctx, parsed, metadata, source, false, false, true)
 	if err != nil {
 		return nil, err
@@ -686,7 +686,7 @@ func listRemote(
 	preserveSubagentText bool,
 	useLiveStatus bool,
 ) []*session.Session {
-	parsed, metadata := remoteInputs(collections)
+	parsed, metadata := remoteInputs(collections, false)
 	roots := finalizeSessionsSource(parsed, metadata, source, useLiveStatus, false, preserveSubagentText)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
@@ -703,10 +703,14 @@ func listRemote(
 	return sessions
 }
 
-func remoteInputs(collections map[string]vendors.RemoteCollection) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
+func remoteInputs(collections map[string]vendors.RemoteCollection, includeGrok bool) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
 	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode} {
+	agents := []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode}
+	if includeGrok {
+		agents = append(agents, vendors.AgentGrok)
+	}
+	for _, agent := range agents {
 		collection, ok := collections[agent]
 		if !ok {
 			continue

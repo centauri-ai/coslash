@@ -589,3 +589,38 @@ func TestGrokStatusIsBusyOnlyForLivePidInOpenTurn(t *testing.T) {
 		t.Fatalf("dead pid statuses = %v, want open idle and finished inactive", got)
 	}
 }
+
+func TestPortableLocalGrokDoesNotEnableListRemote(t *testing.T) {
+	collections := map[string]vendors.RemoteCollection{vendors.AgentGrok: {
+		Sessions: []*vendors.ParsedSession{{Session: &session.Session{Agent: vendors.AgentGrok, ID: "grok-root", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}}},
+		Metadata: vendors.EmptySessionMetadata(),
+	}}
+	portable, err := ComposePortableContext(t.Context(), vendors.LocalReadSource, collections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(portable) != 1 || portable[0].Session.ID != "grok-root" {
+		t.Fatalf("portable Grok = %+v", portable)
+	}
+	if remote := ListRemote(vendors.LocalReadSource, collections, 0); len(remote) != 0 {
+		t.Fatalf("Grok admitted to ListRemote: %+v", remote)
+	}
+}
+
+func TestPortableRemoteGrokRemainsExcluded(t *testing.T) {
+	remoteSource := struct{ vendors.ReadSource }{vendors.LocalReadSource}
+	collections := map[string]vendors.RemoteCollection{vendors.AgentGrok: {
+		Sessions: []*vendors.ParsedSession{{Session: &session.Session{Agent: vendors.AgentGrok, ID: "grok-root", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}}},
+		Metadata: vendors.EmptySessionMetadata(),
+	}}
+	portable, err := ComposePortableContext(t.Context(), remoteSource, collections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(portable) != 0 {
+		t.Fatalf("remote Grok admitted to portable composition: %+v", portable)
+	}
+	if remote := ListRemote(remoteSource, collections, 0); len(remote) != 0 {
+		t.Fatalf("Grok admitted to ListRemote: %+v", remote)
+	}
+}
