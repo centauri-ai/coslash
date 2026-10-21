@@ -466,7 +466,7 @@ func enrichModelsAndCostsContext(ctx context.Context, parsed []*vendors.ParsedSe
 			s.ContextWindow = session.ContextWindowFor(*s.Model)
 		}
 		session.AttachCost(s, item.RecordedCost)
-		if s.Agent == vendors.AgentGrok && item.RecordedCost == nil && len(s.UnpricedModels) == len(s.Tokens) {
+		if s.Agent == vendors.AgentGrok && item.RecordedCost == nil && len(s.UnpricedModels) > 0 {
 			s.Cost = nil
 		}
 	}
