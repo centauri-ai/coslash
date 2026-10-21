@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
@@ -618,5 +619,97 @@ func TestGrokCaptureKeepsVerifiedFamilyDuringUnrelatedSummaryFailure(t *testing.
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func grokMissingMetaFixture(t *testing.T) (string, string, Selection) {
+	t.Helper()
+	home, group, selection := grokFixture(t)
+	if err := os.Remove(filepath.Join(group, "root", "subagents", "child", "meta.json")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(group, "child", "summary.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary map[string]json.RawMessage
+	if err := json.Unmarshal(data, &summary); err != nil {
+		t.Fatal(err)
+	}
+	delete(summary, "parent_session_id")
+	data, err = json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGrokInput(t, path, data)
+	path = filepath.Join(group, "root", "updates.jsonl")
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, []byte(`{"params":{"sessionId":"root","update":{"sessionUpdate":"subagent_spawned","subagent_id":"child","parent_session_id":"root","child_session_id":"child","attempt_id":"one","prompt":"recover me"}}}`+"\n")...)
+	writeGrokInput(t, path, data)
+	return home, group, selection
+}
+
+// Detect planner entry without line-number or wall-clock assumptions.
+type grokPlanningReadContext struct {
+	context.Context
+	cancel  context.CancelFunc
+	entered bool
+}
+
+func (ctx *grokPlanningReadContext) Err() error {
+	pc, _, _, _ := runtime.Caller(1)
+	if strings.HasSuffix(runtime.FuncForPC(pc).Name(), ".readSubagentMetas") {
+		ctx.entered = true
+		ctx.cancel()
+	}
+	return ctx.Context.Err()
+}
+
+func TestGrokRejectsOversizeBeforeSpawnPlanning(t *testing.T) {
+	for _, id := range []string{"root", "fork"} {
+		t.Run(id, func(t *testing.T) {
+			home, group, selection := grokMissingMetaFixture(t)
+			file, err := os.OpenFile(filepath.Join(group, id, "updates.jsonl"), os.O_RDWR, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = file.Truncate(sessionbackupv1.MaxArtifactBytes + 1)
+			closeErr := file.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			base, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			ctx := &grokPlanningReadContext{Context: base, cancel: cancel}
+			_, err = grokManager(t.TempDir(), home, nil).Prepare(ctx, selection)
+			var failure *PreparationError
+			if ctx.entered || !errors.As(err, &failure) || !failure.TooLarge || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
+				t.Fatalf("planner entered=%t failure=%+v err=%v", ctx.entered, failure, err)
+			}
+		})
+	}
+}
+
+func TestGrokMissingMetadataStillRecoversSpawn(t *testing.T) {
+	home, _, selection := grokMissingMetaFixture(t)
+	spool := t.TempDir()
+	prepared, err := grokManager(spool, home, nil).Prepare(t.Context(), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := grokRecords(t, spool, prepared)
+	if len(records) != 3 || records["child"].ParentSessionID != "root" || records["grandchild"].ParentSessionID != "child" {
+		t.Fatal("recovered family lost")
+	}
+	children := records["root"].Session.Subagents
+	if len(children) != 1 || children[0].ID != "child" || children[0].Task != "recover me" {
+		t.Fatalf("recovered spawn=%+v", children)
 	}
 }
