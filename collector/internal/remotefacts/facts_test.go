@@ -154,6 +154,7 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"Session": true, "LogPath": false, "LogModifiedAtMs": false,
 		"ParentID": true, "SpawnKey": true, "Stopped": true, "Result": false, "Spawns": true,
 		"Commands": true, "Name": true, "InTurn": true, "StatusHint": true, "RecordedCost": true,
+		"RecordedModelCosts": false, "CostIncomplete": false, // local Grok composition provenance
 	})
 	assertCensus(t, reflect.TypeOf(session.Session{}), map[string]bool{
 		"Agent": true, "ID": true, "ParentSessionID": false, "Name": true, "Summary": true, "Status": true,

@@ -24,6 +24,9 @@ type ParsedSession struct {
 	StatusHint *string // persisted status used when no external live signal exists
 
 	RecordedCost *float64 // authoritative source cost; nil means estimate from tokens
+	// Grok source presence distinguishes explicit zero from an absent model cost.
+	RecordedModelCosts map[string]float64
+	CostIncomplete     bool
 }
 
 type SpawnState struct {
