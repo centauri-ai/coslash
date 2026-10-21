@@ -509,3 +509,57 @@ func TestGrokCaptureFreezesExternalNonChildProof(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGrokAttributedCostPreservesUnknownAndKnownZero(t *testing.T) {
+	for _, tc := range []struct {
+		name, model, usage string
+		input              int
+		unknown, positive  bool
+	}{
+		{"partial", "grok-4.7", `{"session":{"inputTokens":12,"costUsdTicks":10000000000,"costIsPartial":true,"modelUsage":{"grok-4.7":{"inputTokens":12,"costUsdTicks":10000000000,"costIsPartial":true}}}}`, 12, true, false},
+		{"incomplete", "grok-4.7", `{"session":{"inputTokens":12,"usageIsIncomplete":true,"modelUsage":{"grok-4.7":{"inputTokens":12,"usageIsIncomplete":true}}}}`, 12, true, false},
+		{"unpriced", "unpriced-synthetic-model", `{"session":{"inputTokens":12,"modelUsage":{"unpriced-synthetic-model":{"inputTokens":12}}}}`, 12, true, false},
+		{"source zero", "unpriced-synthetic-model", `{"session":{"inputTokens":12,"costUsdTicks":0,"modelUsage":{"unpriced-synthetic-model":{"inputTokens":12,"costUsdTicks":0}}}}`, 12, false, false},
+		{"priced", "gpt-5", `{"session":{"inputTokens":12,"modelUsage":{"gpt-5":{"inputTokens":12}}}}`, 12, false, true},
+		{"priced zero", "gpt-5", `{"session":{"modelUsage":{"gpt-5":{"inputTokens":0}}}}`, 0, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, group, selection := grokFixture(t)
+			for _, id := range []string{"root", "child"} {
+				writeGrokInput(t, filepath.Join(group, id, "usage.json"), []byte(tc.usage))
+			}
+			spool := t.TempDir()
+			prepared, err := grokManager(spool, home, nil).Prepare(t.Context(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records := grokRecords(t, spool, prepared)
+			for _, id := range []string{"root", "child"} {
+				record := records[id]
+				if len(record.Session.Usage) != 1 || record.Session.Usage[0].Model != tc.model || record.Session.Usage[0].InputTokens != tc.input || record.Session.UnattributedTokens != nil {
+					t.Fatalf("%s attributed usage lost: %+v", id, record.Session)
+				}
+				cost := record.Session.CostMicroUSD
+				if tc.unknown {
+					if cost != nil || !reflect.DeepEqual(record.Session.UnpricedModels, []string{tc.model}) {
+						t.Fatalf("%s cost=%v unpriced=%v", id, cost, record.Session.UnpricedModels)
+					}
+				} else if cost == nil || (*cost > 0) != tc.positive || len(record.Session.UnpricedModels) != 0 {
+					t.Fatalf("%s known cost=%v unpriced=%v", id, cost, record.Session.UnpricedModels)
+				}
+			}
+			children := records["root"].Session.Subagents
+			if len(children) != 1 || children[0].ID != "child" {
+				t.Fatalf("children=%+v", children)
+			}
+			cost := children[0].CostMicroUSD
+			if tc.unknown {
+				if cost != nil {
+					t.Fatalf("child projection cost=%v", cost)
+				}
+			} else if cost == nil || (*cost > 0) != tc.positive {
+				t.Fatalf("child projection known cost=%v", cost)
+			}
+		})
+	}
+}
