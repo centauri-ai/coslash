@@ -114,9 +114,10 @@ func (t *Tracker) FilesSoFar() int64 { return t.files.Load() }
 func (t *Tracker) Running() bool { return t.running.Load() }
 
 type root struct {
-	agent  string
-	path   string
-	accept func(path string) (File, bool)
+	agent            string
+	path             string
+	accept           func(path string) (File, bool)
+	allowRootSymlink bool
 }
 
 // Scan walks the vendor roots with directory reads and stat calls only.
@@ -147,7 +148,7 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 		{agent: vendors.AgentCodex, path: codex.ArchivedDir(home), accept: acceptCodex},
 		{agent: vendors.AgentClaude, path: claude.ProjectsRoot(home), accept: acceptClaude},
 		{agent: vendors.AgentCursor, path: cursor.ProjectsRoot(home), accept: acceptCursor},
-		{agent: vendors.AgentGrok, path: grokRoot, accept: func(path string) (File, bool) { return acceptGrok(grokRoot, path) }},
+		{agent: vendors.AgentGrok, path: grokRoot, accept: func(path string) (File, bool) { return acceptGrok(grokRoot, path) }, allowRootSymlink: true},
 	}
 	results := make([][]File, len(roots))
 	missing := make([]bool, len(roots))
@@ -202,6 +203,9 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 
 func walk(ctx context.Context, item root, tracker *Tracker) (files []File, missing bool, skipped int, err error) {
 	info, statErr := os.Lstat(item.path)
+	if statErr == nil && item.allowRootSymlink && info.Mode()&os.ModeSymlink != 0 {
+		info, statErr = os.Stat(item.path)
+	}
 	if statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
 			return nil, true, 0, nil
