@@ -106,3 +106,27 @@ func TestFrozenFamilyRejectsMalformedOptionalInput(t *testing.T) {
 		})
 	}
 }
+
+func TestFrozenInputsRejectSymlinkedDirectories(t *testing.T) {
+	t.Run("root", func(t *testing.T) {
+		target := t.TempDir()
+		link := filepath.Join(t.TempDir(), "frozen-root")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("directory symlinks unavailable: %v", err)
+		}
+		if err := validateFrozenInputs(t.Context(), link); err == nil {
+			t.Fatal("symlinked frozen root accepted")
+		}
+	})
+
+	t.Run("subagents", func(t *testing.T) {
+		root := t.TempDir()
+		target := t.TempDir()
+		if err := os.Symlink(target, filepath.Join(root, "subagents")); err != nil {
+			t.Skipf("directory symlinks unavailable: %v", err)
+		}
+		if err := validateFrozenInputs(t.Context(), root); err == nil {
+			t.Fatal("symlinked subagents directory accepted")
+		}
+	})
+}

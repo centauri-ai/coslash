@@ -70,6 +70,9 @@ func validateFrozenInputs(ctx context.Context, dir string) error {
 		if err != nil {
 			return err
 		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return errors.New("grok: invalid frozen input")
+		}
 		relative, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
