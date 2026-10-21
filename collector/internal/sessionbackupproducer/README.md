@@ -84,6 +84,9 @@ present, ambiguous or changing family inputs block publication. Parsing uses
 only the private frozen tree, without active-session metadata or process probes.
 Usage without a model breakdown remains unattributed, and partial or missing
 cost remains unknown. Grok SSH and Pi complete capture remain unsupported.
+The queue reuses this producer's input enumeration for bounded source hashes,
+including all recursive members and optional input presence. Discovery activity
+and canonical root revision do not substitute for this family source revision.
 
 Focused verification is:
 
