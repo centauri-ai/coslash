@@ -43,6 +43,7 @@ func TestDiscoverUsesSmallFirstBatchThenRegularBatches(t *testing.T) {
 func TestPlanDiscoveryResumesBelowTheCursorAndRevisitsChangedFamilies(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	projects := filepath.Join(home, ".claude", "projects", "p")
 	file := func(id string) string { return filepath.Join(projects, id+".jsonl") }
@@ -97,6 +98,7 @@ func TestPlanDiscoveryRestartsWhenHubPlanChanges(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	projects := filepath.Join(home, ".claude", "projects", "p")
 	snapshot := &Snapshot{Files: []File{
@@ -117,6 +119,7 @@ func TestPlanDiscoveryRestartsWhenHubPlanChanges(t *testing.T) {
 func TestDiscoverKeepsTranscriptActivityDespiteOldFileMtime(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	cutoff := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	stale := cutoff.Add(-time.Hour)
@@ -170,6 +173,7 @@ func TestDiscoverKeepsTranscriptActivityDespiteOldFileMtime(t *testing.T) {
 func TestDiscoverYieldsNothingForAnEmptyHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	var persisted []Cursor
 	batches := 0

@@ -28,6 +28,9 @@ func readSubagentMetas(ctx context.Context, sessionDir string, withDetails bool)
 	metas := []subagentMeta{}
 	missing := map[string]bool{}
 	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return metas
+		}
 		meta := subagentMeta{dir: filepath.Join(sessionDir, "subagents", entry.Name())}
 		if entry.IsDir() && readJSON(filepath.Join(meta.dir, "meta.json"), &meta) == nil && meta.ChildSessionID != "" {
 			if !withDetails {
@@ -120,9 +123,6 @@ func attachSubagents(parsed []*vendors.ParsedSession, metasByDir map[string][]su
 		byID[item.Session.ID] = item
 	}
 	for _, parent := range parsed {
-		if parent.ParentID != "" {
-			continue
-		}
 		for _, meta := range metasByDir[filepath.Dir(parent.LogPath)] {
 			child := byID[meta.ChildSessionID]
 			if child == nil || (child.ParentID != "" && child.ParentID != parent.Session.ID) {

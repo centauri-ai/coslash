@@ -3,7 +3,6 @@ package grok
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -23,7 +22,15 @@ func Root() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".grok", "sessions"), nil
+	return SessionsRoot(home), nil
+}
+
+// SessionsRoot resolves the stat-only source root for a supplied user home.
+func SessionsRoot(home string) string {
+	if configured := os.Getenv("GROK_HOME"); configured != "" {
+		return filepath.Join(configured, "sessions")
+	}
+	return filepath.Join(home, ".grok", "sessions")
 }
 
 // scan lists <root>/<encoded-cwd>/<session-id>/summary.json paths.
@@ -155,30 +162,41 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 
 // loadMetadata marks sessions whose active_sessions.json pid is alive as live.
 func loadMetadata() *vendors.SessionMetadata {
+	metadata, _ := loadMetadataContext(context.Background())
+	return metadata
+}
+
+func loadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
+	if err := ctx.Err(); err != nil {
+		return metadata, err
+	}
 	root, err := Root()
 	if err != nil {
-		return metadata
-	}
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(root), "active_sessions.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		metadata.LivenessChecked = true
-		return metadata
+		return metadata, nil
 	}
 	var active []struct {
 		SessionID string `json:"session_id"`
 		PID       int    `json:"pid"`
 	}
-	if err != nil || json.Unmarshal(data, &active) != nil {
-		return metadata
+	err = readJSON(filepath.Join(filepath.Dir(root), "active_sessions.json"), &active)
+	if errors.Is(err, fs.ErrNotExist) {
+		metadata.LivenessChecked = true
+		return metadata, ctx.Err()
+	}
+	if err != nil {
+		return metadata, ctx.Err()
 	}
 	metadata.LivenessChecked = true
 	for _, entry := range active {
+		if err := ctx.Err(); err != nil {
+			return metadata, err
+		}
 		if entry.SessionID != "" && session.IsProcessAlive(entry.PID) {
 			metadata.Session(entry.SessionID).Live = "interactive"
 		}
 	}
-	return metadata
+	return metadata, ctx.Err()
 }
 
 // sessionIndex maps each session id to its directory and each child id to the parent that spawned it.

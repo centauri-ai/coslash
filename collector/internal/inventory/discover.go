@@ -14,6 +14,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
@@ -223,6 +224,38 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 			}
 		}
 	}
+	if len(byAgent[vendors.AgentGrok]) > 0 {
+		dirs := []string{}
+		filesByDir := map[string][]string{}
+		for _, file := range snapshot.Files {
+			if file.Agent != vendors.AgentGrok {
+				continue
+			}
+			filesByDir[file.FamilyID] = append(filesByDir[file.FamilyID], file.Path)
+			if file.Session {
+				dirs = append(dirs, file.FamilyID)
+			}
+		}
+		refs, err := grok.PlanFamiliesContext(ctx, dirs)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			for _, ref := range refs {
+				members := []string{}
+				for _, dir := range ref.Dirs {
+					members = append(members, filesByDir[dir]...)
+				}
+				activityMs := max(ref.ActivityMs, newest(members))
+				if opts.MinActivityMs > 0 && activityMs < opts.MinActivityMs {
+					continue
+				}
+				plan.families = append(plan.families, family{agent: vendors.AgentGrok, id: ref.ID, activityMs: activityMs, bytes: sourceBytes(members), files: ref.Dirs})
+			}
+		}
+	}
 	refs, err := opencode.FamiliesContext(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -380,6 +413,14 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		}
 		parsed = append(parsed, items...)
 		metadata[vendors.AgentCursor] = mergeMetadata(plan.metadata[vendors.AgentCursor], batchMetadata)
+	}
+	if dirs := files[vendors.AgentGrok]; len(dirs) > 0 {
+		items, grokMetadata, err := grok.ParseDirsContext(ctx, dirs)
+		if err != nil {
+			return nil, err
+		}
+		parsed = append(parsed, items...)
+		metadata[vendors.AgentGrok] = grokMetadata
 	}
 	if len(opencodeIDs) > 0 {
 		items, dbMetadata, err := opencode.LoadFamiliesContext(ctx, opencodeIDs)

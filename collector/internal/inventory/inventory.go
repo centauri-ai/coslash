@@ -23,6 +23,10 @@
 //     discoverable only through the CLI is omitted from this stat-only
 //     inventory. Its sessions are counted by discovery, not by the inventory,
 //     because counting them would read the database.
+//   - Grok: only parser inputs below configured GROK_HOME/sessions (otherwise
+//     ~/.grok/sessions), beside a regular summary.json. Conversation copies,
+//     credentials and shared databases are excluded. Each summary estimates one
+//     session; verified subagent lineage is resolved during discovery.
 package inventory
 
 import (
@@ -42,6 +46,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
@@ -136,11 +141,13 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 		snapshot.ScannedAt = opts.Now.UTC()
 	}
 
+	grokRoot := grok.SessionsRoot(home)
 	roots := []root{
 		{agent: vendors.AgentCodex, path: codex.SessionsRoot(home), accept: acceptCodex},
 		{agent: vendors.AgentCodex, path: codex.ArchivedDir(home), accept: acceptCodex},
 		{agent: vendors.AgentClaude, path: claude.ProjectsRoot(home), accept: acceptClaude},
 		{agent: vendors.AgentCursor, path: cursor.ProjectsRoot(home), accept: acceptCursor},
+		{agent: vendors.AgentGrok, path: grokRoot, accept: func(path string) (File, bool) { return acceptGrok(grokRoot, path) }},
 	}
 	results := make([][]File, len(roots))
 	missing := make([]bool, len(roots))
@@ -271,6 +278,23 @@ func acceptCursor(path string) (File, bool) {
 	return File{Path: path, Session: parent == "", FamilyID: family}, true
 }
 
+func acceptGrok(root, path string) (File, bool) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return File{}, false
+	}
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	if len(parts) < 3 || !grok.IsSourceFile(filepath.FromSlash(strings.Join(parts[2:], "/"))) {
+		return File{}, false
+	}
+	dir := filepath.Join(root, parts[0], parts[1])
+	info, err := os.Lstat(filepath.Join(dir, "summary.json"))
+	if err != nil || !info.Mode().IsRegular() {
+		return File{}, false
+	}
+	return File{Path: path, Session: len(parts) == 3 && parts[2] == "summary.json", FamilyID: dir}, true
+}
+
 // dedupeArchivedRollouts keeps the active copy of a Codex session present in
 // both trees, as discovery does.
 func dedupeArchivedRollouts(files []File) []File {
@@ -367,7 +391,7 @@ func (s *Snapshot) Inventory() hubclient.DeviceInventory {
 		agent.Files++
 		agent.Bytes += file.Size
 	}
-	for _, name := range []string{vendors.AgentCodex, vendors.AgentClaude, vendors.AgentCursor, vendors.AgentOpenCode} {
+	for _, name := range []string{vendors.AgentCodex, vendors.AgentClaude, vendors.AgentCursor, vendors.AgentOpenCode, vendors.AgentGrok} {
 		if agent := agents[name]; agent != nil {
 			inventory.Agents = append(inventory.Agents, *agent)
 		}

@@ -31,6 +31,10 @@ func write(t *testing.T, path string, size int, age time.Duration) {
 func fixtureHome(t *testing.T) (string, string) {
 	t.Helper()
 	home := t.TempDir()
+	t.Setenv("GROK_HOME", "")
+	if err := os.MkdirAll(filepath.Join(home, ".grok", "sessions"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	claudeRoot := "11111111-1111-1111-1111-111111111111"
 	write(t, filepath.Join(home, ".claude", "projects", "p", claudeRoot+".jsonl"), 100, 2*time.Hour)
 	write(t, filepath.Join(home, ".claude", "projects", "p", claudeRoot, "subagents", "agent-a.jsonl"), 50, 30*time.Minute)
@@ -139,12 +143,13 @@ func windowOf(sessions, bytes int64) struct {
 }
 
 func TestScanReportsMissingRoots(t *testing.T) {
+	t.Setenv("GROK_HOME", "")
 	home := t.TempDir()
 	snapshot, err := Scan(context.Background(), Options{Home: home, OpenCodeDB: filepath.Join(home, "none.db"), Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(snapshot.Missing, ",") != "claude,codex,cursor,opencode" || len(snapshot.Files) != 0 {
+	if strings.Join(snapshot.Missing, ",") != "claude,codex,cursor,grok,opencode" || len(snapshot.Files) != 0 {
 		t.Fatalf("missing = %v, files = %d", snapshot.Missing, len(snapshot.Files))
 	}
 	report := snapshot.Inventory()
