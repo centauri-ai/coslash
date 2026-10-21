@@ -258,7 +258,8 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 		}
 	}
 	families, err := grok.PlanFamiliesContext(ctx, dirs)
-	if err != nil {
+	// An incomplete scan can still return independently verified families.
+	if err != nil && len(families) == 0 {
 		return failure()
 	}
 	for _, family := range families {

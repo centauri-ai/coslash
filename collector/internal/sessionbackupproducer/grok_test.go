@@ -563,3 +563,60 @@ func TestGrokAttributedCostPreservesUnknownAndKnownZero(t *testing.T) {
 		})
 	}
 }
+
+func TestGrokCaptureKeepsVerifiedFamilyDuringUnrelatedSummaryFailure(t *testing.T) {
+	for _, state := range []string{"truncated", "missing"} {
+		t.Run(state, func(t *testing.T) {
+			home, group, selection := grokFixture(t)
+			spool := t.TempDir()
+			manager := grokManager(spool, home, nil)
+			first, err := manager.Prepare(t.Context(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			unrelated := filepath.Join(group, "unrelated")
+			if err := os.MkdirAll(unrelated, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if state == "truncated" {
+				writeGrokInput(t, filepath.Join(unrelated, "summary.json"), []byte(`{`))
+			}
+			selected := selection
+			selected.SessionID = "grandchild"
+			unchanged, err := manager.Prepare(t.Context(), selected)
+			if err != nil || unchanged.BundleID != first.BundleID {
+				t.Fatalf("verified family blocked: %v", err)
+			}
+			writeGrokInput(t, filepath.Join(group, "child", "usage.json"), []byte(`{"session":{"inputTokens":31}}`))
+			updated, err := manager.Prepare(t.Context(), selected)
+			if err != nil {
+				t.Fatal(err)
+			}
+			used := grokRecords(t, spool, updated)["child"].Session.UnattributedTokens
+			if updated.BundleID == first.BundleID || len(updated.Manifest.Members) != 3 || used == nil || used.InputTokens != 31 {
+				t.Fatal("verified family update lost")
+			}
+			for _, id := range []string{"root", "child"} {
+				t.Run(id, func(t *testing.T) {
+					file := filepath.Join(group, id, "summary.json")
+					original, err := os.ReadFile(file)
+					if err != nil {
+						t.Fatal(err)
+					}
+					writeGrokInput(t, file, []byte(`{`))
+					if _, err := manager.Prepare(t.Context(), selection); !errors.Is(err, ErrIncomplete) {
+						t.Fatalf("malformed selected member accepted: %v", err)
+					}
+					writeGrokInput(t, file, original)
+				})
+			}
+			manager.afterRawCopy = func() { writeGrokInput(t, filepath.Join(group, "child", "summary.json"), []byte(`{`)) }
+			if _, err := manager.Prepare(t.Context(), selection); !errors.Is(err, ErrIncomplete) {
+				t.Fatalf("changing selected member accepted: %v", err)
+			}
+			if _, err := manager.Open(updated.BundleID); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
