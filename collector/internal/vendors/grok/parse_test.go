@@ -332,6 +332,51 @@ func TestUsageWithoutModelBreakdownKeepsSessionTotals(t *testing.T) {
 	}
 }
 
+func TestUsageTokenPresence(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		body       string
+		want       *session.ModelTokens
+		attributed bool
+	}{
+		{name: "input zero", body: `{"inputTokens":0}`, want: &session.ModelTokens{}},
+		{name: "output zero", body: `{"outputTokens":0}`, want: &session.ModelTokens{}},
+		{name: "cache read zero", body: `{"cachedReadTokens":0}`, want: &session.ModelTokens{}},
+		{name: "cache creation zero", body: `{"cacheCreationTokens":0}`, want: &session.ModelTokens{}},
+		{name: "all zero", body: `{"inputTokens":0,"outputTokens":0,"cachedReadTokens":0,"cacheCreationTokens":0}`, want: &session.ModelTokens{}},
+		{name: "absent", body: `{}`},
+		{name: "null", body: `{"inputTokens":null,"outputTokens":null,"cachedReadTokens":null,"cacheCreationTokens":null}`},
+		{name: "mixed zero null absent", body: `{"inputTokens":null,"outputTokens":0}`, want: &session.ModelTokens{}},
+		{name: "mixed counts", body: `{"inputTokens":null,"outputTokens":3,"cachedReadTokens":4}`, want: &session.ModelTokens{OutputTokens: 3, CacheReadInputTokens: 4}},
+		{name: "attributed", body: `{"inputTokens":99,"modelUsage":{"grok-4.7":{"inputTokens":null,"outputTokens":3,"cachedReadTokens":0}}}`, want: &session.ModelTokens{OutputTokens: 3}, attributed: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "usage.json")
+			if err := os.WriteFile(path, []byte(`{"session":`+test.body+`}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			parsed := &vendors.ParsedSession{Session: &session.Session{}}
+			applyUsage(parsed, path)
+			got := parsed.Session.UnattributedTokens
+			if test.attributed {
+				if got != nil || len(parsed.Session.Tokens) != 1 {
+					t.Fatalf("unattributed = %+v, tokens = %+v", got, parsed.Session.Tokens)
+				}
+				value, ok := parsed.Session.Tokens["grok-4.7"]
+				if !ok {
+					t.Fatal("missing attributed usage")
+				}
+				got = &value
+			} else if len(parsed.Session.Tokens) != 0 || len(parsed.Session.ObservedModels) != 0 {
+				t.Fatalf("invented model usage: %+v", parsed.Session)
+			}
+			if (got == nil) != (test.want == nil) || got != nil && *got != *test.want {
+				t.Fatalf("tokens = %+v, want %+v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestReadJSONRejectsFileOverTheCap(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "summary.json")
 	if err := os.WriteFile(path, []byte(`{"info":{"id":"too-big"}}`), 0o644); err != nil {
