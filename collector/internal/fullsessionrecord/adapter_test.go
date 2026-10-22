@@ -578,7 +578,8 @@ func TestGrokSourceAccountingSurvivesPortableFamily(t *testing.T) {
 		{name: "partial cost", usage: `{"session":{"inputTokens":12,"costUsdTicks":10000000000,"costIsPartial":true}}`, tokens: 12, unattributed: true},
 		{name: "incomplete cost", usage: `{"session":{"inputTokens":12,"costUsdTicks":10000000000,"usageIsIncomplete":true}}`, tokens: 12, unattributed: true},
 		{name: "absent", usage: "absent"},
-		{name: "source zero remains absent", usage: `{"session":{"inputTokens":0,"outputTokens":0}}`},
+		{name: "source known zero", usage: `{"session":{"inputTokens":0,"outputTokens":0}}`, unattributed: true},
+		{name: "source null remains absent", usage: `{"session":{"inputTokens":null,"outputTokens":null,"cachedReadTokens":null,"cacheCreationTokens":null}}`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			home := t.TempDir()

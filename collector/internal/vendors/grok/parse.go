@@ -54,10 +54,10 @@ type signalsFile struct {
 }
 
 type usageCounts struct {
-	InputTokens         int    `json:"inputTokens"`
-	OutputTokens        int    `json:"outputTokens"`
-	CachedReadTokens    int    `json:"cachedReadTokens"`
-	CacheCreationTokens int    `json:"cacheCreationTokens"`
+	InputTokens         *int   `json:"inputTokens"`
+	OutputTokens        *int   `json:"outputTokens"`
+	CachedReadTokens    *int   `json:"cachedReadTokens"`
+	CacheCreationTokens *int   `json:"cacheCreationTokens"`
 	CostUSDTicks        *int64 `json:"costUsdTicks"`
 	CostIsPartial       bool   `json:"costIsPartial"`
 	UsageIsIncomplete   bool   `json:"usageIsIncomplete"`
@@ -259,10 +259,10 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 	parsed.CostIncomplete = usage.Session.CostIsPartial || usage.Session.UsageIsIncomplete
 	for model, used := range usage.Session.ModelUsage {
 		value := session.ModelTokens{
-			InputTokens:              used.InputTokens,
-			OutputTokens:             used.OutputTokens,
-			CacheCreationInputTokens: used.CacheCreationTokens,
-			CacheReadInputTokens:     used.CachedReadTokens,
+			InputTokens:              intValue(used.InputTokens),
+			OutputTokens:             intValue(used.OutputTokens),
+			CacheCreationInputTokens: intValue(used.CacheCreationTokens),
+			CacheReadInputTokens:     intValue(used.CachedReadTokens),
 		}
 		if cost, ok := used.cost(); ok {
 			value.Cost = cost
@@ -273,10 +273,10 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 	if len(tokens) == 0 && hasTokenCounts(usage.Session.usageCounts) {
 		used := usage.Session.usageCounts
 		parsed.Session.UnattributedTokens = &session.ModelTokens{
-			InputTokens:              used.InputTokens,
-			OutputTokens:             used.OutputTokens,
-			CacheCreationInputTokens: used.CacheCreationTokens,
-			CacheReadInputTokens:     used.CachedReadTokens,
+			InputTokens:              intValue(used.InputTokens),
+			OutputTokens:             intValue(used.OutputTokens),
+			CacheCreationInputTokens: intValue(used.CacheCreationTokens),
+			CacheReadInputTokens:     intValue(used.CachedReadTokens),
 		}
 	}
 	parsed.Session.Tokens = tokens
@@ -287,7 +287,14 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 }
 
 func hasTokenCounts(used usageCounts) bool {
-	return used.InputTokens != 0 || used.OutputTokens != 0 || used.CachedReadTokens != 0 || used.CacheCreationTokens != 0
+	return used.InputTokens != nil || used.OutputTokens != nil || used.CachedReadTokens != nil || used.CacheCreationTokens != nil
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func (u usageCounts) cost() (float64, bool) {
