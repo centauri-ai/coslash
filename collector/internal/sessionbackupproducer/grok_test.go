@@ -1006,7 +1006,7 @@ func TestGrokCounterlessModelCostsRetainLastVerifiedFamily(t *testing.T) {
 		{"independent aggregate", `{"session":{"costUsdTicks":10000000000,"modelUsage":{"gpt-5":{"costUsdTicks":10000000000}}}}`},
 		{"independent zero aggregate", `{"session":{"costUsdTicks":0,"modelUsage":{"gpt-5":{"costUsdTicks":0}}}}`},
 	} {
-		for _, member := range []string{"root", "child"} {
+		for _, member := range []string{"root", "child", "grandchild"} {
 			t.Run(tc.name+"/"+member, func(t *testing.T) {
 				home, group, selection := grokFixture(t)
 				spool := t.TempDir()

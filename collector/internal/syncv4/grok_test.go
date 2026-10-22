@@ -8,15 +8,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/inventory"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -408,5 +412,116 @@ func TestGrokQueueRecentChildOldParentWindowAndCap(t *testing.T) {
 		if entry.Selection.SessionID == "old" {
 			t.Fatal("out-of-window history entered queue")
 		}
+	}
+}
+
+func TestGrokIncompleteAccountingDiscoveryAndMetadata(t *testing.T) {
+	zero, three := 0.0, 3.0
+	for _, tc := range []struct {
+		name, usage               string
+		rows                      int
+		tokens                    int64
+		unavailable, unattributed bool
+		cost                      *float64
+	}{
+		{name: "positive missing contribution", usage: `{"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}`, rows: 1, unavailable: true},
+		{name: "negative missing contribution", usage: `{"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":-10000000000}}}`, rows: 1, unavailable: true},
+		{name: "zero missing contribution", usage: `{"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":0}}}`, rows: 1, unavailable: true},
+		{name: "authoritative cost", usage: `{"costUsdTicks":30000000000,"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}`, rows: 1, unavailable: true, cost: &three},
+		{name: "authoritative zero cost", usage: `{"costUsdTicks":0,"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}`, rows: 1, unavailable: true, cost: &zero},
+		{name: "partial source cost", usage: `{"costUsdTicks":30000000000,"costIsPartial":true,"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}`, rows: 1, unavailable: true},
+		{name: "incomplete source cost", usage: `{"costUsdTicks":30000000000,"usageIsIncomplete":true,"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}`, rows: 1, unavailable: true},
+		{name: "unrepresented mixed token aggregate", usage: `{"inputTokens":19,"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}`, rows: 1, unavailable: true},
+		{name: "represented source token aggregate", usage: `{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"modelUsage":{"grok-4.7":{"costUsdTicks":20000000000}}}`, tokens: 19, unattributed: true},
+		{name: "incomplete source token aggregate", usage: `{"inputTokens":19,"usageIsIncomplete":true,"modelUsage":{"grok-4.7":{"costUsdTicks":20000000000}}}`, unavailable: true, unattributed: true},
+		{name: "represented zero token aggregate", usage: `{"inputTokens":0,"modelUsage":{"grok-4.7":{"costUsdTicks":20000000000}}}`, unattributed: true},
+		{name: "represented tokens and source cost", usage: `{"inputTokens":19,"costUsdTicks":30000000000,"modelUsage":{"grok-4.7":{"costUsdTicks":20000000000}}}`, tokens: 19, unattributed: true, cost: &three},
+		{name: "counterless cost only", usage: `{"modelUsage":{"grok-4.7":{"costUsdTicks":20000000000}}}`, unavailable: true},
+	} {
+		for _, member := range []string{"root", "child", "grandchild"} {
+			t.Run(tc.name+"/"+member, func(t *testing.T) {
+				_, group := grokQueueSource(t)
+				for _, id := range []string{"root", "child", "grandchild"} {
+					grokQueueWrite(t, filepath.Join(group, id, "usage.json"), []byte(`{"session":{"modelUsage":{"gpt-5":{"inputTokens":12,"outputTokens":3,"costUsdTicks":10000000000}}}}`))
+				}
+				grokQueueWrite(t, filepath.Join(group, member, "usage.json"), []byte(`{"session":`+tc.usage+`}`))
+				check := func(id string, value *session.Session) {
+					t.Helper()
+					rows, tokens, unavailable, unattributed := 1, int64(15), false, false
+					cost := 1.0
+					wantCost := &cost
+					if id == member {
+						rows, tokens, unavailable, unattributed, wantCost = tc.rows, tc.tokens, tc.unavailable, tc.unattributed, tc.cost
+					}
+					if value.TokensUnavailable != unavailable || value.CostUnavailable != (wantCost == nil) || (value.UnattributedTokens != nil) != unattributed || len(value.Tokens) != rows || !reflect.DeepEqual(value.Cost, wantCost) {
+						t.Fatalf("%s aggregate availability: tokensUnavailable=%v costUnavailable=%v rows=%d unattributed=%v cost=%v", id, value.TokensUnavailable, value.CostUnavailable, len(value.Tokens), value.UnattributedTokens != nil, value.Cost)
+					}
+					if rows == 1 {
+						used := value.Tokens["gpt-5"]
+						if used.InputTokens != 12 || used.OutputTokens != 3 || used.Cost != 1 {
+							t.Fatalf("%s known model facts changed: %+v", id, used)
+						}
+					}
+					meta := sessionMetadata(value, "synthetic-l5")
+					if meta.Tokens != tokens || wantCost == nil && meta.CostMicroUSD != 0 || wantCost != nil && meta.CostMicroUSD != int64(*wantCost*1000000) {
+						t.Fatalf("%s listing metadata tokens=%d cost=%d", id, meta.Tokens, meta.CostMicroUSD)
+					}
+				}
+				roots, err := inventory.DiscoverAll(t.Context(), inventory.DiscoverOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var root *session.Session
+				for _, value := range roots {
+					if value.Agent == "grok" && value.ID == "root" {
+						root = value
+					}
+				}
+				if root == nil {
+					t.Fatal("live root hidden")
+				}
+				check("root", root)
+				parsed, metadata, err := grok.CollectContext(t.Context(), 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				family, err := collector.ComposePortableContext(t.Context(), vendors.LocalReadSource, map[string]vendors.RemoteCollection{"grok": {Sessions: parsed, Metadata: metadata}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				byID := map[string]*session.Session{}
+				for _, item := range family {
+					byID[item.Session.ID] = item.Session
+				}
+				for _, id := range []string{"root", "child", "grandchild"} {
+					if byID[id] == nil {
+						t.Fatalf("member %s hidden", id)
+					}
+					check(id, byID[id])
+				}
+				for _, value := range []*session.Session{root, byID["root"], byID["child"]} {
+					for _, child := range value.Subagents {
+						own := byID[child.ID]
+						if own == nil || child.TokensUnavailable != own.TokensUnavailable || child.CostUnavailable != own.CostUnavailable || !reflect.DeepEqual(child.Cost, own.Cost) || !reflect.DeepEqual(child.Tokens, own.Tokens) || !reflect.DeepEqual(child.UnattributedTokens, own.UnattributedTokens) {
+							t.Fatal("direct child projection lost accounting availability or facts")
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestGrokMetadataHonorsAccountingUnavailable(t *testing.T) {
+	cost := 1.0
+	value := &session.Session{Agent: "grok", Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 12, OutputTokens: 3}}, TokensUnavailable: true, CostUnavailable: true, Cost: &cost}
+	meta := sessionMetadata(value, "synthetic-l5")
+	if meta.Tokens != 0 || meta.CostMicroUSD != 0 {
+		t.Fatalf("stale unavailable totals listed: %+v", meta)
+	}
+	value.CostUnavailable = false
+	meta = sessionMetadata(value, "synthetic-l5")
+	if meta.Tokens != 0 || meta.CostMicroUSD != 1000000 {
+		t.Fatalf("independent source cost lost: %+v", meta)
 	}
 }
