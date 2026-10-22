@@ -1,6 +1,8 @@
 # Synthesis backends
 
-AI synthesis is off until you enable it and save **Settings**. The [README](../README.md#optional-ai-synthesis) describes what synthesis does, and [Data and privacy](data-and-privacy.md) describes what it sends. This page lists the model behavior of each backend.
+coSlash derives goals, outcomes, timelines, and artifacts from transcripts without a model. Optional AI synthesis adds model-generated detail to these debriefs.
+
+Synthesis is off until you enable it and save **Settings**. It uses a local Claude Code, Codex, OpenCode, Cursor, Pi, or Grok Build CLI with that CLI's existing account. Paid models bill that account. Only substantial sessions qualify, and coSlash caches results under `~/.coslash`. See [Data and privacy](data-and-privacy.md#outbound-data) for the input limits and what synthesis sends.
 
 The Settings dialog offers a short model list per backend. You can set any model that the selected CLI can reach in `settings.json`, including a model behind an API proxy such as `ANTHROPIC_BASE_URL` or a third-party provider.
 
