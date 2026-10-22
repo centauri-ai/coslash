@@ -270,10 +270,17 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 		}
 		if hasTokenCounts(used) {
 			tokens[model] = value
+		} else if _, known := parsed.RecordedModelCosts[model]; known {
+			parsed.Session.TokensUnavailable = true
+			parsed.Session.CostUnavailable = true
+			parsed.CostIncomplete = true
 		}
 	}
 	if len(tokens) == 0 && hasTokenCounts(usage.Session.usageCounts) {
 		used := usage.Session.usageCounts
+		if !usage.Session.UsageIsIncomplete {
+			parsed.Session.TokensUnavailable = false
+		}
 		parsed.Session.UnattributedTokens = &session.ModelTokens{
 			InputTokens:              intValue(used.InputTokens),
 			OutputTokens:             intValue(used.OutputTokens),
@@ -285,6 +292,7 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 	parsed.Session.ObservedModels = slices.Sorted(maps.Keys(tokens))
 	if cost, ok := usage.Session.cost(); ok {
 		parsed.RecordedCost = &cost
+		parsed.Session.CostUnavailable = false
 	}
 }
 

@@ -809,7 +809,7 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 	if meta.Tokens < 0 {
 		meta.Tokens = 0
 	}
-	if item.Cost != nil && *item.Cost > 0 {
+	if !item.CostUnavailable && item.Cost != nil && *item.Cost > 0 {
 		meta.CostMicroUSD = int64(math.Round(*item.Cost * 1e6))
 	}
 	meta.Title = truncate(meta.Title, 500)
@@ -822,6 +822,9 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 
 // Zero is the Hub's unavailable sentinel before Grok content is parsed.
 func grokMetadataTokens(item *session.Session) int64 {
+	if item.TokensUnavailable {
+		return 0
+	}
 	var total int64
 	add := func(tokens session.ModelTokens) bool {
 		for _, count := range []int{tokens.InputTokens, tokens.OutputTokens, tokens.CacheCreationInputTokens, tokens.CacheCreation1hInputTokens, tokens.CacheReadInputTokens} {
