@@ -503,3 +503,34 @@ func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
 		}
 	}
 }
+
+func TestGrokNestedOversizeBlocksPendingRoot(t *testing.T) {
+	_, group := grokQueueSource(t)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "root", Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: "grok", SessionID: "root"}, Session: hubclient.V4Session{Agent: "grok"}, SourceRevision: "previously-verified", BundleID: "retained-bundle"}
+	if err := queue.Merge([]Entry{entry}, time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	entry = queue.Entries()[0]
+	if err := os.Remove(filepath.Join(group, "child", "subagents", "grandchild", "meta.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(filepath.Join(group, "child", "updates.jsonl"), sessionbackupv1.MaxArtifactBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	revisions, failures, err := sessionbackupproducer.LocalGrokSourceRevisions(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{Queue: queue, Version: "nested-lineage-test"}
+	if err := runner.reconcileGrokSources(revisions, failures); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("failure IDs=%v root SourceBlocked=%v Matches=%v", failures, queue.Entries()[0].SourceBlocked, queue.Matches(entry))
+	if queue.Matches(entry) {
+		t.Fatal("pending root remains uploadable despite oversized nested lineage")
+	}
+}

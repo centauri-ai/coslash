@@ -189,6 +189,9 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 			member := stack[len(stack)-1]
 			stack = stack[:len(stack)-1]
 			visited[member] = true
+			if oversizedMembers[member] {
+				oversizedMembers[id] = true
+			}
 			withheld = withheld || blocked[member]
 			for _, excludedID := range excluded[member] {
 				if ref.nonChildren == nil {
