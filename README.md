@@ -29,7 +29,23 @@ catch up on what changed, and resume work with context.
 ## Get started
 
 Local use needs no Hub account, Go, or Node installation.
-See the [installation guide](docs/install.md) for macOS, Linux, and Windows.
+
+**macOS / Linux**
+
+```sh
+curl -fsSL https://coslash.io/install.sh | bash
+coslash
+```
+
+**Windows**
+
+```powershell
+irm https://coslash.io/install.ps1 | iex
+```
+
+On Windows, run the startup command the installer prints.
+coSlash opens its local UI in your browser.
+See the [installation guide](docs/install.md) for Homebrew, headless servers, and updates.
 
 ### Connect to Hub
 

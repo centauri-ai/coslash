@@ -166,6 +166,17 @@ run `systemctl --user disable --now coslash.service`, delete
 
 ### Windows
 
+Install with PowerShell:
+
+```powershell
+irm https://coslash.io/install.ps1 | iex
+```
+
+Run the startup command the installer prints. It uses your selected `COSLASH_INSTALL_DIR`, or `%LOCALAPPDATA%\coSlash\bin` by default.
+The installer does not change `PATH`.
+
+For a portable installation:
+
 Download `coslash-windows-amd64.exe` from the newest stable [release](https://github.com/centauri-ai/coslash/releases) that includes it, or from the newest prerelease if no stable release does. Double-click it. coSlash runs as a portable application and opens its UI in your browser. It needs no administrator privileges, WSL, Go, Node, or GNU tools.
 
 To upgrade, replace the executable with a newer one. To uninstall, delete it. Your data stays in `~\.coslash`. The executable is not code-signed. To verify its checksum, see [Install from a release archive](#windows-checksum). The supported baseline is Windows 11 24H2 amd64 ([Windows validation](windows-validation.md)).
