@@ -234,13 +234,6 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 					}
 				}
 			}
-			if filepath.Base(dir) == id {
-				if member, err := grokCaptureID(dir); err == nil && member == id {
-					if info, err := os.Lstat(filepath.Join(dir, "updates.jsonl")); err == nil && info.Size() > sessionbackupv1.MaxArtifactBytes {
-						return grok.FamilyRef{}, captureTooLarge(sessionbackupv1.KindRawTranscript)
-					}
-				}
-			}
 			subagents := filepath.Join(dir, "subagents")
 			if info, err := os.Lstat(subagents); err == nil {
 				if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
@@ -263,7 +256,13 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 			dirs = append(dirs, dir)
 		}
 	}
-	families, err := grok.PlanFamiliesContext(ctx, dirs)
+	families, oversizedMembers, err := grok.PlanFamiliesContextWithTranscriptLimit(ctx, dirs, sessionbackupv1.MaxArtifactBytes)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return grok.FamilyRef{}, ctxErr
+	}
+	if oversizedMembers[id] {
+		return grok.FamilyRef{}, captureTooLarge(sessionbackupv1.KindRawTranscript)
+	}
 	// An incomplete scan can still return independently verified families.
 	if err != nil && len(families) == 0 {
 		return failure()

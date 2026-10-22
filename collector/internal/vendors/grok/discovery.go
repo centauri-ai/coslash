@@ -36,11 +36,19 @@ type FamilyRef struct {
 // An unreadable summary returns an error with any independently verified families.
 // Duplicate IDs, conflicting parents and cycles fail rather than choose a source.
 func PlanFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, error) {
-	refs, _, err := planFamiliesContext(ctx, dirs, nil)
+	refs, _, err := planFamiliesContext(ctx, dirs, nil, 0, nil)
 	return refs, err
 }
 
-func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]FamilyRef, map[string]string, error) {
+// PlanFamiliesContextWithTranscriptLimit avoids lineage recovery scans of
+// transcripts beyond the supplied byte limit and reports affected member IDs.
+func PlanFamiliesContextWithTranscriptLimit(ctx context.Context, dirs []string, maxTranscriptBytes int64) ([]FamilyRef, map[string]bool, error) {
+	oversizedMembers := map[string]bool{}
+	refs, _, err := planFamiliesContext(ctx, dirs, nil, maxTranscriptBytes, oversizedMembers)
+	return refs, oversizedMembers, err
+}
+
+func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[string]bool, maxTranscriptBytes int64, oversizedMembers map[string]bool) ([]FamilyRef, map[string]string, error) {
 	byID := map[string]string{}
 	summaries := map[string]*summaryFile{}
 	seenDirs := map[string]bool{}
@@ -86,7 +94,9 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		for _, meta := range readSubagentMetas(ctx, dir, false) {
+		metas, missing := readSubagentMetasWithTranscriptLimit(ctx, dir, false, maxTranscriptBytes)
+		markOversizedLineage(oversizedMembers, blocked, "", missing, summaries)
+		for _, meta := range metas {
 			if child := summaries[meta.ChildSessionID]; child != nil && isSubagentKind(child.SessionKind) {
 				blocked[meta.ChildSessionID] = true
 			}
@@ -97,7 +107,12 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		for _, meta := range readSubagentMetas(ctx, dir, false) {
+		metas, missing := readSubagentMetasWithTranscriptLimit(ctx, dir, false, maxTranscriptBytes)
+		if len(missing) > 0 {
+			blocked[id] = true
+		}
+		markOversizedLineage(oversizedMembers, blocked, id, missing, summaries)
+		for _, meta := range metas {
 			child := summaries[meta.ChildSessionID]
 			if child == nil {
 				if nonChildren[meta.ChildSessionID] {
@@ -141,6 +156,22 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 	sort.Strings(ids)
 	for id := range children {
 		sort.Strings(children[id])
+	}
+	if oversizedMembers != nil {
+		stack := make([]string, 0, len(oversizedMembers))
+		for id := range oversizedMembers {
+			stack = append(stack, id)
+		}
+		for len(stack) > 0 {
+			id := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			for _, child := range children[id] {
+				if !oversizedMembers[child] {
+					oversizedMembers[child] = true
+					stack = append(stack, child)
+				}
+			}
+		}
 	}
 	refs := []FamilyRef{}
 	visited := map[string]bool{}
@@ -190,6 +221,26 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 	return refs, parentOf, summaryErr
 }
 
+func markOversizedLineage(oversizedMembers, blocked map[string]bool, parentID string, missing map[string]bool, summaries map[string]*summaryFile) {
+	if len(missing) == 0 {
+		return
+	}
+	if oversizedMembers != nil && parentID != "" {
+		oversizedMembers[parentID] = true
+	}
+	for candidate := range missing {
+		child := summaries[candidate]
+		if child == nil || !isSubagentKind(child.SessionKind) ||
+			(parentID != "" && child.ParentSessionID != "" && child.ParentSessionID != parentID) {
+			continue
+		}
+		blocked[candidate] = true
+		if oversizedMembers != nil {
+			oversizedMembers[child.Info.ID] = true
+		}
+	}
+}
+
 // ParseDirsContext verifies a standalone set of directories without a root scan.
 // For batches selected from a larger plan, use ParseFamiliesContext.
 func ParseDirsContext(ctx context.Context, dirs []string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
@@ -223,7 +274,7 @@ func parseDirsContext(ctx context.Context, dirs []string, nonChildren map[string
 }
 
 func parseFamilyDirsContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, error) {
-	refs, parents, err := planFamiliesContext(ctx, dirs, nonChildren)
+	refs, parents, err := planFamiliesContext(ctx, dirs, nonChildren, 0, nil)
 	if err != nil {
 		return nil, err
 	}
