@@ -11,6 +11,9 @@
 coSlash brings your coding-agent sessions into one board. See which agents need you,
 catch up on what changed, and resume work with context.
 
+**coSlash Local** is free and open source under the [MIT license](LICENSE).
+**coSlash Hub** is an optional commercial, proprietary service with [free and paid plans](https://coslash.io/?product=hub).
+
 ![Current table and board views with sample sessions, followed by a repository search](docs/media/list-and-board.gif)
 
 ## Why coSlash?
@@ -47,7 +50,7 @@ On Windows, run the startup command the installer prints.
 coSlash opens its local UI in your browser.
 See the [installation guide](docs/install.md) for Homebrew, headless servers, and updates.
 
-### Connect to Hub
+### Connect to Hub (optional)
 
 1. Open [Hub](https://hub.coslash.io) and choose **Devices → Add device → This computer**.
 2. Run the command Hub provides. It installs coSlash Local and starts it in the background.
