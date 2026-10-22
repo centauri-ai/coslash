@@ -940,3 +940,59 @@ func TestGrokSourceModelCostsSurviveAggregateAvailability(t *testing.T) {
 		}
 	}
 }
+
+func TestGrokCounterlessModelRowsPreserveAccountingPresence(t *testing.T) {
+	zero, dollar := int64(0), int64(1000000)
+	for _, tc := range []struct {
+		name, usage  string
+		rows, total  int
+		unattributed bool
+		cost         *int64
+	}{
+		{name: "absent map", usage: `{"session":{}}`},
+		{name: "null map", usage: `{"session":{"modelUsage":null}}`},
+		{name: "empty map", usage: `{"session":{"modelUsage":{}}}`},
+		{name: "null row", usage: `{"session":{"modelUsage":{"gpt-5":null}}}`},
+		{name: "empty row", usage: `{"session":{"modelUsage":{"gpt-5":{}}}}`},
+		{name: "null counters", usage: `{"session":{"modelUsage":{"gpt-5":{"inputTokens":null,"outputTokens":null,"cachedReadTokens":null,"cacheCreationTokens":null}}}}`},
+		{name: "positive totals null row", usage: `{"session":{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"modelUsage":{"gpt-5":null}}}`, total: 19, unattributed: true},
+		{name: "positive totals null counters", usage: `{"session":{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"modelUsage":{"gpt-5":{"inputTokens":null}}}}`, total: 19, unattributed: true},
+		{name: "explicit model zero", usage: `{"session":{"modelUsage":{"gpt-5":{"inputTokens":0}}}}`, rows: 1, cost: &zero},
+		{name: "source cost only", usage: `{"session":{"costUsdTicks":10000000000,"modelUsage":{"gpt-5":{"costUsdTicks":10000000000}}}}`, cost: &dollar},
+		{name: "source zero cost only", usage: `{"session":{"costUsdTicks":0,"modelUsage":{"gpt-5":{"costUsdTicks":0}}}}`, cost: &zero},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, group, selection := grokFixture(t)
+			for _, id := range []string{"root", "child"} {
+				writeGrokInput(t, filepath.Join(group, id, "usage.json"), []byte(tc.usage))
+			}
+			spool := t.TempDir()
+			prepared, err := grokManager(spool, home, nil).Prepare(t.Context(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records := grokRecords(t, spool, prepared)
+			for _, id := range []string{"root", "child"} {
+				s := records[id].Session
+				if len(s.Usage) != tc.rows || (s.UnattributedTokens != nil) != tc.unattributed || !reflect.DeepEqual(s.CostMicroUSD, tc.cost) {
+					t.Fatalf("%s accounting presence: usage=%+v unattributed=%+v cost=%v", id, s.Usage, s.UnattributedTokens, s.CostMicroUSD)
+				}
+				total := 0
+				for _, u := range s.Usage {
+					total += u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.CacheCreation1hInputTokens
+				}
+				if u := s.UnattributedTokens; u != nil {
+					total += u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.CacheCreation1hInputTokens
+				}
+				if total != tc.total {
+					t.Fatalf("%s tokens=%d want=%d", id, total, tc.total)
+				}
+			}
+			children := records["root"].Session.Subagents
+			child := records["child"].Session
+			if len(children) != 1 || children[0].ID != "child" || !reflect.DeepEqual(children[0].Usage, child.Usage) || !reflect.DeepEqual(children[0].UnattributedTokens, child.UnattributedTokens) || !reflect.DeepEqual(children[0].CostMicroUSD, child.CostMicroUSD) {
+				t.Fatal("direct child accounting differs from its frozen member record")
+			}
+		})
+	}
+}

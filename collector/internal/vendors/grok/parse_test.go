@@ -348,6 +348,15 @@ func TestUsageTokenPresence(t *testing.T) {
 		{name: "null", body: `{"inputTokens":null,"outputTokens":null,"cachedReadTokens":null,"cacheCreationTokens":null}`},
 		{name: "mixed zero null absent", body: `{"inputTokens":null,"outputTokens":0}`, want: &session.ModelTokens{}},
 		{name: "mixed counts", body: `{"inputTokens":null,"outputTokens":3,"cachedReadTokens":4}`, want: &session.ModelTokens{OutputTokens: 3, CacheReadInputTokens: 4}},
+		{name: "null model map", body: `{"modelUsage":null}`},
+		{name: "empty model map", body: `{"modelUsage":{}}`},
+		{name: "null model row", body: `{"modelUsage":{"grok-4.7":null}}`},
+		{name: "empty model row", body: `{"modelUsage":{"grok-4.7":{}}}`},
+		{name: "null model counters", body: `{"modelUsage":{"grok-4.7":{"inputTokens":null,"outputTokens":null,"cachedReadTokens":null,"cacheCreationTokens":null}}}`},
+		{name: "cost-only model", body: `{"modelUsage":{"grok-4.7":{"costUsdTicks":10000000000}}}`},
+		{name: "totals with null model", body: `{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"modelUsage":{"grok-4.7":null}}`, want: &session.ModelTokens{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4}},
+		{name: "totals with null model counters", body: `{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"modelUsage":{"grok-4.7":{"inputTokens":null}}}`, want: &session.ModelTokens{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4}},
+		{name: "attributed zero", body: `{"modelUsage":{"grok-4.7":{"inputTokens":null,"outputTokens":0}}}`, want: &session.ModelTokens{}, attributed: true},
 		{name: "attributed", body: `{"inputTokens":99,"modelUsage":{"grok-4.7":{"inputTokens":null,"outputTokens":3,"cachedReadTokens":0}}}`, want: &session.ModelTokens{OutputTokens: 3}, attributed: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

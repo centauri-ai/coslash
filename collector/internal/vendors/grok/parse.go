@@ -268,7 +268,9 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 			value.Cost = cost
 			parsed.RecordedModelCosts[model] = cost
 		}
-		tokens[model] = value
+		if hasTokenCounts(used) {
+			tokens[model] = value
+		}
 	}
 	if len(tokens) == 0 && hasTokenCounts(usage.Session.usageCounts) {
 		used := usage.Session.usageCounts
