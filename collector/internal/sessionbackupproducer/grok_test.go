@@ -958,8 +958,8 @@ func TestGrokCounterlessModelRowsPreserveAccountingPresence(t *testing.T) {
 		{name: "positive totals null row", usage: `{"session":{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"modelUsage":{"gpt-5":null}}}`, total: 19, unattributed: true},
 		{name: "positive totals null counters", usage: `{"session":{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"modelUsage":{"gpt-5":{"inputTokens":null}}}}`, total: 19, unattributed: true},
 		{name: "explicit model zero", usage: `{"session":{"modelUsage":{"gpt-5":{"inputTokens":0}}}}`, rows: 1, cost: &zero},
-		{name: "source cost only", usage: `{"session":{"costUsdTicks":10000000000,"modelUsage":{"gpt-5":{"costUsdTicks":10000000000}}}}`, cost: &dollar},
-		{name: "source zero cost only", usage: `{"session":{"costUsdTicks":0,"modelUsage":{"gpt-5":{"costUsdTicks":0}}}}`, cost: &zero},
+		{name: "source cost only", usage: `{"session":{"costUsdTicks":10000000000,"modelUsage":{"gpt-5":{}}}}`, cost: &dollar},
+		{name: "source zero cost only", usage: `{"session":{"costUsdTicks":0,"modelUsage":{"gpt-5":null}}}`, cost: &zero},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home, group, selection := grokFixture(t)
@@ -994,5 +994,37 @@ func TestGrokCounterlessModelRowsPreserveAccountingPresence(t *testing.T) {
 				t.Fatal("direct child accounting differs from its frozen member record")
 			}
 		})
+	}
+}
+
+func TestGrokCounterlessModelCostsRetainLastVerifiedFamily(t *testing.T) {
+	for _, tc := range []struct{ name, usage string }{
+		{"negative", `{"session":{"modelUsage":{"gpt-5":{"costUsdTicks":-10000000000}}}}`},
+		{"positive", `{"session":{"modelUsage":{"gpt-5":{"costUsdTicks":10000000000}}}}`},
+		{"zero", `{"session":{"modelUsage":{"gpt-5":{"costUsdTicks":0}}}}`},
+		{"mixed", `{"session":{"modelUsage":{"gpt-5":{"inputTokens":12,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}}`},
+		{"independent aggregate", `{"session":{"costUsdTicks":10000000000,"modelUsage":{"gpt-5":{"costUsdTicks":10000000000}}}}`},
+		{"independent zero aggregate", `{"session":{"costUsdTicks":0,"modelUsage":{"gpt-5":{"costUsdTicks":0}}}}`},
+	} {
+		for _, member := range []string{"root", "child"} {
+			t.Run(tc.name+"/"+member, func(t *testing.T) {
+				home, group, selection := grokFixture(t)
+				spool := t.TempDir()
+				manager := grokManager(spool, home, nil)
+				first, err := manager.Prepare(t.Context(), selection)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeGrokInput(t, filepath.Join(group, member, "usage.json"), []byte(tc.usage))
+				prepared, err := manager.Prepare(t.Context(), selection)
+				var failure *PreparationError
+				if !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 || failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemInvalid || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindParsedSessionRecord || prepared != nil && prepared.BundleID != "" {
+					t.Fatalf("partial family was not rejected as invalid parsed accounting: completed=%v err=%v", prepared != nil && prepared.BundleID != "", err)
+				}
+				if _, err := grokManager(spool, home, nil).Open(first.BundleID); err != nil {
+					t.Fatalf("last verified family lost: %v", err)
+				}
+			})
+		}
 	}
 }
