@@ -11,7 +11,7 @@
 coSlash brings your coding-agent sessions into one board. See which agents need you,
 catch up on what changed, and resume work with context.
 
-![Switching from table view to board view, then searching to filter sessions to one repository](docs/media/list-and-board.gif)
+![Current table and board views with sample sessions, followed by a repository search](docs/media/list-and-board.gif)
 
 ## Why coSlash?
 
