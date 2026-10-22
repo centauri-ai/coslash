@@ -117,9 +117,9 @@ direct parent's subagent projection and its own complete record, without being
 added to the parent's counters. Sum complete member records once, not their
 duplicate subagent projections.
 
-Grok's source parser collapses all-zero totals without model rows to absence.
-Constructed present zero counters remain distinct from absent accounting in
-this contract. Missing, partial, or incomplete source cost stays null; no model
+Grok's source parser preserves present zero counters as known usage, including
+totals without model rows. Absent or null counters alone leave usage unknown.
+Missing, partial, or incomplete source cost stays null; no model
 or price is inferred for unattributed totals. Portable inner and enclosing costs
 must agree so the existing private nullable session/subagent cost can preserve
 every valid record through both adapter directions. The adapter rejects an
