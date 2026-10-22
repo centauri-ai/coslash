@@ -223,8 +223,12 @@ func sessionIndex(ctx context.Context, dirs []string) (map[string]string, map[st
 			break
 		}
 		if dir := byID[childID]; dir != "" {
-			if summary, err := readSummary(dir); err == nil && !isSubagentKind(summary.SessionKind) {
-				delete(parentOf, childID)
+			if summary, err := readSummary(dir); err == nil {
+				if !isSubagentKind(summary.SessionKind) {
+					delete(parentOf, childID)
+				} else if summary.ParentSessionID != "" {
+					parentOf[childID] = summary.ParentSessionID
+				}
 			}
 		}
 	}

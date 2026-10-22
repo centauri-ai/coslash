@@ -13,6 +13,7 @@ import (
 	"time"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/inventory"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -23,7 +24,7 @@ import (
 
 func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 	for _, batchSize := range []int{0, 1, 64} {
-		for _, failure := range []string{"oversize", "missing"} {
+		for _, failure := range []string{"oversize", "missing", "summary"} {
 			t.Run(fmt.Sprintf("batch-%d/%s", batchSize, failure), func(t *testing.T) {
 				home, group := grokQueueSource(t)
 				now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
@@ -37,6 +38,9 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 				hub := &grokQueueHub{planHub: &planHub{plan: plan}, records: map[string]fullsessionv1.Record{}}
 				runner := &Runner{Version: "source-failure-test", Queue: queue, Backup: manager, Hub: hub, Now: func() time.Time { return now }, RequireImportPlan: true,
 					Discover: func(ctx context.Context) ([]*session.Session, error) {
+						if failure == "summary" {
+							return collector.List(ctx, 0)
+						}
 						return inventory.DiscoverAll(ctx, inventory.DiscoverOptions{})
 					}}
 				if batchSize > 0 {
@@ -105,6 +109,9 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 				if failure == "missing" {
 					badPath = filepath.Join(group, "grandchild", "updates.jsonl")
 				}
+				if failure == "summary" {
+					badPath = filepath.Join(group, "root", "summary.json")
+				}
 				original, err := os.ReadFile(badPath)
 				if err != nil {
 					t.Fatal(err)
@@ -119,6 +126,8 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 					if err := errors.Join(truncateErr, closeErr); err != nil {
 						t.Fatal(err)
 					}
+				} else if failure == "summary" {
+					grokQueueWrite(t, badPath, []byte("{"))
 				} else if err := os.Remove(badPath); err != nil {
 					t.Fatal(err)
 				}
@@ -346,8 +355,9 @@ func (h *grokSourceRetryHub) V4CheckIn(ctx context.Context, q hubclient.V4Queue,
 
 func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
 	for _, streamed := range []bool{false, true} {
-		for _, repaired := range []bool{false, true} {
-			t.Run(fmt.Sprintf("streamed-%v/repaired-%v", streamed, repaired), func(t *testing.T) {
+		for _, scenario := range []struct{ repaired, outside bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+			repaired, outside := scenario.repaired, scenario.outside
+			t.Run(fmt.Sprintf("streamed-%v/repaired-%v/outside-%v", streamed, repaired, outside), func(t *testing.T) {
 				home, group := grokQueueSource(t)
 				queue, err := Open(t.TempDir())
 				if err != nil {
@@ -395,7 +405,11 @@ func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
 				if streamed {
 					runner.DiscoverBatches = func(ctx context.Context, emit func(DiscoveryBatch) error) error {
 						scans++
-						for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{BatchFamilies: 1}) {
+						cutoff := int64(0)
+						if outside {
+							cutoff = math.MaxInt64
+						}
+						for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{BatchFamilies: 1, MinActivityMs: cutoff}) {
 							if err != nil {
 								return err
 							}
@@ -454,7 +468,7 @@ func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
 				if scans != 1 {
 					t.Fatalf("retry verification scans=%d", scans)
 				}
-				if !repaired {
+				if !repaired || streamed && outside {
 					if syncErr == nil {
 						t.Fatal("fresh failure not reported")
 					}
@@ -464,7 +478,11 @@ func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
 							current = item
 						}
 					}
-					if !current.SourceBlocked || current.FailureCode != "too_large" || current.UploadID != entry.UploadID || current.BundleID != entry.BundleID || !reflect.DeepEqual(current.Manifest, entry.Manifest) {
+					wantCode := "too_large"
+					if repaired {
+						wantCode = "unreadable_source"
+					}
+					if !current.SourceBlocked || current.FailureCode != wantCode || current.UploadID != entry.UploadID || current.BundleID != entry.BundleID || !reflect.DeepEqual(current.Manifest, entry.Manifest) {
 						t.Fatalf("bad source released: %+v", current)
 					}
 					if _, ok := hub.records["root"]; ok {
@@ -486,7 +504,7 @@ func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
 					}
 				}
 				want := "failed"
-				if repaired {
+				if repaired && !(streamed && outside) {
 					want = "done"
 				}
 				results := queue.Results()
@@ -532,5 +550,57 @@ func TestGrokNestedOversizeBlocksPendingRoot(t *testing.T) {
 	t.Logf("failure IDs=%v root SourceBlocked=%v Matches=%v", failures, queue.Entries()[0].SourceBlocked, queue.Matches(entry))
 	if queue.Matches(entry) {
 		t.Fatal("pending root remains uploadable despite oversized nested lineage")
+	}
+}
+
+func TestGrokSyncedSourceFailureLogsOnce(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "root", Session: hubclient.V4Session{Agent: "grok"}, Selection: sessionbackupproducer.Selection{Agent: "grok", SessionID: "root"}, SessionID: "ses_root", RevisionID: "rev_1", Activity: 1, SyncedActivity: 1, SourceRevision: "verified", SyncedSourceRevision: "verified"}
+	if err := queue.Merge([]Entry{entry}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{Queue: queue, Version: "test"}
+	for range 2 {
+		if err := runner.reconcileGrokSources(nil, map[string]error{"root": &sessionbackupproducer.PreparationError{}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if queue.LogSequence() != 1 {
+		t.Fatalf("source failure logs=%d, want 1", queue.LogSequence())
+	}
+}
+
+func TestGrokMissingDiscoveryBlocksQueuedSource(t *testing.T) {
+	for _, malformed := range []bool{false, true} {
+		t.Run(fmt.Sprint(malformed), func(t *testing.T) {
+			_, group := grokQueueSource(t)
+			queue, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := Entry{Key: "root", Session: hubclient.V4Session{Agent: "grok"}, Selection: sessionbackupproducer.Selection{Agent: "grok", SessionID: "root"}, Activity: 1, SourceRevision: "verified", BundleID: "retained"}
+			if err := queue.Merge([]Entry{entry}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if malformed {
+				grokQueueWrite(t, filepath.Join(group, "root", "summary.json"), []byte("{"))
+			} else if err := os.RemoveAll(filepath.Join(group, "root")); err != nil {
+				t.Fatal(err)
+			}
+			runner := &Runner{Queue: queue, Version: "test"}
+			revisions, failures, err := runner.grokSourceRevisions(t.Context(), []*session.Session{{Agent: "codex", ID: "healthy"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runner.reconcileGrokSources(revisions, failures); err != nil {
+				t.Fatal(err)
+			}
+			if !queue.Entries()[0].SourceBlocked {
+				t.Fatal("unverified queued source remains uploadable")
+			}
+		})
 	}
 }
