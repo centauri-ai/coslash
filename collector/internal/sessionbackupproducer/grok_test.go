@@ -685,7 +685,7 @@ func grokMissingMetaFixture(t *testing.T) (string, string, Selection) {
 	return home, group, selection
 }
 
-// Detect planner entry without line-number or wall-clock assumptions.
+// Detect fallback transcript scanning without line numbers or wall-clock timing.
 type grokPlanningReadContext struct {
 	context.Context
 	cancel  context.CancelFunc
@@ -694,34 +694,60 @@ type grokPlanningReadContext struct {
 
 func (ctx *grokPlanningReadContext) Err() error {
 	pc, _, _, _ := runtime.Caller(1)
-	if strings.HasSuffix(runtime.FuncForPC(pc).Name(), ".readSubagentMetas") {
+	if strings.HasSuffix(runtime.FuncForPC(pc).Name(), ".scanSubagentUpdates") {
 		ctx.entered = true
 		ctx.cancel()
 	}
 	return ctx.Context.Err()
 }
 
-func TestGrokRejectsOversizeBeforeSpawnPlanning(t *testing.T) {
-	home, group, selection := grokMissingMetaFixture(t)
-	file, err := os.OpenFile(filepath.Join(group, "root", "updates.jsonl"), os.O_RDWR, 0o600)
-	if err != nil {
+func TestGrokRejectsOversizeBeforeSpawnTranscriptScan(t *testing.T) {
+	for _, selectedID := range []string{"root", "child"} {
+		t.Run(selectedID, func(t *testing.T) {
+			home, group, selection := grokMissingMetaFixture(t)
+			selection.SessionID = selectedID
+			file, err := os.OpenFile(filepath.Join(group, "root", "updates.jsonl"), os.O_RDWR, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = file.Truncate(sessionbackupv1.MaxArtifactBytes + 1)
+			closeErr := file.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			base, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			ctx := &grokPlanningReadContext{Context: base, cancel: cancel}
+			_, err = grokManager(t.TempDir(), home, nil).Prepare(ctx, selection)
+			var failure *PreparationError
+			if ctx.entered || !errors.As(err, &failure) || !failure.TooLarge || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
+				t.Fatalf("transcript scan entered=%t failure=%+v err=%v", ctx.entered, failure, err)
+			}
+		})
+	}
+}
+
+func TestGrokSkipsUnrelatedOversizeTranscriptDuringLineagePlanning(t *testing.T) {
+	home, group, selection := grokFixture(t)
+	unrelated := filepath.Join(group, "unrelated")
+	writeGrokInput(t, filepath.Join(unrelated, "summary.json"), []byte(`{"info":{"id":"unrelated"},"chat_format_version":1,"session_kind":"interactive"}`))
+	if err := os.MkdirAll(filepath.Join(unrelated, "subagents", "missing"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	err = file.Truncate(sessionbackupv1.MaxArtifactBytes + 1)
-	closeErr := file.Close()
-	if err != nil {
+	updates := filepath.Join(unrelated, "updates.jsonl")
+	writeGrokInput(t, updates, nil)
+	if err := os.Truncate(updates, sessionbackupv1.MaxArtifactBytes+1); err != nil {
 		t.Fatal(err)
-	}
-	if closeErr != nil {
-		t.Fatal(closeErr)
 	}
 	base, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	ctx := &grokPlanningReadContext{Context: base, cancel: cancel}
-	_, err = grokManager(t.TempDir(), home, nil).Prepare(ctx, selection)
-	var failure *PreparationError
-	if ctx.entered || !errors.As(err, &failure) || !failure.TooLarge || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
-		t.Fatalf("planner entered=%t failure=%+v err=%v", ctx.entered, failure, err)
+	prepared, err := grokManager(t.TempDir(), home, nil).Prepare(ctx, selection)
+	if err != nil || prepared == nil || ctx.entered || len(prepared.Manifest.Members) != 3 {
+		t.Fatalf("transcript scan entered=%t prepared=%v err=%v", ctx.entered, prepared, err)
 	}
 }
 

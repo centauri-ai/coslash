@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -24,12 +25,17 @@ type subagentMeta struct {
 }
 
 func readSubagentMetas(ctx context.Context, sessionDir string, withDetails bool) []subagentMeta {
+	metas, _ := readSubagentMetasWithTranscriptLimit(ctx, sessionDir, withDetails, 0)
+	return metas
+}
+
+func readSubagentMetasWithTranscriptLimit(ctx context.Context, sessionDir string, withDetails bool, maxTranscriptBytes int64) ([]subagentMeta, map[string]bool) {
 	entries, _ := os.ReadDir(filepath.Join(sessionDir, "subagents"))
 	metas := []subagentMeta{}
 	missing := map[string]bool{}
 	for _, entry := range entries {
 		if ctx.Err() != nil {
-			return metas
+			return metas, nil
 		}
 		meta := subagentMeta{dir: filepath.Join(sessionDir, "subagents", entry.Name())}
 		if entry.IsDir() && readJSON(filepath.Join(meta.dir, "meta.json"), &meta) == nil && meta.ChildSessionID != "" {
@@ -42,17 +48,34 @@ func readSubagentMetas(ctx context.Context, sessionDir string, withDetails bool)
 		}
 	}
 	if len(missing) == 0 {
-		return metas
+		return metas, nil
 	}
 	// Grok can create the child directory but fail to write meta.json on long Windows paths.
-	file, err := os.Open(filepath.Join(sessionDir, "updates.jsonl"))
+	updatesPath := filepath.Join(sessionDir, "updates.jsonl")
+	if maxTranscriptBytes > 0 {
+		if info, err := os.Stat(updatesPath); err == nil && info.Size() > maxTranscriptBytes {
+			return metas, missing
+		}
+	}
+	file, err := os.Open(updatesPath)
 	if err != nil {
-		return metas
+		return metas, nil
 	}
 	defer file.Close()
 	summary, summaryErr := readSummary(sessionDir)
 	if summaryErr != nil {
-		return metas
+		return metas, nil
+	}
+	metas, limited := scanSubagentUpdates(ctx, sessionDir, withDetails, entries, missing, metas, summary, file, maxTranscriptBytes)
+	if limited {
+		return metas, missing
+	}
+	return metas, nil
+}
+
+func scanSubagentUpdates(ctx context.Context, sessionDir string, withDetails bool, entries []os.DirEntry, missing map[string]bool, metas []subagentMeta, summary *summaryFile, file *os.File, maxTranscriptBytes int64) ([]subagentMeta, bool) {
+	if ctx.Err() != nil {
+		return metas, false
 	}
 	type eventLine struct {
 		Params struct {
@@ -69,11 +92,17 @@ func readSubagentMetas(ctx context.Context, sessionDir string, withDetails bool)
 	}
 	recovered := map[string]subagentMeta{}
 	attempts := map[string]string{}
-	scanner := bufio.NewScanner(file)
+	var limitedReader *io.LimitedReader
+	var reader io.Reader = file
+	if maxTranscriptBytes > 0 {
+		limitedReader = &io.LimitedReader{R: file, N: maxTranscriptBytes + 1}
+		reader = limitedReader
+	}
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), int(maxGrokJSONBytes))
 	for scanner.Scan() {
 		if ctx.Err() != nil {
-			return metas
+			return metas, false
 		}
 		var line eventLine
 		if json.Unmarshal(scanner.Bytes(), &line) != nil {
@@ -101,6 +130,14 @@ func readSubagentMetas(ctx context.Context, sessionDir string, withDetails bool)
 			}
 		}
 	}
+	if limitedReader != nil && limitedReader.N == 0 {
+		return metas, true
+	}
+	if maxTranscriptBytes > 0 {
+		if info, err := file.Stat(); err == nil && info.Size() > maxTranscriptBytes {
+			return metas, true
+		}
+	}
 	if scanner.Err() == nil {
 		seen := map[string]bool{}
 		for _, meta := range metas {
@@ -113,7 +150,7 @@ func readSubagentMetas(ctx context.Context, sessionDir string, withDetails bool)
 			}
 		}
 	}
-	return metas
+	return metas, false
 }
 
 // attachSubagents links children using parent metadata or structured spawn events.
