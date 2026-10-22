@@ -169,37 +169,45 @@ func TestGrokSourceRevisionPreservesPreparationClassification(t *testing.T) {
 }
 
 func TestGrokSourceRevisionsIsolateOversizedLineage(t *testing.T) {
-	for _, healthy := range []bool{false, true} {
-		t.Run(map[bool]string{false: "all blocked", true: "healthy families"}[healthy], func(t *testing.T) {
-			_, group, _ := grokMissingMetaFixture(t)
-			if err := os.Truncate(filepath.Join(group, "root", "updates.jsonl"), sessionbackupv1.MaxArtifactBytes+1); err != nil {
-				t.Fatal(err)
-			}
-			if !healthy {
-				for _, id := range []string{"fork", "worktree"} {
-					if err := os.RemoveAll(filepath.Join(group, id)); err != nil {
+	for _, oversizedID := range []string{"root", "child"} {
+		t.Run(oversizedID, func(t *testing.T) {
+			for _, healthy := range []bool{false, true} {
+				t.Run(map[bool]string{false: "all blocked", true: "healthy families"}[healthy], func(t *testing.T) {
+					_, group, _ := grokFixture(t)
+					missingChild := map[string]string{"root": "child", "child": "grandchild"}[oversizedID]
+					if err := os.Remove(filepath.Join(group, oversizedID, "subagents", missingChild, "meta.json")); err != nil {
 						t.Fatal(err)
 					}
-				}
-			}
-			base, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			ctx := &grokPlanningReadContext{Context: base, cancel: cancel}
-			revisions, failures, err := LocalGrokSourceRevisions(ctx)
-			if err != nil || ctx.entered {
-				t.Fatalf("transcript scan entered=%t err=%v", ctx.entered, err)
-			}
-			if len(failures) != 3 || len(revisions) != map[bool]int{false: 0, true: 2}[healthy] {
-				t.Fatalf("revisions=%v failures=%v", revisions, failures)
-			}
-			if healthy && (revisions["fork"] == "" || revisions["worktree"] == "") {
-				t.Fatalf("healthy independent families lost: %v", revisions)
-			}
-			for _, id := range []string{"root", "child", "grandchild"} {
-				var failure *PreparationError
-				if revisions[id] != "" || !errors.As(failures[id], &failure) || !failure.TooLarge || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
-					t.Fatalf("%s revision=%q failure=%v", id, revisions[id], failures[id])
-				}
+					if err := os.Truncate(filepath.Join(group, oversizedID, "updates.jsonl"), sessionbackupv1.MaxArtifactBytes+1); err != nil {
+						t.Fatal(err)
+					}
+					if !healthy {
+						for _, id := range []string{"fork", "worktree"} {
+							if err := os.RemoveAll(filepath.Join(group, id)); err != nil {
+								t.Fatal(err)
+							}
+						}
+					}
+					base, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					ctx := &grokPlanningReadContext{Context: base, cancel: cancel}
+					revisions, failures, err := LocalGrokSourceRevisions(ctx)
+					if err != nil || ctx.entered {
+						t.Fatalf("transcript scan entered=%t err=%v", ctx.entered, err)
+					}
+					if len(failures) != 3 || len(revisions) != map[bool]int{false: 0, true: 2}[healthy] {
+						t.Fatalf("revisions=%v failures=%v", revisions, failures)
+					}
+					if healthy && (revisions["fork"] == "" || revisions["worktree"] == "") {
+						t.Fatalf("healthy independent families lost: %v", revisions)
+					}
+					for _, id := range []string{"root", "child", "grandchild"} {
+						var failure *PreparationError
+						if revisions[id] != "" || !errors.As(failures[id], &failure) || !failure.TooLarge || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
+							t.Fatalf("%s revision=%q failure=%v", id, revisions[id], failures[id])
+						}
+					}
+				})
 			}
 		})
 	}
