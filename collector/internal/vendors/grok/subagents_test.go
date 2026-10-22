@@ -193,3 +193,34 @@ func TestSubagentRecoveryStreamsLargeLogsAndIndexesOnlyLineage(t *testing.T) {
 		}
 	}
 }
+
+func TestFamilyLookupPrefersDeclaredParentOverConflictingMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	group := filepath.Join(home, "sessions", "group")
+	for _, id := range []string{"a", "b"} {
+		dir := filepath.Join(group, id)
+		writeSummary(t, dir, `{"info":{"id":"`+id+`"},"chat_format_version":1}`)
+		writeUpdates(t, dir, nil)
+		meta := filepath.Join(dir, "subagents", "child")
+		if err := os.MkdirAll(meta, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(meta, "meta.json"), []byte(`{"child_session_id":"child"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	child := filepath.Join(group, "child")
+	writeSummary(t, child, `{"info":{"id":"child"},"chat_format_version":1,"session_kind":"subagent","parent_session_id":"a"}`)
+	writeUpdates(t, child, nil)
+	for _, id := range []string{"a", "child"} {
+		family, _, err := GetSessionFamily(id)
+		if err != nil || len(family) != 2 || family[0].Session.ID != "a" || family[1].Session.ID != "child" {
+			t.Fatalf("lookup %s: family=%v err=%v", id, family, err)
+		}
+	}
+	family, _, err := GetSessionFamily("b")
+	if err != nil || len(family) != 1 {
+		t.Fatalf("conflicting parent family=%v err=%v", family, err)
+	}
+}

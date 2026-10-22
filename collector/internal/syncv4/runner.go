@@ -230,6 +230,23 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.DiscoverBatches != nil && (r.config.ImportPlan != nil || r.scaleEnabled) {
 		listedOnce, unlistedSince := false, 0
 		var sourceErr error
+		discoveryRequest := r.discoveryRequests.Load()
+		refreshSources := discoveryRequest != r.completedDiscovery || r.lastDiscoveryAt.IsZero() || r.now().Sub(r.lastDiscoveryAt) >= 5*time.Minute
+		var verifiedGrok map[string]string
+		var failedGrok map[string]error
+		if refreshSources {
+			var err error
+			verifiedGrok, failedGrok, err = r.grokSourceRevisions(ctx, nil)
+			if err != nil {
+				return err
+			}
+			if err := r.reconcileGrokSources(nil, failedGrok); err != nil {
+				return err
+			}
+			for _, failure := range failedGrok {
+				sourceErr = errors.Join(sourceErr, failure)
+			}
+		}
 		// A large local discovery pass can take minutes. Resume already listed
 		// uploads first so a fresh scan does not block visible content progress.
 		var transferErr error
@@ -242,15 +259,18 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		// The inventory refreshes every five minutes. Between refreshes, use
 		// the saved queue to keep transferring instead of reparsing the same
 		// source files on every sync pass.
-		discoveryRequest := r.discoveryRequests.Load()
-		if discoveryRequest == r.completedDiscovery && !r.lastDiscoveryAt.IsZero() && r.now().Sub(r.lastDiscoveryAt) < 5*time.Minute {
+		if !refreshSources {
 			return transferErr
 		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			grokRevisions := make(map[string]string, len(batch.GrokFamilies))
 			failures := map[string]error{}
 			for _, family := range batch.GrokFamilies {
-				revision, err := sessionbackupproducer.GrokSourceRevision(ctx, family)
+				revision, verified := verifiedGrok[family.ID]
+				err := failedGrok[family.ID]
+				if !verified && err == nil {
+					revision, err = sessionbackupproducer.GrokSourceRevision(ctx, family)
+				}
 				if err != nil {
 					if stopSync(err) {
 						return err
@@ -299,6 +319,16 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}); err != nil {
 			return errors.Join(transferErr, sourceErr, err)
 		}
+		// A retry outside the discovery window cannot verify a replacement.
+		for _, entry := range r.Queue.Entries() {
+			if entry.SourceBlocked && entry.FailureCode == "" {
+				failure := &sessionbackupproducer.PreparationError{}
+				if err := r.recordFailureState(&entry, failure, true); err != nil {
+					return err
+				}
+				sourceErr = errors.Join(sourceErr, failure)
+			}
+		}
 		r.completedDiscovery = discoveryRequest
 		r.lastDiscoveryAt = r.now()
 		return errors.Join(transferErr, sourceErr, r.runPlannedAndReport(ctx))
@@ -324,7 +354,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			break
 		}
 	}
-	revisions, failures, err := grokSourceRevisions(ctx, sessions)
+	revisions, failures, err := r.grokSourceRevisions(ctx, sessions)
 	if err != nil {
 		return err
 	}
@@ -461,14 +491,36 @@ func (r *Runner) applyExclusions() error {
 	return nil
 }
 
-// grokSourceRevisions scans once per discovery pass, only when Grok is present.
-func grokSourceRevisions(ctx context.Context, sessions []*session.Session) (map[string]string, map[string]error, error) {
+// grokSourceRevisions also verifies queued roots omitted by partial discovery.
+func (r *Runner) grokSourceRevisions(ctx context.Context, sessions []*session.Session) (map[string]string, map[string]error, error) {
+	needed := false
 	for _, item := range sessions {
-		if item != nil && item.Agent == "grok" {
-			return sessionbackupproducer.LocalGrokSourceRevisions(ctx)
+		needed = needed || item != nil && item.Agent == "grok"
+	}
+	entries := r.Queue.Entries()
+	for _, entry := range entries {
+		needed = needed || entry.Selection.Agent == "grok" && !entry.Excluded
+	}
+	if !needed {
+		return nil, nil, nil
+	}
+	revisions, failures, err := sessionbackupproducer.LocalGrokSourceRevisions(ctx)
+	if stopSync(err) {
+		return nil, nil, err
+	}
+	if failures == nil {
+		failures = map[string]error{}
+	}
+	for _, entry := range entries {
+		id := entry.Selection.SessionID
+		if entry.Selection.Agent == "grok" && !entry.Excluded && revisions[id] == "" && failures[id] == nil {
+			failures[id] = &sessionbackupproducer.PreparationError{}
 		}
 	}
-	return nil, nil, nil
+	if len(failures) > 0 {
+		err = nil
+	}
+	return revisions, failures, err
 }
 
 // A source-hash failure must not replace or send the last verified capture.
@@ -651,7 +703,7 @@ func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure b
 // that repeats on every pass or every source change does not flood the log.
 func (r *Runner) failed(entry *Entry, failure error) error {
 	code := hubLogCode(entry.FailureCode, failure)
-	if code == "" || !pending(*entry) {
+	if code == "" || !pending(*entry) && !entry.SourceBlocked {
 		return r.Queue.Update(*entry)
 	}
 	line := LogLine{At: r.now().UTC().Truncate(time.Microsecond), Level: "error", Code: code,

@@ -35,14 +35,17 @@ the exact bytes before upload.
 For Grok, the queue hashes the verified family's complete producer input list,
 including recursive usage and optional input presence. Streamed discovery passes
 its verified family references unchanged, including independent fork context.
-Streamed sync reads only selected families and keeps discovery activity
-separate from source revision. A grandchild update can change the family source revision
-while the canonical root record stays unchanged. Forks retain their local origin
+Streamed discovery parses only selected families and keeps discovery activity
+separate from source revision. Before resuming queued Grok uploads on a discovery
+refresh, Local also verifies queued sources omitted from the selected window.
+A grandchild update can change the family source revision while the canonical root record stays unchanged. Forks retain their local origin
 lineage and enter the queue as independent verified roots.
 A source-hash failure blocks only that family. Healthy families and later
 batches continue. The private queue retains prior pending captures until a fresh
 source hash succeeds, including after restart or a Hub retry. A Hub retry clears
 its prior failure outcome and wakes discovery before the command can settle.
+If the source cannot be rediscovered within the active window, the retry fails
+with `unreadable_source` and retains the last verified capture.
 Existing failure codes and logs report the blocked source. No empty source hash admits a root.
 Grok metadata sums all five counters with checked integer addition. An
 unrepresentable total uses the compatible Hub's existing zero sentinel for
