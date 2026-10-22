@@ -487,7 +487,10 @@ func enrichModelsAndCostsContext(ctx context.Context, parsed []*vendors.ParsedSe
 			session.AttachCost(s, item.RecordedCost)
 			continue
 		}
-		s.UnpricedModels = session.UnpricedModels(s.Tokens)
+		s.UnpricedModels = slices.DeleteFunc(session.UnpricedModels(s.Tokens), func(model string) bool {
+			_, sourceCostKnown := item.RecordedModelCosts[model]
+			return sourceCostKnown
+		})
 		s.Cost = nil
 		if !item.CostIncomplete && len(s.UnpricedModels) == 0 && len(s.Tokens) > 0 {
 			var total float64

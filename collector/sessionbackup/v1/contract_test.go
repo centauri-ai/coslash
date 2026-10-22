@@ -1085,6 +1085,14 @@ func TestGrokBackupRoundTripAndGuards(t *testing.T) {
 		kept = append(kept, artifact)
 	}
 	manifest.Artifacts = kept
+	for _, member := range manifest.Members {
+		name := "members/" + member.MemberID + "/raw/summary.json"
+		manifest.Artifacts = append(manifest.Artifacts, Artifact{
+			LogicalName: name, MemberID: member.MemberID, Source: "grok", Kind: KindRawSidecar,
+			SourceKey: "summary.json", MediaType: "application/json", Encoding: EncodingIdentity,
+		})
+		blobs[name] = []byte(`{}`)
+	}
 	frozen, err := Freeze(manifest, blobs)
 	if err != nil {
 		t.Fatal(err)
@@ -1096,6 +1104,20 @@ func TestGrokBackupRoundTripAndGuards(t *testing.T) {
 	validateAgainstSchema(t, "schema.json", data)
 	if _, err := Verify(data, func(name string) (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(blobs[name])), nil }); err != nil {
 		t.Fatal(err)
+	}
+	missingSummary := cloneManifest(frozen)
+	missingSummary.CompleteBackupSHA256 = ""
+	missingBlobs := cloneBlobMap(blobs)
+	childID := missingSummary.Members[1].MemberID
+	for index, artifact := range missingSummary.Artifacts {
+		if artifact.MemberID == childID && artifact.Kind == KindRawSidecar && artifact.SourceKey == "summary.json" {
+			delete(missingBlobs, artifact.LogicalName)
+			missingSummary.Artifacts = append(missingSummary.Artifacts[:index], missingSummary.Artifacts[index+1:]...)
+			break
+		}
+	}
+	if _, err := Freeze(missingSummary, missingBlobs); !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Freeze() without a Grok member summary error = %v; want incomplete", err)
 	}
 	for _, change := range []struct{ agent, kind string }{{"grok", SourceSSH}, {"pi", SourceLocal}, {"Grok", SourceLocal}} {
 		invalid := frozen

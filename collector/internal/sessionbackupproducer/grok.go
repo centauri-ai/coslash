@@ -228,12 +228,16 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 			dir := filepath.Join(root, group.Name(), entry.Name())
 			for _, name := range []string{"summary.json", "updates.jsonl"} {
 				path := filepath.Join(dir, name)
-				if info, err := os.Lstat(path); err == nil {
-					if name == "updates.jsonl" && info.Size() > sessionbackupv1.MaxArtifactBytes {
-						return grok.FamilyRef{}, captureTooLarge(sessionbackupv1.KindRawTranscript)
-					}
+				if _, err := os.Lstat(path); err == nil {
 					if !claudeInputWithinProjects(path, root) {
 						return failure()
+					}
+				}
+			}
+			if filepath.Base(dir) == id {
+				if member, err := grokCaptureID(dir); err == nil && member == id {
+					if info, err := os.Lstat(filepath.Join(dir, "updates.jsonl")); err == nil && info.Size() > sessionbackupv1.MaxArtifactBytes {
+						return grok.FamilyRef{}, captureTooLarge(sessionbackupv1.KindRawTranscript)
 					}
 				}
 			}
@@ -257,9 +261,6 @@ func grokCaptureFamily(ctx context.Context, root, id string) (grok.FamilyRef, er
 				}
 			}
 			dirs = append(dirs, dir)
-			if len(dirs) > sessionbackupv1.MaxMembers {
-				return failure()
-			}
 		}
 	}
 	families, err := grok.PlanFamiliesContext(ctx, dirs)
@@ -394,6 +395,9 @@ func grokDirectoryWithin(path, root string) bool {
 }
 
 func grokFamilyInputs(ctx context.Context, root string, family grok.FamilyRef) ([]grokInput, []string, error) {
+	if len(family.Dirs) > sessionbackupv1.MaxMembers {
+		return nil, nil, captureTooLarge("")
+	}
 	inputs, ids, err := grokCaptureInputs(ctx, root, family.Dirs)
 	if err != nil {
 		return nil, nil, err
