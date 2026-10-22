@@ -109,12 +109,13 @@ A consumer must reject a record unless all of these rules hold:
 The first C01 producers are Codex and Claude. Adding another parser requires an
 explicit field-parity decision; schema support alone does not claim producer
 coverage. Grok local portable composition preserves model-attributed usage,
-model-unattributed session totals, and nested child accounting. It does not add
-Grok to remote collection or enable a complete-backup producer or sync queue.
-Grok uses either model rows or unattributed counters for each member; child
-accounting is repeated in its direct parent's subagent projection and its own
-complete record, without being added to the parent's counters. Sum complete
-member records once, not their duplicate subagent projections.
+model-unattributed session totals, and nested child accounting. Grok local
+complete-backup capture preserves each member's source artifacts; it does not
+add Grok to remote collection or a sync queue. Grok uses either model rows or
+unattributed counters for each member; child accounting is repeated in its
+direct parent's subagent projection and its own complete record, without being
+added to the parent's counters. Sum complete member records once, not their
+duplicate subagent projections.
 
 Grok's source parser collapses all-zero totals without model rows to absence.
 Constructed present zero counters remain distinct from absent accounting in

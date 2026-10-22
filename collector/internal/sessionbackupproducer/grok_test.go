@@ -17,6 +17,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
@@ -622,6 +623,37 @@ func TestGrokCaptureKeepsVerifiedFamilyDuringUnrelatedSummaryFailure(t *testing.
 	}
 }
 
+func TestGrokCaptureIgnoresUnrelatedOversizeTranscript(t *testing.T) {
+	home, group, selection := grokFixture(t)
+	unrelated := filepath.Join(group, "unrelated")
+	summary, err := json.Marshal(map[string]any{
+		"info":                map[string]string{"id": "unrelated", "cwd": filepath.Join(home, "project")},
+		"chat_format_version": 1, "session_kind": "interactive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGrokInput(t, filepath.Join(unrelated, "summary.json"), summary)
+	updates := filepath.Join(unrelated, "updates.jsonl")
+	writeGrokInput(t, updates, nil)
+	if err := os.Truncate(updates, sessionbackupv1.MaxArtifactBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := grokManager(t.TempDir(), home, nil).Prepare(t.Context(), selection)
+	if err != nil || len(prepared.Manifest.Members) != 3 {
+		t.Fatalf("unrelated transcript blocked selected family: %v", err)
+	}
+}
+
+func TestGrokMemberLimitAppliesToSelectedFamily(t *testing.T) {
+	family := grok.FamilyRef{Dirs: make([]string, sessionbackupv1.MaxMembers+1)}
+	_, _, err := grokFamilyInputs(t.Context(), t.TempDir(), family)
+	var captureErr *captureError
+	if !errors.As(err, &captureErr) || !captureErr.tooLarge {
+		t.Fatalf("oversized selected family error = %v; want too-large capture", err)
+	}
+}
+
 func grokMissingMetaFixture(t *testing.T) (string, string, Selection) {
 	t.Helper()
 	home, group, selection := grokFixture(t)
@@ -670,30 +702,26 @@ func (ctx *grokPlanningReadContext) Err() error {
 }
 
 func TestGrokRejectsOversizeBeforeSpawnPlanning(t *testing.T) {
-	for _, id := range []string{"root", "fork"} {
-		t.Run(id, func(t *testing.T) {
-			home, group, selection := grokMissingMetaFixture(t)
-			file, err := os.OpenFile(filepath.Join(group, id, "updates.jsonl"), os.O_RDWR, 0o600)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = file.Truncate(sessionbackupv1.MaxArtifactBytes + 1)
-			closeErr := file.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if closeErr != nil {
-				t.Fatal(closeErr)
-			}
-			base, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			ctx := &grokPlanningReadContext{Context: base, cancel: cancel}
-			_, err = grokManager(t.TempDir(), home, nil).Prepare(ctx, selection)
-			var failure *PreparationError
-			if ctx.entered || !errors.As(err, &failure) || !failure.TooLarge || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
-				t.Fatalf("planner entered=%t failure=%+v err=%v", ctx.entered, failure, err)
-			}
-		})
+	home, group, selection := grokMissingMetaFixture(t)
+	file, err := os.OpenFile(filepath.Join(group, "root", "updates.jsonl"), os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = file.Truncate(sessionbackupv1.MaxArtifactBytes + 1)
+	closeErr := file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	base, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ctx := &grokPlanningReadContext{Context: base, cancel: cancel}
+	_, err = grokManager(t.TempDir(), home, nil).Prepare(ctx, selection)
+	var failure *PreparationError
+	if ctx.entered || !errors.As(err, &failure) || !failure.TooLarge || failure.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
+		t.Fatalf("planner entered=%t failure=%+v err=%v", ctx.entered, failure, err)
 	}
 }
 

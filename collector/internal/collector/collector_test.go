@@ -658,3 +658,21 @@ func TestGrokSourceCostEnrichmentKeepsAvailabilityAndAgentPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestGrokUnknownModelSourceCostCompletesAggregate(t *testing.T) {
+	for _, want := range []float64{0, 0.125} {
+		s := &session.Session{Agent: vendors.AgentGrok, Tokens: map[string]session.ModelTokens{
+			"unpriced-synthetic-model": {InputTokens: 12},
+		}}
+		item := &vendors.ParsedSession{Session: s, RecordedModelCosts: map[string]float64{"unpriced-synthetic-model": want}}
+		if err := enrichModelsAndCostsContext(t.Context(), []*vendors.ParsedSession{item}); err != nil {
+			t.Fatal(err)
+		}
+		if s.Cost == nil || *s.Cost != want || len(s.UnpricedModels) != 0 {
+			t.Fatalf("source model cost %.6f produced aggregate=%v unpriced=%v", want, s.Cost, s.UnpricedModels)
+		}
+		if got := s.Tokens["unpriced-synthetic-model"].Cost; got != want {
+			t.Fatalf("model cost = %v, want %v", got, want)
+		}
+	}
+}

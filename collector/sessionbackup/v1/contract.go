@@ -409,6 +409,7 @@ func validate(manifest Manifest, requireHash bool) error {
 	seenNames := map[string]bool{}
 	seenSourceKeys := map[string]bool{}
 	memberKinds := make(map[string]map[string]int, len(manifest.Members))
+	memberGrokSummaries := make(map[string]bool, len(manifest.Members))
 	previousMember := -1
 	previousKind, previousName := "", ""
 	var totalBytes int64
@@ -452,6 +453,9 @@ func validate(manifest Manifest, requireHash bool) error {
 			memberKinds[artifact.MemberID] = map[string]int{}
 		}
 		memberKinds[artifact.MemberID][artifact.Kind]++
+		if manifest.Source.Agent == ArtifactSourceGrok && artifact.Kind == KindRawSidecar && artifact.SourceKey == "summary.json" {
+			memberGrokSummaries[artifact.MemberID] = true
+		}
 		previousMember, previousKind, previousName = memberPosition, artifact.Kind, artifact.LogicalName
 	}
 	for _, member := range manifest.Members {
@@ -462,6 +466,9 @@ func validate(manifest Manifest, requireHash bool) error {
 		}
 		if kinds[KindParsedSessionRecord] == 0 || kinds[rawKind] == 0 || kinds[KindSessionEnrichment] == 0 {
 			return fmt.Errorf("%w: member %q lacks required artifacts", ErrIncomplete, member.MemberID)
+		}
+		if manifest.Source.Agent == ArtifactSourceGrok && !memberGrokSummaries[member.MemberID] {
+			return fmt.Errorf("%w: member %q lacks Grok summary sidecar", ErrIncomplete, member.MemberID)
 		}
 		if kinds[KindParsedSessionRecord] != 1 || kinds[KindSessionEnrichment] != 1 {
 			return fmt.Errorf("%w: member %q has duplicate singleton artifacts", ErrInvalid, member.MemberID)
