@@ -49,6 +49,19 @@ func FromParsedFamilyWithServabilityContext(
 			break
 		}
 	}
+	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, servable, err
+		}
+		if vendor != vendors.AgentGrok || item == nil || item.Session == nil {
+			continue
+		}
+		for model := range item.RecordedModelCosts {
+			if _, present := item.Session.Tokens[model]; !present {
+				return nil, servable, fmt.Errorf("model cost without token counters cannot be represented by full-session/v1")
+			}
+		}
+	}
 	records := make([]fullsessionv1.Record, 0, len(composed))
 	for _, item := range composed {
 		if err := ctx.Err(); err != nil {

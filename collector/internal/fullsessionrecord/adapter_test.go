@@ -750,3 +750,42 @@ func TestCloneParsedFamilyPreservesIndependentSourceCostPresence(t *testing.T) {
 		t.Fatal("clone changed source cost provenance")
 	}
 }
+
+func TestGrokCounterlessModelCostRejectsWithoutHidingRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cost  float64
+		mixed bool
+	}{
+		{"negative", -1, false}, {"positive", 1, false}, {"zero", 0, false}, {"mixed", 2, true},
+	} {
+		for _, member := range []string{"root", "child"} {
+			for _, aggregate := range []string{"absent", "known"} {
+				t.Run(tc.name+"/"+member+"/aggregate-"+aggregate, func(t *testing.T) {
+					parsed := []*vendors.ParsedSession{
+						{Session: &session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}},
+						{ParentID: "root", Session: &session.Session{Agent: "grok", ID: "child", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}},
+					}
+					for _, item := range parsed {
+						if item.Session.ID != member {
+							continue
+						}
+						item.RecordedModelCosts = map[string]float64{"grok-4.7": tc.cost}
+						if tc.mixed {
+							item.Session.Tokens = map[string]session.ModelTokens{"gpt-5": {InputTokens: 12}}
+							item.RecordedModelCosts["gpt-5"] = 1
+						}
+						if aggregate == "known" {
+							cost := 3.0
+							item.RecordedCost = &cost
+						}
+					}
+					records, servable, err := FromParsedFamilyWithServabilityContext(t.Context(), "root", "local", "grok", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+					if err == nil || !servable || len(records) != 0 {
+						t.Fatalf("records=%d servable=%v err=%v", len(records), servable, err)
+					}
+				})
+			}
+		}
+	}
+}
