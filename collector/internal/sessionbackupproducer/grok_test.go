@@ -657,7 +657,12 @@ func TestGrokMemberLimitAppliesToSelectedFamily(t *testing.T) {
 func grokMissingMetaFixture(t *testing.T) (string, string, Selection) {
 	t.Helper()
 	home, group, selection := grokFixture(t)
-	if err := os.Remove(filepath.Join(group, "root", "subagents", "child", "meta.json")); err != nil {
+	subagentDir := filepath.Join(group, "root", "subagents", "child")
+	missingMetaDir := filepath.Join(group, "root", "subagents", "sub")
+	if err := os.Rename(subagentDir, missingMetaDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(missingMetaDir, "meta.json")); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(group, "child", "summary.json")
@@ -680,7 +685,7 @@ func grokMissingMetaFixture(t *testing.T) (string, string, Selection) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = append(data, []byte(`{"params":{"sessionId":"root","update":{"sessionUpdate":"subagent_spawned","subagent_id":"child","parent_session_id":"root","child_session_id":"child","attempt_id":"one","prompt":"recover me"}}}`+"\n")...)
+	data = append(data, []byte(`{"params":{"sessionId":"root","update":{"sessionUpdate":"subagent_spawned","subagent_id":"sub","parent_session_id":"root","child_session_id":"child","attempt_id":"one","prompt":"recover me"}}}`+"\n")...)
 	writeGrokInput(t, path, data)
 	return home, group, selection
 }

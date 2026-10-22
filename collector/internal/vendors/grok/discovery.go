@@ -95,7 +95,7 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 			return nil, nil, err
 		}
 		metas, missing := readSubagentMetasWithTranscriptLimit(ctx, dir, false, maxTranscriptBytes)
-		markOversizedLineage(oversizedMembers, blocked, "", missing, summaries)
+		markOversizedLineage(oversizedMembers, blocked, "", dir, missing, summaries, byID)
 		for _, meta := range metas {
 			if child := summaries[meta.ChildSessionID]; child != nil && isSubagentKind(child.SessionKind) {
 				blocked[meta.ChildSessionID] = true
@@ -111,7 +111,7 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 		if len(missing) > 0 {
 			blocked[id] = true
 		}
-		markOversizedLineage(oversizedMembers, blocked, id, missing, summaries)
+		markOversizedLineage(oversizedMembers, blocked, id, dir, missing, summaries, byID)
 		for _, meta := range metas {
 			child := summaries[meta.ChildSessionID]
 			if child == nil {
@@ -221,16 +221,16 @@ func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[str
 	return refs, parentOf, summaryErr
 }
 
-func markOversizedLineage(oversizedMembers, blocked map[string]bool, parentID string, missing map[string]bool, summaries map[string]*summaryFile) {
+func markOversizedLineage(oversizedMembers, blocked map[string]bool, parentID, parentDir string, missing map[string]bool, summaries map[string]*summaryFile, dirs map[string]string) {
 	if len(missing) == 0 {
 		return
 	}
 	if oversizedMembers != nil && parentID != "" {
 		oversizedMembers[parentID] = true
 	}
-	for candidate := range missing {
-		child := summaries[candidate]
-		if child == nil || !isSubagentKind(child.SessionKind) ||
+	for candidate, child := range summaries {
+		if !isSubagentKind(child.SessionKind) || filepath.Dir(dirs[candidate]) != filepath.Dir(parentDir) ||
+			(parentID == "" && child.ParentSessionID != "") ||
 			(parentID != "" && child.ParentSessionID != "" && child.ParentSessionID != parentID) {
 			continue
 		}
