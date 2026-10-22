@@ -403,7 +403,7 @@ func cloneParsedFamilyContext(ctx context.Context, parsed []*vendors.ParsedSessi
 }
 
 func micros(value float64) int64 {
-	if value < 0 {
+	if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
 		return -1
 	}
 	return int64(math.Round(value * 1_000_000))

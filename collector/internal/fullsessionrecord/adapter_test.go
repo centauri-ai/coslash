@@ -2,6 +2,7 @@ package fullsessionrecord
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -17,9 +18,10 @@ import (
 )
 
 func TestCostValidationBeforeMicroRounding(t *testing.T) {
+	maximum := float64(fullsessionv1.MaxCostMicroUSD) / 1e6
 	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "grok"} {
 		for _, field := range []string{"model", "session", "child model", "child session"} {
-			for _, cost := range []float64{-1, -0.00000049, -1e-10, 0, 1e-10, 0.00000049, 0.0000005, 0.0000015} {
+			for _, cost := range []float64{-1, -0.00000049, -1e-10, 0, 1e-10, 0.00000049, 0.0000005, 0.0000015, math.Nextafter(maximum, 0), maximum} {
 				t.Run(fmt.Sprintf("%s/%s/%g", agent, field, cost), func(t *testing.T) {
 					value := session.Session{Agent: agent, ID: "root", StartedAt: 1, LastActivityTime: 2}
 					switch field {
@@ -59,6 +61,34 @@ func TestCostValidationBeforeMicroRounding(t *testing.T) {
 					}
 					if want := int64(math.Round(cost * 1e6)); got != want {
 						t.Fatalf("cost=%d want=%d", got, want)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestNonfiniteCostsRejected(t *testing.T) {
+	for _, cost := range []float64{math.NaN(), math.Inf(-1), math.Inf(1)} {
+		for _, child := range []bool{false, true} {
+			for _, model := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%g/child=%t/model=%t", cost, child, model), func(t *testing.T) {
+					value := session.Session{Agent: "grok", ID: "root", StartedAt: 1, LastActivityTime: 2}
+					var tokens map[string]session.ModelTokens
+					var total *float64
+					if model {
+						tokens = map[string]session.ModelTokens{"gpt-5": {InputTokens: 1, Cost: cost}}
+					} else {
+						total = &cost
+					}
+					if child {
+						value.Subagents = []session.Subagent{{ID: "child", Tokens: tokens, Cost: total}}
+					} else {
+						value.Tokens, value.Cost = tokens, total
+					}
+					record, err := FromSession("local", value)
+					if !errors.Is(err, fullsessionv1.ErrInvalid) || !reflect.DeepEqual(record, fullsessionv1.Record{}) {
+						t.Fatalf("nonfinite cost returned a complete record: err=%v", err)
 					}
 				})
 			}
