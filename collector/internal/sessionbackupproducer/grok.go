@@ -437,7 +437,7 @@ func grokFamilyInputs(ctx context.Context, root string, family grok.FamilyRef) (
 
 // LocalGrokSourceRevisions hashes the existing producer inputs once per queue
 // discovery pass. Root detail revisions do not cover every descendant's usage.
-// Revisions and ordinary failures are keyed by root ID; the final error aborts.
+// Revisions and ordinary failures are keyed by session ID; the final error aborts.
 func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, map[string]error, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -446,11 +446,11 @@ func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, map[strin
 	if err != nil {
 		return nil, nil, err
 	}
-	families, _, err := grokCaptureFamilies(ctx, root)
+	families, oversizedMembers, err := grokCaptureFamilies(ctx, root)
 	if ctx.Err() != nil {
 		return nil, nil, ctx.Err()
 	}
-	if err != nil && len(families) == 0 {
+	if err != nil && len(families) == 0 && len(oversizedMembers) == 0 {
 		var failure *captureError
 		if errors.As(err, &failure) {
 			_, err = captureProblem(Selection{SourceKind: sessionbackupv1.SourceLocal, Agent: vendors.AgentGrok}, failure)
@@ -459,6 +459,9 @@ func LocalGrokSourceRevisions(ctx context.Context) (map[string]string, map[strin
 	}
 	revisions := make(map[string]string, len(families))
 	failures := map[string]error{}
+	for id := range oversizedMembers {
+		_, failures[id] = captureProblem(Selection{SourceKind: sessionbackupv1.SourceLocal, Agent: vendors.AgentGrok, SessionID: id}, &captureError{code: sessionbackupv1.ProblemInvalid, kind: sessionbackupv1.KindRawTranscript, tooLarge: true})
+	}
 	for _, family := range families {
 		revision, err := GrokSourceRevision(ctx, family)
 		if err != nil {
