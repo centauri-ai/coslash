@@ -332,6 +332,30 @@ func TestUsageWithoutModelBreakdownKeepsSessionTotals(t *testing.T) {
 	}
 }
 
+func TestNegativeSourceCostIsUnavailable(t *testing.T) {
+	for _, body := range []string{
+		`{"modelUsage":{"gpt-5":{"inputTokens":1,"costUsdTicks":-1}}}`,
+		`{"costUsdTicks":0,"modelUsage":{"gpt-5":{"inputTokens":1,"costUsdTicks":-1}}}`,
+		`{"costUsdTicks":-1,"modelUsage":{"gpt-5":{"inputTokens":1,"costUsdTicks":0}}}`,
+		`{"costUsdTicks":-1}`,
+		`{"inputTokens":1,"costUsdTicks":-1}`,
+		`{"modelUsage":{"gpt-5":{"inputTokens":1,"costUsdTicks":-1},"grok-4.7":{"inputTokens":1,"costUsdTicks":10000000000}}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "usage.json")
+			if err := os.WriteFile(path, []byte(`{"session":`+body+`}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			parsed := &vendors.ParsedSession{Session: &session.Session{}}
+			applyUsage(parsed, path)
+			session.AttachCost(parsed.Session, parsed.RecordedCost)
+			if !parsed.Session.CostUnavailable || parsed.Session.Cost != nil {
+				t.Fatalf("invalid source became successful accounting: unavailable=%t cost=%v", parsed.Session.CostUnavailable, parsed.Session.Cost)
+			}
+		})
+	}
+}
+
 func TestUsageTokenPresence(t *testing.T) {
 	for _, test := range []struct {
 		name       string

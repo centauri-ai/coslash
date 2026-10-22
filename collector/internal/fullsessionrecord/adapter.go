@@ -402,7 +402,12 @@ func cloneParsedFamilyContext(ctx context.Context, parsed []*vendors.ParsedSessi
 	return cloned, nil
 }
 
-func micros(value float64) int64  { return int64(math.Round(value * 1_000_000)) }
+func micros(value float64) int64 {
+	if value < 0 {
+		return -1
+	}
+	return int64(math.Round(value * 1_000_000))
+}
 func dollars(value int64) float64 { return float64(value) / 1_000_000 }
 func optionalMicros(value *float64) *int64 {
 	if value == nil {

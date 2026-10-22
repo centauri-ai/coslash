@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -997,7 +998,7 @@ func TestGrokCounterlessModelRowsPreserveAccountingPresence(t *testing.T) {
 	}
 }
 
-func TestGrokCounterlessModelCostsRetainLastVerifiedFamily(t *testing.T) {
+func TestGrokInvalidModelCostsRetainLastVerifiedFamily(t *testing.T) {
 	for _, tc := range []struct{ name, usage string }{
 		{"negative", `{"session":{"modelUsage":{"gpt-5":{"costUsdTicks":-10000000000}}}}`},
 		{"positive", `{"session":{"modelUsage":{"gpt-5":{"costUsdTicks":10000000000}}}}`},
@@ -1005,6 +1006,11 @@ func TestGrokCounterlessModelCostsRetainLastVerifiedFamily(t *testing.T) {
 		{"mixed", `{"session":{"modelUsage":{"gpt-5":{"inputTokens":12,"costUsdTicks":10000000000},"grok-4.7":{"costUsdTicks":20000000000}}}}`},
 		{"independent aggregate", `{"session":{"costUsdTicks":10000000000,"modelUsage":{"gpt-5":{"costUsdTicks":10000000000}}}}`},
 		{"independent zero aggregate", `{"session":{"costUsdTicks":0,"modelUsage":{"gpt-5":{"costUsdTicks":0}}}}`},
+		{"negative submicro model", `{"session":{"modelUsage":{"gpt-5":{"inputTokens":1,"costUsdTicks":-1}}}}`},
+		{"negative submicro model with zero aggregate", `{"session":{"costUsdTicks":0,"modelUsage":{"gpt-5":{"inputTokens":1,"costUsdTicks":-1}}}}`},
+		{"negative submicro session", `{"session":{"costUsdTicks":-1,"modelUsage":{"gpt-5":{"inputTokens":1,"costUsdTicks":0}}}}`},
+		{"negative submicro cost only", `{"session":{"costUsdTicks":-1}}`},
+		{"negative submicro unattributed", `{"session":{"inputTokens":1,"costUsdTicks":-1}}`},
 	} {
 		for _, member := range []string{"root", "child", "grandchild"} {
 			t.Run(tc.name+"/"+member, func(t *testing.T) {
@@ -1026,5 +1032,39 @@ func TestGrokCounterlessModelCostsRetainLastVerifiedFamily(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestGrokNonnegativeSubmicroCosts(t *testing.T) {
+	for _, tc := range []struct{ ticks, micros int64 }{{0, 0}, {1, 0}, {4999, 0}, {5000, 1}, {15000, 2}} {
+		t.Run(fmt.Sprint(tc.ticks), func(t *testing.T) {
+			home, group, selection := grokFixture(t)
+			data, err := json.Marshal(map[string]any{"session": map[string]any{
+				"costUsdTicks": tc.ticks, "modelUsage": map[string]any{"gpt-5": map[string]any{"inputTokens": 1, "costUsdTicks": tc.ticks}},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []string{"root", "child", "grandchild"} {
+				writeGrokInput(t, filepath.Join(group, id, "usage.json"), data)
+			}
+			spool := t.TempDir()
+			prepared, err := grokManager(spool, home, nil).Prepare(t.Context(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records := grokRecords(t, spool, prepared)
+			for _, id := range []string{"root", "child", "grandchild"} {
+				s := records[id].Session
+				if s.CostMicroUSD == nil || *s.CostMicroUSD != tc.micros || len(s.Usage) != 1 || s.Usage[0].InputTokens != 1 || s.Usage[0].CostMicroUSD != tc.micros {
+					t.Fatalf("%s cost=%v usage=%+v want=%d", id, s.CostMicroUSD, s.Usage, tc.micros)
+				}
+				for _, child := range s.Subagents {
+					if child.CostMicroUSD == nil || *child.CostMicroUSD != tc.micros || len(child.Usage) != 1 || child.Usage[0].CostMicroUSD != tc.micros {
+						t.Fatalf("%s child cost=%v usage=%+v", id, child.CostMicroUSD, child.Usage)
+					}
+				}
+			}
+		})
 	}
 }

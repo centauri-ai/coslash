@@ -2,6 +2,7 @@ package fullsessionrecord
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,6 +15,56 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 )
+
+func TestCostValidationBeforeMicroRounding(t *testing.T) {
+	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "grok"} {
+		for _, field := range []string{"model", "session", "child model", "child session"} {
+			for _, cost := range []float64{-1, -0.00000049, -1e-10, 0, 1e-10, 0.00000049, 0.0000005, 0.0000015} {
+				t.Run(fmt.Sprintf("%s/%s/%g", agent, field, cost), func(t *testing.T) {
+					value := session.Session{Agent: agent, ID: "root", StartedAt: 1, LastActivityTime: 2}
+					switch field {
+					case "model":
+						value.Tokens = map[string]session.ModelTokens{"gpt-5": {InputTokens: 1, Cost: cost}}
+					case "session":
+						value.Cost = &cost
+					case "child model":
+						value.Subagents = []session.Subagent{{ID: "child", Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 1, Cost: cost}}}}
+					case "child session":
+						value.Subagents = []session.Subagent{{ID: "child", Cost: &cost}}
+					}
+					before := session.Clone(&value)
+					record, err := FromSession("local", value)
+					if !reflect.DeepEqual(&value, before) {
+						t.Fatal("adapter mutated caller accounting")
+					}
+					if cost < 0 {
+						if err == nil || !reflect.DeepEqual(record, fullsessionv1.Record{}) {
+							t.Fatalf("negative cost returned a record: err=%v", err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					var got int64
+					switch field {
+					case "model":
+						got = record.Session.Usage[0].CostMicroUSD
+					case "session":
+						got = *record.Session.CostMicroUSD
+					case "child model":
+						got = record.Session.Subagents[0].Usage[0].CostMicroUSD
+					case "child session":
+						got = *record.Session.Subagents[0].CostMicroUSD
+					}
+					if want := int64(math.Round(cost * 1e6)); got != want {
+						t.Fatalf("cost=%d want=%d", got, want)
+					}
+				})
+			}
+		}
+	}
+}
 
 func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 	edits := session.NewFileEditSet()

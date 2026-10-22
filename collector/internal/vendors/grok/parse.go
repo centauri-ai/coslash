@@ -257,6 +257,7 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 	tokens := make(map[string]session.ModelTokens, len(usage.Session.ModelUsage))
 	parsed.RecordedModelCosts = make(map[string]float64, len(usage.Session.ModelUsage))
 	parsed.CostIncomplete = usage.Session.CostIsPartial || usage.Session.UsageIsIncomplete
+	invalidCost := false
 	for model, used := range usage.Session.ModelUsage {
 		value := session.ModelTokens{
 			InputTokens:              intValue(used.InputTokens),
@@ -265,6 +266,7 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 			CacheReadInputTokens:     intValue(used.CachedReadTokens),
 		}
 		if cost, ok := used.cost(); ok {
+			invalidCost = invalidCost || cost < 0
 			value.Cost = cost
 			parsed.RecordedModelCosts[model] = cost
 		}
@@ -293,7 +295,9 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 	if cost, ok := usage.Session.cost(); ok {
 		parsed.RecordedCost = &cost
 		parsed.Session.CostUnavailable = false
+		invalidCost = invalidCost || cost < 0
 	}
+	parsed.Session.CostUnavailable = parsed.Session.CostUnavailable || invalidCost
 }
 
 func hasTokenCounts(used usageCounts) bool {
