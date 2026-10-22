@@ -102,13 +102,7 @@ Per-model token breakdowns including cache reads and writes, estimated cost at l
 
 ### Optional AI synthesis
 
-Debriefs work without any model: goals, outcomes, timelines, and artifacts are derived deterministically from the transcript. Turning on synthesis sharpens them.
-
-When enabled, coSlash passes no more than 12 KB of derived facts to a local agent CLI: Claude Code, Codex, OpenCode, Cursor, Pi, or Grok Build. Each CLI uses its existing account, and a paid model bills that account. Only substantial sessions qualify, so short runs do not use a model. Results are cached under `~/.coslash`. For the model options of each backend, see [Synthesis backends](docs/synthesis.md).
-
-It is **off until you explicitly enable and save it**.
-
-![Settings dialog with AI synthesis enabled, OpenCode selected, and What synthesis sends expanded](docs/media/settings-synthesis.png)
+AI synthesis is off until you enable it and save Settings. See [Synthesis backends](docs/synthesis.md) for how it works, model options, and account usage.
 
 ## Settings and data
 
