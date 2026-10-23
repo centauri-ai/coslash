@@ -38,6 +38,13 @@ Code: `collector/internal/vendors/claude/`. This package reads Claude Code CLI, 
 - A Claude Desktop SSH session appears twice: once from the Mac-side mirror and once from the SSH host. coSlash marks the mirror only when the directory is `ssh-<uuid>` and the file is `<uuid>.jsonl` with a valid UUID. The list hides the mirror only when the matching SSH card exists. Observed: unknown, 2026-09-28, ab523a36.
 - The mirror flag must survive root deduplication. If an ordinary root with the same UUID wins the mtime tie-break, it keeps the mirror identity (`TestCollectPreservesDesktopSSHMirrorIdentityAcrossDuplicateRoots`). Observed: unknown, 2026-10-02, 8c77ed5c.
 
+## Command outputs
+
+- A `tool_use` block with `input.command` pairs with the `tool_result` block whose `tool_use_id` equals its `id`. The result `content` is a string or an array of text blocks, and an `is_error` result is still an output. A command without a result has no output. Subagent transcripts use the same pairing, so subagent commands carry outputs too. `CommandLog.NoteCall` and `AttachOutput` hold the pairing, and `session.TruncateOutput` applies the 16 KiB cap. Observed: 2.1.309, 2026-10-23.
+- A large result is not inline. Claude Code saves the full text to `<session-dir>/tool-results/<id>.txt` and the `tool_result` content becomes `<persisted-output>\nOutput too large (36.1KB). Full output saved to: <absolute path>\n\nPreview (first 2KB):\n<preview>\n...\n</persisted-output>`. The path uses the home directory of the machine that ran Claude Code. Observed: 2.1.309, 2026-10-23. Subagent transcripts were not observed to use it; coSlash resolves their wrappers in the parent session's `tool-results` directory.
+- coSlash ignores the directory prefix of that path and accepts only `<this session's directory name>/tool-results/<plain name>`. The output is then the file's text, cut by the 16 KiB rule (`persisted.go`). A refused, link, or unreadable file gives the preview text with the header line dropped, and a wrapper of unknown shape loses its `Full output saved to:` line, so the absolute path never enters a record. A parse that used a preview is not stored in the parse cache. The complete backup freezes each referenced file as a `text/plain` raw sidecar, and `LocalSourceRevisions` fingerprints the `tool-results` directory.
+- Command outputs change the parsed content, so `ParserVersion` moved to `claude-3`. Cached parses from earlier versions have no outputs or only the wrapper.
+
 ## Resume and launch
 
 - Resume is `claude --resume <uuid>`. Start fresh passes the handoff with `--append-system-prompt-file <path>` and never with `--resume`.
