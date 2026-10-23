@@ -37,7 +37,6 @@ Local use needs no Hub account, Go, or Node installation.
 
 ```sh
 curl -fsSL https://coslash.io/install.sh | bash
-coslash
 ```
 
 **Windows**
@@ -46,7 +45,7 @@ coslash
 irm https://coslash.io/install.ps1 | iex
 ```
 
-On Windows, run the startup command the installer prints.
+After installation, run the startup command the installer prints.
 coSlash opens its local UI in your browser.
 See the [installation guide](docs/install.md) for Homebrew, headless servers, and updates.
 
