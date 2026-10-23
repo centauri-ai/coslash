@@ -46,6 +46,9 @@ func parseSourceCachedContext(ctx context.Context, source vendors.ReadSource, pa
 	if err != nil {
 		return nil, err
 	}
+	if parsed.uncacheable {
+		return parsed, nil
+	}
 	if payload, err := encodeCached(parsed); err == nil {
 		_ = cache.Store(key, payload)
 	}

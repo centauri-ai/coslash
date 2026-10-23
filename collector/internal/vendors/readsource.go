@@ -191,6 +191,11 @@ func (osReadSource) Stat(path string) (fs.FileInfo, error) {
 }
 
 // LocalReadSource uses the host filesystem.
+// Lstat does not follow a symbolic link. Only the local source has it.
+func (osReadSource) Lstat(path string) (fs.FileInfo, error) {
+	return os.Lstat(path)
+}
+
 var LocalReadSource ReadSource = osReadSource{}
 
 func SourceModificationTime(source ReadSource, path string) int64 {
