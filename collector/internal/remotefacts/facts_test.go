@@ -172,7 +172,7 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"AgentError": false,
 		"Model":      true, "ObservedModels": false, "ContextTokens": true, "ContextWindow": true, "Turns": true,
 		"ToolUses": true, "Errors": true, "Compactions": true, "FirstPrompt": true,
-		"Commands": true, "Commits": true, "PullRequests": true, "Todos": true,
+		"Commands": true, "CommandOutputs": false, "Commits": true, "PullRequests": true, "Todos": true,
 		"CommitSHAs": false, // recomputed only from local repository history
 		"Digest":     true, "FileEdits": true, "Git": true, "GitProbed": true,
 		"LastEditAt": true, "Synthesis": true, "SynthesisPending": true,
@@ -209,5 +209,23 @@ func assertCensus(t *testing.T, typ reflect.Type, decisions map[string]bool) {
 		if _, ok := typ.FieldByName(name); !ok {
 			t.Errorf("privacy census contains removed field %s.%s", typ.Name(), name)
 		}
+	}
+}
+
+func TestCloneDisplayDropsCommandOutputs(t *testing.T) {
+	output := "secret output"
+	source := session.Session{
+		SessionDetails: session.SessionDetails{Commands: []string{"ls"}, CommandOutputs: []*string{&output}},
+		Subagents:      []session.Subagent{{Commands: []session.SubagentCommand{{Label: "ls", Command: "ls", Output: &output}}}},
+	}
+	clone, err := cloneDisplay(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clone.CommandOutputs != nil || clone.Subagents[0].Commands[0].Output != nil {
+		t.Fatalf("clone kept outputs: %+v", clone)
+	}
+	if source.Subagents[0].Commands[0].Output == nil {
+		t.Fatal("cloneDisplay mutated its caller's subagent commands")
 	}
 }
