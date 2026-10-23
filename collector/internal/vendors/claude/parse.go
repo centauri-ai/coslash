@@ -43,7 +43,7 @@ type claudeSessionAnalysis struct {
 	errors                   int
 	spawns                   map[string]vendors.SpawnState
 	commands                 session.CommandLog
-	outputsPartial           bool
+	outputsUncacheable       bool
 	commitLog                []session.CommitObservation
 	dedupedMessageTokenUsage map[string]messageUsage
 	tokens                   map[string]session.ModelTokens
@@ -133,7 +133,7 @@ func parseSourceContext(ctx context.Context, source vendors.ReadSource, path str
 		rowUUIDs:    analysis.rowUUIDs,
 		rowCount:    analysis.rowCount,
 		background:  analysis.sessionKind == "bg",
-		uncacheable: analysis.outputsPartial,
+		uncacheable: analysis.outputsUncacheable,
 	}, nil
 }
 
@@ -366,9 +366,9 @@ func analyzeClaudeSessionSource(
 					analysis.spawns[block.ToolUseID] = spawn
 					resultToolUseID = block.ToolUseID
 					if analysis.commands.Pending(block.ToolUseID) {
-						output, resolved := commandOutput(source, file, claudeToolOutput(block.Content))
+						output, resolved, usesFile := commandOutput(source, file, claudeToolOutput(block.Content))
 						analysis.commands.AttachOutput(block.ToolUseID, output)
-						analysis.outputsPartial = analysis.outputsPartial || !resolved
+						analysis.outputsUncacheable = analysis.outputsUncacheable || !resolved || usesFile
 					}
 					if block.ToolUseID == analysis.pendingQuestionToolUseID {
 						analysis.waitingForQuestion = false

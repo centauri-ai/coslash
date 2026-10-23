@@ -539,6 +539,11 @@ func validCollectionSizes(s Session) bool {
 		if !budget.add(len(subagent.Commands)) || !budget.add(len(subagent.Usage)) {
 			return false
 		}
+		for _, command := range subagent.Commands {
+			if command.Output != nil && !budget.add(1) {
+				return false
+			}
+		}
 	}
 	for _, edit := range s.FileEdits {
 		if !budget.add(len(edit.Changes)) {

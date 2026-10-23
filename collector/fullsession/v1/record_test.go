@@ -141,6 +141,22 @@ func TestFreezeRejectsOversizedAggregateCollection(t *testing.T) {
 	}
 }
 
+func TestValidCollectionSizesCountsSubagentCommandOutputs(t *testing.T) {
+	output := "result"
+	session := Session{
+		Subagents: []Subagent{{Commands: []SubagentCommand{{Output: &output}}}},
+		Synthesis: &SessionSynthesis{Goals: make([]string, MaxItems-2)},
+	}
+	if validCollectionSizes(session) {
+		t.Fatal("aggregate with a subagent command output exceeded the item limit without rejection")
+	}
+
+	session.Subagents[0].Commands[0].Output = nil
+	if !validCollectionSizes(session) {
+		t.Fatal("aggregate without a subagent command output did not fit the item limit")
+	}
+}
+
 func TestFreezeRejectsUnsortedUsage(t *testing.T) {
 	record := Record{
 		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
