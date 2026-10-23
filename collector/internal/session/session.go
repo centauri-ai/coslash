@@ -18,8 +18,9 @@ const (
 )
 
 type SubagentCommand struct {
-	Label   string `json:"label"`
-	Command string `json:"command"`
+	Label   string  `json:"label"`
+	Command string  `json:"command"`
+	Output  *string `json:"output,omitempty"`
 }
 
 type Subagent struct {
@@ -147,6 +148,7 @@ type SessionDetails struct {
 	Compactions       int               `json:"compactions"`
 	FirstPrompt       *string           `json:"firstPrompt"`
 	Commands          []string          `json:"commands"`
+	CommandOutputs    []*string         `json:"commandOutputs,omitempty"`
 	Commits           []string          `json:"commits"`
 	CommitSHAs        []string          `json:"-"`
 	PullRequests      int               `json:"prs"`
