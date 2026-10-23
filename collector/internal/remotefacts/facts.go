@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -429,6 +430,9 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 			fact.CommandLabels = append(fact.CommandLabels, truncate(command.Label, MaxDisplayBytes))
 		}
 		fact.Commands = append([]session.SubagentCommand(nil), p.Commands[:n]...)
+		for i := range fact.Commands {
+			fact.Commands[i].Output = nil
+		}
 		fact.Display.Commands = fact.Display.Commands[:min(len(fact.Display.Commands), MaxCommands)]
 		if len(fact.Usage) > MaxModelsPerSession {
 			if fact.RecordedCostMicros == nil {
@@ -596,6 +600,15 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 func cloneDisplay(value session.Session) (*session.Session, error) {
 	value.ReviewPending = false
 	value.ReviewError = ""
+	// Command outputs are unbounded content that the sparse remote facts never carry.
+	value.CommandOutputs = nil
+	value.Subagents = slices.Clone(value.Subagents)
+	for i := range value.Subagents {
+		value.Subagents[i].Commands = slices.Clone(value.Subagents[i].Commands)
+		for j := range value.Subagents[i].Commands {
+			value.Subagents[i].Commands[j].Output = nil
+		}
+	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
