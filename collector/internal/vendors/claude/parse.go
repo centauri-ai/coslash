@@ -361,6 +361,9 @@ func analyzeClaudeSessionSource(
 					spawn.Completed = true
 					analysis.spawns[block.ToolUseID] = spawn
 					resultToolUseID = block.ToolUseID
+					if analysis.commands.Pending(block.ToolUseID) {
+						analysis.commands.AttachOutput(block.ToolUseID, session.TruncateOutput(claudeToolOutput(block.Content)))
+					}
 					if block.ToolUseID == analysis.pendingQuestionToolUseID {
 						analysis.waitingForQuestion = false
 						analysis.pendingQuestionToolUseID = ""
@@ -382,7 +385,7 @@ func analyzeClaudeSessionSource(
 					}
 				}
 				if block.Input.Command != "" {
-					analysis.commands.Note(block.Input.Command, block.Input.Description)
+					analysis.commands.NoteCall(block.ID, block.Input.Command, block.Input.Description)
 				}
 			}
 			if row.Message.ID != "" && row.Message.Usage != nil &&
@@ -513,6 +516,7 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		ToolUses:       analysis.toolUseCount,
 		Errors:         analysis.errors,
 		Commands:       analysis.commands.Raw(),
+		CommandOutputs: analysis.commands.Outputs(),
 		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),
