@@ -40,4 +40,21 @@ func TestLocalSourceRevisionIncludesRawOnlyAndSidecarChanges(t *testing.T) {
 	if err != nil || second[id] == third[id] {
 		t.Fatalf("sidecar revision did not change: %v", err)
 	}
+	toolResult := filepath.Join(root, id, "tool-results", "big.txt")
+	if err := os.MkdirAll(filepath.Dir(toolResult), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(toolResult, []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fourth, err := LocalSourceRevisions(t.Context(), vendors.LocalReadSource, home)
+	if err != nil || third[id] == fourth[id] {
+		t.Fatalf("tool-results file did not change the revision: %v", err)
+	}
+	// A dangling link in tool-results only wakes the queue; it must not fail every family.
+	if err := os.Symlink(filepath.Join(root, "missing-target"), filepath.Join(filepath.Dir(toolResult), "loop.txt")); err == nil {
+		if _, err := LocalSourceRevisions(t.Context(), vendors.LocalReadSource, home); err != nil {
+			t.Fatalf("dangling tool-results entry failed the scan: %v", err)
+		}
+	}
 }
