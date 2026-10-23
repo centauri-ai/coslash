@@ -81,7 +81,11 @@ func deviceCredentialStore(goos, origin string) hubclient.CredentialStore {
 	return store
 }
 
-func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, onboardings *onboardingManager) {
+func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, onboardings *onboardingManager, services ...serverServices) {
+	var service serverServices
+	if len(services) > 0 {
+		service = services[0]
+	}
 	bindClient := func(client *hubclient.Client) {
 		if client == nil {
 			return
@@ -260,6 +264,39 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+	})
+	api.HandleFunc("POST /api/hub/update", func(w http.ResponseWriter, request *http.Request) {
+		if onboardings == nil {
+			http.Error(w, "Local update is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			HubURL   string `json:"hubUrl"`
+			DeviceID string `json:"deviceId"`
+		}
+		if err := decodeHubJSON(request.Body, &input); err != nil {
+			http.Error(w, "invalid update request", http.StatusBadRequest)
+			return
+		}
+		if service.queue == nil || !service.queue.UpdatePrompt().Available || service.queue.UpdatePrompt().Version == "" {
+			http.Error(w, "no Local update is available", http.StatusConflict)
+			return
+		}
+		if _, err := updateTarget(); err != nil {
+			http.Error(w, "automatic update is not supported for this installation", http.StatusConflict)
+			return
+		}
+		err := onboardings.RequestUpdate(input.HubURL, input.DeviceID, service.queue.InstallID(), service.updateRequests)
+		switch {
+		case errors.Is(err, errForeignUpdateTarget):
+			w.WriteHeader(http.StatusNoContent)
+		case errors.Is(err, errUpdateRateLimited):
+			http.Error(w, "update request rate limited", http.StatusTooManyRequests)
+		case err != nil:
+			http.Error(w, "Local update is unavailable", http.StatusServiceUnavailable)
+		default:
+			w.WriteHeader(http.StatusAccepted)
+		}
 	})
 	api.HandleFunc("POST /api/hub/onboarding/check-in", func(w http.ResponseWriter, request *http.Request) {
 		if onboardings == nil {

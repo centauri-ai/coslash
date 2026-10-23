@@ -68,9 +68,10 @@ type LaunchIntent struct {
 	HubURL      *url.URL
 	AttemptID   string
 	LaunchToken string
+	DeviceID    string
 }
 
-// ParseLaunchIntentURL accepts only the two application actions used by Hub.
+// ParseLaunchIntentURL accepts only the pairing, check-in, and device-update actions used by Hub.
 // The launch token is an opaque, one-time bearer value; no device secret is
 // accepted in an activation URL.
 func ParseLaunchIntentURL(raw string) (LaunchIntent, error) {
@@ -86,11 +87,11 @@ func ParseLaunchIntentURL(raw string) (LaunchIntent, error) {
 		return LaunchIntent{}, errors.New("invalid coSlash activation URL")
 	}
 	for key, entries := range values {
-		if len(entries) != 1 || (key != "hub" && key != "attempt" && key != "intent") {
+		if len(entries) != 1 || (key != "hub" && key != "attempt" && key != "intent" && key != "device") {
 			return LaunchIntent{}, errors.New("invalid coSlash activation URL")
 		}
 	}
-	if values.Get("hub") == "" || !onboardingUUID.MatchString(values.Get("attempt")) {
+	if values.Get("hub") == "" {
 		return LaunchIntent{}, errors.New("invalid coSlash activation URL")
 	}
 	hub, err := ValidateActivationHubURL(values.Get("hub"))
@@ -99,16 +100,25 @@ func ParseLaunchIntentURL(raw string) (LaunchIntent, error) {
 	}
 	switch parsed.Host {
 	case "pair":
+		if !onboardingUUID.MatchString(values.Get("attempt")) || values.Has("device") {
+			return LaunchIntent{}, errors.New("invalid coSlash activation URL")
+		}
 		intent := values.Get("intent")
 		if !launchToken.MatchString(intent) {
 			return LaunchIntent{}, errors.New("invalid coSlash activation URL")
 		}
 		return LaunchIntent{Action: "pair", HubURL: hub, AttemptID: values.Get("attempt"), LaunchToken: intent}, nil
 	case "check-in":
-		if values.Has("intent") {
+		if values.Has("intent") || values.Has("device") || !onboardingUUID.MatchString(values.Get("attempt")) {
 			return LaunchIntent{}, errors.New("invalid coSlash activation URL")
 		}
 		return LaunchIntent{Action: "check-in", HubURL: hub, AttemptID: values.Get("attempt")}, nil
+	case "update":
+		deviceID := values.Get("device")
+		if values.Has("attempt") || values.Has("intent") || !onboardingUUID.MatchString(deviceID) {
+			return LaunchIntent{}, errors.New("invalid coSlash activation URL")
+		}
+		return LaunchIntent{Action: "update", HubURL: hub, DeviceID: deviceID}, nil
 	default:
 		return LaunchIntent{}, errors.New("unsupported coSlash activation action")
 	}

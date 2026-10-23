@@ -32,7 +32,42 @@ type onboardingManager struct {
 	registerBackground func() error
 	v4SyncActive       bool
 	lastWake           time.Time
+	lastUpdate         time.Time
 	wait               sync.WaitGroup
+}
+
+var (
+	errForeignUpdateTarget = errors.New("update target does not match this Local install")
+	errUpdateRateLimited   = errors.New("update request rate limited")
+	errUpdateUnavailable   = errors.New("Local update is unavailable")
+)
+
+func (m *onboardingManager) RequestUpdate(rawHubURL, targetDeviceID, localDeviceID string, requests chan<- struct{}) error {
+	origin, err := hubOrigin(rawHubURL)
+	if err != nil {
+		return errForeignUpdateTarget
+	}
+	stored, err := readStoredHubURL()
+	if err != nil || stored == "" || stored != origin || targetDeviceID == "" || targetDeviceID != localDeviceID {
+		return errForeignUpdateTarget
+	}
+	if requests == nil {
+		return errUpdateUnavailable
+	}
+	now := time.Now()
+	m.mu.Lock()
+	if !m.lastUpdate.IsZero() && now.Sub(m.lastUpdate) < 10*time.Second {
+		m.mu.Unlock()
+		return errUpdateRateLimited
+	}
+	m.lastUpdate = now
+	m.mu.Unlock()
+	select {
+	case requests <- struct{}{}:
+		return nil
+	default:
+		return errUpdateUnavailable
+	}
 }
 
 func newOnboardingManager(version string) *onboardingManager {

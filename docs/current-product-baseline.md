@@ -30,6 +30,9 @@ also contains the two maintenance commits that were already on `origin/main`.
   policy and does not enable team sharing or standing team auto-share rules.
 - Open the server-confirmed Hub route after an accepted upload and preserve
   idempotent retry behavior.
+- Accept a Hub-requested, user-confirmed self-update only for this Local
+  install and its saved Hub; supported script installs use checksum-verified
+  release assets and restart through the staged updater.
 
 ## Local architecture and storage
 
@@ -73,6 +76,7 @@ All routes are loopback-only and protected by the process access-token guard.
 | `POST /api/hub/pairings/{id}/poll` | Complete pairing and store the device credential |
 | `POST /api/hub/onboarding/activate` | Consume a Hub launch intent through the token-guarded Local API and start pairing |
 | `POST /api/hub/onboarding/check-in` | Retry a content-free Hub device check-in from a user-clicked Hub recovery link |
+| `POST /api/hub/update` | Request a checksum-verified self-update from a user-clicked Hub action, restricted to the matching Hub and Local install ID |
 | `POST /api/hub/backup-previews` | Freeze and review a complete `session-backup/v1` bundle |
 | `POST /api/hub/shares` | Resumably upload an explicitly approved complete backup through v3 |
 
@@ -94,7 +98,8 @@ older clients, but there is no separate full-revision action in the normal UI.
   content-free device check-in, destination, upload, status, and canonical Hub
   handoff client.
 - `collector/cmd/coslash/protocol_*.go`: per-user macOS Launch Services and
-  Windows `HKCU` registration for the validated `coslash:` activation URL.
+  Windows `HKCU` registration for validated pairing, check-in, wake, and
+  targeted update `coslash:` activations.
 - At the 2026-09-11 baseline, local-only categories included raw
   prompts/transcripts, summaries/goals, commands, todos, detailed subagent
   content, commit subjects, diffs, and absolute paths. C03 preserves that

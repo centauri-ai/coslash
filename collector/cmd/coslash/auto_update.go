@@ -445,7 +445,7 @@ func automaticUpdateNeeded(enabled bool, prompt syncv4.UpdatePrompt, runningVers
 	return enabled && prompt.Available && prompt.Version != "" && prompt.Version != runningVersion
 }
 
-func watchAutomaticUpdates(queue *syncv4.Queue, onPrepared func(string) error) {
+func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string) error) {
 	if _, err := updateTarget(); err != nil {
 		return
 	}
@@ -453,17 +453,30 @@ func watchAutomaticUpdates(queue *syncv4.Queue, onPrepared func(string) error) {
 	defer ticker.Stop()
 	failedVersion := ""
 	var retryAfter time.Time
+	firstCheck := true
 	for {
+		explicit := false
+		if firstCheck {
+			firstCheck = false
+		} else {
+			select {
+			case <-requested:
+				explicit = true
+			case <-ticker.C:
+			}
+		}
 		_, config, _ := queue.Policy()
 		prompt := queue.UpdatePrompt()
-		if automaticUpdateNeeded(config.AutoUpdate, prompt, normalizedVersion()) && (prompt.Version != failedVersion || time.Now().After(retryAfter)) {
+		requestedVersionAvailable := explicit && prompt.Available && prompt.Version != "" && prompt.Version != normalizedVersion()
+		shouldUpdate := requestedVersionAvailable || automaticUpdateNeeded(config.AutoUpdate, prompt, normalizedVersion())
+		if shouldUpdate && (explicit || prompt.Version != failedVersion || time.Now().After(retryAfter)) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			staged, err := prepareAutomaticUpdate(ctx, prompt)
 			cancel()
 			if err == nil {
 				_, latestConfig, _ := queue.Policy()
 				latestPrompt := queue.UpdatePrompt()
-				if latestConfig.AutoUpdate && latestPrompt.Available && latestPrompt.Version == prompt.Version {
+				if (explicit || latestConfig.AutoUpdate) && latestPrompt.Available && latestPrompt.Version == prompt.Version {
 					if err := onPrepared(staged); err == nil {
 						return
 					} else {
@@ -477,6 +490,5 @@ func watchAutomaticUpdates(queue *syncv4.Queue, onPrepared func(string) error) {
 			log.Printf("prepare coSlash Local update: %v", err)
 			failedVersion, retryAfter = prompt.Version, time.Now().Add(15*time.Minute)
 		}
-		<-ticker.C
 	}
 }
