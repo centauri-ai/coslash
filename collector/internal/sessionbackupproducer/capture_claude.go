@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -121,29 +122,98 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	frozenFiles := map[string]string{}
 	frozenInfo := map[string]fs.FileInfo{}
 	rawHashes := map[string][]string{}
-	for index, input := range inputs {
+	freeze := func(index int, input claudeInput) error {
 		if err := ctx.Err(); err != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemUnavailable, input.kind, true)
+			return captureFailure(sessionbackupv1.ProblemUnavailable, input.kind, true)
 		}
 		name := fmt.Sprintf("members/%s/raw/source-%06d", input.memberID, index)
-		if input.mediaType == "application/x-ndjson" {
+		switch input.mediaType {
+		case "application/x-ndjson":
 			name += ".jsonl"
-		} else {
+		case "text/plain":
+			name += ".txt"
+		default:
 			name += ".json"
 		}
 		artifact := sessionbackupv1.Artifact{LogicalName: name, MemberID: input.memberID,
 			Source: sessionbackupv1.ArtifactSourceClaude, Kind: input.kind, SourceKey: fmt.Sprintf("%s-%06d", input.key, index),
 			MediaType: input.mediaType, Encoding: sessionbackupv1.EncodingIdentity}
 		if err := writes.stream(ctx, artifact, func() (io.ReadCloser, error) { return handle.Source.Open(input.path) }); err != nil {
-			return nil, sourceReadFailure(err, input.kind)
+			return sourceReadFailure(err, input.kind)
 		}
 		frozen := filepath.Join(staging, filepath.FromSlash(name))
-		if err := validateClaudeJSON(frozen, input.mediaType == "application/x-ndjson"); err != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemInvalid, input.kind, false)
+		if input.mediaType != "text/plain" {
+			if err := validateClaudeJSON(frozen, input.mediaType == "application/x-ndjson"); err != nil {
+				return captureFailure(sessionbackupv1.ProblemInvalid, input.kind, false)
+			}
 		}
 		frozenFiles[input.path] = frozen
 		frozenInfo[input.path] = input.info
 		rawHashes[input.memberID] = append(rawHashes[input.memberID], writes.evidence[name].SHA256)
+		return nil
+	}
+	for index, input := range inputs {
+		if err := freeze(index, input); err != nil {
+			return nil, err
+		}
+	}
+	// Command outputs that Claude Code saved beside the session are parser inputs
+	// too. The frozen transcripts name them, so the capture parses what it froze.
+	refused := map[string]bool{}
+	transcriptSource := snapshotSource{ReadSource: handle.Source, files: frozenFiles, infos: frozenInfo, missing: missing, refused: refused}
+	transcripts, firstTool := slices.Clone(inputs), len(inputs)
+	for _, input := range transcripts {
+		if input.kind != sessionbackupv1.KindRawTranscript {
+			continue
+		}
+		references, err := claude.ToolResultFilesSourceContext(ctx, transcriptSource, input.path)
+		if err != nil {
+			return nil, captureFailure(sessionbackupv1.ProblemInvalid, input.kind, false)
+		}
+		for _, file := range references {
+			if seen[file] {
+				continue
+			}
+			seen[file] = true
+			info, err := handle.Source.Stat(file)
+			if errors.Is(err, fs.ErrNotExist) {
+				missing[file] = true
+				continue
+			}
+			if err != nil {
+				return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
+			}
+			// A link, special file, or oversize file is not usable input. The
+			// parser records the preview for it, as for an absent file.
+			if dir, err := os.Lstat(filepath.Dir(file)); err != nil || !dir.IsDir() ||
+				!claudeInputWithinProjects(file, claude.ProjectsRoot(handle.Home)) || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > sessionbackupv1.MaxArtifactBytes {
+				refused[file] = true
+				continue
+			}
+			inputs = append(inputs, claudeInput{file, input.memberID, sessionbackupv1.KindRawSidecar, "tool-result", "text/plain", info})
+		}
+	}
+	toolInputs := slices.Clone(inputs[firstTool:])
+	inputs = inputs[:firstTool]
+	if len(inputs)+len(toolInputs)+2*len(memberIDs) > sessionbackupv1.MaxArtifacts {
+		return nil, captureTooLarge(sessionbackupv1.KindRawSidecar)
+	}
+	toolPaths := make([]string, 0, len(toolInputs))
+	for _, input := range toolInputs {
+		toolPaths = append(toolPaths, input.path)
+	}
+	toolBefore, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, toolPaths)
+	if err != nil {
+		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
+	}
+	if !withinKnownBounds(toolBefore) {
+		return nil, captureTooLarge(sessionbackupv1.KindRawSidecar)
+	}
+	for _, input := range toolInputs {
+		if err := freeze(len(inputs), input); err != nil {
+			return nil, err
+		}
+		inputs = append(inputs, input)
 	}
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
@@ -151,6 +221,10 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, paths)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
+	}
+	toolAfter, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, toolPaths)
+	if err != nil || !reflect.DeepEqual(toolBefore, toolAfter) {
+		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 	}
 	for file := range missing {
 		if _, err := handle.Source.Stat(file); !errors.Is(err, fs.ErrNotExist) {
@@ -161,7 +235,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	if err != nil || !sameClaudeFiles(files, currentFiles) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}
-	frozenSource := snapshotSource{ReadSource: handle.Source, files: frozenFiles, infos: frozenInfo, missing: missing}
+	frozenSource := snapshotSource{ReadSource: handle.Source, files: frozenFiles, infos: frozenInfo, missing: missing, refused: refused}
 	for _, input := range inputs {
 		var err error
 		if input.kind == sessionbackupv1.KindRawTranscript {
