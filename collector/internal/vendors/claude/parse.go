@@ -43,6 +43,7 @@ type claudeSessionAnalysis struct {
 	errors                   int
 	spawns                   map[string]vendors.SpawnState
 	commands                 session.CommandLog
+	outputsPartial           bool
 	commitLog                []session.CommitObservation
 	dedupedMessageTokenUsage map[string]messageUsage
 	tokens                   map[string]session.ModelTokens
@@ -66,6 +67,8 @@ type parsedSession struct {
 	rowUUIDs   map[string]struct{}
 	rowCount   int
 	background bool
+	// uncacheable marks a parse whose command outputs fell back to a preview.
+	uncacheable bool
 }
 
 type taskEntry struct {
@@ -125,11 +128,12 @@ func parseSourceContext(ctx context.Context, source vendors.ReadSource, path str
 		parsed.Stopped = meta.StoppedByUser
 	}
 	return &parsedSession{
-		transcript: parsed,
-		forkUsage:  analysis.dedupedMessageTokenUsage,
-		rowUUIDs:   analysis.rowUUIDs,
-		rowCount:   analysis.rowCount,
-		background: analysis.sessionKind == "bg",
+		transcript:  parsed,
+		forkUsage:   analysis.dedupedMessageTokenUsage,
+		rowUUIDs:    analysis.rowUUIDs,
+		rowCount:    analysis.rowCount,
+		background:  analysis.sessionKind == "bg",
+		uncacheable: analysis.outputsPartial,
 	}, nil
 }
 
@@ -362,7 +366,9 @@ func analyzeClaudeSessionSource(
 					analysis.spawns[block.ToolUseID] = spawn
 					resultToolUseID = block.ToolUseID
 					if analysis.commands.Pending(block.ToolUseID) {
-						analysis.commands.AttachOutput(block.ToolUseID, session.TruncateOutput(claudeToolOutput(block.Content)))
+						output, resolved := commandOutput(source, file, claudeToolOutput(block.Content))
+						analysis.commands.AttachOutput(block.ToolUseID, output)
+						analysis.outputsPartial = analysis.outputsPartial || !resolved
 					}
 					if block.ToolUseID == analysis.pendingQuestionToolUseID {
 						analysis.waitingForQuestion = false
