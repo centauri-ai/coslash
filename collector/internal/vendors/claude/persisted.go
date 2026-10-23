@@ -75,21 +75,23 @@ func persistedOutputFile(source vendors.ReadSource, transcript, wrapperPath stri
 // A wrapper whose file is readable gives the file's text; any other wrapper
 // gives its preview. The second result is false when a wrapper fell back to its
 // preview, which a later parse can improve once the file exists.
-func commandOutput(source vendors.ReadSource, transcript, content string) (string, bool) {
+// The third result is true when the wrapper names a tool-results file.
+func commandOutput(source vendors.ReadSource, transcript, content string) (string, bool, bool) {
 	path, preview, ok := persistedOutput(content)
 	if !ok {
 		if strings.HasPrefix(content, "<persisted-output>") && strings.Contains(content, persistedOutputSaved) {
 			// A wrapper in a shape that is not known still must not carry its path.
-			return session.TruncateOutput(withoutSavedPath(content)), false
+			return session.TruncateOutput(withoutSavedPath(content)), false, false
 		}
-		return session.TruncateOutput(content), true
+		return session.TruncateOutput(content), true, false
 	}
 	if file, ok := persistedOutputFile(source, transcript, path); ok {
 		if text, err := readPersistedOutput(source, file); err == nil {
-			return text, true
+			return text, true, true
 		}
+		return session.TruncateOutput(preview), false, true
 	}
-	return session.TruncateOutput(preview), false
+	return session.TruncateOutput(preview), false, false
 }
 
 func withoutSavedPath(content string) string {

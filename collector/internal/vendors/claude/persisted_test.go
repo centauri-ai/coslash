@@ -123,7 +123,7 @@ func TestPersistedOutputIgnoresNonCommandAndPlainResults(t *testing.T) {
 	if path, _, ok := persistedOutput(text); ok {
 		t.Fatalf("plain text parsed as wrapper: %q", path)
 	}
-	if got, resolved := commandOutput(vendors.LocalReadSource, "x.jsonl", text); got != text || !resolved {
+	if got, resolved, usesFile := commandOutput(vendors.LocalReadSource, "x.jsonl", text); got != text || !resolved || usesFile {
 		t.Fatal("plain output changed")
 	}
 }
