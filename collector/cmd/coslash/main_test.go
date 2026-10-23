@@ -1480,3 +1480,19 @@ func TestHandleDiffRejectsFilesOutsideTheSession(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }
+
+func TestBoardLocalSessionOmitsCommandOutputs(t *testing.T) {
+	output := "secret output"
+	value := &session.Session{
+		Agent: "claude", ID: "s1",
+		SessionDetails: session.SessionDetails{Commands: []string{"ls"}, CommandOutputs: []*string{&output}},
+		Subagents:      []session.Subagent{{ID: "a", Commands: []session.SubagentCommand{{Label: "ls", Command: "ls", Output: &output}}}},
+	}
+	row := boardLocalSession(value)
+	if row.Session.CommandOutputs != nil || row.Session.Subagents[0].Commands[0].Output != nil {
+		t.Fatalf("list row kept outputs: %+v", row.Session)
+	}
+	if value.CommandOutputs == nil || value.Subagents[0].Commands[0].Output == nil {
+		t.Fatal("boardLocalSession mutated the cached session")
+	}
+}

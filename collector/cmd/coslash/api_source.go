@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -123,8 +124,22 @@ func boardLocalSession(value *session.Session) boardSession {
 		Revision: value.LastActivityTime, DetailRevision: value.DetailRevision,
 		Completion: completionFor(value, true),
 		Privacy:    privacyFor(value), ShareEligibility: eligibilityFor(value, true, false),
-		EligibleForAggregates: true, Session: sessionWithJSONCollections(*value),
+		EligibleForAggregates: true, Session: sessionWithJSONCollections(withoutCommandOutputs(*value)),
 	}
+}
+
+// withoutCommandOutputs drops command outputs from a list row. Only the exact
+// detail response carries them, so list polls stay small.
+func withoutCommandOutputs(value session.Session) session.Session {
+	value.CommandOutputs = nil
+	value.Subagents = slices.Clone(value.Subagents)
+	for i := range value.Subagents {
+		value.Subagents[i].Commands = slices.Clone(value.Subagents[i].Commands)
+		for j := range value.Subagents[i].Commands {
+			value.Subagents[i].Commands[j].Output = nil
+		}
+	}
+	return value
 }
 
 func boardRemoteSession(value remote.IndexedSession) boardSession {
