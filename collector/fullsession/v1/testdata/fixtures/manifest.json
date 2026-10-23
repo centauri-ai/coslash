@@ -86,6 +86,52 @@
       "sha256": "7bff6d09a7f6edbfcaf4861c9f4760c0e781473d3e676ecbf663b9dc73261735",
       "valid": false,
       "reason": "change hash mismatch"
+    },
+    {
+      "path": "valid/command-outputs.json",
+      "sha256": "65e8e1106cfe43b8ea00aa09a3907e9afe0776d84ed80ff549f2f3a0d8288c12",
+      "valid": true
+    },
+    {
+      "path": "valid/boundary-command-outputs.json",
+      "sha256": "10ca4bdd12e9f0bba0770f5eed92b585872b9417eb4d73d0b9fb5ff93fe71c24",
+      "valid": true
+    },
+    {
+      "path": "invalid/command-outputs-length-mismatch.json",
+      "sha256": "6f6feb7b30c4271e128a69fb9a93f424ff3a733062539d88b72fef88cd9401ed",
+      "valid": false,
+      "reason": "command outputs and commands differ in length"
+    },
+    {
+      "path": "invalid/command-outputs-empty.json",
+      "sha256": "3104ad98ff371313c58d4659481dc59009f4caabf6a057b238788dc6747f88b5",
+      "valid": false,
+      "reason": "command outputs present without commands"
+    },
+    {
+      "path": "invalid/command-output-invalid-utf8.json",
+      "sha256": "2c1832ca33a1ffacbfdbb5df5b3a52ed00a6871a944bc4070fe2f6154bd663ec",
+      "valid": false,
+      "reason": "command output is not valid UTF-8"
+    },
+    {
+      "path": "invalid/subagent-command-output-invalid-utf8.json",
+      "sha256": "06d5b5cc9c1a618c2c8058271edb6da80640e1205d085cad9d0ab5f410c5818a",
+      "valid": false,
+      "reason": "subagent command output is not valid UTF-8"
+    },
+    {
+      "path": "invalid/command-output-oversize.json",
+      "sha256": "b8936c1abdc61b5ad80307de558fb221fd08ebe45f07e3cbf11473d56462d616",
+      "valid": false,
+      "reason": "command output exceeds the string limit"
+    },
+    {
+      "path": "invalid/command-outputs-too-many-items.json",
+      "sha256": "7f45a125fa21537f4b61fbfbab043ac6854ee5cda9c8d492befeeae2cce766e1",
+      "valid": false,
+      "reason": "command outputs exceed the aggregate item limit"
     }
   ]
 }

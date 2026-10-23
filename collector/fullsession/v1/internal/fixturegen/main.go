@@ -100,6 +100,41 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	outputs, err := fullsessionv1.Freeze(commandOutputsRecord())
+	if err != nil {
+		panic(err)
+	}
+	outputsCanonical, err := fullsessionv1.Marshal(outputs)
+	if err != nil {
+		panic(err)
+	}
+	boundaryOutputs, err := fullsessionv1.Freeze(boundaryCommandOutputsRecord())
+	if err != nil {
+		panic(err)
+	}
+	boundaryOutputsCanonical, err := fullsessionv1.Marshal(boundaryOutputs)
+	if err != nil {
+		panic(err)
+	}
+	outputsMismatch := outputs
+	outputsMismatch.Session.CommandOutputs = outputs.Session.CommandOutputs[:2]
+	outputsMismatchBytes, err := canonicalWithRevision(outputsMismatch)
+	if err != nil {
+		panic(err)
+	}
+	oversizeOutput := strings.Repeat("x", fullsessionv1.MaxStringBytes+1)
+	outputsOversize := outputs
+	outputsOversize.Session.CommandOutputs = []*string{&oversizeOutput, nil, nil}
+	outputsOversizeBytes, err := canonicalWithRevision(outputsOversize)
+	if err != nil {
+		panic(err)
+	}
+	outputsOverflow := boundaryOutputs
+	outputsOverflow.Session.Commits = []string{""}
+	outputsOverflowBytes, err := canonicalWithRevision(outputsOverflow)
+	if err != nil {
+		panic(err)
+	}
 	entries := []struct {
 		path   string
 		data   []byte
@@ -121,6 +156,14 @@ func main() {
 		{"invalid/too-many-items.json", tooManyItemsBytes, false, "aggregate collection exceeds item limit"},
 		{"invalid/bad-revision.json", bytes.Replace(canonical, []byte(valid.RevisionID), []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 1), false, "revision hash mismatch"},
 		{"invalid/bad-body-hash.json", bytes.Replace(canonical, []byte(valid.Session.FileEdits[0].Changes[0].SHA256), []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 1), false, "change hash mismatch"},
+		{"valid/command-outputs.json", outputsCanonical, true, ""},
+		{"valid/boundary-command-outputs.json", boundaryOutputsCanonical, true, ""},
+		{"invalid/command-outputs-length-mismatch.json", outputsMismatchBytes, false, "command outputs and commands differ in length"},
+		{"invalid/command-outputs-empty.json", bytes.Replace(grokCanonical, []byte(`"commands":null,`), []byte(`"commands":null,"commandOutputs":[],`), 1), false, "command outputs present without commands"},
+		{"invalid/command-output-invalid-utf8.json", bytes.Replace(outputsCanonical, []byte(`"ok\n"`), []byte("\"ok\xff\""), 1), false, "command output is not valid UTF-8"},
+		{"invalid/subagent-command-output-invalid-utf8.json", bytes.Replace(outputsCanonical, []byte(`"output":"PASS"`), []byte("\"output\":\"PASS\xff\""), 1), false, "subagent command output is not valid UTF-8"},
+		{"invalid/command-output-oversize.json", outputsOversizeBytes, false, "command output exceeds the string limit"},
+		{"invalid/command-outputs-too-many-items.json", outputsOverflowBytes, false, "command outputs exceed the aggregate item limit"},
 	}
 	output := manifest{SchemaVersion: fullsessionv1.SchemaVersion, CollectorVersion: "fixturegen/1"}
 	for _, entry := range entries {
@@ -215,6 +258,30 @@ func grokRecord() fullsessionv1.Record {
 			Usage:              []fullsessionv1.ModelUsage{},
 			UnattributedTokens: &fullsessionv1.UnattributedUsage{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 4},
 			Subagents:          []fullsessionv1.Subagent{{ID: "grok-child", UnattributedTokens: &fullsessionv1.UnattributedUsage{InputTokens: 7, CostMicroUSD: &zero}, CostMicroUSD: &zero}},
+		},
+	}
+}
+
+// commandOutputsRecord pairs each command with its output: a real output, a
+// command without a result (null), and a real empty output.
+func commandOutputsRecord() fullsessionv1.Record {
+	value := record()
+	value.Agent, value.SessionID = "claude", "claude-command-outputs"
+	ok, failed, empty, pass := "ok\n", "exit status 1\n", "", "PASS"
+	value.Session.Commands = []string{"go test ./...", "sleep 100", "false", "true"}
+	value.Session.CommandOutputs = []*string{&ok, nil, &failed, &empty}
+	subagent := value.Session.Subagents[0]
+	subagent.Commands = []fullsessionv1.SubagentCommand{{Label: "tests", Command: "go test ./...", Output: &pass}, {Label: "wait", Command: "sleep 100"}}
+	value.Session.Subagents = []fullsessionv1.Subagent{subagent}
+	return value
+}
+
+func boundaryCommandOutputsRecord() fullsessionv1.Record {
+	return fullsessionv1.Record{
+		SourceID: "boundary-source", Agent: "claude", SessionID: "boundary-command-outputs",
+		Session: fullsessionv1.Session{
+			StartedAtMs: 1, LastActivityAtMs: 1,
+			Commands: make([]string, fullsessionv1.MaxItems/2), CommandOutputs: make([]*string, fullsessionv1.MaxItems/2),
 		},
 	}
 }
