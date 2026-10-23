@@ -79,6 +79,8 @@ func (log *DigestLog) LastRecap() string {
 
 type CommandLog struct {
 	entries []SubagentCommand
+	calls   map[string]int
+	tracked bool
 }
 
 // Note records one command sighting. label is the vendor's human-readable
@@ -88,6 +90,38 @@ func (log *CommandLog) Note(command, label string) {
 		Label:   cmp.Or(label, command),
 		Command: command,
 	})
+}
+
+// NoteCall is Note for a command with a tool call ID, so AttachOutput can pair
+// the result with it later.
+func (log *CommandLog) NoteCall(id, command, label string) {
+	log.Note(command, label)
+	log.tracked = true
+	if id == "" {
+		return
+	}
+	if log.calls == nil {
+		log.calls = map[string]int{}
+	}
+	log.calls[id] = len(log.entries) - 1
+}
+
+// Pending reports whether the call noted under id still waits for its output.
+func (log *CommandLog) Pending(id string) bool {
+	_, ok := log.calls[id]
+	return ok
+}
+
+// AttachOutput stores the output of the call noted under id. The caller has
+// already cut it with TruncateOutput or TruncateOutputReader. An unknown ID is
+// ignored. An empty output is a real output.
+func (log *CommandLog) AttachOutput(id, output string) {
+	index, ok := log.calls[id]
+	if !ok {
+		return
+	}
+	log.entries[index].Output = &output
+	delete(log.calls, id)
 }
 
 func (log *CommandLog) Labelled() []SubagentCommand {
@@ -104,4 +138,18 @@ func (log *CommandLog) Raw() []string {
 		raw = append(raw, entry.Command)
 	}
 	return raw
+}
+
+// Outputs is the command output for each Raw entry, nil for a command without a
+// result. It is nil when no command was noted by call ID, which means the
+// vendor does not collect outputs.
+func (log *CommandLog) Outputs() []*string {
+	if !log.tracked || len(log.entries) == 0 {
+		return nil
+	}
+	outputs := make([]*string, len(log.entries))
+	for i, entry := range log.entries {
+		outputs[i] = entry.Output
+	}
+	return outputs
 }
