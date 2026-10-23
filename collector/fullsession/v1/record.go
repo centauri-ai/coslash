@@ -71,6 +71,7 @@ type Session struct {
 	Compactions        int                `json:"compactions"`
 	FirstPrompt        *string            `json:"firstPrompt"`
 	Commands           []string           `json:"commands"`
+	CommandOutputs     []*string          `json:"commandOutputs,omitempty"`
 	Commits            []string           `json:"commits"`
 	CommitSHAs         []string           `json:"commitShas"`
 	PullRequests       int                `json:"pullRequests"`
@@ -102,8 +103,9 @@ type UnattributedUsage struct {
 }
 
 type SubagentCommand struct {
-	Label   string `json:"label"`
-	Command string `json:"command"`
+	Label   string  `json:"label"`
+	Command string  `json:"command"`
+	Output  *string `json:"output,omitempty"`
 }
 
 type Subagent struct {
@@ -231,6 +233,10 @@ func cloneRecord(record Record) Record {
 	s.Usage = cloneSlice(s.Usage)
 	s.UnpricedModels = cloneSlice(s.UnpricedModels)
 	s.Commands = cloneSlice(s.Commands)
+	s.CommandOutputs = cloneSlice(s.CommandOutputs)
+	for i := range s.CommandOutputs {
+		s.CommandOutputs[i] = clonePointer(s.CommandOutputs[i])
+	}
 	s.Commits = cloneSlice(s.Commits)
 	s.CommitSHAs = cloneSlice(s.CommitSHAs)
 	s.Todos = cloneSlice(s.Todos)
@@ -243,6 +249,9 @@ func cloneRecord(record Record) Record {
 		s.Subagents[i].CostMicroUSD = clonePointer(s.Subagents[i].CostMicroUSD)
 		s.Subagents[i].UnattributedTokens = cloneUnattributed(s.Subagents[i].UnattributedTokens)
 		s.Subagents[i].Commands = cloneSlice(s.Subagents[i].Commands)
+		for j := range s.Subagents[i].Commands {
+			s.Subagents[i].Commands[j].Output = clonePointer(s.Subagents[i].Commands[j].Output)
+		}
 		s.Subagents[i].Usage = cloneSlice(s.Subagents[i].Usage)
 	}
 	s.FileEdits = cloneSlice(s.FileEdits)
@@ -422,7 +431,7 @@ func validate(record Record, requireRevision bool) error {
 		stringValue(s.FirstPrompt), stringValue(s.DeclaredGoal)) {
 		return fmt.Errorf("%w: invalid session text", ErrInvalid)
 	}
-	if !boundedItems(len(s.Usage), len(s.UnpricedModels), len(s.Subagents), len(s.Commands), len(s.Commits),
+	if !boundedItems(len(s.Usage), len(s.UnpricedModels), len(s.Subagents), len(s.Commands), len(s.CommandOutputs), len(s.Commits),
 		len(s.CommitSHAs), len(s.Todos), len(s.Digest), len(s.FileEdits)) {
 		return fmt.Errorf("%w: session collection exceeds item limit", ErrInvalid)
 	}
@@ -439,6 +448,16 @@ func validate(record Record, requireRevision bool) error {
 	if !stringSliceValid(s.UnpricedModels) || !stringSliceValid(s.Commands) ||
 		!stringSliceValid(s.Commits) || !stringSliceValid(s.CommitSHAs) {
 		return fmt.Errorf("%w: invalid session list text", ErrInvalid)
+	}
+	// Absent outputs were not collected. Present outputs pair one-to-one with
+	// commands; a null item is a command without a result.
+	if s.CommandOutputs != nil && (len(s.CommandOutputs) != len(s.Commands) || len(s.Commands) == 0) {
+		return fmt.Errorf("%w: command outputs do not match commands", ErrInvalid)
+	}
+	for _, output := range s.CommandOutputs {
+		if !stringsValid(stringValue(output)) {
+			return fmt.Errorf("%w: invalid command output", ErrInvalid)
+		}
 	}
 	for _, item := range s.Todos {
 		if !stringsValid(item.Text) {
@@ -476,7 +495,7 @@ func validate(record Record, requireRevision bool) error {
 			return fmt.Errorf("%w: invalid subagent", ErrInvalid)
 		}
 		for _, command := range subagent.Commands {
-			if !stringsValid(command.Label, command.Command) {
+			if !stringsValid(command.Label, command.Command, stringValue(command.Output)) {
 				return fmt.Errorf("%w: invalid subagent command", ErrInvalid)
 			}
 		}
@@ -510,7 +529,7 @@ func (b *collectionBudget) add(items int) bool {
 func validCollectionSizes(s Session) bool {
 	budget := collectionBudget{}
 	if !budget.add(len(s.Usage)) || !budget.add(len(s.UnpricedModels)) ||
-		!budget.add(len(s.Subagents)) || !budget.add(len(s.Commands)) ||
+		!budget.add(len(s.Subagents)) || !budget.add(len(s.Commands)) || !budget.add(len(s.CommandOutputs)) ||
 		!budget.add(len(s.Commits)) || !budget.add(len(s.CommitSHAs)) ||
 		!budget.add(len(s.Todos)) || !budget.add(len(s.Digest)) ||
 		!budget.add(len(s.FileEdits)) {
