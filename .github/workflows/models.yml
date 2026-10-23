@@ -17,7 +17,7 @@ defaults:
 jobs:
   refresh:
     name: Refresh model table
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
       - name: Check out repository

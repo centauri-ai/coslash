@@ -22,7 +22,7 @@ defaults:
 jobs:
   frontend:
     name: Frontend
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     defaults:
       run:
@@ -49,7 +49,7 @@ jobs:
 
   collector:
     name: Collector
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     defaults:
       run:
@@ -82,7 +82,7 @@ jobs:
 
   windows-tests:
     name: Windows tests
-    runs-on: windows-2025
+    runs-on: blacksmith-4vcpu-windows-2025
     timeout-minutes: 20
     steps:
       - name: Check out repository
@@ -150,7 +150,7 @@ jobs:
   windows-release-smoke:
     name: Windows release smoke
     needs: release
-    runs-on: windows-2025
+    runs-on: blacksmith-4vcpu-windows-2025
     timeout-minutes: 10
     steps:
       - name: Check out repository
@@ -178,7 +178,7 @@ jobs:
       - windows-tests
       - windows-release-smoke
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require Windows tests and release smoke
         env:
@@ -196,7 +196,7 @@ jobs:
 
   release:
     name: Release
-    runs-on: macos-latest
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 20
     defaults:
       run:
