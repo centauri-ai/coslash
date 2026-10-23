@@ -23,14 +23,40 @@ func LocalSourceRevisions(ctx context.Context, source vendors.ReadSource, home s
 		return nil, vendors.ErrInvalidData
 	}
 	groups := map[string][]string{}
+	toolResultDirs := map[string]map[string]bool{}
+	toolResultFiles := map[string]bool{}
 	for _, file := range scan.Files {
 		id := FamilyIDFromPath(file)
 		groups[id] = append(groups[id], file)
+		if toolResultDirs[id] == nil {
+			toolResultDirs[id] = map[string]bool{}
+		}
+		toolResultDirs[id][vendors.SourcePathJoin(source, filepath.FromSlash(toolResultSessionDir(file)), "tool-results")] = true
 		if ParentIDFromPath(file) != "" {
 			groups[id] = append(groups[id], strings.TrimSuffix(file, ".jsonl")+".meta.json")
 			if strings.Contains(filepath.ToSlash(file), "/subagents/workflows/") {
 				runDir := filepath.Dir(strings.Replace(filepath.ToSlash(file), "/subagents/workflows/", "/workflows/", 1))
 				groups[id] = append(groups[id], runDir+".json", filepath.Join(filepath.Dir(file), "journal.jsonl"))
+			}
+		}
+	}
+	// Claude Code saves a large command output in tool-results/ before the
+	// transcript row that names it, so a new file also changes the family.
+	for id, dirs := range toolResultDirs {
+		for dir := range dirs {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			entries, err := source.ReadDir(dir)
+			if err != nil {
+				// An unreadable directory only costs a wake-up signal. The capture
+				// still reads and verifies the exact files.
+				continue
+			}
+			for _, entry := range entries {
+				name := vendors.SourcePathJoin(source, dir, entry.Name())
+				groups[id] = append(groups[id], name)
+				toolResultFiles[name] = true
 			}
 		}
 	}
@@ -49,6 +75,9 @@ func LocalSourceRevisions(ctx context.Context, source vendors.ReadSource, home s
 			previous = file
 			info, err := source.Stat(file)
 			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil && toolResultFiles[file] {
 				continue
 			}
 			if err != nil {
