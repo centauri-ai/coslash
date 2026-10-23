@@ -63,6 +63,7 @@ var census = map[string]decision{
 	"Compactions":      {true, "session.counts.compactions"},
 	"FirstPrompt":      {false, "raw prompts remain local"},
 	"Commands":         {false, "raw commands never cross; only len() as session.counts.commands"},
+	"CommandOutputs":   {false, "command outputs never cross the snapshot export boundary"},
 	"CommitLog":        {false, "local commit observations used for git reconciliation"},
 	"Commits":          {false, "commit subjects can contain arbitrary local content"},
 	"CommitSHAs":       {true, "resolved lowercase full Git object IDs only"},
@@ -111,6 +112,7 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 	reflect.TypeOf(session.SubagentCommand{}): {
 		"Label":   {false, "command labels can contain command-like content"},
 		"Command": {false, "raw command never crosses"},
+		"Output":  {false, "command output never crosses"},
 	},
 	reflect.TypeOf(session.DigestEntry{}): {
 		"SourceEntryID":      {false, "local branch context"},
