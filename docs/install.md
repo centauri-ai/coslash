@@ -104,6 +104,11 @@ Settings → Sync has an **Automatically update coSlash Local** switch, on by
 default. Script installations stage a checksum-verified release, checkpoint
 active queue work, restart, and roll back if the new Local fails to become ready.
 Homebrew and portable installs use the device's manual update action.
+When a paired device is behind the recommended release, Hub offers **Update
+now** on the computer being updated. On supported script installs, Local
+verifies and stages the release, then restarts. The action is bound to that
+device's ID and its saved Hub; for another computer or an unsupported install
+channel, use the manual command shown in Hub.
 
 ## Install coSlash Local separately
 

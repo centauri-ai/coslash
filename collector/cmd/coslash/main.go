@@ -370,10 +370,11 @@ func main() {
 	onboardings.setSyncHooks(controller)
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	shutdownRequests := make(chan struct{}, 1)
+	updateRequests := make(chan struct{}, 1)
 	settingsOptions := newSettingsOptionsCache()
 	defer settingsOptions.close()
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
+		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests, updateRequests: updateRequests})
 	onboardings.ensureSync(hub)
 	shutdownComplete := make(chan error, 1)
 	var shutdownOnce sync.Once
@@ -385,7 +386,7 @@ func main() {
 		})
 	}
 	if queue := controller.Queue(); queue != nil {
-		go watchAutomaticUpdates(queue, func(staged string) error {
+		go watchAutomaticUpdates(queue, updateRequests, func(staged string) error {
 			if err := launchUpdateHelper(staged); err != nil {
 				return err
 			}
@@ -404,6 +405,13 @@ func main() {
 		case "wake":
 			if err := onboardings.RequestWake(startupIntent.HubURL.String()); err != nil {
 				log.Printf("wake request was ignored")
+			}
+		case "update":
+			if queue := controller.Queue(); queue != nil && startupIntent.DeviceID == queue.InstallID() {
+				select {
+				case updateRequests <- struct{}{}:
+				default:
+				}
 			}
 		}
 	}
@@ -632,6 +640,7 @@ type serverServices struct {
 	onboardings     *onboardingManager
 	syncController  *syncController
 	shutdown        chan struct{}
+	updateRequests  chan struct{}
 	settingsOptions *settingsOptionsCache
 }
 
@@ -845,7 +854,7 @@ func routesWithOnboarding(
 		addProtocolHandlerDoctorCheck(snapshot)
 		writeJSON(w, snapshot)
 	})
-	registerHubRoutes(api, hub, remoteManager, onboardings)
+	registerHubRoutes(api, hub, remoteManager, onboardings, service)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 
