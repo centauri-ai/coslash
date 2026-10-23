@@ -738,10 +738,12 @@ type snapshotSource struct {
 	files   map[string]string
 	infos   map[string]fs.FileInfo
 	missing map[string]bool
+	// refused files exist but are not usable input. They read as absent.
+	refused map[string]bool
 }
 
 func (source snapshotSource) Open(name string) (io.ReadCloser, error) {
-	if source.missing[name] {
+	if source.missing[name] || source.refused[name] {
 		return nil, fs.ErrNotExist
 	}
 	if frozen := source.files[name]; frozen != "" {
@@ -751,7 +753,7 @@ func (source snapshotSource) Open(name string) (io.ReadCloser, error) {
 }
 
 func (source snapshotSource) Stat(name string) (fs.FileInfo, error) {
-	if source.missing[name] {
+	if source.missing[name] || source.refused[name] {
 		return nil, fs.ErrNotExist
 	}
 	if info := source.infos[name]; info != nil {

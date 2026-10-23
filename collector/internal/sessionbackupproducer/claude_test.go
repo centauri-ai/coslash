@@ -7,9 +7,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
@@ -209,5 +211,172 @@ func TestClaudeBackgroundRehomeRetainsPredecessorBytesAndChildLineage(t *testing
 	}
 	if raw != 3 {
 		t.Fatalf("rehome raw artifacts = %d", raw)
+	}
+}
+
+func claudeToolResultFixture(t *testing.T, wrapperPath string) (string, string, Selection) {
+	t.Helper()
+	home, rootFile, _, selection := claudeFixture(t)
+	wrapper := "<persisted-output>\nOutput too large (36.1KB). Full output saved to: " + wrapperPath +
+		"\n\nPreview (first 2KB):\npreview line\n...\n</persisted-output>"
+	content, err := json.Marshal(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := `{"sessionId":"` + selection.SessionID + `","type":"assistant","timestamp":"2026-09-20T12:00:04Z","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"big","name":"Bash","input":{"command":"cat big"}}]}}` + "\n" +
+		`{"sessionId":"` + selection.SessionID + `","type":"user","timestamp":"2026-09-20T12:00:05Z","message":{"content":[{"type":"tool_result","tool_use_id":"big","content":` + string(content) + `}]}}` + "\n"
+	file, err := os.OpenFile(rootFile, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return home, filepath.Join(strings.TrimSuffix(rootFile, ".jsonl"), "tool-results", "big.txt"), selection
+}
+
+func writeToolResult(t *testing.T, file, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// rootCommandOutput verifies the bundle and returns the root record's only command output and the tool-result sidecar names.
+func rootCommandOutput(t *testing.T, spool string, prepared *Prepared, selection Selection) (*string, []sessionbackupv1.Artifact) {
+	t.Helper()
+	dir := filepath.Join(spool, prepared.BundleID)
+	manifest, err := sessionbackupv1.VerifyDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output *string
+	var sidecars []sessionbackupv1.Artifact
+	for _, artifact := range manifest.Artifacts {
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(artifact.LogicalName)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case artifact.Kind == sessionbackupv1.KindRawSidecar && strings.HasPrefix(artifact.SourceKey, "tool-result-"):
+			sidecars = append(sidecars, artifact)
+		case artifact.Kind == sessionbackupv1.KindParsedSessionRecord && artifact.MemberID == selection.SessionID:
+			record, err := fullsessionv1.Decode(data)
+			if err != nil || len(record.Session.CommandOutputs) != 1 {
+				t.Fatalf("root record outputs = %v, %v", record.Session.CommandOutputs, err)
+			}
+			output = record.Session.CommandOutputs[0]
+		}
+		if artifact.Kind == sessionbackupv1.KindParsedSessionRecord && bytes.Contains(data, []byte("/Users/gone")) {
+			t.Fatalf("parsed record keeps the wrapper path: %s", artifact.LogicalName)
+		}
+	}
+	return output, sidecars
+}
+
+func TestClaudeToolResultFileIsFrozenAndCountsTowardRevision(t *testing.T) {
+	home, file, selection := claudeToolResultFixture(t, "/Users/gone/.claude/projects/project/11111111-2222-3333-4444-555555555555/tool-results/big.txt")
+	full := strings.Repeat("a", 9000) + strings.Repeat("z", 9000)
+	writeToolResult(t, file, full)
+	spool := t.TempDir()
+	manager := claudeManager(spool, home, nil)
+	first, err := manager.Prepare(t.Context(), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, sidecars := rootCommandOutput(t, spool, first, selection)
+	if output == nil || *output != session.TruncateOutput(full) || len(sidecars) != 1 || sidecars[0].MediaType != "text/plain" || sidecars[0].ByteLength != int64(len(full)) {
+		t.Fatalf("output = %v, sidecars = %+v", output, sidecars)
+	}
+	writeToolResult(t, file, strings.Repeat("b", 9000)+strings.Repeat("z", 9000))
+	second, err := manager.Prepare(t.Context(), selection)
+	if err != nil || second.Manifest.Source.SourceRevision == first.Manifest.Source.SourceRevision {
+		t.Fatalf("changed tool result kept the revision: %v", err)
+	}
+}
+
+func TestClaudeToolResultBlocksWhenItChanges(t *testing.T) {
+	home, file, selection := claudeToolResultFixture(t, "/Users/gone/.claude/projects/project/11111111-2222-3333-4444-555555555555/tool-results/big.txt")
+	writeToolResult(t, file, "first")
+	racing := claudeManager(t.TempDir(), home, func() { writeToolResult(t, file, "second, longer") })
+	if result, err := racing.Prepare(t.Context(), selection); result != nil || !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("changing tool result published = %#v, %v", result, err)
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(file, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaudeUnusableToolResultFallsBackToPreview(t *testing.T) {
+	home, file, selection := claudeToolResultFixture(t, "/Users/gone/.claude/projects/project/11111111-2222-3333-4444-555555555555/tool-results/big.txt")
+	secret := filepath.Join(home, "secret.txt")
+	writeToolResult(t, secret, "SECRET")
+	for name, create := range map[string]func() error{
+		"directory": func() error { return os.Mkdir(file, 0o700) },
+		"symlink":   func() error { return os.Symlink(secret, file) },
+		"linked-directory": func() error {
+			elsewhere := filepath.Join(home, "elsewhere")
+			writeToolResult(t, filepath.Join(elsewhere, "big.txt"), "OTHER")
+			_ = os.RemoveAll(filepath.Dir(file))
+			return os.Symlink(elsewhere, filepath.Dir(file))
+		},
+	} {
+		_ = os.RemoveAll(filepath.Dir(file))
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := create(); err != nil {
+			t.Skip(name, "is not available:", err)
+		}
+		spool := t.TempDir()
+		prepared, err := claudeManager(spool, home, nil).Prepare(t.Context(), selection)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		output, sidecars := rootCommandOutput(t, spool, prepared, selection)
+		if output == nil || *output != "preview line\n..." || len(sidecars) != 0 {
+			t.Fatalf("%s: output = %v, sidecars = %+v", name, output, sidecars)
+		}
+	}
+}
+
+func TestClaudeAbsentToolResultStaysAbsent(t *testing.T) {
+	home, file, selection := claudeToolResultFixture(t, "/Users/gone/.claude/projects/project/11111111-2222-3333-4444-555555555555/tool-results/big.txt")
+	spool := t.TempDir()
+	prepared, err := claudeManager(spool, home, nil).Prepare(t.Context(), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, sidecars := rootCommandOutput(t, spool, prepared, selection)
+	if output == nil || *output != "preview line\n..." || len(sidecars) != 0 {
+		t.Fatalf("output = %v, sidecars = %+v", output, sidecars)
+	}
+	appearing := claudeManager(t.TempDir(), home, func() { writeToolResult(t, file, "late") })
+	if result, err := appearing.Prepare(t.Context(), selection); result != nil || !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("appearing tool result published = %#v, %v", result, err)
+	}
+}
+
+func TestClaudeToolResultOutsideOwnDirectoryIsNotCaptured(t *testing.T) {
+	home, _, selection := claudeToolResultFixture(t, "/Users/gone/.claude/projects/project/99999999-9999-9999-9999-999999999999/tool-results/big.txt")
+	other := filepath.Join(claude.ProjectsRoot(home), "project", "99999999-9999-9999-9999-999999999999", "tool-results", "big.txt")
+	writeToolResult(t, other, "OTHER SESSION")
+	spool := t.TempDir()
+	prepared, err := claudeManager(spool, home, nil).Prepare(t.Context(), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, sidecars := rootCommandOutput(t, spool, prepared, selection)
+	if output == nil || *output != "preview line\n..." || len(sidecars) != 0 {
+		t.Fatalf("output = %v, sidecars = %+v", output, sidecars)
 	}
 }
