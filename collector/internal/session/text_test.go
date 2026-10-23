@@ -102,3 +102,19 @@ func TestTruncateOutputReaderMatchesTruncateOutput(t *testing.T) {
 		t.Fatal("read error was swallowed")
 	}
 }
+
+// The Hub rejects records whose outputs contain NUL, so one binary output must
+// not block the whole session from syncing.
+func TestTruncateOutputReplacesNUL(t *testing.T) {
+	long := "a\x00" + strings.Repeat("x", CommandOutputLimit) + "\x00z"
+	for name, output := range map[string]string{"short": "bin\x00ary", "long": long} {
+		got := TruncateOutput(output)
+		if strings.IndexByte(got, 0) >= 0 || !strings.Contains(got, "�") {
+			t.Errorf("%s: NUL not replaced: %q", name, got[:min(len(got), 40)])
+		}
+		streamed, err := TruncateOutputReader(strings.NewReader(output))
+		if err != nil || streamed != got {
+			t.Errorf("%s: reader result differs (err=%v)", name, err)
+		}
+	}
+}
