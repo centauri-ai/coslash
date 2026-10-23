@@ -521,7 +521,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"DetailsIncomplete": "unrepresentable detail completeness refused",
 		"Model":             "included", "ObservedModels": "excluded local Cursor IDE enrichment", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
 		"ToolUses": "included", "Errors": "included", "Compactions": "included", "FirstPrompt": "included",
-		"Commands": "included", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included",
+		"Commands": "included", "CommandOutputs": "included for Claude, absent for vendors that do not collect outputs", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included",
 		"Todos": "included", "Digest": "included", "FileEdits": "included with bodies", "Git": "excluded local filesystem enrichment",
 		"GitProbed": "runtime probe marker", "LastEditAt": "excluded local filesystem enrichment", "Synthesis": "included",
 		"SynthesisPending": "included", "DeclaredGoal": "included", "CompactionSeed": "parser-only composition seed",
@@ -868,5 +868,80 @@ func TestGrokCounterlessModelCostRejectsWithoutHidingRoot(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestRecordRoundTripPreservesCommandOutputs(t *testing.T) {
+	ok, empty, pass := "ok\n", "", "PASS"
+	record, err := fullsessionv1.Freeze(fullsessionv1.Record{
+		SourceID: "source-1", Agent: "claude", SessionID: "session-1",
+		Session: fullsessionv1.Session{
+			StartedAtMs: 1, LastActivityAtMs: 1,
+			Commands:       []string{"go test", "sleep 9", "true"},
+			CommandOutputs: []*string{&ok, nil, &empty},
+			Subagents: []fullsessionv1.Subagent{{
+				ID: "agent-1",
+				Commands: []fullsessionv1.SubagentCommand{
+					{Label: "tests", Command: "go test", Output: &pass},
+					{Label: "wait", Command: "sleep 9"},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ToSession(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := restored.CommandOutputs; len(got) != 3 || *got[0] != ok || got[1] != nil || got[2] == nil || *got[2] != "" {
+		t.Fatalf("restored outputs = %v", got)
+	}
+	if got := restored.Subagents[0].Commands; got[0].Output == nil || *got[0].Output != pass || got[1].Output != nil {
+		t.Fatalf("restored subagent commands = %+v", got)
+	}
+	roundTrip, err := FromSession(record.SourceID, *restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.RevisionID != record.RevisionID {
+		t.Fatalf("round trip revision = %s, want %s", roundTrip.RevisionID, record.RevisionID)
+	}
+	*restored.CommandOutputs[0] = "changed"
+	if ok != "ok\n" {
+		t.Fatal("ToSession shared an output pointer with the record")
+	}
+}
+
+func TestFromSessionOmitsOutputsForVendorsWithoutThem(t *testing.T) {
+	value := session.Session{Agent: "codex", ID: "session-1", StartedAt: 1, LastActivityTime: 1}
+	value.Commands = []string{"ls"}
+	record, err := FromSession("source-1", value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Session.CommandOutputs != nil {
+		t.Fatalf("outputs = %v, want absent", record.Session.CommandOutputs)
+	}
+	output := "x"
+	value.Commands, value.CommandOutputs = nil, []*string{&output}
+	record, err = FromSession("source-1", value)
+	if err != nil || record.Session.CommandOutputs != nil {
+		t.Fatalf("outputs without commands = %v, err %v", record.Session.CommandOutputs, err)
+	}
+}
+
+func TestFromSessionDropsOutputsThatOverflowTheItemBudget(t *testing.T) {
+	count := fullsessionv1.MaxItems/2 + 1
+	value := session.Session{Agent: "claude", ID: "session-1", StartedAt: 1, LastActivityTime: 1}
+	value.Commands = make([]string, count)
+	value.CommandOutputs = make([]*string, count)
+	record, err := FromSession("source-1", value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Session.CommandOutputs != nil || len(record.Session.Commands) != count {
+		t.Fatalf("outputs = %d, commands = %d", len(record.Session.CommandOutputs), len(record.Session.Commands))
 	}
 }
