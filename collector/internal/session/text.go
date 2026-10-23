@@ -42,11 +42,12 @@ const outputEdge = commandOutputHalf + utf8.UTFMax
 
 // TruncateOutput cuts a command output longer than CommandOutputLimit to its
 // head and tail on UTF-8 rune boundaries, joined by a marker with the number of
-// bytes removed. Whitespace is kept as is.
+// bytes removed. Whitespace is kept as is. NUL bytes become U+FFFD because the
+// Hub rejects outputs that contain them.
 func TruncateOutput(output string) string {
 	output = strings.ToValidUTF8(output, "\uFFFD")
 	if len(output) <= CommandOutputLimit {
-		return output
+		return withoutNUL(output)
 	}
 	return cutOutput(output[:outputEdge], output[len(output)-outputEdge:], len(output))
 }
@@ -95,7 +96,11 @@ func cutOutput(head, tail string, total int) string {
 		tailStart++
 	}
 	removed := total - headEnd - (len(tail) - tailStart)
-	return strings.ToValidUTF8(head[:headEnd], "\uFFFD") +
+	return withoutNUL(strings.ToValidUTF8(head[:headEnd], "\uFFFD")) +
 		fmt.Sprintf("\n… [%d bytes truncated] …\n", removed) +
-		strings.ToValidUTF8(tail[tailStart:], "\uFFFD")
+		withoutNUL(strings.ToValidUTF8(tail[tailStart:], "\uFFFD"))
+}
+
+func withoutNUL(output string) string {
+	return strings.ReplaceAll(output, "\x00", "\uFFFD")
 }
