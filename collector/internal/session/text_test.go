@@ -39,6 +39,42 @@ func TestTruncateOutput(t *testing.T) {
 	}
 }
 
+func TestCommandLogPairsOutputsByCallID(t *testing.T) {
+	var log CommandLog
+	if log.Outputs() != nil {
+		t.Fatal("empty log must not report outputs")
+	}
+	log.Note("untracked", "")
+	if log.Outputs() != nil {
+		t.Fatal("Note alone must not report outputs")
+	}
+	log.NoteCall("a", "go test", "run tests")
+	log.NoteCall("b", "sleep 9", "")
+	log.NoteCall("", "echo hi", "")
+	log.NoteCall("d", "true", "")
+	log.AttachOutput("d", "")
+	log.AttachOutput("a", "PASS\n")
+	log.AttachOutput("a", "ignored duplicate")
+	log.AttachOutput("zzz", "unknown id")
+
+	outputs := log.Outputs()
+	if len(outputs) != 5 || outputs[0] != nil {
+		t.Fatalf("outputs = %v", outputs)
+	}
+	if outputs[1] == nil || *outputs[1] != "PASS\n" || outputs[2] != nil || outputs[3] != nil {
+		t.Fatalf("pairing wrong: %v", outputs)
+	}
+	if outputs[4] == nil || *outputs[4] != "" {
+		t.Fatal("empty output must be kept as a real empty string")
+	}
+	if got := log.Raw(); len(got) != 5 || got[1] != "go test" {
+		t.Fatalf("Raw = %v", got)
+	}
+	if got := log.Labelled(); got[1].Label != "run tests" || got[1].Output != outputs[1] {
+		t.Fatalf("Labelled = %+v", got[1])
+	}
+}
+
 func TestTruncateOutputReaderMatchesTruncateOutput(t *testing.T) {
 	inputs := []string{
 		"",
