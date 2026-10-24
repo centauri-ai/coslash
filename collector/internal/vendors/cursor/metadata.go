@@ -757,7 +757,16 @@ func loadIDECommitObservationsContext(ctx context.Context, metadata *vendors.Ses
 }
 
 func completedIDETerminalCommand(name, status string, rawArgs, params json.RawMessage) (string, bool) {
-	if status != "completed" || (name != "run_terminal_cmd" && name != "run_terminal_command_v2") {
+	if status != "completed" {
+		return "", false
+	}
+	return terminalCommand(name, rawArgs, params)
+}
+
+// terminalCommand returns the command of a terminal tool call. Cursor stores
+// the arguments as a JSON object or as a string that holds one.
+func terminalCommand(name string, rawArgs, params json.RawMessage) (string, bool) {
+	if name != "run_terminal_cmd" && name != "run_terminal_command_v2" {
 		return "", false
 	}
 	for _, raw := range []json.RawMessage{rawArgs, params} {
