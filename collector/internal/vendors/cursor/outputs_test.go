@@ -38,6 +38,19 @@ func parseShellTranscript(t *testing.T, id string, commands ...string) *vendors.
 	return parsed
 }
 
+// outputsTestHome returns a fresh home and points every variable that Cursor
+// paths read on Linux, macOS, and Windows at it, so tests never share a store.
+func outputsTestHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	return home
+}
+
 type ideBubble struct {
 	createdAt, command, status, result string
 }
@@ -89,7 +102,7 @@ func derefOutputs(outputs []*string) []string {
 }
 
 func TestIDECommandOutputsPairByCommandAndOrder(t *testing.T) {
-	home := t.TempDir()
+	home := outputsTestHome(t)
 	long := strings.Repeat("0123456789abcdef\n", 2000)
 	writeIDEBubbles(t, home, outputsTestID,
 		ideBubble{"2026-10-23T10:00:01.000Z", "echo hi", "completed", `{"output":"hi\n","rejected":false}`},
@@ -122,7 +135,7 @@ func TestIDECommandOutputsPairByCommandAndOrder(t *testing.T) {
 }
 
 func TestIDECommandOutputsRepeatedCommandsNeedMatchingCounts(t *testing.T) {
-	home := t.TempDir()
+	home := outputsTestHome(t)
 	writeIDEBubbles(t, home, outputsTestID,
 		ideBubble{"2026-10-23T10:00:01.000Z", "git status", "completed", `{"output":"one","rejected":false}`},
 		ideBubble{"2026-10-23T10:00:02.000Z", "git status", "completed", `{"output":"two","rejected":false}`},
@@ -150,7 +163,7 @@ func TestIDECommandOutputsRepeatedCommandsNeedMatchingCounts(t *testing.T) {
 }
 
 func TestCommandOutputsStayAbsentWithoutSideStoreOrLane(t *testing.T) {
-	home := t.TempDir()
+	home := outputsTestHome(t)
 	parsed := parseShellTranscript(t, outputsTestID, "echo hi")
 	if err := applyCommandOutputs(context.Background(), home, []*vendors.ParsedSession{parsed}, ideMetadata(outputsTestID)); err != nil {
 		t.Fatal(err)
@@ -169,7 +182,7 @@ func TestCommandOutputsStayAbsentWithoutSideStoreOrLane(t *testing.T) {
 }
 
 func TestIDECommandOutputsSupportSubagentSessions(t *testing.T) {
-	home := t.TempDir()
+	home := outputsTestHome(t)
 	childID := "00000000-0000-4000-8000-0000000000b1"
 	writeIDEBubbles(t, home, childID, ideBubble{"2026-10-23T10:00:01.000Z", "ls", "completed", `{"output":"child\n","rejected":false}`})
 	child := parseShellTranscript(t, childID, "ls")
@@ -221,7 +234,7 @@ func mustJSON(value any) string {
 }
 
 func TestCLICommandOutputsPairByCommandAndOrder(t *testing.T) {
-	home := t.TempDir()
+	home := outputsTestHome(t)
 	long := strings.Repeat("0123456789abcdef\n", 2000)
 	writeCLIStore(t, home, outputsTestID,
 		`{"role":"user","content":"hello"}`,
@@ -255,7 +268,7 @@ func TestCLICommandOutputsPairByCommandAndOrder(t *testing.T) {
 }
 
 func TestCLICommandOutputsIgnoreStoreInIDELane(t *testing.T) {
-	home := t.TempDir()
+	home := outputsTestHome(t)
 	writeCLIStore(t, home, outputsTestID, cliCall("c1", "echo hi"), cliResult("c1", cliWrapped("hi\n", 0)))
 	parsed := parseShellTranscript(t, outputsTestID, "echo hi")
 	if err := applyCommandOutputs(context.Background(), home, []*vendors.ParsedSession{parsed}, ideMetadata(outputsTestID)); err != nil {
@@ -276,7 +289,7 @@ func TestCommandOutputsStopWhenContextIsCanceled(t *testing.T) {
 }
 
 func TestCLICommandOutputsSkipRepeatedCommands(t *testing.T) {
-	home := t.TempDir()
+	home := outputsTestHome(t)
 	writeCLIStore(t, home, outputsTestID,
 		cliCall("c1", "git status"), cliResult("c1", cliWrapped("one\n", 0)),
 		cliCall("c2", "git status"), cliResult("c2", cliWrapped("two\n", 0)),
@@ -294,9 +307,7 @@ func TestCLICommandOutputsSkipRepeatedCommands(t *testing.T) {
 }
 
 func TestParseFilesContextAppliesCommandOutputs(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	home := outputsTestHome(t)
 	writeIDEBubbles(t, home, outputsTestID, ideBubble{"2026-10-23T10:00:01.000Z", "echo hi", "completed", `{"output":"hi\n","rejected":false}`})
 	db, err := sql.Open("sqlite", filepath.Join(GlobalStorage(home), "state.vscdb"))
 	if err != nil {
