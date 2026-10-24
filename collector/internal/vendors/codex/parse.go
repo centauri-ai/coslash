@@ -425,6 +425,11 @@ func analyzeCodexSessionSource(
 				analysis.noteFileChanges(row.Payload.Changes)
 			}
 		case "response_item":
+			if (row.Payload.Type == "function_call_output" || row.Payload.Type == "custom_tool_call_output") &&
+				analysis.commands.Pending(row.Payload.CallID) {
+				result := decodeCodexCommandResult(row.Payload.Output)
+				analysis.commands.AttachOutput(row.Payload.CallID, session.TruncateOutput(result.output))
+			}
 			switch row.Payload.Type {
 			case "agent_message":
 				if analysis.taskName == "" {
@@ -433,7 +438,7 @@ func analyzeCodexSessionSource(
 			case "custom_tool_call", "function_call":
 				analysis.toolUseCount++
 				if command, ok := commandFrom(row.Payload); ok {
-					analysis.commands.Note(command, "")
+					analysis.commands.NoteCall(row.Payload.CallID, command, "")
 				}
 				if questions := questionsFrom(row.Payload); len(questions) > 0 {
 					answers, answered := questionAnswers[row.Payload.CallID]
@@ -535,15 +540,16 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		sessionID = analysis.sessionID
 	}
 	unifiedSessionDetails := session.SessionDetails{
-		Turns:        analysis.turns,
-		ToolUses:     analysis.toolUseCount,
-		Compactions:  analysis.compactions,
-		Errors:       0, // Codex does not report exit code (may change in the future)
-		Commands:     analysis.commands.Raw(),
-		Commits:      session.ReconcileCommits(analysis.commitLog, "", nil),
-		PullRequests: analysis.pullRequests,
-		FileEdits:    analysis.fileEdits.Edits,
-		Digest:       analysis.digest.Entries(),
+		Turns:          analysis.turns,
+		ToolUses:       analysis.toolUseCount,
+		Compactions:    analysis.compactions,
+		Errors:         0, // Codex does not report exit code (may change in the future)
+		Commands:       analysis.commands.Raw(),
+		CommandOutputs: analysis.commands.Outputs(),
+		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
+		PullRequests:   analysis.pullRequests,
+		FileEdits:      analysis.fileEdits.Edits,
+		Digest:         analysis.digest.Entries(),
 	}
 	if analysis.model != "" {
 		unifiedSessionDetails.Model = &analysis.model
