@@ -115,7 +115,12 @@ func handleList(
 		if r.Context().Err() != nil {
 			return
 		}
-		writeSessionListJSON(r.Context(), w, sessions)
+		rows := make([]*session.Session, len(sessions))
+		for i, value := range sessions {
+			row := withoutCommandOutputs(*value)
+			rows[i] = &row
+		}
+		writeSessionListJSON(r.Context(), w, rows)
 		log.Printf("list sessions: %d", len(sessions))
 		return
 	}
