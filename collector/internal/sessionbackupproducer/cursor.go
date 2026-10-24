@@ -113,7 +113,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawMetadataRows, true)
 	}
 	frozenSource := snapshotSource{ReadSource: handle.Source, files: frozenFiles}
-	parsed, err := cursor.ParseBackupFilesContext(ctx, frozenSource, plan.Files, plan.Metadata)
+	parsed, err := cursor.ParseBackupFilesContext(ctx, frozenSource, plan.Files, plan.Metadata, plan.Rows)
 	if err != nil || len(parsed) != len(plan.Files) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}

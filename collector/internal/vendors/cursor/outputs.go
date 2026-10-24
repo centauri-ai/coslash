@@ -3,14 +3,17 @@ package cursor
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 // shellCall is one shell command from a side store, in conversation order.
@@ -20,9 +23,17 @@ type shellCall struct {
 	output  *string
 }
 
+// sessionCalls are the shell calls of one session from a side store. CLI blobs
+// have no order that survives a backup projection, so a CLI session pairs only
+// commands that occur once.
+type sessionCalls struct {
+	calls   []shellCall
+	ordered bool
+}
+
 // applyCommandOutputs fills the output of each recorded shell command from the
-// side store of the lane that owns the session. The transcript has no tool
-// results and no tool call IDs, so a command gets an output only when the
+// live side store of the lane that owns the session. The transcript has no
+// tool results and no tool call IDs, so a command gets an output only when the
 // store holds the same command text the same number of times. A session whose
 // lane is unknown gets nothing.
 func applyCommandOutputs(ctx context.Context, home string, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) error {
@@ -38,14 +49,14 @@ func applyCommandOutputs(ctx context.Context, home string, parsed []*vendors.Par
 			lanes[entry.Entrypoint] = append(lanes[entry.Entrypoint], item.Session.ID)
 		}
 	}
-	calls := map[string][]shellCall{}
+	calls := map[string]sessionCalls{}
 	if ids := lanes[entrypointIDE]; len(ids) > 0 {
 		loaded, err := loadIDEShellCalls(ctx, home, ids)
 		if err != nil {
 			return err
 		}
 		for id, list := range loaded {
-			calls[id] = list
+			calls[id] = sessionCalls{list, true}
 		}
 	}
 	if ids := lanes[entrypointCLI]; len(ids) > 0 {
@@ -54,9 +65,45 @@ func applyCommandOutputs(ctx context.Context, home string, parsed []*vendors.Par
 			return err
 		}
 		for id, list := range loaded {
-			calls[id] = list
+			calls[id] = sessionCalls{list, false}
 		}
 	}
+	setCommandOutputs(parsed, calls)
+	return ctx.Err()
+}
+
+// applyBackupCommandOutputs is applyCommandOutputs for a backup parse. It reads
+// only the rows that the plan froze, never a live database.
+func applyBackupCommandOutputs(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, rows map[string][]BackupRows) error {
+	if metadata == nil {
+		return nil
+	}
+	calls := map[string]sessionCalls{}
+	for _, item := range parsed {
+		if item == nil || item.Session == nil || len(item.Session.Commands) == 0 {
+			continue
+		}
+		id := item.Session.ID
+		entry := metadata.Lookup(id)
+		if entry == nil {
+			continue
+		}
+		var err error
+		switch entry.Entrypoint {
+		case entrypointIDE:
+			calls[id], err = frozenIDEShellCalls(rows[id], id)
+		case entrypointCLI:
+			calls[id], err = frozenCLIShellCalls(rows[id], id)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	setCommandOutputs(parsed, calls)
+	return nil
+}
+
+func setCommandOutputs(parsed []*vendors.ParsedSession, calls map[string]sessionCalls) {
 	for _, item := range parsed {
 		if item == nil || item.Session == nil || len(item.Session.Commands) == 0 || len(item.Commands) != len(item.Session.Commands) {
 			continue
@@ -70,19 +117,19 @@ func applyCommandOutputs(ctx context.Context, home string, parsed []*vendors.Par
 			item.Commands[i].Output = outputs[i]
 		}
 	}
-	return ctx.Err()
 }
 
 // pairShellOutputs matches commands to calls by exact text. The k-th use of a
-// text pairs with the k-th call of that text. When the counts differ the
-// pairing is ambiguous, so every use of that text gets nil.
-func pairShellOutputs(commands []string, calls []shellCall) ([]*string, bool) {
+// text pairs with the k-th call of that text. When the counts differ, or the
+// calls have no order and the text repeats, the pairing is ambiguous, so every
+// use of that text gets nil.
+func pairShellOutputs(commands []string, source sessionCalls) ([]*string, bool) {
 	want := map[string]int{}
 	for _, command := range commands {
 		want[command]++
 	}
 	byText := map[string][]shellCall{}
-	for _, call := range calls {
+	for _, call := range source.calls {
 		byText[call.command] = append(byText[call.command], call)
 	}
 	outputs := make([]*string, len(commands))
@@ -92,13 +139,61 @@ func pairShellOutputs(commands []string, calls []shellCall) ([]*string, bool) {
 		k := used[command]
 		used[command]++
 		group := byText[command]
-		if len(group) != want[command] || group[k].output == nil {
+		if len(group) != want[command] || (!source.ordered && len(group) > 1) || group[k].output == nil {
 			continue
 		}
 		output := session.TruncateOutput(*group[k].output)
 		outputs[i], found = &output, true
 	}
 	return outputs, found
+}
+
+// bubbleCall is a shell call from an IDE bubble with the data that orders it.
+type bubbleCall struct {
+	key, createdAt string
+	call           shellCall
+}
+
+// ideBubbleCall decodes one cursorDiskKV bubble. It reports false for a bubble
+// that is not a terminal call, or that has no time and so no reliable place in
+// the order.
+func ideBubbleCall(key, value string) (string, bubbleCall, bool) {
+	parts := strings.SplitN(key, ":", 3)
+	if len(parts) != 3 {
+		return "", bubbleCall{}, false
+	}
+	var bubble struct {
+		CreatedAt      string `json:"createdAt"`
+		ToolFormerData struct {
+			Name, Status, Result string
+			RawArgs, Params      json.RawMessage
+		} `json:"toolFormerData"`
+	}
+	tool := &bubble.ToolFormerData
+	if json.Unmarshal([]byte(value), &bubble) != nil {
+		return "", bubbleCall{}, false
+	}
+	command, ok := terminalCommand(tool.Name, tool.RawArgs, tool.Params)
+	if _, timed := parseTimestamp(bubble.CreatedAt); !ok || !timed {
+		return "", bubbleCall{}, false
+	}
+	return canonicalCursorID(parts[1]), bubbleCall{key, bubble.CreatedAt, shellCall{command, ideShellOutput(tool.Status, tool.Result)}}, true
+}
+
+func orderedShellCalls(list []bubbleCall) []shellCall {
+	sort.SliceStable(list, func(i, j int) bool {
+		a, _ := parseTimestamp(list[i].createdAt)
+		b, _ := parseTimestamp(list[j].createdAt)
+		if !a.Equal(b) {
+			return a.Before(b)
+		}
+		return list[i].key < list[j].key
+	})
+	calls := make([]shellCall, len(list))
+	for i, item := range list {
+		calls[i] = item.call
+	}
+	return calls
 }
 
 func loadIDEShellCalls(ctx context.Context, home string, ids []string) (map[string][]shellCall, error) {
@@ -113,10 +208,6 @@ func loadIDEShellCalls(ctx context.Context, home string, ids []string) (map[stri
 		return nil, ctx.Err()
 	}
 	defer rows.Close()
-	type bubbleCall struct {
-		key, createdAt string
-		call           shellCall
-	}
 	bubbles := map[string][]bubbleCall{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -126,45 +217,16 @@ func loadIDEShellCalls(ctx context.Context, home string, ids []string) (map[stri
 		if rows.Scan(&key, &value) != nil {
 			continue
 		}
-		parts := strings.SplitN(key, ":", 3)
-		if len(parts) != 3 {
-			continue
+		if id, call, ok := ideBubbleCall(key, value); ok {
+			bubbles[id] = append(bubbles[id], call)
 		}
-		var bubble struct {
-			CreatedAt      string `json:"createdAt"`
-			ToolFormerData struct {
-				Name, Status, Result string
-				RawArgs, Params      json.RawMessage
-			} `json:"toolFormerData"`
-		}
-		tool := &bubble.ToolFormerData
-		if json.Unmarshal([]byte(value), &bubble) != nil {
-			continue
-		}
-		command, ok := terminalCommand(tool.Name, tool.RawArgs, tool.Params)
-		// A bubble without a time has no reliable place in the order.
-		if _, timed := parseTimestamp(bubble.CreatedAt); !ok || !timed {
-			continue
-		}
-		id := canonicalCursorID(parts[1])
-		bubbles[id] = append(bubbles[id], bubbleCall{key, bubble.CreatedAt, shellCall{command, ideShellOutput(tool.Status, tool.Result)}})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, ctx.Err()
 	}
 	calls := map[string][]shellCall{}
 	for id, list := range bubbles {
-		sort.SliceStable(list, func(i, j int) bool {
-			a, _ := parseTimestamp(list[i].createdAt)
-			b, _ := parseTimestamp(list[j].createdAt)
-			if !a.Equal(b) {
-				return a.Before(b)
-			}
-			return list[i].key < list[j].key
-		})
-		for _, item := range list {
-			calls[id] = append(calls[id], item.call)
-		}
+		calls[id] = orderedShellCalls(list)
 	}
 	return calls, ctx.Err()
 }
@@ -219,56 +281,127 @@ func readCLIStoreShellCalls(ctx context.Context, path string) ([]shellCall, erro
 		return nil, ctx.Err()
 	}
 	defer db.Close()
-	rows, err := db.QueryContext(ctx, `SELECT data FROM blobs ORDER BY rowid`)
+	rows, err := db.QueryContext(ctx, `SELECT data FROM blobs`)
 	if err != nil {
 		return nil, ctx.Err()
 	}
 	defer rows.Close()
-	var calls []shellCall
-	index := map[string]int{}
+	reader := cliCallReader{index: map[string]int{}}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		var data []byte
-		if rows.Scan(&data) != nil || !bytes.HasPrefix(data, []byte("{")) {
-			continue
-		}
-		var message struct {
-			Content []struct {
-				Type       string          `json:"type"`
-				ToolCallID string          `json:"toolCallId"`
-				ToolName   string          `json:"toolName"`
-				Args       json.RawMessage `json:"args"`
-				Result     json.RawMessage `json:"result"`
-			} `json:"content"`
-		}
-		if json.Unmarshal(data, &message) != nil {
-			continue
-		}
-		for _, block := range message.Content {
-			if block.ToolName != "Shell" && block.ToolName != "run_terminal_cmd" {
-				continue
-			}
-			switch block.Type {
-			case "tool-call":
-				command, ok := terminalCommand("run_terminal_cmd", nil, block.Args)
-				if _, seen := index[block.ToolCallID]; ok && !seen {
-					index[block.ToolCallID] = len(calls)
-					calls = append(calls, shellCall{command: command})
-				}
-			case "tool-result":
-				at, known := index[block.ToolCallID]
-				if output, ok := cliShellOutput(block.Result); known && ok {
-					calls[at].output = &output
-				}
-			}
+		if rows.Scan(&data) == nil {
+			reader.add(data)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, ctx.Err()
 	}
-	return calls, ctx.Err()
+	return reader.calls, ctx.Err()
+}
+
+// cliCallReader collects the shell calls of one CLI store from its blobs.
+type cliCallReader struct {
+	calls []shellCall
+	index map[string]int
+}
+
+func (reader *cliCallReader) add(data []byte) {
+	if !bytes.HasPrefix(data, []byte("{")) {
+		return
+	}
+	var message struct {
+		Content []struct {
+			Type       string          `json:"type"`
+			ToolCallID string          `json:"toolCallId"`
+			ToolName   string          `json:"toolName"`
+			Args       json.RawMessage `json:"args"`
+			Result     json.RawMessage `json:"result"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(data, &message) != nil {
+		return
+	}
+	for _, block := range message.Content {
+		if block.ToolName != "Shell" && block.ToolName != "run_terminal_cmd" {
+			continue
+		}
+		switch block.Type {
+		case "tool-call":
+			command, ok := terminalCommand("run_terminal_cmd", nil, block.Args)
+			if _, seen := reader.index[block.ToolCallID]; ok && !seen {
+				reader.index[block.ToolCallID] = len(reader.calls)
+				reader.calls = append(reader.calls, shellCall{command: command})
+			}
+		case "tool-result":
+			at, known := reader.index[block.ToolCallID]
+			if output, ok := cliShellOutput(block.Result); known && ok {
+				reader.calls[at].output = &output
+			}
+		}
+	}
+}
+
+// frozenTable returns the rows of one table from the projections of a member.
+func frozenTable(rows []BackupRows, sourceKey, table, id string) (sessionbackupv1.DatabaseTable, bool, error) {
+	for _, projection := range rows {
+		if projection.SourceKey != sourceKey {
+			continue
+		}
+		decoded, err := sessionbackupv1.DecodeDatabaseRows(projection.Bytes, id)
+		if err != nil {
+			return sessionbackupv1.DatabaseTable{}, false, vendors.ErrInvalidData
+		}
+		for _, candidate := range decoded.Tables {
+			if candidate.Name == table {
+				return candidate, true, nil
+			}
+		}
+	}
+	return sessionbackupv1.DatabaseTable{}, false, nil
+}
+
+func frozenIDEShellCalls(rows []BackupRows, id string) (sessionCalls, error) {
+	table, ok, err := frozenTable(rows, "ide-state", "cursorDiskKV", id)
+	if err != nil || !ok {
+		return sessionCalls{}, err
+	}
+	key, value := slices.Index(table.Columns, "key"), slices.Index(table.Columns, "value")
+	var bubbles []bubbleCall
+	for _, row := range table.Rows {
+		if key < 0 || value < 0 || len(row.Values) != len(table.Columns) {
+			return sessionCalls{}, vendors.ErrInvalidData
+		}
+		if bubbleID, call, ok := ideBubbleCall(row.Values[key].Value, row.Values[value].Value); ok && bubbleID == id {
+			bubbles = append(bubbles, call)
+		}
+	}
+	return sessionCalls{orderedShellCalls(bubbles), true}, nil
+}
+
+func frozenCLIShellCalls(rows []BackupRows, id string) (sessionCalls, error) {
+	table, ok, err := frozenTable(rows, "cli-store", "blobs", id)
+	if err != nil || !ok {
+		return sessionCalls{}, err
+	}
+	data := slices.Index(table.Columns, "data")
+	reader := cliCallReader{index: map[string]int{}}
+	for _, row := range table.Rows {
+		if data < 0 || len(row.Values) != len(table.Columns) {
+			return sessionCalls{}, vendors.ErrInvalidData
+		}
+		switch value := row.Values[data]; value.Type {
+		case "text":
+			reader.add([]byte(value.Value))
+		case "blob":
+			if decoded, err := base64.StdEncoding.DecodeString(value.Value); err == nil {
+				reader.add(decoded)
+			}
+		}
+	}
+	return sessionCalls{reader.calls, false}, nil
 }
 
 var cliResultHeader = regexp.MustCompile(`^Exit code: -?\d+\n\nCommand output(?: \(truncated to \d+ characters\))?:\n\n` + "```\n")
