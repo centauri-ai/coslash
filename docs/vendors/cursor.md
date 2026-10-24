@@ -36,6 +36,16 @@ Code: `collector/internal/vendors/cursor/`. This package reads local Cursor IDE 
 - IDE parent links are in `composerHeaders.value.subagentInfo.parentComposerId`. CLI parent links are in the store `subagentInfo.parentAgentId`. IDE family loading repeats the query until no new id appears. Observed: unknown, 2026-09-18, 8eb09eed.
 - Large id lists must be batched. Each id adds two OR terms, and SQLite has a default expression-depth limit (`metadata.go`). Observed: unknown, 2026-09-18, a246d70f.
 
+## Command outputs
+
+Transcripts have no tool results and no tool call IDs (`tool_use` blocks have no `id`). The collector reads each output from the side store of the lane that owns the session, after the transcript is parsed (`outputs.go`). Observed: unknown, 2026-10-23.
+
+- IDE: `cursorDiskKV` bubbles `toolFormerData.name` = `run_terminal_cmd` or `run_terminal_command_v2`. `result` is JSON with `output`. The wrapper fields (`rejected`, `exitCode`, `outputRaw`) are not part of the output. Cursor drops empty fields, so a finished command without `output` printed nothing and gets an empty string. `rejected: true`, a result with only `humanReviewV2`, and bubbles that are not `completed` (`loading`, `cancelled`) get nil. Old `run_terminal_cmd` output starts with the terminal prompt and the echoed command. Bubbles are ordered by `createdAt`, then by key.
+- CLI: `store.db` table `blobs` has JSON rows (read in `rowid` order) with `tool-call` (`args.command`) and `tool-result` blocks that share a `toolCallId`. The result is text: `Exit code: N`, `Command output:` (or `Command output (truncated to N characters):`), the output inside a code fence, then `Command completed`. The collector keeps the text inside the fence. Results of other forms get nil: blocked by permissions, interrupted, sent to the background, and output written to a file under `agent-tools/`.
+- Pairing is by exact command text and order, because the transcript has no ID. The k-th use of a command pairs with the k-th call of the same text in the store. If the store holds that text a different number of times, every use of it gets nil. Cursor can rewrite a command before it runs (for example, `git commit` gets a `--trailer`), so a rewritten command gets nil.
+- A session whose id is in both lanes has no lane, so it gets no outputs. A session without a side store keeps `CommandOutputs` unset.
+- Subagent transcripts are separate sessions with their own bubbles or store, so subagent commands get outputs the same way.
+
 ## Liveness
 
 - macOS IDE: `lsof -c Cursor` shows `AgentStores/cursor_agent_stores/<id>/.sync/index.sqlite` (or `-wal`, `-shm`) for an open chat.
