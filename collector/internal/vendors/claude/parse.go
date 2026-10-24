@@ -43,6 +43,7 @@ type claudeSessionAnalysis struct {
 	errors                   int
 	spawns                   map[string]vendors.SpawnState
 	commands                 session.CommandLog
+	outputsUncacheable       bool
 	commitLog                []session.CommitObservation
 	dedupedMessageTokenUsage map[string]messageUsage
 	tokens                   map[string]session.ModelTokens
@@ -66,6 +67,8 @@ type parsedSession struct {
 	rowUUIDs   map[string]struct{}
 	rowCount   int
 	background bool
+	// uncacheable marks a parse whose command outputs fell back to a preview.
+	uncacheable bool
 }
 
 type taskEntry struct {
@@ -125,11 +128,12 @@ func parseSourceContext(ctx context.Context, source vendors.ReadSource, path str
 		parsed.Stopped = meta.StoppedByUser
 	}
 	return &parsedSession{
-		transcript: parsed,
-		forkUsage:  analysis.dedupedMessageTokenUsage,
-		rowUUIDs:   analysis.rowUUIDs,
-		rowCount:   analysis.rowCount,
-		background: analysis.sessionKind == "bg",
+		transcript:  parsed,
+		forkUsage:   analysis.dedupedMessageTokenUsage,
+		rowUUIDs:    analysis.rowUUIDs,
+		rowCount:    analysis.rowCount,
+		background:  analysis.sessionKind == "bg",
+		uncacheable: analysis.outputsUncacheable,
 	}, nil
 }
 
@@ -361,6 +365,11 @@ func analyzeClaudeSessionSource(
 					spawn.Completed = true
 					analysis.spawns[block.ToolUseID] = spawn
 					resultToolUseID = block.ToolUseID
+					if analysis.commands.Pending(block.ToolUseID) {
+						output, resolved, usesFile := commandOutput(source, file, claudeToolOutput(block.Content))
+						analysis.commands.AttachOutput(block.ToolUseID, output)
+						analysis.outputsUncacheable = analysis.outputsUncacheable || !resolved || usesFile
+					}
 					if block.ToolUseID == analysis.pendingQuestionToolUseID {
 						analysis.waitingForQuestion = false
 						analysis.pendingQuestionToolUseID = ""
@@ -382,7 +391,7 @@ func analyzeClaudeSessionSource(
 					}
 				}
 				if block.Input.Command != "" {
-					analysis.commands.Note(block.Input.Command, block.Input.Description)
+					analysis.commands.NoteCall(block.ID, block.Input.Command, block.Input.Description)
 				}
 			}
 			if row.Message.ID != "" && row.Message.Usage != nil &&
@@ -513,6 +522,7 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		ToolUses:       analysis.toolUseCount,
 		Errors:         analysis.errors,
 		Commands:       analysis.commands.Raw(),
+		CommandOutputs: analysis.commands.Outputs(),
 		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),

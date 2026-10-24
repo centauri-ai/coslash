@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"sort"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
@@ -138,8 +139,8 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			LastActivityAtMs: value.LastActivityTime, Entrypoint: cloneString(value.Entrypoint), Model: cloneString(value.Model),
 			ContextTokens: cloneInt(value.ContextTokens), ContextWindow: cloneInt(value.ContextWindow), Turns: value.Turns,
 			ToolUses: value.ToolUses, Errors: value.Errors, Compactions: value.Compactions, FirstPrompt: cloneString(value.FirstPrompt),
-			Commands: cloneSlice(value.Commands), Commits: cloneSlice(value.Commits),
-			CommitSHAs: cloneSlice(value.CommitSHAs), PullRequests: value.PullRequests,
+			Commands: cloneSlice(value.Commands), CommandOutputs: cloneOutputs(value.CommandOutputs, len(value.Commands)),
+			Commits: cloneSlice(value.Commits), CommitSHAs: cloneSlice(value.CommitSHAs), PullRequests: value.PullRequests,
 			SynthesisPending: value.SynthesisPending,
 			DeclaredGoal:     cloneString(value.DeclaredGoal),
 		},
@@ -164,7 +165,7 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			item.Commands = make([]fullsessionv1.SubagentCommand, 0, len(value.Commands))
 		}
 		for _, command := range value.Commands {
-			item.Commands = append(item.Commands, fullsessionv1.SubagentCommand{Label: command.Label, Command: command.Command})
+			item.Commands = append(item.Commands, fullsessionv1.SubagentCommand{Label: command.Label, Command: command.Command, Output: cloneString(command.Output)})
 		}
 		record.Session.Subagents = append(record.Session.Subagents, item)
 	}
@@ -208,7 +209,35 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			KeyDecisions: cloneSlice(value.Synthesis.KeyDecisions), NextStep: value.Synthesis.NextStep,
 		}
 	}
-	return fullsessionv1.Freeze(record)
+	frozen, err := fullsessionv1.Freeze(record)
+	if err != nil && hasCommandOutputs(record.Session) {
+		// Outputs are optional detail. A record that outgrows a bound with them
+		// still syncs without them, as an uncollected-outputs record.
+		record.Session.CommandOutputs = nil
+		record.Session.Subagents = slices.Clone(record.Session.Subagents)
+		for i := range record.Session.Subagents {
+			record.Session.Subagents[i].Commands = slices.Clone(record.Session.Subagents[i].Commands)
+			for j := range record.Session.Subagents[i].Commands {
+				record.Session.Subagents[i].Commands[j].Output = nil
+			}
+		}
+		return fullsessionv1.Freeze(record)
+	}
+	return frozen, err
+}
+
+func hasCommandOutputs(value fullsessionv1.Session) bool {
+	if value.CommandOutputs != nil {
+		return true
+	}
+	for _, child := range value.Subagents {
+		for _, command := range child.Commands {
+			if command.Output != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func ToSession(record fullsessionv1.Record) (*session.Session, error) {
@@ -230,7 +259,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			ContextWindow: cloneInt(record.Session.ContextWindow), Turns: record.Session.Turns,
 			ToolUses: record.Session.ToolUses, Errors: record.Session.Errors, Compactions: record.Session.Compactions,
 			FirstPrompt: cloneString(record.Session.FirstPrompt), Commands: cloneSlice(record.Session.Commands),
-			Commits: cloneSlice(record.Session.Commits), CommitSHAs: cloneSlice(record.Session.CommitSHAs),
+			CommandOutputs: cloneOutputs(record.Session.CommandOutputs, len(record.Session.Commands)),
+			Commits:        cloneSlice(record.Session.Commits), CommitSHAs: cloneSlice(record.Session.CommitSHAs),
 			PullRequests:     record.Session.PullRequests,
 			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: cloneString(record.Session.DeclaredGoal),
 		},
@@ -249,7 +279,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			subagent.Commands = make([]session.SubagentCommand, 0, len(item.Commands))
 		}
 		for _, command := range item.Commands {
-			subagent.Commands = append(subagent.Commands, session.SubagentCommand{Label: command.Label, Command: command.Command})
+			subagent.Commands = append(subagent.Commands, session.SubagentCommand{Label: command.Label, Command: command.Command, Output: cloneString(command.Output)})
 		}
 		value.Subagents = append(value.Subagents, subagent)
 	}
@@ -442,4 +472,17 @@ func cloneSlice[T any](value []T) []T {
 		return nil
 	}
 	return append(make([]T, 0, len(value)), value...)
+}
+
+// cloneOutputs deep-copies command outputs. A session without commands omits
+// the field, because the portable record rejects an empty array there.
+func cloneOutputs(outputs []*string, commands int) []*string {
+	if outputs == nil || commands == 0 {
+		return nil
+	}
+	cloned := make([]*string, len(outputs))
+	for i, output := range outputs {
+		cloned[i] = cloneString(output)
+	}
+	return cloned
 }

@@ -1480,3 +1480,43 @@ func TestHandleDiffRejectsFilesOutsideTheSession(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }
+
+func TestBoardLocalSessionOmitsCommandOutputs(t *testing.T) {
+	output := "secret output"
+	value := &session.Session{
+		Agent: "claude", ID: "s1",
+		SessionDetails: session.SessionDetails{Commands: []string{"ls"}, CommandOutputs: []*string{&output}},
+		Subagents:      []session.Subagent{{ID: "a", Commands: []session.SubagentCommand{{Label: "ls", Command: "ls", Output: &output}}}},
+	}
+	row := boardLocalSession(value)
+	if row.Session.CommandOutputs != nil || row.Session.Subagents[0].Commands[0].Output != nil {
+		t.Fatalf("list row kept outputs: %+v", row.Session)
+	}
+	if value.CommandOutputs == nil || value.Subagents[0].Commands[0].Output == nil {
+		t.Fatal("boardLocalSession mutated the cached session")
+	}
+}
+
+func TestSessionListOmitsCommandOutputs(t *testing.T) {
+	output := "secret output"
+	value := &session.Session{
+		Agent: "claude", ID: "s1", LastActivityTime: 42,
+		SessionDetails: session.SessionDetails{Commands: []string{"ls"}, CommandOutputs: []*string{&output}},
+		Subagents:      []session.Subagent{{ID: "a", Commands: []session.SubagentCommand{{Label: "ls", Command: "ls", Output: &output}}}},
+	}
+	oldList := listSessions
+	t.Cleanup(func() { listSessions = oldList })
+	listSessions = func(context.Context, int64) ([]*session.Session, error) { return []*session.Session{value}, nil }
+	handler := routesWithOnboarding(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil, newOnboardingManager(version))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"s1"`) {
+		t.Fatalf("sessions = %d %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), output) {
+		t.Fatalf("list kept command outputs: %s", response.Body.String())
+	}
+	if value.CommandOutputs == nil || value.Subagents[0].Commands[0].Output == nil {
+		t.Fatal("list mutated the cached session")
+	}
+}

@@ -141,6 +141,22 @@ func TestFreezeRejectsOversizedAggregateCollection(t *testing.T) {
 	}
 }
 
+func TestValidCollectionSizesCountsSubagentCommandOutputs(t *testing.T) {
+	output := "result"
+	session := Session{
+		Subagents: []Subagent{{Commands: []SubagentCommand{{Output: &output}}}},
+		Synthesis: &SessionSynthesis{Goals: make([]string, MaxItems-2)},
+	}
+	if validCollectionSizes(session) {
+		t.Fatal("aggregate with a subagent command output exceeded the item limit without rejection")
+	}
+
+	session.Subagents[0].Commands[0].Output = nil
+	if !validCollectionSizes(session) {
+		t.Fatal("aggregate without a subagent command output did not fit the item limit")
+	}
+}
+
 func TestFreezeRejectsUnsortedUsage(t *testing.T) {
 	record := Record{
 		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
@@ -352,6 +368,36 @@ func TestGrokUnattributedRejectsCostOverMaximum(t *testing.T) {
 		}
 		if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("child=%v accepted cost over maximum: %v", child, err)
+		}
+	}
+}
+
+func TestFreezeRejectsNULCommandOutputs(t *testing.T) {
+	output := func(value string) *string { return &value }
+	record := func() Record {
+		return Record{
+			SourceID: "source-1", Agent: "claude", SessionID: "session-1",
+			Session: Session{
+				StartedAtMs: 1, LastActivityAtMs: 2, Usage: []ModelUsage{},
+				Commands: []string{"echo"}, CommandOutputs: []*string{output("ok")},
+				Subagents: []Subagent{{
+					ID: "child-1", Name: "child", Status: "returned",
+					Commands: []SubagentCommand{{Label: "check", Command: "echo", Output: output("ok")}},
+					Usage:    []ModelUsage{},
+				}},
+			},
+		}
+	}
+	if _, err := Freeze(record()); err != nil {
+		t.Fatalf("Freeze valid record: %v", err)
+	}
+	session := record()
+	session.Session.CommandOutputs[0] = output("bad\x00output")
+	subagent := record()
+	subagent.Session.Subagents[0].Commands[0].Output = output("bad\x00output")
+	for name, value := range map[string]Record{"session": session, "subagent": subagent} {
+		if _, err := Freeze(value); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: Freeze error = %v; want %v", name, err, ErrInvalid)
 		}
 	}
 }

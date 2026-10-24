@@ -10,7 +10,7 @@ import (
 
 // ParserVersion identifies this exporter's parse output. Bumping it
 // invalidates only Claude Code entries in the local parse cache.
-const ParserVersion = "claude-1"
+const ParserVersion = "claude-4"
 
 type cachedUsage struct {
 	Model string       `json:"model"`
@@ -45,6 +45,9 @@ func parseSourceCachedContext(ctx context.Context, source vendors.ReadSource, pa
 	parsed, err := parseSourceContext(ctx, source, path)
 	if err != nil {
 		return nil, err
+	}
+	if parsed.uncacheable {
+		return parsed, nil
 	}
 	if payload, err := encodeCached(parsed); err == nil {
 		_ = cache.Store(key, payload)

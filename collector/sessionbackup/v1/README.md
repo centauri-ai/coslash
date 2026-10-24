@@ -53,7 +53,13 @@ Local Claude uses the same parsed-record, exact-change, enrichment, and
 revision-matched synthesis artifacts. Its `raw-transcript` artifacts retain
 every selected root, subagent, and workflow-agent JSONL byte. Its
 `raw-sidecar` artifacts retain present subagent `.meta.json`, workflow state
-JSON, and workflow journal JSONL inputs consumed by the parser. It has no
+JSON, workflow journal JSONL inputs, and the `tool-results/<name>` files that a
+Bash command output names, all consumed by the parser. A tool-result file is a
+`text/plain` sidecar of the member whose transcript names it. Only a file in the
+session's own `tool-results` directory counts. A file that cannot be read or
+that changes during capture blocks completion. An absent file stays absent. A
+link, special file, or oversize file is refused and reads as absent, so its
+command output is the preview text. It has no
 `raw-metadata-rows` database input. A skipped discovery path, malformed or
 changing selected transcript or sidecar, or changing sidecar presence blocks
 completion; an absent optional sidecar remains absent. Claude SSH remains

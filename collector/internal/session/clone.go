@@ -34,10 +34,17 @@ func Clone(source *Session) *Session {
 		cloned.Subagents[i].UnattributedTokens = clonePointer(source.Subagents[i].UnattributedTokens)
 		cloned.Subagents[i].Cost = clonePointer(source.Subagents[i].Cost)
 		cloned.Subagents[i].Commands = cloneSlice(source.Subagents[i].Commands)
+		for j := range cloned.Subagents[i].Commands {
+			cloned.Subagents[i].Commands[j].Output = clonePointer(cloned.Subagents[i].Commands[j].Output)
+		}
 		cloned.Subagents[i].Tokens = cloneMap(source.Subagents[i].Tokens)
 	}
 	cloned.CommitLog = cloneSlice(source.CommitLog)
 	cloned.Commands = cloneSlice(source.Commands)
+	cloned.CommandOutputs = cloneSlice(source.CommandOutputs)
+	for i := range cloned.CommandOutputs {
+		cloned.CommandOutputs[i] = clonePointer(cloned.CommandOutputs[i])
+	}
 	cloned.Commits = cloneSlice(source.Commits)
 	cloned.CommitSHAs = cloneSlice(source.CommitSHAs)
 	cloned.Todos = cloneSlice(source.Todos)
