@@ -34,6 +34,13 @@ Code: `collector/internal/vendors/codex/`. This package reads Codex CLI rollouts
 - Waiting on approval: the rollout has the escalation request (`sandbox_permissions: "require_escalated"`) but not the allow-once decision. coSlash runs `codex execpolicy check` with the active `*.rules` files to decide if a prompt was shown. It keeps Waiting until the tool output arrives. Observed: unknown, 2026-08-18, 2637abbf, cfb2af60.
 - Plan mode has two signals: `turn_context.collaboration_mode.mode` and `task_started.collaboration_mode_kind`. A plan-mode final answer becomes a plan only when it is wrapped in `<proposed_plan>` or starts with a `# Plan` heading. `# Planetary motion` is not a plan (`TestPlanModeMetadataAndHeadingBoundary`). Observed: unknown, 2026-10-02, 5d17a012.
 
+## Command outputs
+
+- A `function_call` or `custom_tool_call` row whose input holds a `cmd` pairs with the `function_call_output` or `custom_tool_call_output` row that has the same `call_id`. A command without a result row has no output. A failed command is still an output. Subagent rollouts use the same pairing, so their commands carry outputs too. `CommandLog.NoteCall` and `AttachOutput` hold the pairing, and `session.TruncateOutput` applies the 16 KiB cap. Observed: codex-cli 0.164.0, 2026-10-23.
+- The `output` field has three shapes. It is a plain string, a JSON string such as `{"output":"...","metadata":{"exit_code":1}}`, or, in code mode, an array of text blocks. The first block is a header (`Script completed\nWall time 0.2 seconds\nOutput:\n`) and the next block is a JSON string `{"chunk_id":...,"exit_code":0,"output":"..."}`. coSlash unwraps the `output` of a JSON shape and keeps the header text. An empty `output` inside a wrapper stays an empty string (`decodeCodexCommandResult`). Observed: codex-cli 0.164.0, 2026-10-23.
+- `event_msg` `exec_command_end` and `item_completed` `CommandExecution` carry `aggregated_output` too. coSlash does not read it for command outputs. The rollout result row is the single source, so a command never counts twice. Observed: codex-cli 0.164.0, 2026-10-23: no `exec_command_end` row in recent rollouts.
+- Command outputs change the parsed content, so `ParserVersion` moved to `codex-2`.
+
 ## Resume and launch
 
 - Resume is `codex resume <uuid>`, with `resume` as a subcommand, not a flag.
