@@ -1048,6 +1048,18 @@ func commitObservationsByCallContext(ctx context.Context, rows []codexRow) ([]se
 	return observations, nil
 }
 
+// unwrapExecOutput returns the output of a code-mode block that holds the JSON
+// result of tools.exec_command, and the text itself for any other block.
+func unwrapExecOutput(text string) string {
+	var decoded struct {
+		Output *string `json:"output"`
+	}
+	if strings.HasPrefix(text, "{") && json.Unmarshal([]byte(text), &decoded) == nil && decoded.Output != nil {
+		return *decoded.Output
+	}
+	return text
+}
+
 func decodeCodexCommandResult(raw json.RawMessage) codexCommandResult {
 	var blocks []struct {
 		Text string `json:"text"`
@@ -1056,7 +1068,7 @@ func decodeCodexCommandResult(raw json.RawMessage) codexCommandResult {
 		parts := make([]string, 0, len(blocks))
 		for _, block := range blocks {
 			if block.Text != "" {
-				parts = append(parts, block.Text)
+				parts = append(parts, unwrapExecOutput(block.Text))
 			}
 		}
 		return codexCommandResult{
