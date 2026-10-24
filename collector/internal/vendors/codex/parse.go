@@ -1064,13 +1064,17 @@ func decodeCodexCommandResult(raw json.RawMessage) codexCommandResult {
 		body = encoded
 	}
 	var decoded struct {
-		Output   string `json:"output"`
-		ExitCode *int   `json:"exit_code"`
+		Output   *string `json:"output"`
+		ExitCode *int    `json:"exit_code"`
 	}
 	if json.Unmarshal([]byte(body), &decoded) == nil &&
-		(decoded.Output != "" || decoded.ExitCode != nil) {
+		(decoded.Output != nil || decoded.ExitCode != nil) {
+		output := ""
+		if decoded.Output != nil {
+			output = *decoded.Output
+		}
 		return codexCommandResult{
-			output:    decoded.Output,
+			output:    output,
 			succeeded: decoded.ExitCode != nil && *decoded.ExitCode == 0,
 		}
 	}
