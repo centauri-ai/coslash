@@ -10,7 +10,7 @@ import (
 
 // ParserVersion identifies this exporter's parse output. Bumping it
 // invalidates only OpenCode entries in the local parse cache.
-const ParserVersion = "opencode-1"
+const ParserVersion = "opencode-2"
 
 type cachedTask struct {
 	Name   string `json:"name,omitempty"`

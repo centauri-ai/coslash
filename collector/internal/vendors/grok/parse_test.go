@@ -196,7 +196,7 @@ func TestParseCommandsCommitsAndPullRequestsSkipDryRunsAndFailures(t *testing.T)
 func TestQuotedDryRunTextDoesNotHideACommit(t *testing.T) {
 	var result updatesSummary
 	code := 0
-	result.noteCommand(bashOutput{
+	result.noteCommand("c", bashOutput{
 		Command:  `git commit -m "support --dry-run"`,
 		Output:   "[main abc1234] support --dry-run\n",
 		ExitCode: &code,
@@ -204,7 +204,7 @@ func TestQuotedDryRunTextDoesNotHideACommit(t *testing.T) {
 	if len(result.commitLog) != 1 || result.commitLog[0].Hash != "abc1234" {
 		t.Fatalf("commit log = %+v", result.commitLog)
 	}
-	result.noteCommand(bashOutput{Command: `git commit --dry-run -m "skip"`, Output: "dry", ExitCode: &code})
+	result.noteCommand("c", bashOutput{Command: `git commit --dry-run -m "skip"`, Output: "dry", ExitCode: &code})
 	if len(result.commitLog) != 1 {
 		t.Fatalf("dry-run flag was counted: %+v", result.commitLog)
 	}

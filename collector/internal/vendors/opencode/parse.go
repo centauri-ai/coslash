@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,9 +113,9 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 			}
 			succeeded := message.Status == "exited" && message.Exit != nil && *message.Exit == 0
 			if message.Command != "" {
-				commands.Note(message.Command, "")
+				noteCommand(&commands, message.Command, "", message.Output)
 				commitLog = append(commitLog, session.ParseCommitObservations(
-					message.Command, message.Output, succeeded,
+					message.Command, deref(message.Output), succeeded,
 				)...)
 				if succeeded && session.IsPullRequestCreate(message.Command) {
 					pullRequests++
@@ -267,10 +268,10 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 					errorsCount++
 				}
 				if isShell && part.State.Status == "completed" && part.State.Input.Command != "" {
-					commands.Note(part.State.Input.Command, part.State.Title)
+					noteCommand(&commands, part.State.Input.Command, part.State.Title, part.State.Output)
 					succeeded := part.State.Metadata.Exit == nil || *part.State.Metadata.Exit == 0
 					commitLog = append(commitLog, session.ParseCommitObservations(
-						part.State.Input.Command, part.State.Output, succeeded,
+						part.State.Input.Command, deref(part.State.Output), succeeded,
 					)...)
 					if succeeded {
 						if session.IsPullRequestCreate(part.State.Input.Command) {
@@ -352,6 +353,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 		Errors:         errorsCount,
 		Compactions:    compactions,
 		Commands:       commands.Raw(),
+		CommandOutputs: commands.Outputs(),
 		Commits:        session.ReconcileCommits(commitLog, "", nil),
 		PullRequests:   pullRequests,
 		Todos:          todos,
@@ -419,6 +421,23 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 	return parsedSession{transcript: parsed, tasks: tasks}, nil
 }
 
+// noteCommand records a command with its output, which OpenCode stores in the
+// same row. A nil output means the row has no result.
+func noteCommand(log *session.CommandLog, command, label string, output *string) {
+	id := strconv.Itoa(len(log.Labelled()))
+	log.NoteCall(id, command, label)
+	if output != nil {
+		log.AttachOutput(id, session.TruncateOutput(*output))
+	}
+}
+
+func deref(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT type, data, time_created FROM session_message WHERE session_id = ? ORDER BY seq`, sessionID)
 	if err != nil {
@@ -441,7 +460,7 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 			Agent   string            `json:"agent"`
 			Command string            `json:"command"`
 			Output  struct {
-				Output string `json:"output"`
+				Output *string `json:"output"`
 			} `json:"output"`
 			Exit   *int   `json:"exit"`
 			Status string `json:"status"`
@@ -504,14 +523,15 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 				}
 				part.Tool = extra.Name
 				part.State.Time.End = extra.Time.Completed
-				if part.Type == "tool" && len(extra.State.Content) > 0 {
+				if part.Type == "tool" && extra.State.Content != nil {
 					texts := make([]string, 0, len(extra.State.Content))
 					for _, item := range extra.State.Content {
 						if item.Type == "text" {
 							texts = append(texts, item.Text)
 						}
 					}
-					part.State.Output = strings.Join(texts, "\n")
+					output := strings.Join(texts, "\n")
+					part.State.Output = &output
 				}
 				message.parts = append(message.parts, part)
 			}

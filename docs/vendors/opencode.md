@@ -37,6 +37,13 @@ configuration and free-model filtering (`collector/internal/vendors/opencode/mod
 - The database does not record whether a session came from OpenCode Desktop or the CLI. The managed plugin reads `OPENCODE_CLIENT` and writes `desktop` or `cli` per session. Sessions that started without the plugin have no entrypoint. Observed: 2026-08-13 to 2026-09-03, commit 8ac89595.
 - A v2 session row with malformed content skips only its own family. Other sessions still load. Observed: 2026-09-28, `TestMalformedV2ContentSkipsOnlyItsFamily`.
 
+## Command outputs
+
+- OpenCode stores the output in the same record as the command, so no ID pairing is needed. A v1 `bash` or `shell` tool part has `state.output` (plain text). A v2 tool part has the text items of `state.content[]`, joined with a newline. A v2 `shell` row has `output.output`. `noteCommand` in `parse.go` notes the command with `CommandLog.NoteCall` and attaches the output with `AttachOutput`, so `CommandOutputs` lines up with `Commands`. `session.TruncateOutput` applies the 16 KiB cap. Observed: OpenCode 1.18.4 and 2.0.30 record shapes, 2026-10-23, `TestV1ShellOutputsPairWithCommands`, `TestV2CommandOutputs`.
+- A record without the output field (an older format) has a `null` output. An empty output stays an empty string. A non-zero exit is still an output. Only completed tool parts and finished shell rows are commands, so a running command has no entry.
+- A child session (subagent) is a separate session. Its parse fills its own `Commands` through `commands.Labelled()`, and the outputs travel with them.
+- Command outputs change the parsed content, so `ParserVersion` moved to `opencode-2`.
+
 ## Status
 
 - Status is scoped to the latest user turn. OpenCode can leave an old assistant message with no `time.completed`, or an old `question` part as `running`, after the user starts a newer turn. A full-transcript scan kept such sessions Active or Waiting for weeks. Observed: OpenCode 1.18.x, 2026-08-14 to 2026-08-18, commit a0dddfda, `TestParseIgnoresIncompleteAssistantFromSupersededTurn`.
