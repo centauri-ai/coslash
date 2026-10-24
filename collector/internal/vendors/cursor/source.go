@@ -68,6 +68,9 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err := applyCursorEnrichmentContext(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
+	if err := applyCommandOutputs(ctx, home, parsed, metadata); err != nil {
+		return nil, nil, err
+	}
 	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
@@ -99,6 +102,7 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 		return LoadMetadataForSessions([]string{parsed.Session.ID})
 	})
 	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyLocalCommandOutputs([]*vendors.ParsedSession{parsed}, metadata)
 	applyRelationships([]*vendors.ParsedSession{parsed}, metadata)
 	return parsed, nil
 }
@@ -126,6 +130,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		return LoadMetadataForSessions(ids)
 	})
 	applyCursorEnrichment(parsed, metadata)
+	applyLocalCommandOutputs(parsed, metadata)
 	applyRelationships(parsed, metadata)
 	return selectFamily(parsed, id), metadata, nil
 }
@@ -228,6 +233,12 @@ func applyRelationshipsContext(ctx context.Context, parsed []*vendors.ParsedSess
 		}
 	}
 	return ctx.Err()
+}
+
+func applyLocalCommandOutputs(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = applyCommandOutputs(context.Background(), home, parsed, metadata)
+	}
 }
 
 func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
