@@ -455,7 +455,7 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: command outputs do not match commands", ErrInvalid)
 	}
 	for _, output := range s.CommandOutputs {
-		if !stringsValid(stringValue(output)) {
+		if !commandOutputValid(output) {
 			return fmt.Errorf("%w: invalid command output", ErrInvalid)
 		}
 	}
@@ -495,7 +495,7 @@ func validate(record Record, requireRevision bool) error {
 			return fmt.Errorf("%w: invalid subagent", ErrInvalid)
 		}
 		for _, command := range subagent.Commands {
-			if !stringsValid(command.Label, command.Command, stringValue(command.Output)) {
+			if !stringsValid(command.Label, command.Command) || !commandOutputValid(command.Output) {
 				return fmt.Errorf("%w: invalid subagent command", ErrInvalid)
 			}
 		}
@@ -594,6 +594,9 @@ func stringsValid(values ...string) bool {
 		}
 	}
 	return true
+}
+func commandOutputValid(value *string) bool {
+	return value == nil || (stringsValid(*value) && strings.IndexByte(*value, 0) < 0)
 }
 func stringSliceValid(values []string) bool {
 	if !boundedItems(len(values)) {
