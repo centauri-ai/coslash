@@ -87,5 +87,8 @@ func ParseFilesContext(ctx context.Context, files []string, live map[string]stri
 	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
+	if err := applyCommandOutputs(ctx, home, parsed, metadata); err != nil {
+		return nil, nil, err
+	}
 	return parsed, metadata, nil
 }

@@ -221,7 +221,7 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	return plan, nil
 }
 
-func ParseBackupFilesContext(ctx context.Context, source vendors.ReadSource, files map[string][]string, metadata *vendors.SessionMetadata) ([]*vendors.ParsedSession, error) {
+func ParseBackupFilesContext(ctx context.Context, source vendors.ReadSource, files map[string][]string, metadata *vendors.SessionMetadata, rows map[string][]BackupRows) ([]*vendors.ParsedSession, error) {
 	ids := make([]string, 0, len(files))
 	for id := range files {
 		ids = append(ids, id)
@@ -239,6 +239,9 @@ func ParseBackupFilesContext(ctx context.Context, source vendors.ReadSource, fil
 		return nil, err
 	}
 	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
+		return nil, err
+	}
+	if err := applyBackupCommandOutputs(parsed, metadata, rows); err != nil {
 		return nil, err
 	}
 	return parsed, nil
