@@ -22,7 +22,7 @@ type storedSession struct {
 type storedMessage struct {
 	Role              string          `json:"role"`
 	Command           string          `json:"-"`
-	Output            string          `json:"-"`
+	Output            *string         `json:"-"`
 	Exit              *int            `json:"-"`
 	Status            string          `json:"-"`
 	CompactionSummary string          `json:"-"`
@@ -58,9 +58,9 @@ type storedPart struct {
 	Tool      string   `json:"tool"`
 	Files     []string `json:"files"`
 	State     struct {
-		Status string `json:"status"`
-		Title  string `json:"title"`
-		Output string `json:"output"`
+		Status string  `json:"status"`
+		Title  string  `json:"title"`
+		Output *string `json:"output"`
 		Input  struct {
 			Command      string           `json:"command"`
 			FilePath     string           `json:"filePath"`
