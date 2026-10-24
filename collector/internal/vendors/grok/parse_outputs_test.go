@@ -25,8 +25,13 @@ func shellResult(id, command, output string, exitCode int) string {
 
 func parseOutputSession(t *testing.T, rows ...string) (*session.Session, []session.SubagentCommand) {
 	t.Helper()
+	return parseOutputSessionKind(t, "", rows...)
+}
+
+func parseOutputSessionKind(t *testing.T, kind string, rows ...string) (*session.Session, []session.SubagentCommand) {
+	t.Helper()
 	dir := t.TempDir()
-	summary := `{"info":{"id":"01a0f8c5-1ce9-7201-bb82-7db1e351bfd4","cwd":"/work/synthetic-alpha"},"chat_format_version":1}`
+	summary := `{"info":{"id":"01a0f8c5-1ce9-7201-bb82-7db1e351bfd4","cwd":"/work/synthetic-alpha"},"chat_format_version":1` + kind + `}`
 	if err := os.WriteFile(filepath.Join(dir, "summary.json"), []byte(summary), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -90,5 +95,13 @@ func TestSessionWithoutShellResultsParses(t *testing.T) {
 	s, labelled := parseOutputSession(t, `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"}}}}`)
 	if len(s.Commands) != 0 || s.CommandOutputs != nil || len(labelled) != 0 {
 		t.Fatalf("commands = %q outputs = %v", s.Commands, s.CommandOutputs)
+	}
+}
+
+func TestSubagentCommandsCarryOutputs(t *testing.T) {
+	_, labelled := parseOutputSessionKind(t, `,"session_kind":"subagent","parent_session_id":"parent"`,
+		shellCall("k1", "echo child"), shellResult("k1", "echo child", "child output\n", 0))
+	if len(labelled) != 1 || labelled[0].Output == nil || *labelled[0].Output != "child output\n" {
+		t.Fatalf("subagent commands = %+v", labelled)
 	}
 }
