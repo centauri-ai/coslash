@@ -265,6 +265,9 @@ func readCLIStoreShellCalls(ctx context.Context, path string) ([]shellCall, erro
 			}
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, ctx.Err()
+	}
 	return calls, ctx.Err()
 }
 
