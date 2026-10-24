@@ -3,6 +3,7 @@ package grok
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -179,6 +181,7 @@ func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSessio
 	s.FileEdits = updates.edits.Edits
 	s.EditedFileCount = len(s.FileEdits)
 	s.Commands = updates.commands.Raw()
+	s.CommandOutputs = updates.commands.Outputs()
 	s.CommitLog = updates.commitLog
 	s.PullRequests = updates.pullRequests
 	s.Todos = readTodos(filepath.Join(dir, "plan.json"))
@@ -370,7 +373,7 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			var items []toolContent
 			var shell bashOutput
 			if update.Status == "completed" && json.Unmarshal(update.RawOutput, &shell) == nil && shell.Type == "Bash" {
-				result.noteCommand(shell)
+				result.noteCommand(update.ToolCallID, shell)
 			}
 			if update.Status == "completed" && json.Unmarshal(update.Content, &items) == nil {
 				for _, item := range items {
@@ -606,11 +609,14 @@ func maskQuotedShell(command string) string {
 	return string(masked)
 }
 
-func (result *updatesSummary) noteCommand(shell bashOutput) {
+func (result *updatesSummary) noteCommand(id string, shell bashOutput) {
 	if shell.Command == "" {
 		return
 	}
-	result.commands.Note(shell.Command, "")
+	// The result arrives with the command, so a call without an ID still pairs.
+	id = cmp.Or(id, strconv.Itoa(len(result.commands.Labelled())))
+	result.commands.NoteCall(id, shell.Command, "")
+	result.commands.AttachOutput(id, session.TruncateOutput(shell.Output))
 	if commandHasOption(shell.Command, "--dry-run") {
 		return
 	}
