@@ -274,3 +274,51 @@ func TestCommandOutputsStopWhenContextIsCanceled(t *testing.T) {
 		t.Fatal("error = nil, want context.Canceled")
 	}
 }
+
+func TestCLICommandOutputsSkipRepeatedCommands(t *testing.T) {
+	home := t.TempDir()
+	writeCLIStore(t, home, outputsTestID,
+		cliCall("c1", "git status"), cliResult("c1", cliWrapped("one\n", 0)),
+		cliCall("c2", "git status"), cliResult("c2", cliWrapped("two\n", 0)),
+		cliCall("c3", "ls"), cliResult("c3", cliWrapped("a\n", 0)),
+	)
+	parsed := parseShellTranscript(t, outputsTestID, "git status", "ls", "git status")
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session(outputsTestID).Entrypoint = entrypointCLI
+	if err := applyCommandOutputs(context.Background(), home, []*vendors.ParsedSession{parsed}, metadata); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := derefOutputs(parsed.Session.CommandOutputs), []string{"<nil>", "a\n", "<nil>"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("outputs = %q, want %q: CLI blobs have no order that survives a backup", got, want)
+	}
+}
+
+func TestParseFilesContextAppliesCommandOutputs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	writeIDEBubbles(t, home, outputsTestID, ideBubble{"2026-10-23T10:00:01.000Z", "echo hi", "completed", `{"output":"hi\n","rejected":false}`})
+	db, err := sql.Open("sqlite", filepath.Join(GlobalStorage(home), "state.vscdb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value) VALUES (?, '{"name":"IDE"}')`, outputsTestID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	path := filepath.Join(home, ".cursor", "projects", "p", "agent-transcripts", outputsTestID, outputsTestID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := `{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Shell","input":{"command":"echo hi"}}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parsed, _, err := ParseFilesContext(context.Background(), []string{path}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := derefOutputs(parsed[0].Session.CommandOutputs); !reflect.DeepEqual(got, []string{"hi\n"}) {
+		t.Fatalf("outputs = %q, want the stored output", got)
+	}
+}

@@ -491,3 +491,91 @@ func execCursorFixtureDB(t *testing.T, path, schema, insert string, args ...any)
 		t.Fatal(err)
 	}
 }
+
+func TestCursorBackupRecordCarriesCommandOutputs(t *testing.T) {
+	for _, lane := range []string{"cursor-ide", "cursor-cli"} {
+		t.Run(lane, func(t *testing.T) {
+			home, _, transcript := writeCursorBackupFixture(t, lane)
+			file, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range []string{"echo hi", "sleep 9"} {
+				input, _ := json.Marshal(map[string]string{"command": command})
+				if _, err := file.WriteString(`{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Shell","input":` + string(input) + `}]}}` + "\n"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			file.Close()
+			if lane == "cursor-ide" {
+				db, err := sql.Open("sqlite", cursorIDEStateDB(home))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i, row := range []struct{ status, result, command string }{
+					{"completed", `{"output":"hi\n","rejected":false}`, "echo hi"},
+					{"loading", ``, "sleep 9"},
+				} {
+					params, _ := json.Marshal(map[string]string{"command": row.command})
+					value, _ := json.Marshal(map[string]any{
+						"createdAt":      "2026-10-23T10:00:0" + string(rune('1'+i)) + ".000Z",
+						"toolFormerData": map[string]string{"name": "run_terminal_command_v2", "status": row.status, "params": string(params), "result": row.result},
+					})
+					if _, err := db.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?)`, "bubbleId:"+cursorTestID+":b"+string(rune('1'+i)), string(value)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				db.Close()
+			} else {
+				db, err := sql.Open("sqlite", filepath.Join(home, ".cursor", "chats", "workspace", cursorTestID, "store.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`); err != nil {
+					t.Fatal(err)
+				}
+				result, _ := json.Marshal("Exit code: 0\n\nCommand output:\n\n```\nhi\n\n```\n\nCommand completed in 3 ms.")
+				for i, blob := range []string{
+					`{"role":"assistant","content":[{"type":"tool-call","toolCallId":"t1","toolName":"Shell","args":{"command":"echo hi"}},{"type":"tool-call","toolCallId":"t2","toolName":"Shell","args":{"command":"sleep 9"}}]}`,
+					`{"role":"tool","content":[{"type":"tool-result","toolCallId":"t1","toolName":"Shell","result":` + string(result) + `}]}`,
+				} {
+					if _, err := db.Exec(`INSERT INTO blobs VALUES (?, ?)`, "blob"+string(rune('1'+i)), []byte(blob)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				db.Close()
+			}
+			spool := t.TempDir()
+			manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+			}})
+			prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			verified, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, artifact := range verified.Artifacts {
+				if artifact.Kind != sessionbackupv1.KindParsedSessionRecord {
+					continue
+				}
+				data, err := os.ReadFile(filepath.Join(spool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				record, err := fullsessionv1.Decode(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				outputs := record.Session.CommandOutputs
+				if len(record.Session.Commands) != 2 || len(outputs) != 2 || outputs[0] == nil || *outputs[0] != "hi\n" || outputs[1] != nil {
+					t.Fatalf("commands = %q, outputs = %#v, want [hi\\n, nil]", record.Session.Commands, outputs)
+				}
+				return
+			}
+			t.Fatal("no parsed session record")
+		})
+	}
+}
