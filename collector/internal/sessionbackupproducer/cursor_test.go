@@ -214,6 +214,11 @@ func TestCursorChangedIDERowsCannotPublish(t *testing.T) {
 	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
 		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
 	}, AfterRawCopy: func() {
+		info, err := os.Stat(state)
+		if err != nil {
+			t.Error(err)
+			return
+		}
 		db, err := sql.Open("sqlite", state)
 		if err != nil {
 			t.Error(err)
@@ -221,6 +226,10 @@ func TestCursorChangedIDERowsCannotPublish(t *testing.T) {
 		}
 		defer db.Close()
 		if _, err := db.Exec(`UPDATE composerHeaders SET value = value || ' ' WHERE composerId = ?`, cursorTestID); err != nil {
+			t.Error(err)
+		}
+		// Keep the old mtime, as a write in the same coarse clock tick does.
+		if err := os.Chtimes(state, info.ModTime(), info.ModTime()); err != nil {
 			t.Error(err)
 		}
 	}})
