@@ -1043,7 +1043,7 @@ func (r *Runner) runCommand(ctx context.Context, command hubclient.V4Command) er
 	commandContext, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	err := r.Command(commandContext, command)
-	if commandContext.Err() != nil {
+	if err != nil && commandContext.Err() != nil {
 		return commandContext.Err()
 	}
 	return err
