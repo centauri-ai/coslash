@@ -346,6 +346,7 @@ var prCreateCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+)?gh\s+pr\s+c
 var prCreateHelpOrVersionCommand = regexp.MustCompile(
 	`gh\s+pr\s+create\s+(?:-h|--help|--version)\b`,
 )
+var prCreateDryRunCommand = regexp.MustCompile(`gh\s+pr\s+create\b[^\n;&|]*\s--dry-run\b`)
 var pullRequestURLPattern = regexp.MustCompile(
 	`https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)/pull/([1-9][0-9]*)\b`,
 )
@@ -362,7 +363,8 @@ type PullRequestLink struct {
 
 func IsPullRequestCreate(command string) bool {
 	return prCreateCommand.MatchString(command) &&
-		!prCreateHelpOrVersionCommand.MatchString(command)
+		!prCreateHelpOrVersionCommand.MatchString(command) &&
+		!prCreateDryRunCommand.MatchString(maskQuotedShellText(command))
 }
 
 // IsPullRequestCreateTool reports whether a tool name is the GitHub MCP create

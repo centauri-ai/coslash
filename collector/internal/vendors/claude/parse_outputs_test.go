@@ -111,11 +111,13 @@ func TestPullRequestLinksComeFromSuccessfulCreates(t *testing.T) {
 		bashUse("b", "gh pr create --fill"),
 		bashUse("c", "rtk gh pr create --fill"),
 		bashUse("d", "gh pr view 5"),
+		bashUse("e", "gh pr create --fill --dry-run"),
 		mcpUse,
 		bashResult("a", `"https://github.com/acme/api/pull/2\n"`, false),
 		bashResult("b", `"https://github.com/acme/failed/pull/3"`, true),
 		bashResult("c", `"https://github.com/acme/api/pull/2\n"`, false),
 		bashResult("d", `"https://github.com/acme/api/pull/5"`, false),
+		bashResult("e", `"https://github.com/acme/dry/pull/9"`, false),
 		bashResult("m", `[{"type":"text","text":"{\"url\":\"https://github.com/acme/web/pull/4\"}"}]`, false),
 	)
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")

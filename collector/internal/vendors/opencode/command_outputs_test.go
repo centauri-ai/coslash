@@ -131,6 +131,7 @@ func TestV1PullRequestLinksFromSuccessfulCreates(t *testing.T) {
 		toolPart("bash", `{"status":"completed","input":{"command":"gh pr create --fill"},"output":"https://github.com/acme/api/pull/2\n","metadata":{"exit":0}}`),
 		toolPart("bash", `{"status":"completed","input":{"command":"gh pr create --fill"},"output":"https://github.com/acme/api/pull/2\n","metadata":{"exit":0}}`),
 		toolPart("bash", `{"status":"completed","input":{"command":"gh pr create --fill"},"output":"https://github.com/acme/failed/pull/3","metadata":{"exit":1}}`),
+		toolPart("bash", `{"status":"completed","input":{"command":"gh pr create --dry-run"},"output":"https://github.com/acme/dry/pull/9","metadata":{"exit":0}}`),
 		toolPart("bash", `{"status":"completed","input":{"command":"gh pr view 5"},"output":"https://github.com/acme/api/pull/5","metadata":{"exit":0}}`),
 		toolPart("github_create_pull_request", `{"status":"completed","input":{},"output":"{\"url\":\"https://github.com/acme/web/pull/4\"}"}`),
 		toolPart("github_create_pull_request", `{"status":"error","input":{},"output":"https://github.com/acme/web/pull/6"}`),

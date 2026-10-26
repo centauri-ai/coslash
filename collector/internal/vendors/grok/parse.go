@@ -102,7 +102,6 @@ type chunkContent struct {
 	} `json:"_meta"`
 }
 
-// bashOutput is the rawOutput of a completed terminal command.
 // mcpOutput is the rawOutput of an MCP tool call. Output is text or a JSON value.
 type mcpOutput struct {
 	Type     string          `json:"type"`
@@ -110,6 +109,7 @@ type mcpOutput struct {
 	Output   json.RawMessage `json:"output"`
 }
 
+// bashOutput is the rawOutput of a completed terminal command.
 type bashOutput struct {
 	Type     string `json:"type"`
 	Command  string `json:"command"`

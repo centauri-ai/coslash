@@ -633,6 +633,7 @@ func TestProjectionPullRequestLinksFromSuccessfulCreates(t *testing.T) {
 		call("a1", "bash", "gh pr create --fill"), result("r1", "a1", "https://github.com/acme/api/pull/2", false),
 		call("a2", "bash", "gh pr create --fill"), result("r2", "a2", "https://github.com/acme/api/pull/2", false),
 		call("a3", "bash", "gh pr create --fill"), result("r3", "a3", "https://github.com/acme/failed/pull/3", true),
+		call("a6", "bash", "gh pr create --dry-run"), result("r6", "a6", "https://github.com/acme/dry/pull/9", false),
 		call("a4", "bash", "gh pr view 5"), result("r4", "a4", "https://github.com/acme/api/pull/5", false),
 		call("a5", "github_create_pull_request", ""), result("r5", "a5", "https://github.com/acme/web/pull/4", false),
 	)
