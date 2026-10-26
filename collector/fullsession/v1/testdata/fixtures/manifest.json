@@ -132,6 +132,41 @@
       "sha256": "7f45a125fa21537f4b61fbfbab043ac6854ee5cda9c8d492befeeae2cce766e1",
       "valid": false,
       "reason": "command outputs exceed the aggregate item limit"
+    },
+    {
+      "path": "valid/pull-request-links.json",
+      "sha256": "badd81dc965db2075f94f01b18457bc4b78b4849779b11fdb533f9c64a513d7a",
+      "valid": true
+    },
+    {
+      "path": "invalid/pull-request-links-bad-url.json",
+      "sha256": "5b1878020913a9de087f114862b21d4b480b6022a09df64020c29ec1dfa2ae2b",
+      "valid": false,
+      "reason": "pull request URL is not an https GitHub pull URL"
+    },
+    {
+      "path": "invalid/pull-request-links-mismatch.json",
+      "sha256": "f231810f23fd52d020ce69bfcf19b9bdbad9d5cfa9e648990b95bfd6d08ea2c5",
+      "valid": false,
+      "reason": "pull request link differs from its URL"
+    },
+    {
+      "path": "invalid/pull-request-links-duplicate.json",
+      "sha256": "84262d6c0614cbdceef3d60647a2a8752664d9ac39358f5f6391f00c8e3b37a6",
+      "valid": false,
+      "reason": "pull request URLs repeat"
+    },
+    {
+      "path": "invalid/pull-request-links-unsorted.json",
+      "sha256": "21526d0e695d62bee22534de460d7a4ab6ff0d0b95fa2d2588288f2b207e0cf2",
+      "valid": false,
+      "reason": "pull request links are not sorted by repository and number"
+    },
+    {
+      "path": "invalid/pull-request-links-count-mismatch.json",
+      "sha256": "0ca52d8670e17922637e03553499c074d5491ac00a7ed35d51a5f8517e0cf36a",
+      "valid": false,
+      "reason": "pull request count differs from the number of links"
     }
   ]
 }
