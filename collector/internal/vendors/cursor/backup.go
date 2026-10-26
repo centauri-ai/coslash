@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -51,6 +52,10 @@ var ErrBackupRowsUnrepresentable = errors.New("Cursor backup rows cannot be carr
 type fileState struct {
 	size     int64
 	modified int64
+	// changes is the SQLite file change counter (header bytes 24-27). Each
+	// rollback-journal commit increments it, so it catches a write that
+	// keeps the size and lands in the same coarse mtime tick.
+	changes uint32
 }
 
 func (plan *BackupPlan) Stable() bool {
@@ -62,11 +67,24 @@ func databaseState(paths []string) map[string]fileState {
 	for _, path := range paths {
 		for _, candidate := range []string{path, path + "-wal"} {
 			if info, err := os.Stat(candidate); err == nil {
-				state[candidate] = fileState{size: info.Size(), modified: info.ModTime().UnixNano()}
+				state[candidate] = fileState{size: info.Size(), modified: info.ModTime().UnixNano(), changes: sqliteChangeCounter(candidate)}
 			}
 		}
 	}
 	return state
+}
+
+func sqliteChangeCounter(path string) uint32 {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	var header [4]byte
+	if _, err := file.ReadAt(header[:], 24); err != nil {
+		return 0
+	}
+	return binary.BigEndian.Uint32(header[:])
 }
 
 func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, error) {
