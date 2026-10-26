@@ -35,6 +35,7 @@ type SessionEnrichment struct {
 	FileEdits                                                []session.FileEdit
 	CommitObservations                                       []session.CommitObservation
 	PullRequests                                             int
+	PullRequestLinks                                         []session.PullRequestLink
 	Relationship                                             SessionRelationship
 	Usage                                                    SessionUsage
 }
@@ -96,7 +97,11 @@ func ApplySessionEnrichment(parsed *ParsedSession, enrichment *SessionEnrichment
 		s.FileEdits = enrichment.FileEdits
 		s.EditedFileCount = len(enrichment.FileEdits)
 	}
-	s.PullRequests = max(s.PullRequests, enrichment.PullRequests)
+	if enrichment.PullRequestLinks != nil {
+		s.SetPullRequestLinks(session.MergePullRequestLinks(s.PullRequestLinks, enrichment.PullRequestLinks))
+	} else {
+		s.PullRequests = max(s.PullRequests, enrichment.PullRequests)
+	}
 	if len(enrichment.Usage.Tokens) > 0 {
 		s.Tokens = cloneTokens(enrichment.Usage.Tokens)
 	}

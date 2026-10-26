@@ -47,6 +47,7 @@ func Clone(source *Session) *Session {
 	}
 	cloned.Commits = cloneSlice(source.Commits)
 	cloned.CommitSHAs = cloneSlice(source.CommitSHAs)
+	cloned.PullRequestLinks = cloneSlice(source.PullRequestLinks)
 	cloned.Todos = cloneSlice(source.Todos)
 	cloned.Digest = cloneSlice(source.Digest)
 	for i := range cloned.Digest {

@@ -27,7 +27,6 @@ type claudeSessionRecord struct {
 	GeneratedSessionName string          `json:"aiTitle"`
 	Type                 string          `json:"type"`
 	Subtype              string          `json:"subtype"`
-	PRURL                string          `json:"prUrl"`
 	Content              string          `json:"content"`
 	IsCompactSummary     bool            `json:"isCompactSummary"`
 	IsMeta               bool            `json:"isMeta"`

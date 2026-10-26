@@ -713,3 +713,37 @@ func stringValue(value *string) string {
 	}
 	return *value
 }
+
+func TestPullRequestLinksFromShellAndMCPCreates(t *testing.T) {
+	var result updatesSummary
+	ok, failed := 0, 1
+	create := "gh pr create --fill"
+	result.noteCommand("a", bashOutput{Command: create, Output: "https://github.com/acme/api/pull/2\n", ExitCode: &ok})
+	result.noteCommand("b", bashOutput{Command: create, Output: "https://github.com/acme/api/pull/2\n", ExitCode: &ok})
+	result.noteCommand("c", bashOutput{Command: create, Output: "https://github.com/acme/failed/pull/3", ExitCode: &failed})
+	result.noteCommand("d", bashOutput{Command: "gh pr view 5", Output: "https://github.com/acme/api/pull/5", ExitCode: &ok})
+
+	updates := filepath.Join(t.TempDir(), "updates.jsonl")
+	rows := strings.Join([]string{
+		`{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"m1","status":"completed","rawOutput":{"type":"MCP","tool_name":"create_pull_request","server_name":"github","output":"{\"url\":\"https://github.com/acme/web/pull/4\"}"}}}}`,
+		`{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"m2","status":"failed","rawOutput":{"type":"MCP","tool_name":"create_pull_request","server_name":"github","output":"https://github.com/acme/web/pull/6"}}}}`,
+		`{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"m3","status":"completed","rawOutput":{"type":"MCP","tool_name":"get_pull_request","server_name":"github","output":"https://github.com/acme/web/pull/7"}}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(updates, []byte(rows), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := readUpdates(t.Context(), updates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for url := range summary.pullRequests {
+		result.notePullRequests(true, url)
+	}
+	want := []session.PullRequestLink{
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
+	}
+	if got := session.NewPullRequestLinks(result.pullRequests); !slices.Equal(got, want) {
+		t.Fatalf("links = %#v, want %#v", got, want)
+	}
+}

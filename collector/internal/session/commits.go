@@ -1,8 +1,11 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
@@ -344,14 +347,82 @@ var prCreateHelpOrVersionCommand = regexp.MustCompile(
 	`gh\s+pr\s+create\s+(?:-h|--help|--version)\b`,
 )
 var pullRequestURLPattern = regexp.MustCompile(
-	`https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+`,
+	`https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)/pull/([1-9][0-9]*)\b`,
 )
+
+// MaxPullRequestLinks bounds the pull request list of one session.
+const MaxPullRequestLinks = 100
+
+// PullRequestLink is one pull request that a successful agent action created.
+type PullRequestLink struct {
+	URL        string `json:"url"`
+	Repository string `json:"repository"`
+	Number     int    `json:"number"`
+}
 
 func IsPullRequestCreate(command string) bool {
 	return prCreateCommand.MatchString(command) &&
 		!prCreateHelpOrVersionCommand.MatchString(command)
 }
 
+// IsPullRequestCreateTool reports whether a tool name is the GitHub MCP create
+// action. MCP clients prefix the name with the server, so only the suffix is stable.
+func IsPullRequestCreateTool(name string) bool {
+	return strings.HasSuffix(name, "create_pull_request")
+}
+
+// PullRequestURLs returns the GitHub pull request URLs in text. This is the
+// only place that knows the accepted URL shape.
 func PullRequestURLs(text string) []string {
 	return pullRequestURLPattern.FindAllString(text, -1)
+}
+
+// CreatedPullRequestURLs returns the URLs that a create action produced.
+// A GitHub MCP result can echo the pull request body, so only its first URL counts.
+func CreatedPullRequestURLs(tool bool, output string) []string {
+	urls := PullRequestURLs(output)
+	if tool && len(urls) > 1 {
+		urls = urls[:1]
+	}
+	return urls
+}
+
+// NewPullRequestLinks turns a URL set into the canonical list: sorted by
+// repository, then number, and capped at MaxPullRequestLinks. It returns nil
+// for an empty set.
+func NewPullRequestLinks(urls map[string]struct{}) []PullRequestLink {
+	var links []PullRequestLink
+	for url := range urls {
+		match := pullRequestURLPattern.FindStringSubmatch(url)
+		if match == nil || match[0] != url {
+			continue
+		}
+		number, _ := strconv.Atoi(match[3])
+		links = append(links, PullRequestLink{URL: url, Repository: match[1] + "/" + match[2], Number: number})
+	}
+	slices.SortFunc(links, func(a, b PullRequestLink) int {
+		return cmp.Or(cmp.Compare(a.Repository, b.Repository), cmp.Compare(a.Number, b.Number))
+	})
+	if len(links) > MaxPullRequestLinks {
+		links = links[:MaxPullRequestLinks]
+	}
+	return links
+}
+
+// MergePullRequestLinks returns the union of two lists in canonical order.
+func MergePullRequestLinks(a, b []PullRequestLink) []PullRequestLink {
+	urls := make(map[string]struct{}, len(a)+len(b))
+	for _, link := range a {
+		urls[link.URL] = struct{}{}
+	}
+	for _, link := range b {
+		urls[link.URL] = struct{}{}
+	}
+	return NewPullRequestLinks(urls)
+}
+
+// SetPullRequestLinks stores the links and keeps the count equal to their number.
+func (d *SessionDetails) SetPullRequestLinks(links []PullRequestLink) {
+	d.PullRequestLinks = links
+	d.PullRequests = len(links)
 }

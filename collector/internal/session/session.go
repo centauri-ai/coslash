@@ -152,6 +152,7 @@ type SessionDetails struct {
 	Commits           []string          `json:"commits"`
 	CommitSHAs        []string          `json:"-"`
 	PullRequests      int               `json:"prs"`
+	PullRequestLinks  []PullRequestLink `json:"prLinks,omitempty"`
 	Todos             []Todo            `json:"todos"`
 	Digest            []DigestEntry     `json:"digest"`
 	FileEdits         []FileEdit        `json:"fileEdits"`

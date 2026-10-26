@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -618,5 +619,29 @@ func TestLabelParentsCancellationAndInvalidChains(t *testing.T) {
 	}
 	if got, ok := resolver(nil); !ok || got != "" {
 		t.Fatal("null parent rejected")
+	}
+}
+
+func TestProjectionPullRequestLinksFromSuccessfulCreates(t *testing.T) {
+	call := func(id, name, command string) string {
+		return `{"type":"message","id":"` + id + `","message":{"role":"assistant","content":[{"type":"toolCall","id":"t","name":"` + name + `","arguments":{"command":"` + command + `"}}],"usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"cost":{"total":1}}}}`
+	}
+	result := func(id, parent, text string, failed bool) string {
+		return `{"type":"message","id":"` + id + `","parentId":"` + parent + `","message":{"role":"toolResult","toolCallId":"t","content":"` + text + `","isError":` + strconv.FormatBool(failed) + `}}`
+	}
+	tr := projectionFixture(t, "prs", "",
+		call("a1", "bash", "gh pr create --fill"), result("r1", "a1", "https://github.com/acme/api/pull/2", false),
+		call("a2", "bash", "gh pr create --fill"), result("r2", "a2", "https://github.com/acme/api/pull/2", false),
+		call("a3", "bash", "gh pr create --fill"), result("r3", "a3", "https://github.com/acme/failed/pull/3", true),
+		call("a4", "bash", "gh pr view 5"), result("r4", "a4", "https://github.com/acme/api/pull/5", false),
+		call("a5", "github_create_pull_request", ""), result("r5", "a5", "https://github.com/acme/web/pull/4", false),
+	)
+	p, _ := projectLeaf(tr, nil, "r5", false)
+	want := []session.PullRequestLink{
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
+	}
+	if !reflect.DeepEqual(p.Session.PullRequestLinks, want) || p.Session.PullRequests != 2 {
+		t.Fatalf("links = %#v, count = %d, want %#v", p.Session.PullRequestLinks, p.Session.PullRequests, want)
 	}
 }

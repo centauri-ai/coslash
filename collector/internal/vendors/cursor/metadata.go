@@ -304,7 +304,7 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 		if len(matches) != 1 {
 			entry := metadata.Session(id)
 			entry.Model, entry.WorkingDirectory, entry.CompactionSeed = "", "", ""
-			entry.PullRequests, entry.StartedAt, entry.LastActivityAt = 0, 0, 0
+			entry.PullRequests, entry.PullRequestLinks, entry.StartedAt, entry.LastActivityAt = 0, nil, 0, 0
 			entry.Usage = vendors.SessionUsage{}
 			entry.FileEdits, entry.CommitObservations, entry.ObservedModels = nil, nil, nil
 			continue
@@ -784,6 +784,22 @@ func terminalCommand(name string, rawArgs, params json.RawMessage) (string, bool
 	return "", false
 }
 
+// pullRequestCreateTool reports a GitHub MCP create call, which Cursor names
+// mcp-<server>-<tool> or sends through call_mcp_tool with the tool in toolName.
+func pullRequestCreateTool(name string, rawArgs json.RawMessage) bool {
+	if name != "call_mcp_tool" {
+		return session.IsPullRequestCreateTool(name)
+	}
+	var value string
+	if json.Unmarshal(rawArgs, &value) != nil {
+		value = string(rawArgs)
+	}
+	var args struct {
+		ToolName string `json:"toolName"`
+	}
+	return json.Unmarshal([]byte(value), &args) == nil && session.IsPullRequestCreateTool(args.ToolName)
+}
+
 func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 	type checkpoint struct {
 		CommitHashesByGitWorkspace map[string]struct {
@@ -1129,11 +1145,12 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 				bubbles[id] = observation
 			}
 			command, completed := completedIDETerminalCommand(item.ToolFormerData.Name, item.ToolFormerData.Status, item.ToolFormerData.RawArgs, item.ToolFormerData.Params)
-			if completed && session.IsPullRequestCreate(command) {
+			tool := pullRequestCreateTool(item.ToolFormerData.Name, item.ToolFormerData.RawArgs)
+			if (completed && session.IsPullRequestCreate(command)) || (tool && item.ToolFormerData.Status == "completed") {
 				if pullRequests[id] == nil {
 					pullRequests[id] = map[string]struct{}{}
 				}
-				for _, url := range session.PullRequestURLs(item.ToolFormerData.Result) {
+				for _, url := range session.CreatedPullRequestURLs(tool, item.ToolFormerData.Result) {
 					pullRequests[id][url] = struct{}{}
 				}
 			}
@@ -1188,7 +1205,9 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		metadata.Session(id).PullRequests = len(urls)
+		links := session.NewPullRequestLinks(urls)
+		metadata.Session(id).PullRequestLinks = links
+		metadata.Session(id).PullRequests = len(links)
 	}
 	return ctx.Err()
 }

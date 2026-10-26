@@ -172,7 +172,7 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"AgentError": false,
 		"Model":      true, "ObservedModels": false, "ContextTokens": true, "ContextWindow": true, "Turns": true,
 		"ToolUses": true, "Errors": true, "Compactions": true, "FirstPrompt": true,
-		"Commands": true, "CommandOutputs": false, "Commits": true, "PullRequests": true, "Todos": true,
+		"Commands": true, "CommandOutputs": false, "Commits": true, "PullRequests": true, "PullRequestLinks": true, "Todos": true,
 		"CommitSHAs": false, // recomputed only from local repository history
 		"Digest":     true, "FileEdits": true, "Git": true, "GitProbed": true,
 		"LastEditAt": true, "Synthesis": true, "SynthesisPending": true,
@@ -227,5 +227,34 @@ func TestCloneDisplayDropsCommandOutputs(t *testing.T) {
 	}
 	if source.Subagents[0].Commands[0].Output == nil {
 		t.Fatal("cloneDisplay mutated its caller's subagent commands")
+	}
+}
+
+func TestParsedRoundTripPreservesPullRequestLinks(t *testing.T) {
+	links := []session.PullRequestLink{{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2}}
+	s := &session.Session{Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{}}
+	s.SetPullRequestLinks(links)
+	f, err := FromParsed("codex", "root", "parser-v1", StateComplete, "", []*vendors.ParsedSession{{Session: s}}, vendors.EmptySessionMetadata(), []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Sessions[0].Display.PullRequestLinks != nil {
+		t.Fatal("display must not duplicate the links")
+	}
+	got, _, err := f.Parsed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got[0].Session.PullRequestLinks, links) || got[0].Session.PullRequests != 1 {
+		t.Fatalf("links = %#v, count = %d", got[0].Session.PullRequestLinks, got[0].Session.PullRequests)
+	}
+	f.Sessions[0].Counts.PullRequests = 2
+	if err := Validate(f); err == nil {
+		t.Fatal("a count that differs from the links must be rejected")
+	}
+	f.Sessions[0].Counts.PullRequests = 1
+	f.Sessions[0].PullRequestLinks[0].Number = 3
+	if err := Validate(f); err == nil {
+		t.Fatal("links that differ from their URL must be rejected")
 	}
 }

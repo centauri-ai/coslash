@@ -200,6 +200,8 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 
 	commands := session.CommandLog{}
 	toolCommands := map[string]string{}
+	pullRequests := map[string]struct{}{}
+	pullRequestTools := map[string]bool{} // GitHub MCP create calls, by assistant entry and call ID
 	edits := session.NewFileEditSet()
 	cost := 0.0
 	s.TokensUnavailable, s.CostUnavailable = !verified || t.Incomplete, !verified || t.Incomplete
@@ -279,7 +281,14 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			if command := toolCommands[nearestAssistant[e.ID]+"\x00"+p.Message.ToolCallID]; command != "" {
 				s.CommitLog = append(s.CommitLog, session.ParseCommitObservations(command, contentText(p.Message.Content), !p.Message.IsError)...)
 				if !p.Message.IsError && session.IsPullRequestCreate(command) {
-					s.PullRequests++
+					for _, url := range session.CreatedPullRequestURLs(false, contentText(p.Message.Content)) {
+						pullRequests[url] = struct{}{}
+					}
+				}
+			}
+			if !p.Message.IsError && pullRequestTools[nearestAssistant[e.ID]+"\x00"+p.Message.ToolCallID] {
+				for _, url := range session.CreatedPullRequestURLs(true, contentText(p.Message.Content)) {
+					pullRequests[url] = struct{}{}
 				}
 			}
 		}
@@ -305,6 +314,9 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				continue
 			}
 			s.ToolUses++
+			if session.IsPullRequestCreateTool(b.Name) {
+				pullRequestTools[e.ID+"\x00"+b.ID] = true
+			}
 			if b.Arguments.Command != "" {
 				commands.Note(b.Arguments.Command, "")
 				toolCommands[e.ID+"\x00"+b.ID] = b.Arguments.Command
@@ -346,6 +358,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 	}
 	s.TokensKnown = !s.TokensUnavailable
 	s.Commands, s.FileEdits, s.EditedFileCount = commands.Raw(), edits.Edits, len(edits.Edits)
+	s.SetPullRequestLinks(session.NewPullRequestLinks(pullRequests))
 	result.Commands = commands.Labelled()
 	if s.StartedAt > 0 && s.LastActivityTime >= s.StartedAt {
 		duration := int(s.LastActivityTime - s.StartedAt)

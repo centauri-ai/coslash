@@ -93,7 +93,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 	promptAt := int64(0)
 	activeTasks := map[string]string{}
 	commitLog := []session.CommitObservation{}
-	pullRequests := 0
+	pullRequests := map[string]struct{}{}
 	fileEdits := session.NewFileEditSet()
 	patchEdits := session.NewFileEditSet()
 	var lastEditAt *int64
@@ -118,7 +118,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 					message.Command, deref(message.Output), succeeded,
 				)...)
 				if succeeded && session.IsPullRequestCreate(message.Command) {
-					pullRequests++
+					notePullRequests(pullRequests, false, deref(message.Output))
 				}
 			}
 			if message.Status != "exited" || (message.Exit != nil && *message.Exit != 0) {
@@ -273,11 +273,12 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 					commitLog = append(commitLog, session.ParseCommitObservations(
 						part.State.Input.Command, deref(part.State.Output), succeeded,
 					)...)
-					if succeeded {
-						if session.IsPullRequestCreate(part.State.Input.Command) {
-							pullRequests++
-						}
+					if succeeded && session.IsPullRequestCreate(part.State.Input.Command) {
+						notePullRequests(pullRequests, false, deref(part.State.Output))
 					}
+				}
+				if part.State.Status == "completed" && session.IsPullRequestCreateTool(part.Tool) {
+					notePullRequests(pullRequests, true, deref(part.State.Output))
 				}
 				if part.State.Status == "completed" {
 					if addCompletedToolEdits(row.directory, &part, fileEdits) &&
@@ -355,13 +356,13 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 		Commands:       commands.Raw(),
 		CommandOutputs: commands.Outputs(),
 		Commits:        session.ReconcileCommits(commitLog, "", nil),
-		PullRequests:   pullRequests,
 		Todos:          todos,
 		Digest:         digest.Entries(),
 		FileEdits:      fileEdits.Edits,
 		LastEditAt:     lastEditAt,
 		CompactionSeed: compactionSeed,
 	}
+	details.SetPullRequestLinks(session.NewPullRequestLinks(pullRequests))
 	if firstPrompt != "" {
 		details.FirstPrompt = &firstPrompt
 	}
@@ -849,4 +850,10 @@ func userText(parts []storedPart) string {
 		}
 	}
 	return strings.Join(texts, "\n")
+}
+
+func notePullRequests(urls map[string]struct{}, tool bool, output string) {
+	for _, url := range session.CreatedPullRequestURLs(tool, output) {
+		urls[url] = struct{}{}
+	}
 }

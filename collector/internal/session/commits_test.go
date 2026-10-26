@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -41,5 +42,42 @@ func TestReconcileCommitFactsExportsOnlyResolvedFullObjectIDs(t *testing.T) {
 	)
 	if len(facts.Subjects) != 1 || len(facts.SHAs) != 0 {
 		t.Fatalf("unresolved facts = %#v", facts)
+	}
+}
+
+func TestPullRequestLinksAreCanonical(t *testing.T) {
+	urls := map[string]struct{}{
+		"https://github.com/acme/web/pull/4":   {},
+		"https://github.com/acme/api/pull/10":  {},
+		"https://github.com/acme/api/pull/2":   {},
+		"https://example.com/acme/api/pull/3":  {},
+		"https://github.com/acme/api/pull/0":   {},
+		"https://github.com/acme/api/pull/2?x": {},
+	}
+	got := NewPullRequestLinks(urls)
+	want := []string{"https://github.com/acme/api/pull/2", "https://github.com/acme/api/pull/10", "https://github.com/acme/web/pull/4"}
+	if len(got) != len(want) {
+		t.Fatalf("links = %#v", got)
+	}
+	for i := range want {
+		if got[i].URL != want[i] {
+			t.Fatalf("link %d = %q, want %q", i, got[i].URL, want[i])
+		}
+	}
+	if got[1].Repository != "acme/api" || got[1].Number != 10 {
+		t.Fatalf("link parts = %#v", got[1])
+	}
+	if merged := MergePullRequestLinks(got[:2], got[1:]); len(merged) != 3 {
+		t.Fatalf("merged = %#v", merged)
+	}
+	many := map[string]struct{}{}
+	for number := 1; number <= MaxPullRequestLinks+5; number++ {
+		many["https://github.com/acme/api/pull/"+strconv.Itoa(number)] = struct{}{}
+	}
+	if got := NewPullRequestLinks(many); len(got) != MaxPullRequestLinks {
+		t.Fatalf("capped links = %d", len(got))
+	}
+	if NewPullRequestLinks(nil) != nil {
+		t.Fatal("empty set must give a nil list")
 	}
 }
