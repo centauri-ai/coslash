@@ -69,3 +69,34 @@ func TestParseCacheDoesNotStoreOutputFromToolResultsFile(t *testing.T) {
 		t.Fatalf("missing output fallback = %q, want preview", got)
 	}
 }
+
+func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
+	writeOutputTranscript(t, path, bashRows(
+		`{"type":"user","timestamp":"2026-09-23T10:00:00Z","message":{"content":"go"}}`,
+		bashUse("a", "gh pr create --fill"),
+		bashResult("a", `"https://github.com/acme/api/pull/2\n"`, false),
+	))
+	fingerprint, err := transcriptFingerprint(vendors.LocalReadSource, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseSourceContext(t.Context(), vendors.LocalReadSource, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.transcript.Session.PullRequests, parsed.transcript.Session.PullRequestLinks = 0, nil
+	payload, err := encodeCached(parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &claudeTestParseCache{entries: map[vendors.CacheKey]json.RawMessage{
+		{Agent: vendors.AgentClaude, Identity: path, Version: "claude-4", Fingerprint: fingerprint}: payload,
+	}}
+	vendors.SetParseCache(cache)
+	t.Cleanup(func() { vendors.SetParseCache(nil) })
+	got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path)
+	if err != nil || len(got.transcript.Session.PullRequestLinks) != 1 || got.transcript.Session.PullRequests != 1 {
+		t.Fatalf("entry cached before PR links was not reparsed: %#v, %v", got.transcript.Session, err)
+	}
+}

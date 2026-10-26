@@ -144,3 +144,55 @@ func TestV1PullRequestLinksFromSuccessfulCreates(t *testing.T) {
 		t.Fatalf("links = %#v, count = %d, want %#v", got, parsed.Session.PullRequests, want)
 	}
 }
+
+type opencodeTestParseCache map[vendors.CacheKey]json.RawMessage
+
+func (cache opencodeTestParseCache) Lookup(key vendors.CacheKey) (json.RawMessage, bool) {
+	payload, ok := cache[key]
+	return payload, ok
+}
+
+func (cache opencodeTestParseCache) Store(key vendors.CacheKey, payload json.RawMessage) error {
+	cache[key] = append(json.RawMessage(nil), payload...)
+	return nil
+}
+
+func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
+	db := testDB(t)
+	for _, statement := range []string{
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
+		`INSERT INTO session_v2 VALUES ('ses_shell', NULL, '/work', 'shell', NULL, NULL, NULL, NULL, 0, 100, 400, NULL)`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('u', 'ses_shell', 'user', 1, 100, '{"text":"Do work"}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('a', 'ses_shell', 'assistant', 2, 200, '{"time":{"created":200,"completed":300},"finish":"stop"}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('s', 'ses_shell', 'shell', 3, 400, '{"command":"gh pr create","status":"exited","exit":0,"output":{"output":"https://github.com/acme/api/pull/7\n"}}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current := opencodeTestParseCache{}
+	vendors.SetParseCache(current)
+	t.Cleanup(func() { vendors.SetParseCache(nil) })
+	if parsed, _, err := load(db, activeFamiliesQuery); err != nil || len(parsed) != 1 || len(parsed[0].Session.PullRequestLinks) != 1 {
+		t.Fatalf("first parse = %#v, %v", parsed, err)
+	}
+	stale := opencodeTestParseCache{}
+	for key, payload := range current {
+		family, err := decodeCachedFamily(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		family[0].transcript.Session.PullRequests, family[0].transcript.Session.PullRequestLinks = 0, nil
+		if payload, err = encodeCachedFamily(family); err != nil {
+			t.Fatal(err)
+		}
+		key.Version = "opencode-2"
+		stale[key] = payload
+	}
+	vendors.SetParseCache(stale)
+	parsed, _, err := load(db, activeFamiliesQuery)
+	if err != nil || len(parsed) != 1 || len(parsed[0].Session.PullRequestLinks) != 1 || parsed[0].Session.PullRequests != 1 {
+		t.Fatalf("entry cached before PR links was not reparsed: %#v, %v", parsed, err)
+	}
+}

@@ -97,3 +97,16 @@ func TestPullRequestLinksAreCanonical(t *testing.T) {
 		t.Fatal("empty set must give a nil list")
 	}
 }
+
+func TestDetailRevisionChangesWhenPullRequestLinksChange(t *testing.T) {
+	value := Session{Agent: "claude", ID: "s"}
+	before, err := LocalDetailRevision(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value.SetPullRequestLinks([]PullRequestLink{{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2}})
+	after, err := LocalDetailRevision(value)
+	if err != nil || after == before {
+		t.Fatalf("revision must change with the links: %q, %q, %v", before, after, err)
+	}
+}
