@@ -24,7 +24,7 @@ without reducing child sessions to the display-oriented `subagents` list.
 
 Canonical records use UTF-8 without a BOM, insignificant whitespace, or a
 trailing newline. Every field is present, including null pointers and empty or
-null arrays, except optional `unattributedTokens`, `commandOutputs`, and subagent command `output`, which are omitted when absent.
+null arrays, except optional `unattributedTokens`, `commandOutputs`, `pullRequestLinks`, and subagent command `output`, which are omitted when absent.
 Usage arrays declare models in ascending model-name order; all other arrays
 retain their declared order. Integers use the shortest base-10
 form (no leading zero or plus sign); booleans and null use their lowercase JSON
@@ -33,10 +33,11 @@ literals.
 Object members occur in the following order:
 
 - Record: `schemaVersion`, `sourceId`, `agent`, `sessionId`, `parentSessionId`, `revisionId`, `session`.
-- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, optional `unattributedTokens`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, optional `commandOutputs`, `commits`, `commitShas`, `pullRequests`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
+- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, optional `unattributedTokens`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, optional `commandOutputs`, `commits`, `commitShas`, `pullRequests`, optional `pullRequestLinks`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
 - Model usage: `model`, `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Unattributed usage: `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, optional `unattributedTokens`, `costMicroUsd`; a subagent command uses `label`, `command`, optional `output`.
+- Pull request link: `url`, `repository`, `number`.
 - Todo: `text`, `done`; digest entry: `turn`, `category`, `description`, `answer`, `subagentId`, `timeMs`.
 - File edit: `path`, `additions`, `deletions`, `edits`, `isNew`, `changes`; file change: `id`, `kind`, `text`, `operation`, `additions`, `deletions`, `byteCount`, `sha256`.
 - Synthesis: `goals`, `outcome`, `keyDecisions`, `nextStep`.
@@ -49,6 +50,12 @@ which are respectively `\u003c`, `\u003e`, `\u0026`, `\u2028`, and `\u2029`.
 Solidus is not escaped. The published `valid/escaping.json` fixture exercises
 these rules. Hashes are lowercase hexadecimal SHA-256 digests of exactly these
 bytes; compute the revision with `revisionId` set to the empty string.
+
+`pullRequestLinks` lists the pull requests that an agent created in the
+session, at most 100. Each `url` is `https://github.com/<owner>/<repo>/pull/<n>`,
+and `repository` (`owner/repo`) and `number` repeat its parts. URLs are unique
+and items are sorted by `repository`, then `number`. When the list is not empty,
+`pullRequests` equals its length. Records without links stay valid.
 
 Session timestamps must be positive Unix milliseconds no later than
 `9999-12-31T23:59:59.999Z`. This keeps the shared record within the supported

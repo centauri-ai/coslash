@@ -135,6 +135,24 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	links, err := fullsessionv1.Freeze(pullRequestLinksRecord())
+	if err != nil {
+		panic(err)
+	}
+	linksCanonical, err := fullsessionv1.Marshal(links)
+	if err != nil {
+		panic(err)
+	}
+	mutateLinks := func(mutate func(*fullsessionv1.Session)) []byte {
+		value := links
+		value.Session.PullRequestLinks = append([]fullsessionv1.PullRequestLink(nil), links.Session.PullRequestLinks...)
+		mutate(&value.Session)
+		data, err := canonicalWithRevision(value)
+		if err != nil {
+			panic(err)
+		}
+		return data
+	}
 	entries := []struct {
 		path   string
 		data   []byte
@@ -164,6 +182,22 @@ func main() {
 		{"invalid/subagent-command-output-invalid-utf8.json", bytes.Replace(outputsCanonical, []byte(`"output":"PASS"`), []byte("\"output\":\"PASS\xff\""), 1), false, "subagent command output is not valid UTF-8"},
 		{"invalid/command-output-oversize.json", outputsOversizeBytes, false, "command output exceeds the string limit"},
 		{"invalid/command-outputs-too-many-items.json", outputsOverflowBytes, false, "command outputs exceed the aggregate item limit"},
+		{"valid/pull-request-links.json", linksCanonical, true, ""},
+		{"invalid/pull-request-links-bad-url.json", mutateLinks(func(s *fullsessionv1.Session) {
+			s.PullRequestLinks[0].URL = "http://github.com/acme/api/pull/2"
+		}), false, "pull request URL is not an https GitHub pull URL"},
+		{"invalid/pull-request-links-mismatch.json", mutateLinks(func(s *fullsessionv1.Session) {
+			s.PullRequestLinks[0].Number = 3
+		}), false, "pull request link differs from its URL"},
+		{"invalid/pull-request-links-duplicate.json", mutateLinks(func(s *fullsessionv1.Session) {
+			s.PullRequestLinks[1] = s.PullRequestLinks[0]
+		}), false, "pull request URLs repeat"},
+		{"invalid/pull-request-links-unsorted.json", mutateLinks(func(s *fullsessionv1.Session) {
+			s.PullRequestLinks[0], s.PullRequestLinks[1] = s.PullRequestLinks[1], s.PullRequestLinks[0]
+		}), false, "pull request links are not sorted by repository and number"},
+		{"invalid/pull-request-links-count-mismatch.json", mutateLinks(func(s *fullsessionv1.Session) {
+			s.PullRequests = 1
+		}), false, "pull request count differs from the number of links"},
 	}
 	output := manifest{SchemaVersion: fullsessionv1.SchemaVersion, CollectorVersion: "fixturegen/1"}
 	for _, entry := range entries {
@@ -284,4 +318,16 @@ func boundaryCommandOutputsRecord() fullsessionv1.Record {
 			Commands: make([]string, fullsessionv1.MaxItems/2), CommandOutputs: make([]*string, fullsessionv1.MaxItems/2),
 		},
 	}
+}
+
+func pullRequestLinksRecord() fullsessionv1.Record {
+	value := record()
+	value.Agent, value.SessionID = "claude", "claude-pull-request-links"
+	value.Session.PullRequests = 3
+	value.Session.PullRequestLinks = []fullsessionv1.PullRequestLink{
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/api/pull/10", Repository: "acme/api", Number: 10},
+		{URL: "https://github.com/acme/web/pull/1", Repository: "acme/web", Number: 1},
+	}
+	return value
 }

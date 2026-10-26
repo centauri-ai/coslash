@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -75,12 +77,21 @@ type Session struct {
 	Commits            []string           `json:"commits"`
 	CommitSHAs         []string           `json:"commitShas"`
 	PullRequests       int                `json:"pullRequests"`
+	PullRequestLinks   []PullRequestLink  `json:"pullRequestLinks,omitempty"`
 	Todos              []Todo             `json:"todos"`
 	Digest             []DigestEntry      `json:"digest"`
 	FileEdits          []FileEdit         `json:"fileEdits"`
 	Synthesis          *SessionSynthesis  `json:"synthesis"`
 	SynthesisPending   bool               `json:"synthesisPending"`
 	DeclaredGoal       *string            `json:"declaredGoal"`
+}
+
+// PullRequestLink is one pull request that an agent created in the session.
+// Repository and Number repeat the parts of URL so a reader needs no parsing.
+type PullRequestLink struct {
+	URL        string `json:"url"`
+	Repository string `json:"repository"`
+	Number     int    `json:"number"`
 }
 
 type ModelUsage struct {
@@ -435,6 +446,9 @@ func validate(record Record, requireRevision bool) error {
 		len(s.CommitSHAs), len(s.Todos), len(s.Digest), len(s.FileEdits)) {
 		return fmt.Errorf("%w: session collection exceeds item limit", ErrInvalid)
 	}
+	if err := validPullRequestLinks(s); err != nil {
+		return err
+	}
 	if s.EditedFileCount != len(s.FileEdits) {
 		return fmt.Errorf("%w: edited file count does not match file edits", ErrInvalid)
 	}
@@ -532,7 +546,7 @@ func validCollectionSizes(s Session) bool {
 		!budget.add(len(s.Subagents)) || !budget.add(len(s.Commands)) || !budget.add(len(s.CommandOutputs)) ||
 		!budget.add(len(s.Commits)) || !budget.add(len(s.CommitSHAs)) ||
 		!budget.add(len(s.Todos)) || !budget.add(len(s.Digest)) ||
-		!budget.add(len(s.FileEdits)) {
+		!budget.add(len(s.FileEdits)) || !budget.add(len(s.PullRequestLinks)) {
 		return false
 	}
 	for _, subagent := range s.Subagents {
@@ -641,4 +655,45 @@ func optionalInt64Nonnegative(value *int64) bool {
 
 func validCost(value int64) bool {
 	return value >= 0 && value <= MaxCostMicroUSD
+}
+
+// MaxPullRequestLinks bounds the pull request list of one session.
+const MaxPullRequestLinks = 100
+
+var pullRequestURLPattern = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)/pull/([1-9][0-9]*)$`)
+
+func validPullRequestLinks(s Session) error {
+	links := s.PullRequestLinks
+	if len(links) == 0 {
+		return nil
+	}
+	if len(links) > MaxPullRequestLinks {
+		return fmt.Errorf("%w: too many pull request links", ErrInvalid)
+	}
+	if s.PullRequests != len(links) {
+		return fmt.Errorf("%w: pull request count does not match links", ErrInvalid)
+	}
+	seen := make(map[string]struct{}, len(links))
+	for index, link := range links {
+		match := pullRequestURLPattern.FindStringSubmatch(link.URL)
+		if match == nil {
+			return fmt.Errorf("%w: invalid pull request url", ErrInvalid)
+		}
+		number, err := strconv.Atoi(match[3])
+		if err != nil || link.Repository != match[1]+"/"+match[2] || link.Number != number {
+			return fmt.Errorf("%w: pull request link does not match its url", ErrInvalid)
+		}
+		if _, ok := seen[link.URL]; ok {
+			return fmt.Errorf("%w: duplicate pull request url", ErrInvalid)
+		}
+		seen[link.URL] = struct{}{}
+		if index > 0 {
+			previous := links[index-1]
+			if previous.Repository > link.Repository ||
+				(previous.Repository == link.Repository && previous.Number >= link.Number) {
+				return fmt.Errorf("%w: unsorted pull request links", ErrInvalid)
+			}
+		}
+	}
+	return nil
 }
