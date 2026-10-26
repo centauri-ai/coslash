@@ -144,6 +144,13 @@ The actionable queue also reports a `queuePositions` map from server-issued
 session IDs to scheduler positions, including priority and pause decisions;
 parked and not-yet-ready work has no position. The map is omitted if more
 than 10,000 actionable entries exist. The private source key is never sent.
+
+Explicit Hub commands use the Local sync lifecycle context and their own timeout.
+Routine inventory or policy wake-ups can restart a sync pass without interrupting
+an SSH test or connector install. Shutdown and device revocation still cancel
+commands. A canceled command reports `command_cancelled`, preserving the cause
+when helper status would otherwise describe a transport timeout.
+
 The command wait request continues while Local runs, including during an
 upload, a pause, and a failed pass. A changed policy or queued command wakes
 check-in promptly. Retryable session failures wait 1, 5, 15, then 60 minutes

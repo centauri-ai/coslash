@@ -145,6 +145,7 @@ type Runner struct {
 	LocalPause          func() bool
 	RequireImportPlan   bool
 	Command             func(context.Context, hubclient.V4Command) error
+	CommandContext      context.Context // Explicit commands outlive routine sync-pass restarts.
 	ReconcileSSHHosts   func([]hubclient.V4SSHHost) error
 	CleanupRemoteCache  func()
 	Now                 func() time.Time
@@ -1035,9 +1036,17 @@ func (r *Runner) runCommand(ctx context.Context, command hubclient.V4Command) er
 	if command.Type == "ssh.install" {
 		timeout = 2 * time.Minute
 	}
-	commandContext, cancel := context.WithTimeout(ctx, timeout)
+	parent := ctx
+	if r.CommandContext != nil {
+		parent = r.CommandContext
+	}
+	commandContext, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	return r.Command(commandContext, command)
+	err := r.Command(commandContext, command)
+	if commandContext.Err() != nil {
+		return commandContext.Err()
+	}
+	return err
 }
 
 // finishRetryCommands reports each Hub retry by its own session's outcome:

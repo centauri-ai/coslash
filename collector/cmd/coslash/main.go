@@ -324,6 +324,7 @@ func main() {
 			Conditions:         syncv4.LocalConditions,
 			LocalPause:         func() bool { return settingsStore.State().Config.SyncPaused },
 			Command:            v4CommandRunner(queue, settingsStore, remoteManager),
+			CommandContext:     syncContext,
 			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
 			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
 		}

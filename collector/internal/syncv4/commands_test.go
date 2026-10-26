@@ -282,3 +282,40 @@ func TestCommandErrorSSHCodes(t *testing.T) {
 		t.Fatalf("unclassified code = %q", got)
 	}
 }
+
+func TestSSHCommandSurvivesSyncPassCancellation(t *testing.T) {
+	for _, kind := range []string{"ssh.test", "ssh.install"} {
+		t.Run(kind, func(t *testing.T) {
+			passContext, cancelPass := context.WithCancel(context.Background())
+			defer cancelPass()
+			runner := &Runner{
+				CommandContext: context.Background(),
+				Command: func(ctx context.Context, _ hubclient.V4Command) error {
+					cancelPass()
+					return ctx.Err()
+				},
+			}
+			if err := runner.runCommand(passContext, hubclient.V4Command{Type: kind}); err != nil {
+				t.Fatalf("routine sync cancellation interrupted %s: %v", kind, err)
+			}
+		})
+	}
+}
+
+func TestCommandLifecycleCancellationPreservesCause(t *testing.T) {
+	lifecycle, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reason := remote.ReasonRefreshTimeout
+	runner := &Runner{
+		CommandContext: lifecycle,
+		Command: func(ctx context.Context, _ hubclient.V4Command) error {
+			cancel()
+			<-ctx.Done()
+			return &SSHCommandError{Reason: &reason, Install: true}
+		},
+	}
+	err := runner.runCommand(lifecycle, hubclient.V4Command{Type: "ssh.install"})
+	if !errors.Is(err, context.Canceled) || commandError(err) != "command_cancelled" {
+		t.Fatalf("lifecycle cancellation = %v (%s), want command_cancelled", err, commandError(err))
+	}
+}
