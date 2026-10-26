@@ -319,3 +319,18 @@ func TestCommandLifecycleCancellationPreservesCause(t *testing.T) {
 		t.Fatalf("lifecycle cancellation = %v (%s), want command_cancelled", err, commandError(err))
 	}
 }
+
+func TestCommandSuccessSurvivesLifecycleCancellationRace(t *testing.T) {
+	lifecycle, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runner := &Runner{
+		CommandContext: lifecycle,
+		Command: func(context.Context, hubclient.V4Command) error {
+			cancel()
+			return nil
+		},
+	}
+	if err := runner.runCommand(lifecycle, hubclient.V4Command{Type: "ssh.install"}); err != nil {
+		t.Fatalf("successful command was replaced by lifecycle cancellation: %v", err)
+	}
+}
