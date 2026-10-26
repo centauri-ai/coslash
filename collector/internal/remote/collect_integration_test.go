@@ -228,7 +228,7 @@ func TestCodexSessionMetaOnlyRootIsAbsentFromCompleteInventory(t *testing.T) {
 	}
 	request := remoteprotocol.Request{
 		RequestID: "helper-meta-only", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
-		Schema: remoteprotocol.VersionRange{Min: 2, Max: 2}, ParserVersion: vendors.ParserVersion,
+		Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: vendors.ParserVersion,
 		SourceID: "r_0123456789abcdef", BaselineMode: remoteprotocol.BaselineNone,
 		CollectedAtMs: time.Unix(3_000, 0).UnixMilli(), Vendors: []string{vendors.AgentCodex},
 		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
@@ -353,7 +353,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	}
 	request := remoteprotocol.Request{
 		RequestID: "helper-full-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
-		Schema: remoteprotocol.VersionRange{Min: 2, Max: 2}, ParserVersion: vendors.ParserVersion,
+		Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: vendors.ParserVersion,
 		SourceID: baseline.SourceID, BaselineMode: remoteprotocol.BaselineNone,
 		CollectedAtMs: time.Unix(3_000, 0).UnixMilli(), Vendors: []string{vendors.AgentCodex},
 		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
@@ -488,7 +488,7 @@ func TestClaudeFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *test
 
 	request := remoteprotocol.Request{
 		RequestID: "helper-claude-full-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
-		Schema: remoteprotocol.VersionRange{Min: 2, Max: 2}, ParserVersion: vendors.ParserVersion,
+		Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: vendors.ParserVersion,
 		SourceID: baseline.SourceID, BaselineMode: remoteprotocol.BaselineNone,
 		CollectedAtMs: time.Unix(3_000, 0).UnixMilli(), Vendors: []string{vendors.AgentClaude},
 		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},

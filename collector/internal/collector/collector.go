@@ -630,6 +630,14 @@ func enrichSubagentsContext(
 		if err := linkSpawnDigestContext(ctx, parent.Session, p.SpawnKey, subagent); err != nil {
 			return err
 		}
+		// Pull requests that a subagent created belong to every ancestor session.
+		if len(p.Session.PullRequestLinks) > 0 {
+			seenAncestors := map[*vendors.ParsedSession]bool{p: true}
+			for owner := parent; owner != nil && !seenAncestors[owner]; owner = parents[owner] {
+				seenAncestors[owner] = true
+				owner.Session.SetPullRequestLinks(session.MergePullRequestLinks(owner.Session.PullRequestLinks, p.Session.PullRequestLinks))
+			}
+		}
 		if p.Session.Agent != vendors.AgentCursor {
 			parent.Session.Subagents = append(parent.Session.Subagents, subagent)
 			continue

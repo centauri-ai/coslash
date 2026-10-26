@@ -68,6 +68,7 @@ type CachedSession struct {
 	Errors           int                            `json:"errors,omitempty"`
 	Compactions      int                            `json:"compactions,omitempty"`
 	PullRequests     int                            `json:"pullRequests,omitempty"`
+	PullRequestLinks []session.PullRequestLink      `json:"pullRequestLinks,omitempty"`
 	EditedFileCount  int                            `json:"editedFileCount,omitempty"`
 }
 
@@ -100,7 +101,8 @@ func (cached CachedSnapshot) sessions() []*session.Session {
 				Model: item.Model, ContextTokens: item.ContextTokens, ContextWindow: item.ContextWindow,
 				Turns: item.Turns, ToolUses: item.ToolUses, Errors: item.Errors,
 				Compactions: item.Compactions, PullRequests: item.PullRequests,
-				Commands: []string{}, Commits: []string{}, Todos: []session.Todo{},
+				PullRequestLinks: append([]session.PullRequestLink(nil), item.PullRequestLinks...),
+				Commands:         []string{}, Commits: []string{}, Todos: []session.Todo{},
 				Digest: []session.DigestEntry{}, FileEdits: []session.FileEdit{},
 			},
 		})

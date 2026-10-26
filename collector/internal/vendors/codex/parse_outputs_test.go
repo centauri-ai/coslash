@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -97,4 +98,30 @@ func TestSessionWithoutResultsStillParses(t *testing.T) {
 		t.Fatalf("commands = %v", parsed.Session.Commands)
 	}
 	wantOutputs(t, parsed.Session.CommandOutputs, []*string{nil})
+}
+
+func TestPullRequestLinksFromSuccessfulCreates(t *testing.T) {
+	create := "gh pr create --fill"
+	ok := func(url string) string { return `{"output":"` + url + `\n","exit_code":0}` }
+	rows := []string{
+		execCall("function_call", "a", create), execResult("function_call_output", "a", ok("https://github.com/acme/api/pull/2")),
+		execCall("function_call", "b", create), execResult("function_call_output", "b", ok("https://github.com/acme/api/pull/2")),
+		execCall("function_call", "c", create), execResult("function_call_output", "c", `{"output":"https://github.com/acme/failed/pull/3","exit_code":1}`),
+		execCall("function_call", "d", "gh pr view 5"), execResult("function_call_output", "d", ok("https://github.com/acme/api/pull/5")),
+		`{"timestamp":"2026-10-23T10:00:03Z","type":"response_item","payload":{"type":"function_call","call_id":"m","name":"mcp__github__create_pull_request","arguments":"{}"}}`,
+		execResult("function_call_output", "m", `{"url":"https://github.com/acme/web/pull/4"}`),
+		`{"timestamp":"2026-10-23T10:00:04Z","type":"response_item","payload":{"type":"function_call","call_id":"n","name":"mcp__github__create_pull_request","arguments":"{}"}}`,
+		execResult("function_call_output", "n", `{"isError":true,"url":"https://github.com/acme/web/pull/6"}`),
+		`{"timestamp":"2026-10-23T10:00:05Z","type":"event_msg","payload":{"item":{"type":"CommandExecution","command":["bash","-lc","gh pr create"],"exit_code":0,"aggregated_output":"https://github.com/acme/api/pull/2"}}}`,
+		`{"timestamp":"2026-10-23T10:00:06Z","type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"::git-create-pr{cwd=\"/w\" branch=\"b\" url=\"https://github.com/acme/web/pull/8\" isDraft=false}"}]}}`,
+	}
+	parsed := parseLifecycleRows(t, rows)
+	want := []session.PullRequestLink{
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
+		{URL: "https://github.com/acme/web/pull/8", Repository: "acme/web", Number: 8},
+	}
+	if got := parsed.Session.PullRequestLinks; !reflect.DeepEqual(got, want) || parsed.Session.PullRequests != 3 {
+		t.Fatalf("links = %#v, count = %d, want %#v", got, parsed.Session.PullRequests, want)
+	}
 }

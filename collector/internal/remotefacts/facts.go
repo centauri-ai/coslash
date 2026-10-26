@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	SchemaVersion = 2
+	SchemaVersion = 3
 
 	MaxIDBytes          = 200
 	MaxDisplayBytes     = 280
@@ -87,6 +87,7 @@ type Session struct {
 	ContextTokens      *int                      `json:"context_tokens,omitempty"`
 	ContextWindow      *int                      `json:"context_window,omitempty"`
 	Counts             Counts                    `json:"counts"`
+	PullRequestLinks   []session.PullRequestLink `json:"pull_request_links,omitempty"`
 	Usage              []ModelUsage              `json:"usage"`
 	RecordedCostMicros *int64                    `json:"recorded_cost_micro_usd,omitempty"`
 	Spawns             []Spawn                   `json:"spawns"`
@@ -280,6 +281,15 @@ func validateSession(s Session) error {
 	if s.RecordedCostMicros != nil && (*s.RecordedCostMicros < 0 || *s.RecordedCostMicros > MaxCostMicroUSD) {
 		return errors.New("recorded cost outside range")
 	}
+	if len(s.PullRequestLinks) > 0 {
+		urls := make(map[string]struct{}, len(s.PullRequestLinks))
+		for _, link := range s.PullRequestLinks {
+			urls[link.URL] = struct{}{}
+		}
+		if !slices.Equal(session.NewPullRequestLinks(urls), s.PullRequestLinks) || s.Counts.PullRequests != len(s.PullRequestLinks) {
+			return errors.New("pull request links must be canonical and match the count")
+		}
+	}
 	counts := []int{s.Counts.EditedFiles, s.Counts.Turns, s.Counts.ToolUses, s.Counts.Errors, s.Counts.Compactions, s.Counts.PullRequests}
 	for _, count := range counts {
 		if count < 0 || count > MaxCount {
@@ -399,7 +409,8 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 			parentID = familyID
 			f.State = StatePartial
 		}
-		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, Display: *display}
+		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, PullRequestLinks: slices.Clone(s.PullRequestLinks), Display: *display}
+		fact.Display.PullRequestLinks = nil // the fact field is the only copy that survives compaction
 		if p.StatusHint != nil {
 			fact.StatusHint = truncate(*p.StatusHint, MaxDisplayBytes)
 		}
@@ -572,6 +583,7 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 		s.Model, s.ContextTokens, s.ContextWindow = pointer(fact.Model), cloneInt(fact.ContextTokens), cloneInt(fact.ContextWindow)
 		s.Turns, s.ToolUses, s.Errors = fact.Counts.Turns, fact.Counts.ToolUses, fact.Counts.Errors
 		s.Compactions, s.PullRequests = fact.Counts.Compactions, fact.Counts.PullRequests
+		s.PullRequestLinks = slices.Clone(fact.PullRequestLinks)
 		s.Tokens = map[string]session.ModelTokens{}
 		for _, usage := range fact.Usage {
 			s.Tokens[usage.Model] = session.ModelTokens{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheCreationInputTokens: usage.CacheCreationInputTokens, CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens, CacheReadInputTokens: usage.CacheReadInputTokens, Cost: float64(usage.CostMicroUSD) / 1_000_000}

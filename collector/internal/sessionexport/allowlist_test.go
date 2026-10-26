@@ -68,6 +68,7 @@ var census = map[string]decision{
 	"Commits":          {false, "commit subjects can contain arbitrary local content"},
 	"CommitSHAs":       {true, "resolved lowercase full Git object IDs only"},
 	"PullRequests":     {true, "session.counts.pullRequests"},
+	"PullRequestLinks": {false, "session-snapshot/v1 carries the count only; links travel in full-session-record/v1"},
 	"Todos":            {false, "todo text can contain arbitrary local content"},
 	"Digest":           {false, "digest text can reproduce prompt or transcript content"},
 	"FileEdits":        {true, "session.fileEdits statistics with repository-relative paths"},

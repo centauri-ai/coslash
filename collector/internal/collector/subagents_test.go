@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -266,5 +267,35 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 				t.Fatalf("family size=%d want=%d err=%v", len(family), count, err)
 			}
 		})
+	}
+}
+
+func TestSubagentPullRequestLinksReachEveryAncestor(t *testing.T) {
+	link := func(number int) session.PullRequestLink {
+		url := "https://github.com/acme/api/pull/" + strconv.Itoa(number)
+		return session.PullRequestLink{URL: url, Repository: "acme/api", Number: number}
+	}
+	member := func(id, parentID string, links ...session.PullRequestLink) *vendors.ParsedSession {
+		s := &session.Session{Agent: vendors.AgentClaude, ID: id, StartedAt: 1, LastActivityTime: 2, Subagents: []session.Subagent{}}
+		s.SetPullRequestLinks(links)
+		return &vendors.ParsedSession{Session: s, ParentID: parentID, SpawnKey: id}
+	}
+	parsed := []*vendors.ParsedSession{
+		member("root", "", link(1)),
+		member("child", "root", link(2)),
+		member("grandchild", "child", link(2), link(3)),
+	}
+	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{})
+	if len(roots) != 1 || roots[0].Session.ID != "root" {
+		t.Fatalf("roots = %+v", roots)
+	}
+	want := map[string][]session.PullRequestLink{
+		"root": {link(1), link(2), link(3)}, "child": {link(2), link(3)}, "grandchild": {link(2), link(3)},
+	}
+	for _, item := range parsed {
+		got := item.Session
+		if !reflect.DeepEqual(got.PullRequestLinks, want[got.ID]) || got.PullRequests != len(want[got.ID]) {
+			t.Fatalf("%s links = %#v, count = %d, want %#v", got.ID, got.PullRequestLinks, got.PullRequests, want[got.ID])
+		}
 	}
 }

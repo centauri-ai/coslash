@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -483,7 +484,7 @@ func TestLoadIDEModelsBoundsObservedModelBytes(t *testing.T) {
 	}
 }
 
-func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
+func TestLoadIDEModelsCollectsOnlyCreatedPullRequestLinks(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -496,6 +497,11 @@ func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
 	for _, row := range []struct{ key, value string }{
 		{"bubbleId:" + id + ":view", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr view\"}","result":"https://github.com/centauri-ai/coslash/pull/123"}}`},
 		{"bubbleId:" + id + ":create", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/124"}}`},
+		{"bubbleId:" + id + ":again", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/124"}}`},
+		{"bubbleId:" + id + ":failed", `{"toolFormerData":{"name":"run_terminal_cmd","status":"error","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/125"}}`},
+		{"bubbleId:" + id + ":mcp", `{"toolFormerData":{"name":"mcp-github-create_pull_request","status":"completed","rawArgs":"{}","result":"{\"url\":\"https://github.com/centauri-ai/web/pull/7\"}"}}`},
+		{"bubbleId:" + id + ":generic", `{"toolFormerData":{"name":"call_mcp_tool","status":"completed","rawArgs":"{\"mcpServer\":\"github\",\"toolName\":\"create_pull_request\"}","result":"{\"url\":\"https://github.com/centauri-ai/web/pull/8\"}"}}`},
+		{"bubbleId:" + id + ":mcp-failed", `{"toolFormerData":{"name":"mcp-github-create_pull_request","status":"error","rawArgs":"{}","result":"{\"url\":\"https://github.com/centauri-ai/web/pull/9\"}"}}`},
 	} {
 		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, row.key, row.value); err != nil {
 			t.Fatal(err)
@@ -504,8 +510,14 @@ func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
 
 	metadata := vendors.EmptySessionMetadata()
 	loadIDEModelsDB(metadata, nil, db, nil)
-	if got := metadata.Session(id).PullRequests; got != 1 {
-		t.Fatalf("pull requests = %d, want only the created pull request", got)
+	entry := metadata.Session(id)
+	want := []session.PullRequestLink{
+		{URL: "https://github.com/centauri-ai/coslash/pull/124", Repository: "centauri-ai/coslash", Number: 124},
+		{URL: "https://github.com/centauri-ai/web/pull/7", Repository: "centauri-ai/web", Number: 7},
+		{URL: "https://github.com/centauri-ai/web/pull/8", Repository: "centauri-ai/web", Number: 8},
+	}
+	if !reflect.DeepEqual(entry.PullRequestLinks, want) || entry.PullRequests != 3 {
+		t.Fatalf("links = %#v, count = %d, want %#v", entry.PullRequestLinks, entry.PullRequests, want)
 	}
 }
 

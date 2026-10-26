@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -100,3 +101,34 @@ func TestSubagentCommandsCarryOutputs(t *testing.T) {
 }
 
 func ptr(value string) *string { return &value }
+
+func TestPullRequestLinksComeFromSuccessfulCreates(t *testing.T) {
+	mcpUse := `{"type":"assistant","timestamp":"2026-09-23T10:00:01Z","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"m","name":"mcp__github__create_pull_request","input":{"title":"t"}}]}}`
+	rows := bashRows(
+		`{"type":"user","timestamp":"2026-09-23T10:00:00Z","message":{"content":"go"}}`,
+		`{"type":"pr-link","prNumber":9,"prUrl":"https://github.com/acme/viewed/pull/9"}`,
+		bashUse("a", "gh pr create --fill"),
+		bashUse("b", "gh pr create --fill"),
+		bashUse("c", "rtk gh pr create --fill"),
+		bashUse("d", "gh pr view 5"),
+		mcpUse,
+		bashResult("a", `"https://github.com/acme/api/pull/2\n"`, false),
+		bashResult("b", `"https://github.com/acme/failed/pull/3"`, true),
+		bashResult("c", `"https://github.com/acme/api/pull/2\n"`, false),
+		bashResult("d", `"https://github.com/acme/api/pull/5"`, false),
+		bashResult("m", `[{"type":"text","text":"{\"url\":\"https://github.com/acme/web/pull/4\"}"}]`, false),
+	)
+	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
+	writeOutputTranscript(t, path, rows)
+	parsed, err := parseTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []session.PullRequestLink{
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
+	}
+	if got := parsed.Session.PullRequestLinks; !reflect.DeepEqual(got, want) || parsed.Session.PullRequests != 2 {
+		t.Fatalf("links = %#v, count = %d, want %#v", got, parsed.Session.PullRequests, want)
+	}
+}

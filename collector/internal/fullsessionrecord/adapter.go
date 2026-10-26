@@ -145,6 +145,12 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			DeclaredGoal:     cloneString(value.DeclaredGoal),
 		},
 	}
+	if len(value.PullRequestLinks) > 0 {
+		record.Session.PullRequestLinks = make([]fullsessionv1.PullRequestLink, len(value.PullRequestLinks))
+		for i, link := range value.PullRequestLinks {
+			record.Session.PullRequestLinks[i] = fullsessionv1.PullRequestLink(link)
+		}
+	}
 	record.Session.Usage = usageFromTokens(value.Tokens)
 	record.Session.UnattributedTokens = unattributed
 	if value.Subagents != nil {
@@ -264,6 +270,9 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			PullRequests:     record.Session.PullRequests,
 			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: cloneString(record.Session.DeclaredGoal),
 		},
+	}
+	for _, link := range record.Session.PullRequestLinks {
+		value.PullRequestLinks = append(value.PullRequestLinks, session.PullRequestLink(link))
 	}
 	if record.Session.Subagents != nil {
 		value.Subagents = make([]session.Subagent, 0, len(record.Session.Subagents))

@@ -103,6 +103,13 @@ type chunkContent struct {
 }
 
 // bashOutput is the rawOutput of a completed terminal command.
+// mcpOutput is the rawOutput of an MCP tool call. Output is text or a JSON value.
+type mcpOutput struct {
+	Type     string          `json:"type"`
+	ToolName string          `json:"tool_name"`
+	Output   json.RawMessage `json:"output"`
+}
+
 type bashOutput struct {
 	Type     string `json:"type"`
 	Command  string `json:"command"`
@@ -183,7 +190,7 @@ func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSessio
 	s.Commands = updates.commands.Raw()
 	s.CommandOutputs = updates.commands.Outputs()
 	s.CommitLog = updates.commitLog
-	s.PullRequests = updates.pullRequests
+	s.SetPullRequestLinks(session.NewPullRequestLinks(updates.pullRequests))
 	s.Todos = readTodos(filepath.Join(dir, "plan.json"))
 	var goal struct {
 		Objective string `json:"objective"`
@@ -330,7 +337,7 @@ type updatesSummary struct {
 	edits         *session.FileEditSet
 	commands      session.CommandLog
 	commitLog     []session.CommitObservation
-	pullRequests  int
+	pullRequests  map[string]struct{}
 	digest        session.DigestLog
 	userTurn      int
 	userBuf       string
@@ -374,6 +381,12 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			var shell bashOutput
 			if update.Status == "completed" && json.Unmarshal(update.RawOutput, &shell) == nil && shell.Type == "Bash" {
 				result.noteCommand(update.ToolCallID, shell)
+			}
+			var mcp mcpOutput
+			if update.Status == "completed" && json.Unmarshal(update.RawOutput, &mcp) == nil && mcp.Type == "MCP" && session.IsPullRequestCreateTool(mcp.ToolName) {
+				text := string(mcp.Output)
+				_ = json.Unmarshal(mcp.Output, &text)
+				result.notePullRequests(true, text)
 			}
 			if update.Status == "completed" && json.Unmarshal(update.Content, &items) == nil {
 				for _, item := range items {
@@ -622,8 +635,17 @@ func (result *updatesSummary) noteCommand(id string, shell bashOutput) {
 	}
 	succeeded := shell.ExitCode != nil && *shell.ExitCode == 0 && !shell.TimedOut
 	result.commitLog = append(result.commitLog, session.ParseCommitObservations(shell.Command, shell.Output, succeeded)...)
-	if succeeded && session.IsPullRequestCreate(shell.Command) && len(session.PullRequestURLs(shell.Output)) > 0 {
-		result.pullRequests++
+	if succeeded && session.IsPullRequestCreate(shell.Command) {
+		result.notePullRequests(false, shell.Output)
+	}
+}
+
+func (result *updatesSummary) notePullRequests(tool bool, output string) {
+	if result.pullRequests == nil {
+		result.pullRequests = map[string]struct{}{}
+	}
+	for _, url := range session.CreatedPullRequestURLs(tool, output) {
+		result.pullRequests[url] = struct{}{}
 	}
 }
 

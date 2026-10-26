@@ -1,4 +1,4 @@
-# Remote family facts v2
+# Remote family facts v3
 
 This package is the bounded transport-independent input to shared session
 composition. It is deliberately separate from the SSH NDJSON protocol,
@@ -18,6 +18,8 @@ Family identity and incremental-refresh metadata remain separately bounded:
 - bounded name, status hint, branch, entrypoint, and model;
 - start/activity/duration, in-turn/stopped, bounded counts, token totals, and
   cost converted deterministically to integer micro-USD;
+- optional `pull_request_links` (at most 100, canonical order, same rules as
+  `full-session-record/v1`), which must match `counts.pull_requests`;
 - spawn completion/turn, command labels and text, approved
   name/live metadata, opaque file comparison keys with size/mtime, and bounded
   Codex key-to-session/parent header mappings used only for warm discovery.

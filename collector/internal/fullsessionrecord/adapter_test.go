@@ -521,7 +521,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"DetailsIncomplete": "unrepresentable detail completeness refused",
 		"Model":             "included", "ObservedModels": "excluded local Cursor IDE enrichment", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
 		"ToolUses": "included", "Errors": "included", "Compactions": "included", "FirstPrompt": "included",
-		"Commands": "included", "CommandOutputs": "included for Claude, absent for vendors that do not collect outputs", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included",
+		"Commands": "included", "CommandOutputs": "included for Claude, absent for vendors that do not collect outputs", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included", "PullRequestLinks": "included",
 		"Todos": "included", "Digest": "included", "FileEdits": "included with bodies", "Git": "excluded local filesystem enrichment",
 		"GitProbed": "runtime probe marker", "LastEditAt": "excluded local filesystem enrichment", "Synthesis": "included",
 		"SynthesisPending": "included", "DeclaredGoal": "included", "CompactionSeed": "parser-only composition seed",
@@ -943,5 +943,37 @@ func TestFromSessionDropsOutputsThatOverflowTheItemBudget(t *testing.T) {
 	}
 	if record.Session.CommandOutputs != nil || len(record.Session.Commands) != count {
 		t.Fatalf("outputs = %d, commands = %d", len(record.Session.CommandOutputs), len(record.Session.Commands))
+	}
+}
+
+func TestSessionRoundTripPreservesPullRequestLinks(t *testing.T) {
+	original := session.Session{
+		Agent: "codex", ID: "session-1", WorkingDirectory: "/workspace", StartedAt: 1000, LastActivityTime: 2000,
+		Subagents: []session.Subagent{}, SessionDetails: session.SessionDetails{
+			Commands: []string{}, Commits: []string{}, CommitSHAs: []string{}, Todos: []session.Todo{},
+			Digest: []session.DigestEntry{}, FileEdits: []session.FileEdit{},
+		},
+	}
+	original.SetPullRequestLinks([]session.PullRequestLink{
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
+	})
+	record, err := FromSession("r_0123456789abcdef", original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := record.Session.PullRequestLinks; len(got) != 2 || got[1].Repository != "acme/web" || record.Session.PullRequests != 2 {
+		t.Fatalf("record links = %#v", got)
+	}
+	restored, err := ToSession(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.PullRequestLinks, original.PullRequestLinks) || restored.PullRequests != 2 {
+		t.Fatalf("restored links = %#v, count = %d", restored.PullRequestLinks, restored.PullRequests)
+	}
+	original.PullRequestLinks, original.PullRequests = nil, 3
+	if record, err = FromSession("r_0123456789abcdef", original); err != nil || record.Session.PullRequestLinks != nil || record.Session.PullRequests != 3 {
+		t.Fatalf("a count without links must stay valid: %#v, %v", record.Session, err)
 	}
 }

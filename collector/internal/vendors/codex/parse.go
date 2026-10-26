@@ -44,7 +44,7 @@ type codexSessionAnalysis struct {
 	tokenSamples     []codexTokenSample
 	commands         session.CommandLog
 	commitLog        []session.CommitObservation
-	pullRequests     int
+	pullRequests     map[string]struct{}
 	fileEdits        *session.FileEditSet
 	digest           session.DigestLog
 	plan             []planStep
@@ -267,7 +267,7 @@ func analyzeCodexSessionSource(
 		spawns:       map[string]vendors.SpawnState{},
 		fileEdits:    session.NewFileEditSet(),
 		commitLog:    commitLog,
-		pullRequests: len(pullRequests),
+		pullRequests: pullRequests,
 	}
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
@@ -547,10 +547,10 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		Commands:       analysis.commands.Raw(),
 		CommandOutputs: analysis.commands.Outputs(),
 		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
-		PullRequests:   analysis.pullRequests,
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),
 	}
+	unifiedSessionDetails.SetPullRequestLinks(session.NewPullRequestLinks(analysis.pullRequests))
 	if analysis.model != "" {
 		unifiedSessionDetails.Model = &analysis.model
 	}
@@ -976,9 +976,36 @@ func pullRequestURLs(rows []codexRow) map[string]struct{} {
 
 func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
 	urls := map[string]struct{}{}
+	calls := map[string]bool{} // call ID -> GitHub MCP call
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if row.Type == "response_item" && row.Payload.CallID != "" {
+			switch row.Payload.Type {
+			case "function_call", "custom_tool_call":
+				command, _ := commandFrom(row.Payload)
+				if tool := session.IsPullRequestCreateTool(row.Payload.Name); tool || session.IsPullRequestCreate(command) {
+					calls[row.Payload.CallID] = tool
+				}
+			case "function_call_output", "custom_tool_call_output":
+				tool, ok := calls[row.Payload.CallID]
+				if !ok {
+					continue
+				}
+				delete(calls, row.Payload.CallID)
+				result := decodeCodexCommandResult(row.Payload.Output)
+				if tool {
+					result.succeeded = !strings.Contains(string(row.Payload.Output), `isError\":true`) &&
+						!strings.Contains(string(row.Payload.Output), `isError":true`)
+				}
+				if result.succeeded {
+					for _, url := range session.CreatedPullRequestURLs(tool, result.output) {
+						urls[url] = struct{}{}
+					}
+				}
+			}
+			continue
 		}
 		if row.Type == "event_msg" {
 			item := row.Payload.Item

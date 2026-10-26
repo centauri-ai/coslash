@@ -223,6 +223,7 @@ func analyzeClaudeSessionSource(
 		commitLog:                commitLog,
 	}
 	pendingCommand := ""
+	pullRequestCreates := map[string]bool{} // tool use ID -> GitHub MCP call
 	emitPrompt := func(text string, timestamp int64) {
 		analysis.inTurn = true
 		analysis.waitingForQuestion = false
@@ -287,9 +288,6 @@ func analyzeClaudeSessionSource(
 		if row.Type == "ai-title" && row.GeneratedSessionName != "" {
 			analysis.generatedName = row.GeneratedSessionName
 		}
-		if row.Type == "pr-link" && row.PRURL != "" {
-			analysis.pullRequests[row.PRURL] = struct{}{}
-		}
 		if row.Subtype == "away_summary" {
 			analysis.awaySummary = row.Content
 		}
@@ -343,6 +341,11 @@ func analyzeClaudeSessionSource(
 				if block.Type == "tool_use" {
 					analysis.toolUseCount++
 					if block.ID != "" {
+						if tool := session.IsPullRequestCreateTool(block.Name); tool || session.IsPullRequestCreate(block.Input.Command) {
+							pullRequestCreates[block.ID] = tool
+						}
+					}
+					if block.ID != "" {
 						turn := max(analysis.userPromptCount, 1)
 						analysis.spawns[block.ID] = vendors.SpawnState{
 							Turn: &turn,
@@ -365,6 +368,14 @@ func analyzeClaudeSessionSource(
 					spawn.Completed = true
 					analysis.spawns[block.ToolUseID] = spawn
 					resultToolUseID = block.ToolUseID
+					if tool, ok := pullRequestCreates[block.ToolUseID]; ok {
+						delete(pullRequestCreates, block.ToolUseID)
+						if !block.IsError {
+							for _, url := range session.CreatedPullRequestURLs(tool, claudeToolOutput(block.Content)) {
+								analysis.pullRequests[url] = struct{}{}
+							}
+						}
+					}
 					if analysis.commands.Pending(block.ToolUseID) {
 						output, resolved, usesFile := commandOutput(source, file, claudeToolOutput(block.Content))
 						analysis.commands.AttachOutput(block.ToolUseID, output)
@@ -515,19 +526,21 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 	if turns == 0 {
 		turns = analysis.userPromptCount
 	}
+	pullRequestLinks := session.NewPullRequestLinks(analysis.pullRequests)
 	unifiedSessionDetails := session.SessionDetails{
-		Compactions:    max(analysis.compactBoundaries, analysis.compactSummaries),
-		PullRequests:   len(analysis.pullRequests),
-		Turns:          turns,
-		ToolUses:       analysis.toolUseCount,
-		Errors:         analysis.errors,
-		Commands:       analysis.commands.Raw(),
-		CommandOutputs: analysis.commands.Outputs(),
-		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
-		FileEdits:      analysis.fileEdits.Edits,
-		Digest:         analysis.digest.Entries(),
-		ContextTokens:  contextTokens(analysis.lastUsage),
-		CompactionSeed: analysis.compactionSeed,
+		Compactions:      max(analysis.compactBoundaries, analysis.compactSummaries),
+		PullRequests:     len(pullRequestLinks),
+		PullRequestLinks: pullRequestLinks,
+		Turns:            turns,
+		ToolUses:         analysis.toolUseCount,
+		Errors:           analysis.errors,
+		Commands:         analysis.commands.Raw(),
+		CommandOutputs:   analysis.commands.Outputs(),
+		Commits:          session.ReconcileCommits(analysis.commitLog, "", nil),
+		FileEdits:        analysis.fileEdits.Edits,
+		Digest:           analysis.digest.Entries(),
+		ContextTokens:    contextTokens(analysis.lastUsage),
+		CompactionSeed:   analysis.compactionSeed,
 	}
 	if analysis.firstUserPrompt != "" {
 		unifiedSessionDetails.FirstPrompt = &analysis.firstUserPrompt
