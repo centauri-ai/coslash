@@ -497,6 +497,7 @@ func TestLoadIDEModelsCollectsOnlyCreatedPullRequestLinks(t *testing.T) {
 	for _, row := range []struct{ key, value string }{
 		{"bubbleId:" + id + ":view", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr view\"}","result":"https://github.com/centauri-ai/coslash/pull/123"}}`},
 		{"bubbleId:" + id + ":create", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/124"}}`},
+		{"bubbleId:" + id + ":dry", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create --dry-run\"}","result":"https://github.com/acme/dry/pull/9"}}`},
 		{"bubbleId:" + id + ":again", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/124"}}`},
 		{"bubbleId:" + id + ":failed", `{"toolFormerData":{"name":"run_terminal_cmd","status":"error","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/125"}}`},
 		{"bubbleId:" + id + ":mcp", `{"toolFormerData":{"name":"mcp-github-create_pull_request","status":"completed","rawArgs":"{}","result":"{\"url\":\"https://github.com/centauri-ai/web/pull/7\"}"}}`},

@@ -107,6 +107,7 @@ func TestPullRequestLinksFromSuccessfulCreates(t *testing.T) {
 		execCall("function_call", "a", create), execResult("function_call_output", "a", ok("https://github.com/acme/api/pull/2")),
 		execCall("function_call", "b", create), execResult("function_call_output", "b", ok("https://github.com/acme/api/pull/2")),
 		execCall("function_call", "c", create), execResult("function_call_output", "c", `{"output":"https://github.com/acme/failed/pull/3","exit_code":1}`),
+		execCall("function_call", "e", "gh pr create --dry-run"), execResult("function_call_output", "e", ok("https://github.com/acme/dry/pull/9")),
 		execCall("function_call", "d", "gh pr view 5"), execResult("function_call_output", "d", ok("https://github.com/acme/api/pull/5")),
 		`{"timestamp":"2026-10-23T10:00:03Z","type":"response_item","payload":{"type":"function_call","call_id":"m","name":"mcp__github__create_pull_request","arguments":"{}"}}`,
 		execResult("function_call_output", "m", `{"url":"https://github.com/acme/web/pull/4"}`),

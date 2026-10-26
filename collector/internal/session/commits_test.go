@@ -45,6 +45,22 @@ func TestReconcileCommitFactsExportsOnlyResolvedFullObjectIDs(t *testing.T) {
 	}
 }
 
+func TestIsPullRequestCreateExcludesDryRunHelpAndView(t *testing.T) {
+	for command, want := range map[string]bool{
+		"gh pr create --fill":                      true,
+		"rtk gh pr create --title t":               true,
+		`gh pr create --title "no --dry-run here"`: true,
+		"gh pr create --fill --dry-run":            false,
+		"gh pr create --dry-run && echo ok":        false,
+		"gh pr create --help":                      false,
+		"gh pr view 5":                             false,
+	} {
+		if got := IsPullRequestCreate(command); got != want {
+			t.Errorf("IsPullRequestCreate(%q) = %t, want %t", command, got, want)
+		}
+	}
+}
+
 func TestPullRequestLinksAreCanonical(t *testing.T) {
 	urls := map[string]struct{}{
 		"https://github.com/acme/web/pull/4":   {},

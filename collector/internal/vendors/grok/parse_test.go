@@ -721,6 +721,7 @@ func TestPullRequestLinksFromShellAndMCPCreates(t *testing.T) {
 	result.noteCommand("a", bashOutput{Command: create, Output: "https://github.com/acme/api/pull/2\n", ExitCode: &ok})
 	result.noteCommand("b", bashOutput{Command: create, Output: "https://github.com/acme/api/pull/2\n", ExitCode: &ok})
 	result.noteCommand("c", bashOutput{Command: create, Output: "https://github.com/acme/failed/pull/3", ExitCode: &failed})
+	result.noteCommand("e", bashOutput{Command: "gh pr create --dry-run", Output: "https://github.com/acme/dry/pull/9", ExitCode: &ok})
 	result.noteCommand("d", bashOutput{Command: "gh pr view 5", Output: "https://github.com/acme/api/pull/5", ExitCode: &ok})
 
 	updates := filepath.Join(t.TempDir(), "updates.jsonl")
