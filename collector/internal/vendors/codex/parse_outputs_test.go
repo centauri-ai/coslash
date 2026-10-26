@@ -2,11 +2,14 @@ package codex
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func execCall(kind, id, cmd string) string {
@@ -125,4 +128,48 @@ func TestPullRequestLinksFromSuccessfulCreates(t *testing.T) {
 	if got := parsed.Session.PullRequestLinks; !reflect.DeepEqual(got, want) || parsed.Session.PullRequests != 3 {
 		t.Fatalf("links = %#v, count = %d, want %#v", got, parsed.Session.PullRequests, want)
 	}
+}
+
+func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
+	id := "01a0c51b-94c2-72b0-90ef-b23ea631af2f"
+	path := filepath.Join(t.TempDir(), "rollout-2026-09-21T10-55-14-"+id+".jsonl")
+	content := `{"timestamp":"2026-09-21T17:55:14Z","type":"session_meta","payload":{"id":"` + id + `","session_id":"parent","parent_thread_id":"parent"}}` + "\n" +
+		execCall("function_call", "a", "gh pr create --fill") + "\n" +
+		execResult("function_call_output", "a", `{"output":"https://github.com/acme/api/pull/2\n","exit_code":0}`) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	approve := func(string, string) bool { return false }
+	parsed, err := parseSourceContext(t.Context(), vendors.LocalReadSource, path, approve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.transcript.Session.PullRequests, parsed.transcript.Session.PullRequestLinks = 0, nil
+	payload, err := encodeCached(parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := vendors.LocalReadSource.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := codexTestParseCache{{Agent: vendors.AgentCodex, Identity: path, Version: "codex-2", Fingerprint: vendors.StatFingerprint(info)}: payload}
+	vendors.SetParseCache(cache)
+	t.Cleanup(func() { vendors.SetParseCache(nil) })
+	got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path, approve)
+	if err != nil || len(got.transcript.Session.PullRequestLinks) != 1 || got.transcript.Session.PullRequests != 1 {
+		t.Fatalf("entry cached before PR links was not reparsed: %#v, %v", got.transcript.Session, err)
+	}
+}
+
+type codexTestParseCache map[vendors.CacheKey]json.RawMessage
+
+func (cache codexTestParseCache) Lookup(key vendors.CacheKey) (json.RawMessage, bool) {
+	payload, ok := cache[key]
+	return payload, ok
+}
+
+func (cache codexTestParseCache) Store(key vendors.CacheKey, payload json.RawMessage) error {
+	cache[key] = append(json.RawMessage(nil), payload...)
+	return nil
 }

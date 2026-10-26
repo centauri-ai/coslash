@@ -10,7 +10,7 @@ import (
 
 // ParserVersion identifies this exporter's parse output. Bumping it
 // invalidates only Claude Code entries in the local parse cache.
-const ParserVersion = "claude-4"
+const ParserVersion = "claude-5"
 
 type cachedUsage struct {
 	Model string       `json:"model"`
