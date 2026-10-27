@@ -39,6 +39,15 @@ export async function checkLocal(request) {
   }
 }
 
+// Saves the current settings unchanged. This marks the settings as persisted, which enables the theme toggle.
+export async function acceptFirstRunSettings(request) {
+  const headers = { 'X-Coslash-Token': process.env.COSLASH_LOCAL_TOKEN };
+  const current = await request.get('/api/settings', { headers });
+  const { settings } = await current.json();
+  const saved = await request.put('/api/settings', { headers, data: { settings } });
+  if (!saved.ok()) throw harnessError(`PUT /api/settings returned ${saved.status()}`);
+}
+
 // Local reads the token from the URL fragment (#t=...), keeps it in sessionStorage, and sends it as X-Coslash-Token.
 // The first apiFetch call removes the fragment, so open the page once per browser context.
 export async function openLocal(page, { width = 1280, height = 800, theme } = {}) {
