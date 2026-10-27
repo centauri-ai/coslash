@@ -900,8 +900,11 @@ func TestImportPlanChangeBypassesDiscoveryCooldown(t *testing.T) {
 	if err := runner.SyncOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	if discoveries != 2 {
-		t.Fatalf("discovery calls after plan 2 = %d, want 2", discoveries)
+		t.Fatalf("discovery calls after plan 2 and one more pass = %d, want 2", discoveries)
 	}
 }
 

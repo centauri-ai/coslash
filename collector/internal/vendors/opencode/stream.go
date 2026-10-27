@@ -85,8 +85,7 @@ func LoadFamiliesContext(ctx context.Context, ids []string) ([]*vendors.ParsedSe
 	for _, id := range ids {
 		args = append(args, id)
 	}
-	query := activeFamiliesQuery + " AND selected_roots.id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + `)
-		ORDER BY selected_roots.family_updated DESC, member.parent_id IS NOT NULL, member.time_updated, member.id`
+	query := activeFamiliesQuery + " AND selected_roots.id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")" + familyOrder
 	parsed, skipped, err := loadContext(ctx, db, query, args...)
 	if err != nil {
 		return nil, nil, err
