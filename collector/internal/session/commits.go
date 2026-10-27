@@ -342,7 +342,7 @@ func unwrapMultilineMessage(message string) (string, bool) {
 	return "", false
 }
 
-var prCreateCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+)?gh\s+pr\s+create\b`)
+var prCreateCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+(?:proxy\s+)?)?gh\s+pr\s+create\b`)
 var prCreateHelpOrVersionCommand = regexp.MustCompile(
 	`gh\s+pr\s+create\s+(?:-h|--help|--version)\b`,
 )

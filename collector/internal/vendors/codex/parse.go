@@ -976,7 +976,7 @@ func pullRequestURLs(rows []codexRow) map[string]struct{} {
 
 func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
 	urls := map[string]struct{}{}
-	calls := map[string]bool{} // call ID -> GitHub MCP call
+	calls := map[string]codexPullRequestCall{}
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -984,24 +984,37 @@ func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]st
 		if row.Type == "response_item" && row.Payload.CallID != "" {
 			switch row.Payload.Type {
 			case "function_call", "custom_tool_call":
-				command, _ := commandFrom(row.Payload)
-				if tool := session.IsPullRequestCreateTool(row.Payload.Name); tool || session.IsPullRequestCreate(command) {
-					calls[row.Payload.CallID] = tool
+				call := codexPullRequestCall{commands: commandsFrom(row.Payload), tool: session.IsPullRequestCreateTool(row.Payload.Name)}
+				if call.tool || slices.ContainsFunc(call.commands, session.IsPullRequestCreate) {
+					calls[row.Payload.CallID] = call
 				}
 			case "function_call_output", "custom_tool_call_output":
-				tool, ok := calls[row.Payload.CallID]
+				call, ok := calls[row.Payload.CallID]
 				if !ok {
 					continue
 				}
 				delete(calls, row.Payload.CallID)
-				result := decodeCodexCommandResult(row.Payload.Output)
-				if tool {
-					result.succeeded = !strings.Contains(string(row.Payload.Output), `isError\":true`) &&
-						!strings.Contains(string(row.Payload.Output), `isError":true`)
+				if call.tool {
+					failed := strings.Contains(string(row.Payload.Output), `isError\":true`) ||
+						strings.Contains(string(row.Payload.Output), `isError":true`)
+					if result := decodeCodexCommandResult(row.Payload.Output); !failed {
+						for _, url := range session.CreatedPullRequestURLs(true, result.output) {
+							urls[url] = struct{}{}
+						}
+					}
+					continue
 				}
-				if result.succeeded {
-					for _, url := range session.CreatedPullRequestURLs(tool, result.output) {
-						urls[url] = struct{}{}
+				// A script can run several commands. Its output has one result for
+				// each, so pair them by position and only when the counts agree.
+				results := decodeCodexCommandResults(row.Payload.Output)
+				if len(results) != len(call.commands) {
+					continue
+				}
+				for i, command := range call.commands {
+					if results[i].succeeded && session.IsPullRequestCreate(command) {
+						for _, url := range session.CreatedPullRequestURLs(false, results[i].output) {
+							urls[url] = struct{}{}
+						}
 					}
 				}
 			}
@@ -1145,6 +1158,59 @@ func payloadText(payload codexPayload) string {
 		return payload.Input
 	}
 	return string(payload.Arguments)
+}
+
+// codexPullRequestCall is a tool call that can create a pull request: the
+// commands of its script, or a GitHub MCP create call.
+type codexPullRequestCall struct {
+	commands []string
+	tool     bool
+}
+
+// commandsFrom returns every command that a code-mode script or an exec call runs.
+func commandsFrom(payload codexPayload) []string {
+	var commands []string
+	for _, m := range execCmdPattern.FindAllStringSubmatch(payloadText(payload), -1) {
+		var command string
+		if json.Unmarshal([]byte(m[1]), &command) == nil {
+			commands = append(commands, command)
+		}
+	}
+	return commands
+}
+
+// decodeCodexCommandResults returns one result for each command of a script.
+// A code-mode output is a "Script completed" header and then one block for each
+// command. A block holds the JSON result of the command, or its plain text,
+// which has no exit code and so does not count as a success. Any other output
+// holds the result of a single command.
+func decodeCodexCommandResults(raw json.RawMessage) []codexCommandResult {
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil || len(blocks) == 0 {
+		return []codexCommandResult{decodeCodexCommandResult(raw)}
+	}
+	if !strings.HasPrefix(blocks[0].Text, "Script completed") {
+		return nil
+	}
+	results := make([]codexCommandResult, 0, len(blocks)-1)
+	for _, block := range blocks[1:] {
+		var decoded struct {
+			Output   *string `json:"output"`
+			ExitCode *int    `json:"exit_code"`
+		}
+		result := codexCommandResult{output: block.Text}
+		if strings.HasPrefix(block.Text, "{") && json.Unmarshal([]byte(block.Text), &decoded) == nil && decoded.ExitCode != nil {
+			result.output = ""
+			if decoded.Output != nil {
+				result.output = *decoded.Output
+			}
+			result.succeeded = *decoded.ExitCode == 0
+		}
+		results = append(results, result)
+	}
+	return results
 }
 
 func commandFrom(payload codexPayload) (string, bool) {

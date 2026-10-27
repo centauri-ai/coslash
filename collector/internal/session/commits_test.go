@@ -49,6 +49,8 @@ func TestIsPullRequestCreateExcludesDryRunHelpAndView(t *testing.T) {
 	for command, want := range map[string]bool{
 		"gh pr create --fill":                      true,
 		"rtk gh pr create --title t":               true,
+		"rtk proxy gh pr create --fill":            true,
+		"cd /w && rtk proxy gh pr create --fill":   true,
 		`gh pr create --title "no --dry-run here"`: true,
 		"gh pr create --fill --dry-run":            false,
 		"gh pr create --dry-run && echo ok":        false,

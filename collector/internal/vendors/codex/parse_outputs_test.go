@@ -153,7 +153,7 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cache := codexTestParseCache{{Agent: vendors.AgentCodex, Identity: path, Version: "codex-2", Fingerprint: vendors.StatFingerprint(info)}: payload}
+	cache := codexTestParseCache{{Agent: vendors.AgentCodex, Identity: path, Version: "codex-3", Fingerprint: vendors.StatFingerprint(info)}: payload}
 	vendors.SetParseCache(cache)
 	t.Cleanup(func() { vendors.SetParseCache(nil) })
 	got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path, approve)
@@ -172,4 +172,41 @@ func (cache codexTestParseCache) Lookup(key vendors.CacheKey) (json.RawMessage, 
 func (cache codexTestParseCache) Store(key vendors.CacheKey, payload json.RawMessage) error {
 	cache[key] = append(json.RawMessage(nil), payload...)
 	return nil
+}
+
+func TestCodeModeScriptPairsEachCommandWithItsResult(t *testing.T) {
+	script := func(commands ...string) string {
+		var text strings.Builder
+		for _, command := range commands {
+			text.WriteString("text(await tools.exec_command({cmd:" + string(mustJSON(command)) + "}));\n")
+		}
+		return text.String()
+	}
+	call := func(id string, commands ...string) string {
+		return `{"timestamp":"2026-10-23T10:00:01Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"` + id + `","name":"exec","input":` + string(mustJSON(script(commands...))) + `}}`
+	}
+	result := func(id string, blocks ...string) string {
+		output := []map[string]string{{"type": "input_text", "text": "Script completed\nWall time 1.0 seconds\nOutput:\n"}}
+		for _, block := range blocks {
+			output = append(output, map[string]string{"type": "input_text", "text": block})
+		}
+		return `{"timestamp":"2026-10-23T10:00:02Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"` + id + `","output":` + string(mustJSON(output)) + `}}`
+	}
+	block := func(code int, output string) string {
+		return string(mustJSON(map[string]any{"chunk_id": "a1", "exit_code": code, "output": output}))
+	}
+	rows := []string{
+		call("a", "rtk git push", "rtk proxy gh pr create --fill", "rtk git status"),
+		result("a", "pushed", block(0, "https://github.com/acme/api/pull/401\n"), block(0, "clean\n")),
+		call("b", "gh pr create --fill"),
+		result("b", block(1, "a pull request already exists: https://github.com/acme/api/pull/402\n")),
+		call("c", "rtk git push", "gh pr create --fill"),
+		result("c", block(0, "pushed\n"), "https://github.com/acme/api/pull/403\n"),
+		call("d", "gh pr create --fill", "gh pr create --fill"),
+		result("d", block(0, "https://github.com/acme/api/pull/404\n")),
+	}
+	want := []session.PullRequestLink{{URL: "https://github.com/acme/api/pull/401", Repository: "acme/api", Number: 401}}
+	if got := parseLifecycleRows(t, rows).Session.PullRequestLinks; !reflect.DeepEqual(got, want) {
+		t.Fatalf("links = %#v, want %#v", got, want)
+	}
 }
