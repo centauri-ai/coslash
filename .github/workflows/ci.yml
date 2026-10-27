@@ -3,9 +3,10 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, hlu/hub-support]
+    branches: [hlu/hub-support]
   merge_group:
     types: [checks_requested]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
