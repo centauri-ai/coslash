@@ -24,6 +24,7 @@ configuration and free-model filtering (`collector/internal/vendors/opencode/mod
 ## Format quirks
 
 - OpenCode v1 and v2 can share one database. v1 uses `session`, `message`, `part`, and `todo`. v2 uses `session_v2` and `session_message`. When the same id is in both, the v2 row wins and the v1 row is hidden. Observed: OpenCode 2.0.18, 2026-09-23, commit de40ba0b, `TestMixedOpenCodeSchemasPreferV2AndKeepV1`.
+- The member query has no implicit order. Its rows follow the stored order of `session_v2`, and a root row can come after its child rows. Every family query must keep `familyOrder` so the root is first. Without it, backup capture failed with `ErrUnattributable` for a root in both tables. Observed: 2026-10-26, `TestCaptureFamilyAcceptsRootAndChildrenInBothSessionTables`.
 - The v2 CLI ships in a different npm package. `opencode-ai` resolved to v1.18.33 while `@opencode/cli` resolved to v2.0.18. A shim can make `opencode` still run v1. Observed: 2026-09-28.
 - v2 beta and preview builds print `0.0.0-beta-...` or `0.0.0-next-...` for `--version`. coSlash treats both as major version 2. Other `0.x` dev strings stay unknown, and an unknown version blocks the plugin install. Observed: 2026-09-28, `TestOpenCodeMajor`.
 - OpenCode v2 opens its shared log file even for `--version`. On Windows, a running TUI can lock that file. The version probe uses a temporary `XDG_DATA_HOME`. Observed: 2026-09-21, `collector/internal/vendors/opencode/plugin.go`.
