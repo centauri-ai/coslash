@@ -965,6 +965,9 @@ func TestLoadMetadataCollectsCLIPullRequestsFromSuccessfulShellResults(t *testin
 		result("gh pr view 304", created+"https://github.com/acme/web/pull/304\n\n```\n"),
 		result("python3 - <<'PY'\nprint('gh pr create')\nPY", created+"https://github.com/acme/web/pull/305\n\n```\n"),
 		result("gh pr create --dry-run", created+"https://github.com/acme/web/pull/306\n\n```\n"),
+		result("rg pull", created+"https://github.com/acme/web/pull/307\n\n```\n"),
+		`{"role":"assistant","content":[{"type":"tool-call","toolName":"Shell","args":{"command":"gh pr create --fill"}}]}`,
+		"\x00\x01 binary blob that mentions pr create and /pull/",
 	} {
 		if _, err := db.Exec(`INSERT INTO blobs VALUES ('b', ?)`, []byte(data)); err != nil {
 			t.Fatal(err)
