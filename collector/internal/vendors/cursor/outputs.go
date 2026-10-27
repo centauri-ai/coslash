@@ -428,3 +428,87 @@ func cliShellOutput(raw json.RawMessage) (string, bool) {
 	}
 	return body[:end], true
 }
+
+// loadCLIPullRequestsContext records the pull requests that a CLI session
+// created. The transcript has no tool results, so it reads the store blobs. A
+// Shell result holds its own command, because its tool call ID differs from the
+// ID of the call. Only a command that exited with zero counts.
+func loadCLIPullRequestsContext(ctx context.Context, metadata *vendors.SessionMetadata, path string) error {
+	id := canonicalCursorID(filepath.Base(filepath.Dir(path)))
+	if !transcriptIDPattern.MatchString(id) {
+		return nil
+	}
+	db, err := openCursorDBContext(ctx, path)
+	if err != nil {
+		return ctx.Err()
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT data FROM blobs`)
+	if err != nil {
+		return ctx.Err()
+	}
+	defer rows.Close()
+	urls := map[string]struct{}{}
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var data []byte
+		if rows.Scan(&data) != nil || !bytes.Contains(data, []byte("/pull/")) {
+			continue
+		}
+		for _, url := range cliPullRequestURLs(data) {
+			urls[url] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return ctx.Err()
+	}
+	if links := session.NewPullRequestLinks(urls); len(links) > 0 {
+		entry := metadata.Session(id)
+		entry.PullRequestLinks = session.MergePullRequestLinks(entry.PullRequestLinks, links)
+		entry.PullRequests = len(entry.PullRequestLinks)
+	}
+	return ctx.Err()
+}
+
+// cliPullRequestURLs returns the URLs that one store blob holds as the output of
+// a successful `gh pr create` Shell call.
+func cliPullRequestURLs(data []byte) []string {
+	if !bytes.HasPrefix(data, []byte("{")) {
+		return nil
+	}
+	var message struct {
+		Role    string `json:"role"`
+		Content []struct {
+			Type     string `json:"type"`
+			ToolName string `json:"toolName"`
+			Result   string `json:"result"`
+		} `json:"content"`
+		ProviderOptions struct {
+			Cursor struct {
+				Result struct {
+					Output struct {
+						Success struct {
+							Command string `json:"command"`
+						} `json:"success"`
+					} `json:"output"`
+				} `json:"highLevelToolCallResult"`
+			} `json:"cursor"`
+		} `json:"providerOptions"`
+	}
+	if json.Unmarshal(data, &message) != nil || message.Role != "tool" {
+		return nil
+	}
+	command := message.ProviderOptions.Cursor.Result.Output.Success.Command
+	if !session.IsPullRequestCreate(command) {
+		return nil
+	}
+	var urls []string
+	for _, block := range message.Content {
+		if block.Type == "tool-result" && block.ToolName == "Shell" && strings.HasPrefix(block.Result, "Exit code: 0\n") {
+			urls = append(urls, session.CreatedPullRequestURLs(false, block.Result)...)
+		}
+	}
+	return urls
+}

@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -496,12 +497,15 @@ func TestLoadIDEModelsCollectsOnlyCreatedPullRequestLinks(t *testing.T) {
 	const id = "00000000-0000-4000-8000-000000000001"
 	for _, row := range []struct{ key, value string }{
 		{"bubbleId:" + id + ":view", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr view\"}","result":"https://github.com/centauri-ai/coslash/pull/123"}}`},
-		{"bubbleId:" + id + ":create", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/124"}}`},
+		{"bubbleId:" + id + ":create", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"{\"output\":\"https://github.com/centauri-ai/coslash/pull/124\"}"}}`},
 		{"bubbleId:" + id + ":dry", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create --dry-run\"}","result":"https://github.com/acme/dry/pull/9"}}`},
-		{"bubbleId:" + id + ":again", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/124"}}`},
+		{"bubbleId:" + id + ":again", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"{\"output\":\"https://github.com/centauri-ai/coslash/pull/124\"}"}}`},
 		{"bubbleId:" + id + ":failed", `{"toolFormerData":{"name":"run_terminal_cmd","status":"error","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/125"}}`},
 		{"bubbleId:" + id + ":mcp", `{"toolFormerData":{"name":"mcp-github-create_pull_request","status":"completed","rawArgs":"{}","result":"{\"url\":\"https://github.com/centauri-ai/web/pull/7\"}"}}`},
 		{"bubbleId:" + id + ":generic", `{"toolFormerData":{"name":"call_mcp_tool","status":"completed","rawArgs":"{\"mcpServer\":\"github\",\"toolName\":\"create_pull_request\"}","result":"{\"url\":\"https://github.com/centauri-ai/web/pull/8\"}"}}`},
+		{"bubbleId:" + id + ":exists", `{"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","params":"{\"command\":\"gh pr create --fill\"}","result":"{\"output\":\"a pull request already exists: https://github.com/centauri-ai/coslash/pull/130\\n\",\"exitCode\":1}"}}`},
+		{"bubbleId:" + id + ":exists-old", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create --fill\"}","result":"{\"output\":\"a pull request already exists: https://github.com/centauri-ai/coslash/pull/131\\n\",\"exitCodeV2\":1}"}}`},
+		{"bubbleId:" + id + ":v2-ok", `{"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","params":"{\"command\":\"rtk proxy gh pr create --fill\"}","result":"{\"output\":\"https://github.com/centauri-ai/coslash/pull/132\\n\"}"}}`},
 		{"bubbleId:" + id + ":mcp-failed", `{"toolFormerData":{"name":"mcp-github-create_pull_request","status":"error","rawArgs":"{}","result":"{\"url\":\"https://github.com/centauri-ai/web/pull/9\"}"}}`},
 	} {
 		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, row.key, row.value); err != nil {
@@ -514,10 +518,11 @@ func TestLoadIDEModelsCollectsOnlyCreatedPullRequestLinks(t *testing.T) {
 	entry := metadata.Session(id)
 	want := []session.PullRequestLink{
 		{URL: "https://github.com/centauri-ai/coslash/pull/124", Repository: "centauri-ai/coslash", Number: 124},
+		{URL: "https://github.com/centauri-ai/coslash/pull/132", Repository: "centauri-ai/coslash", Number: 132},
 		{URL: "https://github.com/centauri-ai/web/pull/7", Repository: "centauri-ai/web", Number: 7},
 		{URL: "https://github.com/centauri-ai/web/pull/8", Repository: "centauri-ai/web", Number: 8},
 	}
-	if !reflect.DeepEqual(entry.PullRequestLinks, want) || entry.PullRequests != 3 {
+	if !reflect.DeepEqual(entry.PullRequestLinks, want) || entry.PullRequests != 4 {
 		t.Fatalf("links = %#v, count = %d, want %#v", entry.PullRequestLinks, entry.PullRequests, want)
 	}
 }
@@ -918,5 +923,63 @@ func TestResumeStubStoresAreDropped(t *testing.T) {
 	}
 	if got := metadata.Session(resumed).WorkingDirectory; got != realFolder {
 		t.Fatalf("working directory = %q, want the real store's %q", got, realFolder)
+	}
+}
+
+func TestLoadMetadataCollectsCLIPullRequestsFromSuccessfulShellResults(t *testing.T) {
+	home := t.TempDir()
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	path := filepath.Join(home, ".cursor", "chats", "workspace", id, "store.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, statement := range []string{`CREATE TABLE meta (key TEXT, value TEXT)`, `CREATE TABLE blobs (id TEXT, data BLOB)`} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO meta VALUES ('0', ?)`, hex.EncodeToString([]byte(`{"agentId":"`+id+`","name":"CLI session"}`))); err != nil {
+		t.Fatal(err)
+	}
+	// The result carries its own command. The tool call ID differs from the one of the call.
+	result := func(command, text string) string {
+		encoded, _ := json.Marshal(map[string]any{
+			"role":    "tool",
+			"content": []map[string]any{{"type": "tool-result", "toolCallId": "tool_x", "toolName": "Shell", "result": text}},
+			"providerOptions": map[string]any{"cursor": map[string]any{"highLevelToolCallResult": map[string]any{
+				"output": map[string]any{"success": map[string]any{"command": command}}}}},
+		})
+		return string(encoded)
+	}
+	const created = "Exit code: 0\n\nCommand output:\n\n```\n"
+	for _, data := range []string{
+		result("cd /w && gh pr create --fill", created+"https://github.com/acme/web/pull/301\n\n```\n"),
+		result("cd /w && gh pr create --fill", created+"https://github.com/acme/web/pull/301\n\n```\n"),
+		result("rtk proxy gh pr create --fill", created+"https://github.com/acme/web/pull/302\n\n```\n"),
+		result("gh pr create --fill", "Exit code: 1\n\nCommand output:\n\n```\na pull request already exists: https://github.com/acme/web/pull/303\n```\n"),
+		result("gh pr view 304", created+"https://github.com/acme/web/pull/304\n\n```\n"),
+		result("python3 - <<'PY'\nprint('gh pr create')\nPY", created+"https://github.com/acme/web/pull/305\n\n```\n"),
+		result("gh pr create --dry-run", created+"https://github.com/acme/web/pull/306\n\n```\n"),
+	} {
+		if _, err := db.Exec(`INSERT INTO blobs VALUES ('b', ?)`, []byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metadata, err := loadMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := metadata.Session(id)
+	want := []session.PullRequestLink{
+		{URL: "https://github.com/acme/web/pull/301", Repository: "acme/web", Number: 301},
+		{URL: "https://github.com/acme/web/pull/302", Repository: "acme/web", Number: 302},
+	}
+	if !reflect.DeepEqual(entry.PullRequestLinks, want) || entry.PullRequests != 2 {
+		t.Fatalf("links = %#v, count = %d, want %#v", entry.PullRequestLinks, entry.PullRequests, want)
 	}
 }

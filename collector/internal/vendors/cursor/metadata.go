@@ -259,6 +259,9 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if err := loadCLIPullRequestsContext(ctx, metadata, path); err != nil {
+			return nil, err
+		}
 		if err := loadCursorRowsContext(ctx, metadata, lanes, entrypointCLI, path, `SELECT key, value FROM meta WHERE key = '0'`, nil, func(_, value string) (string, string, string) {
 			data, err := hex.DecodeString(value)
 			if err != nil {
@@ -784,6 +787,21 @@ func terminalCommand(name string, rawArgs, params json.RawMessage) (string, bool
 	return "", false
 }
 
+// ideShellSucceeded reports whether a finished IDE terminal command exited with
+// zero. Cursor drops an empty exit code, so an absent code means zero.
+func ideShellSucceeded(result string) bool {
+	var value struct {
+		Rejected   *bool `json:"rejected"`
+		ExitCode   *int  `json:"exitCode"`
+		ExitCodeV2 *int  `json:"exitCodeV2"`
+	}
+	if json.Unmarshal([]byte(result), &value) != nil {
+		return false
+	}
+	return (value.Rejected == nil || !*value.Rejected) && (value.ExitCode == nil || *value.ExitCode == 0) &&
+		(value.ExitCodeV2 == nil || *value.ExitCodeV2 == 0)
+}
+
 // pullRequestCreateTool reports a GitHub MCP create call, which Cursor names
 // mcp-<server>-<tool> or sends through call_mcp_tool with the tool in toolName.
 func pullRequestCreateTool(name string, rawArgs json.RawMessage) bool {
@@ -1146,7 +1164,7 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 			}
 			command, completed := completedIDETerminalCommand(item.ToolFormerData.Name, item.ToolFormerData.Status, item.ToolFormerData.RawArgs, item.ToolFormerData.Params)
 			tool := pullRequestCreateTool(item.ToolFormerData.Name, item.ToolFormerData.RawArgs)
-			if (completed && session.IsPullRequestCreate(command)) || (tool && item.ToolFormerData.Status == "completed") {
+			if (completed && session.IsPullRequestCreate(command) && ideShellSucceeded(item.ToolFormerData.Result)) || (tool && item.ToolFormerData.Status == "completed") {
 				if pullRequests[id] == nil {
 					pullRequests[id] = map[string]struct{}{}
 				}
