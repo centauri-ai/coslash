@@ -961,6 +961,7 @@ func TestLoadMetadataCollectsCLIPullRequestsFromSuccessfulShellResults(t *testin
 		result("cd /w && gh pr create --fill", created+"https://github.com/acme/web/pull/301\n\n```\n"),
 		result("cd /w && gh pr create --fill", created+"https://github.com/acme/web/pull/301\n\n```\n"),
 		result("rtk proxy gh pr create --fill", created+"https://github.com/acme/web/pull/302\n\n```\n"),
+		result("gh  pr\tcreate --fill", created+"https://github.com/acme/web/pull/308\n\n```\n"),
 		result("gh pr create --fill", "Exit code: 1\n\nCommand output:\n\n```\na pull request already exists: https://github.com/acme/web/pull/303\n```\n"),
 		result("gh pr view 304", created+"https://github.com/acme/web/pull/304\n\n```\n"),
 		result("python3 - <<'PY'\nprint('gh pr create')\nPY", created+"https://github.com/acme/web/pull/305\n\n```\n"),
@@ -981,8 +982,9 @@ func TestLoadMetadataCollectsCLIPullRequestsFromSuccessfulShellResults(t *testin
 	want := []session.PullRequestLink{
 		{URL: "https://github.com/acme/web/pull/301", Repository: "acme/web", Number: 301},
 		{URL: "https://github.com/acme/web/pull/302", Repository: "acme/web", Number: 302},
+		{URL: "https://github.com/acme/web/pull/308", Repository: "acme/web", Number: 308},
 	}
-	if !reflect.DeepEqual(entry.PullRequestLinks, want) || entry.PullRequests != 2 {
+	if !reflect.DeepEqual(entry.PullRequestLinks, want) || entry.PullRequests != 3 {
 		t.Fatalf("links = %#v, count = %d, want %#v", entry.PullRequestLinks, entry.PullRequests, want)
 	}
 }

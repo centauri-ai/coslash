@@ -433,7 +433,8 @@ func cliShellOutput(raw json.RawMessage) (string, bool) {
 // created. The transcript has no tool results, so it reads the store blobs. A
 // Shell result holds its own command, because its tool call ID differs from the
 // ID of the call, so one blob holds the command and the URL, and SQL skips the
-// other blobs. Only a command that exited with zero counts.
+// other blobs on the two literal parts. IsPullRequestCreate decides the
+// command. Only a command that exited with zero counts.
 func loadCLIPullRequestsContext(ctx context.Context, metadata *vendors.SessionMetadata, path string) error {
 	id := canonicalCursorID(filepath.Base(filepath.Dir(path)))
 	if !transcriptIDPattern.MatchString(id) {
@@ -445,7 +446,7 @@ func loadCLIPullRequestsContext(ctx context.Context, metadata *vendors.SessionMe
 	}
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, `SELECT data FROM blobs
-		WHERE instr(CAST(data AS BLOB), CAST('/pull/' AS BLOB)) > 0 AND instr(CAST(data AS BLOB), CAST('pr create' AS BLOB)) > 0`)
+		WHERE instr(CAST(data AS BLOB), CAST('/pull/' AS BLOB)) > 0 AND instr(CAST(data AS BLOB), CAST('Exit code: 0' AS BLOB)) > 0`)
 	if err != nil {
 		return ctx.Err()
 	}
