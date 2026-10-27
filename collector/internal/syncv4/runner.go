@@ -167,6 +167,7 @@ type Runner struct {
 	lastDiscoveryAt     time.Time
 	discoveryRequests   atomic.Uint64
 	completedDiscovery  uint64
+	discoveredPlan      int64
 	activeSince         time.Time
 	logRejectedUntil    time.Time
 }
@@ -231,7 +232,11 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		listedOnce, unlistedSince := false, 0
 		var sourceErr error
 		discoveryRequest := r.discoveryRequests.Load()
-		refreshSources := discoveryRequest != r.completedDiscovery || r.lastDiscoveryAt.IsZero() || r.now().Sub(r.lastDiscoveryAt) >= 5*time.Minute
+		planVersion := int64(0)
+		if r.config.ImportPlan != nil {
+			planVersion = r.config.ImportPlan.Version
+		}
+		refreshSources := discoveryRequest != r.completedDiscovery || planVersion != r.discoveredPlan || r.lastDiscoveryAt.IsZero() || r.now().Sub(r.lastDiscoveryAt) >= 5*time.Minute
 		var verifiedGrok map[string]string
 		var failedGrok map[string]error
 		if refreshSources {
@@ -329,7 +334,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 				sourceErr = errors.Join(sourceErr, failure)
 			}
 		}
-		r.completedDiscovery = discoveryRequest
+		r.completedDiscovery, r.discoveredPlan = discoveryRequest, planVersion
 		r.lastDiscoveryAt = r.now()
 		return errors.Join(transferErr, sourceErr, r.runPlannedAndReport(ctx))
 	}

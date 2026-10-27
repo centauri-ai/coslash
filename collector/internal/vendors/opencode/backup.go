@@ -57,7 +57,7 @@ func CaptureFamilyContext(ctx context.Context, rootID string) (_ *FamilyCapture,
 		return nil, err
 	}
 	defer tx.Rollback()
-	parsed, skipped, err := loadTxContext(ctx, tx, source, activeFamiliesQuery+" AND selected_roots.id = ?", rootID)
+	parsed, skipped, err := loadTxContext(ctx, tx, source, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, rootID)
 	if err != nil {
 		return nil, err
 	}

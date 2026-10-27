@@ -26,17 +26,18 @@ import (
 )
 
 type planHub struct {
-	plan         *hubclient.V4ImportPlan
-	withoutScale bool
-	creates      int
-	lists        [][]hubclient.V4ListItem
-	checks       int
-	checkInQueue []hubclient.V4Queue
-	checkInLogs  [][]hubclient.V4LogEntry
-	checkInErr   error
-	results      []hubclient.V4CommandResult
-	retryLists   int
-	leaveOut     []string
+	plan          *hubclient.V4ImportPlan
+	withoutScale  bool
+	creates       int
+	lists         [][]hubclient.V4ListItem
+	checks        int
+	checkInQueue  []hubclient.V4Queue
+	checkInLogs   [][]hubclient.V4LogEntry
+	checkInErr    error
+	results       []hubclient.V4CommandResult
+	retryLists    int
+	leaveOut      []string
+	configVersion int64
 }
 
 type asyncCompletionHub struct {
@@ -579,7 +580,8 @@ func (h *planHub) V4CheckIn(_ context.Context, queue hubclient.V4Queue, _ int64,
 	if h.withoutScale {
 		capabilities = nil
 	}
-	return hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: rules, ImportPlan: h.plan}, Capabilities: capabilities}, nil
+	version := max(h.configVersion, 1)
+	return hubclient.V4CheckIn{ConfigVersion: version, Config: hubclient.V4Config{LeaveOut: rules, ImportPlan: h.plan}, Capabilities: capabilities}, nil
 }
 func (h *planHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
 	h.creates++
@@ -863,6 +865,43 @@ func TestRequestedDiscoveryBypassesCooldown(t *testing.T) {
 	}
 	if discoveries != 3 {
 		t.Fatalf("discovery calls after request and retry = %d, want 3", discoveries)
+	}
+}
+
+func TestImportPlanChangeBypassesDiscoveryCooldown(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{plan: &hubclient.V4ImportPlan{Version: 1, Window: "3d", History: true, WarmStartSeconds: 30}}
+	discoveries := 0
+	runner := &Runner{
+		Queue:    q,
+		Backup:   sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}),
+		Hub:      hub,
+		Discover: func(context.Context) ([]*session.Session, error) { return nil, nil },
+		Now:      func() time.Time { return now },
+	}
+	runner.DiscoverBatches = func(context.Context, func(DiscoveryBatch) error) error {
+		discoveries++
+		return nil
+	}
+	for range 2 {
+		if err := runner.SyncOnce(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if discoveries != 1 {
+		t.Fatalf("discovery calls under plan 1 = %d, want 1", discoveries)
+	}
+	hub.configVersion = 2
+	hub.plan = &hubclient.V4ImportPlan{Version: 2, Window: "all", Backfill: true, WarmStartSeconds: 30}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries != 2 {
+		t.Fatalf("discovery calls after plan 2 = %d, want 2", discoveries)
 	}
 }
 
