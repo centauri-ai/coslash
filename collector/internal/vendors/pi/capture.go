@@ -17,6 +17,7 @@ type SourceRef struct {
 type SourcePlan struct {
 	Scan       *vendors.SourceScan
 	Sources    []SourceRef
+	Metadata   *vendors.SessionMetadata
 	headers    map[string]header
 	identities map[string][]string
 	leaves     map[string]*string
@@ -49,6 +50,7 @@ func PlanSourcesContext(ctx context.Context) (*SourcePlan, error) {
 		return nil, err
 	}
 	plan := &SourcePlan{Scan: scan, headers: headers, identities: map[string][]string{}, leaves: map[string]*string{}}
+	plan.Metadata = vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
 	for path, h := range headers {
 		plan.identities[h.ID] = append(plan.identities[h.ID], path)
 	}
