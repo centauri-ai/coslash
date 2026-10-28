@@ -115,6 +115,7 @@ export type Session = {
   compactions: number;
   firstPrompt: string | null;
   commands: string[];
+  skills?: { name: string; content: string }[];
   commits: string[];
   prs: number;
   todos: { text: string; done: boolean }[];
