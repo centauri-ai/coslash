@@ -47,6 +47,11 @@ configuration and free-model filtering (`collector/internal/vendors/opencode/mod
 - A child session (subagent) is a separate session. Its parse fills its own `Commands` through `commands.Labelled()`, and the outputs travel with them.
 - Command outputs change the parsed content, so `ParserVersion` moved to `opencode-2`.
 
+## Captured skills
+
+- Successful completed `skill` tools retain their recorded output without trimming. The name comes from `state.input.name`, then `state.metadata.name`, then the basename of `state.metadata.dir`. Missing output is unknown content, stored as an empty string. v1 uses `state.output`; v2 uses the existing normalization of text items in `state.content[]`, joined with a newline. Evidence: supplied v1/v2 tool shapes, 2026-10-27, `TestV1ObservedSkills` and `TestV2FamilySkillsAndBackupCapture`.
+- Completed `read` tools for `SKILL.md` also retain the captured output. Listings, writes, shell commands, text mentions, failed tools, and unfinished loads do not establish skill use. No current skill files are opened to reconstruct past content. Exact name/content duplicates collapse in observed order; changed content under the same name remains a separate entry. Each child session and backup capture uses the same parser. Evidence: synthetic database records, 2026-10-27, `TestSkillsIgnoreUnsuccessfulAndNonLoadEvidence` and `TestV2FamilySkillsAndBackupCapture`. Skills change parsed content, so `ParserVersion` is `opencode-4`.
+
 ## Status
 
 - Status is scoped to the latest user turn. OpenCode can leave an old assistant message with no `time.completed`, or an old `question` part as `running`, after the user starts a newer turn. A full-transcript scan kept such sessions Active or Waiting for weeks. Observed: OpenCode 1.18.x, 2026-08-14 to 2026-08-18, commit a0dddfda, `TestParseIgnoresIncompleteAssistantFromSupersededTurn`.
