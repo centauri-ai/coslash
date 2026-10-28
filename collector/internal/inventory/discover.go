@@ -3,8 +3,10 @@ package inventory
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"iter"
 	"log"
+	"os"
 	"sort"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
 const defaultBatchFamilies = 64
@@ -37,6 +40,8 @@ type Cursor struct {
 type DiscoverOptions struct {
 	// Snapshot is the stat-only inventory to plan from; nil scans now.
 	Snapshot *Snapshot
+	// Pi is resolved once by the caller, including its runtime selection snapshot.
+	Pi *pi.SourcePlan
 	// MinActivityMs filters timestamp-indexed sources; transcript families still
 	// parse to determine their activity.
 	MinActivityMs int64
@@ -61,6 +66,7 @@ type Batch struct {
 	// The scheduler uses it before a full backup has been captured.
 	ContentBytes map[string]int64
 	GrokFamilies []grok.FamilyRef
+	PiInputs     []pi.SessionInputs
 	Cursor       Cursor
 	Remaining    int
 }
@@ -84,6 +90,7 @@ type family struct {
 	bytes      int64
 	files      []string
 	grok       *grok.FamilyRef
+	pi         *pi.SessionInputs
 }
 
 func familyBefore(a, b family) bool {
@@ -137,7 +144,11 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 	snapshot := opts.Snapshot
 	if snapshot == nil {
 		var err error
-		if snapshot, err = Scan(ctx, Options{}); err != nil {
+		options := Options{}
+		if opts.Pi != nil {
+			options.Pi = opts.Pi.Scan
+		}
+		if snapshot, err = Scan(ctx, options); err != nil {
 			return nil, err
 		}
 	}
@@ -176,6 +187,48 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		plan.firstBatch = plan.batch
 	}
 	var failures []error
+	if opts.Pi != nil {
+		plan.metadata[vendors.AgentPi] = opts.Pi.Metadata
+		if opts.Pi.Scan.SkippedTotal > 0 {
+			plan.planningError = fmt.Errorf("Pi discovery incomplete")
+		}
+		for _, ref := range opts.Pi.Sources {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			activityMs, known := activity[ref.Path]
+			if !known {
+				info, err := os.Stat(ref.Path)
+				if err != nil {
+					plan.planningError = fmt.Errorf("Pi discovery incomplete")
+					continue
+				}
+				activityMs = info.ModTime().UnixMilli()
+			}
+			live := false
+			if metadata := opts.Pi.Metadata.Lookup(ref.ID); metadata != nil {
+				live = metadata.Live == "busy" || metadata.Live == "idle" || metadata.Live == "waiting"
+			}
+			if opts.MinActivityMs > 0 && activityMs < opts.MinActivityMs && !live {
+				continue
+			}
+			inputs, err := opts.Pi.SessionInputsContext(ctx, ref.ID)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if err != nil {
+				plan.planningError = fmt.Errorf("Pi discovery incomplete")
+				continue
+			}
+			var bytes int64
+			for _, path := range inputs.Files {
+				if info, err := os.Stat(path); err == nil {
+					bytes += info.Size()
+				}
+			}
+			plan.families = append(plan.families, family{agent: vendors.AgentPi, id: ref.ID, activityMs: activityMs, bytes: bytes, pi: &inputs})
+		}
+	}
 	// Claude: families follow paths; the parser reads no header.
 	if files := byAgent[vendors.AgentClaude]; len(files) > 0 {
 		metadata, err := claude.LoadMetadataContext(ctx)
@@ -243,7 +296,9 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		plan.planningError = err
+		if err != nil {
+			plan.planningError = err
+		}
 		if err != nil {
 			failures = append(failures, err)
 		}
@@ -291,7 +346,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		kept := plan.families[:0]
 		for _, item := range plan.families {
 			visited := familyBefore(item, position) || item.agent == position.agent && item.id == position.id
-			if visited && item.activityMs < resume.StartedAtMs {
+			if visited && item.activityMs < resume.StartedAtMs && item.agent != vendors.AgentPi {
 				continue
 			}
 			kept = append(kept, item)
@@ -332,6 +387,7 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 			return
 		}
 		kept := make([]*session.Session, 0, len(sessions))
+		piIDs := map[string]bool{}
 		for _, item := range sessions {
 			key := sessionKey{agent: item.Agent, id: item.ID}
 			if yielded[key] {
@@ -339,6 +395,12 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 			}
 			yielded[key] = true
 			kept = append(kept, item)
+			if item.Agent == vendors.AgentPi {
+				piIDs[item.ID] = true
+			}
+		}
+		if plan.planningError != nil {
+			cursor = Cursor{}
 		}
 		if plan.planningError == nil {
 			last := batch[len(batch)-1]
@@ -346,9 +408,13 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 			cursor.Complete = end == len(plan.families)
 		}
 		grokFamilies := []grok.FamilyRef{}
+		piInputs := []pi.SessionInputs{}
 		for _, family := range batch {
 			if family.grok != nil {
 				grokFamilies = append(grokFamilies, *family.grok)
+			}
+			if family.pi != nil && piIDs[family.id] {
+				piInputs = append(piInputs, *family.pi)
 			}
 		}
 		familyBytes := make(map[string]int64, len(batch))
@@ -369,7 +435,7 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 				contentBytes[key] = agentBytes[item.Agent] / agentCount[item.Agent]
 			}
 		}
-		continued := yield(Batch{Sessions: kept, ContentBytes: contentBytes, GrokFamilies: grokFamilies, Cursor: cursor, Remaining: len(plan.families) - end}, nil)
+		continued := yield(Batch{Sessions: kept, ContentBytes: contentBytes, GrokFamilies: grokFamilies, PiInputs: piInputs, Cursor: cursor, Remaining: len(plan.families) - end}, nil)
 		if plan.persist != nil {
 			if err := plan.persist(cursor); err != nil {
 				yield(Batch{}, err)
@@ -402,7 +468,12 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 	files := map[string][]string{}
 	var opencodeIDs []string
 	var grokFamilies []grok.FamilyRef
+	var piInputs []pi.SessionInputs
 	for _, item := range batch {
+		if item.pi != nil {
+			piInputs = append(piInputs, *item.pi)
+			continue
+		}
 		if item.agent == vendors.AgentGrok {
 			grokFamilies = append(grokFamilies, *item.grok)
 			continue
@@ -417,6 +488,23 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 	metadata := map[string]*vendors.SessionMetadata{}
 	for agent, value := range plan.metadata {
 		metadata[agent] = value
+	}
+	for _, inputs := range piInputs {
+		files := make(map[string]string, len(inputs.Files))
+		for _, path := range inputs.Files {
+			files[path] = path
+		}
+		item, _, err := pi.ParseFrozenSessionContext(ctx, inputs, files)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err != nil {
+			if plan.planningError == nil {
+				plan.planningError = fmt.Errorf("Pi discovery incomplete")
+			}
+			continue
+		}
+		parsed = append(parsed, item)
 	}
 	if paths := files[vendors.AgentClaude]; len(paths) > 0 {
 		items, err := claude.ParseFilesContext(ctx, paths)
