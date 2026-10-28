@@ -285,7 +285,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 		}
 		allowed := make(map[string]bool)
 		for _, entry := range r.Queue.PlannedEntries(*r.config.ImportPlan, r.now()) {
-			allowed[entry.Key] = true
+			allowed[entry.Key] = !entry.SourceBlocked
 		}
 		kept := batch[:0]
 		for _, item := range batch {
@@ -321,7 +321,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 		return r.Queue.MarkListedAt(results, r.now())
 	}
 	for _, entry := range entries {
-		if entry.Listed || entry.Excluded || entry.ListRejected || entry.FailureCode == "session_deleted" {
+		if entry.Listed || entry.Excluded || entry.SourceBlocked || entry.ListRejected || entry.FailureCode == "session_deleted" {
 			continue
 		}
 		activity := time.UnixMilli(entry.Activity).UTC()

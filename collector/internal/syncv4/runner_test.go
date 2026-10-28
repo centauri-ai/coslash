@@ -145,7 +145,7 @@ func TestOpenCodeDiscoveryRetainsSourceIdentity(t *testing.T) {
 		{Agent: "codex", ID: "shared", StartedAt: 1, LastActivityTime: 2},
 		{Agent: "cursor", ID: "ignored"},
 		{Agent: "opencode", ID: "child", ParentSessionID: "shared"},
-	}, "install", nil, nil)
+	}, "install", nil, nil, nil)
 	if len(items) != 2 || items[0].Key == items[1].Key || items[0].Selection.Agent != "opencode" ||
 		items[0].Selection.SessionID != "shared" || items[0].SourceRevision != "source-revision" {
 		t.Fatalf("discovered entries = %#v", items)

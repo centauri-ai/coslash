@@ -88,7 +88,7 @@ func TestGrokSourceFailurePreservesPendingAndHealthyDiscovery(t *testing.T) {
 						}
 					}
 				}
-				pendingRoot := discoveredEntries([]*session.Session{root}, queue.InstallID(), nil, map[string]string{"root": refsRoot})[0]
+				pendingRoot := discoveredEntries([]*session.Session{root}, queue.InstallID(), nil, map[string]string{"root": refsRoot}, nil)[0]
 				manifest, err := runner.manifest(prepared)
 				if err != nil {
 					t.Fatal(err)
@@ -374,7 +374,7 @@ func TestGrokSourceBlockedHubRetryVerifiesBeforeSettlement(t *testing.T) {
 					t.Fatalf("initial hash: %v %v", failures, err)
 				}
 				var entry Entry
-				for _, item := range discoveredEntries(sessions, queue.InstallID(), nil, revisions) {
+				for _, item := range discoveredEntries(sessions, queue.InstallID(), nil, revisions, nil) {
 					if item.Selection.SessionID == "root" {
 						entry = item
 					}
