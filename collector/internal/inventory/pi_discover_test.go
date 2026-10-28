@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func piDiscoveryFile(t *testing.T, home, id, parent string, age time.Duration, r
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	header, err := json.Marshal(map[string]any{"type": "session", "version": 3, "id": id, "cwd": home, "parentSession": parent, "timestamp": "2026-09-29T12:00:00Z"})
+	header, err := json.Marshal(map[string]any{"type": "session", "version": 3, "id": id, "cwd": home, "parentSession": parent, "timestamp": now.Add(-age).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +60,10 @@ const piDiscoveryResponse = `{"type":"message","id":"a","parentId":"u","timestam
 
 func TestPiDiscoveryKeepsForkEvidenceOutsideWindowAndBatch(t *testing.T) {
 	home := piDiscoveryHome(t)
-	parent := piDiscoveryFile(t, home, "parent", "", 10*24*time.Hour, piDiscoveryPrompt, piDiscoveryResponse)
-	piDiscoveryFile(t, home, "fork.custom_01", parent, time.Hour, piDiscoveryPrompt, piDiscoveryResponse,
+	oldPrompt := strings.ReplaceAll(piDiscoveryPrompt, "2026-09-29", "2026-09-19")
+	oldResponse := strings.ReplaceAll(piDiscoveryResponse, "2026-09-29", "2026-09-19")
+	parent := piDiscoveryFile(t, home, "parent", "", 10*24*time.Hour, oldPrompt, oldResponse)
+	piDiscoveryFile(t, home, "fork.custom_01", parent, time.Hour, oldPrompt, oldResponse,
 		`{"type":"message","id":"b","parentId":"a","timestamp":"2026-09-29T12:00:03Z","message":{"role":"assistant","model":"m","content":"new","usage":{"input":2,"output":1,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.2}}}}`)
 	sources, err := pi.PlanSourcesContext(t.Context())
 	if err != nil {
@@ -83,6 +86,34 @@ func TestPiDiscoveryKeepsForkEvidenceOutsideWindowAndBatch(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("fork count = %d", count)
+	}
+}
+
+func TestPiDiscoveryUsesRecordedActivityInsteadOfMtimeForWindow(t *testing.T) {
+	home := piDiscoveryHome(t)
+	piDiscoveryFile(t, home, "restored", "", 10*24*time.Hour, piDiscoveryPrompt, piDiscoveryResponse)
+	piDiscoveryFile(t, home, "actually-old", "", 10*24*time.Hour,
+		strings.ReplaceAll(piDiscoveryPrompt, "2026-09-29", "2026-09-19"),
+		strings.ReplaceAll(piDiscoveryResponse, "2026-09-29", "2026-09-19"))
+	sources, err := pi.PlanSourcesContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutoff := now.Add(-3 * 24 * time.Hour).UnixMilli()
+	var ids []string
+	for batch, err := range Discover(t.Context(), DiscoverOptions{Pi: sources, MinActivityMs: cutoff, BatchFamilies: 1}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range batch.Sessions {
+			ids = append(ids, item.ID)
+			if item.LastActivityTime != 1790683202000 || len(batch.PiInputs) != 1 || batch.PiInputs[0].ID != item.ID {
+				t.Fatalf("wrong recorded-activity source = %+v, inputs=%+v", item, batch.PiInputs)
+			}
+		}
+	}
+	if len(ids) != 1 || ids[0] != "restored" {
+		t.Fatalf("recorded-activity window selected %v", ids)
 	}
 }
 
