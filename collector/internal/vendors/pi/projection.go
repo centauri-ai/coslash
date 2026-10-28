@@ -36,11 +36,11 @@ type projectedPayload struct {
 }
 
 type contentBlock struct {
-	Status    string `json:"status"`
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Text      string `json:"text"`
-	Name      string `json:"name"`
+	Status    string  `json:"status"`
+	ID        string  `json:"id"`
+	Type      string  `json:"type"`
+	Text      *string `json:"text"`
+	Name      string  `json:"name"`
 	Arguments struct {
 		Command string         `json:"command"`
 		Path    string         `json:"path"`
@@ -56,21 +56,35 @@ type contentBlock struct {
 }
 
 func contentText(raw json.RawMessage) string {
-	var text string
+	text, _ := decodeContentText(raw)
+	return text
+}
+
+func decodeContentText(raw json.RawMessage) (string, bool) {
+	var text *string
 	if json.Unmarshal(raw, &text) == nil {
-		return text
+		if text == nil {
+			return "", false
+		}
+		return *text, true
 	}
 	var blocks []contentBlock
 	if json.Unmarshal(raw, &blocks) != nil {
-		return ""
+		return "", false
 	}
 	var texts []string
 	for _, b := range blocks {
+		if b.Type == "" {
+			return "", false
+		}
 		if b.Type == "text" {
-			texts = append(texts, b.Text)
+			if b.Text == nil {
+				return "", false
+			}
+			texts = append(texts, *b.Text)
 		}
 	}
-	return strings.Join(texts, "\n")
+	return strings.Join(texts, "\n"), true
 }
 func entryTime(e entry) int64 {
 	t, err := time.Parse(time.RFC3339Nano, e.Timestamp)
@@ -279,8 +293,8 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		}
 		if p.Message.Role == "toolResult" && p.Message.ToolCallID != "" {
 			callID := nearestAssistant[e.ID] + "\x00" + p.Message.ToolCallID
-			output := contentText(p.Message.Content)
-			if len(p.Message.Content) > 0 && string(p.Message.Content) != "null" {
+			output, decoded := decodeContentText(p.Message.Content)
+			if decoded {
 				commands.AttachOutput(callID, session.TruncateOutput(output))
 			}
 			if command := toolCommands[callID]; command != "" {
