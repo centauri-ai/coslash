@@ -44,6 +44,13 @@ Code: `collector/internal/vendors/codex/`. This package reads Codex CLI rollouts
 - `event_msg` `exec_command_end` and `item_completed` `CommandExecution` carry `aggregated_output` too. coSlash does not read it for command outputs. The rollout result row is the single source, so a command never counts twice. Observed: codex-cli 0.164.0, 2026-10-23: no `exec_command_end` row in recent rollouts.
 - Command outputs change the parsed content, so `ParserVersion` moved to `codex-2`.
 
+## Skills
+
+- Explicit loads are `response_item` user messages whose `input_text` starts with `<skill>`, followed by `<name>`, `<path>`, and the captured instruction body. The available `<skill_instructions>` catalog is not a load. The parser removes only the envelope delimiters and preserves body formatting. Evidence supplied for Codex rollouts, vendor version unknown, 2026-10-27; `TestExplicitSkillsPreserveHistory`.
+- Implicit loads require a successful result paired by `call_id` with a clear single-file `cat` or `sed -n` read of `SKILL.md`. Code-mode scripts use the existing command/result extraction and require equal counts, with each command's own successful exit code. Listings, writes, mentions, missing results, and ambiguous shell expressions do not count. Only captured output is retained, including partial reads; the parser never opens current skill files to reconstruct history (`TestSkillReadsRequireSuccessfulEvidence`, `TestCodeModeSkillsPairAllCommands`).
+- Native `skills.read` counts only when its resource directly identifies `SKILL.md` and its successful result contains text. Reference resources and catalog listings do not count. Opaque resource identifiers without a recognizable main instruction path are deliberately skipped (`TestNativeSkillResourceRead`).
+- Skills contain only name and content. Exact pairs deduplicate in observed order through `session.SkillLog`; different historical bodies with the same name remain separate. Ordinary children, archived/backup parsing, and the parse cache use the same vendor parser (`TestExplicitSkillsPreserveHistory`, `TestSkillBackupFamilyAndCache`). Captured skills change parsed content, so `ParserVersion` is `codex-5`.
+
 ## Resume and launch
 
 - Resume is `codex resume <uuid>`, with `resume` as a subcommand, not a flag.
