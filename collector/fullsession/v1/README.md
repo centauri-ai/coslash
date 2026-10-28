@@ -186,8 +186,12 @@ that interrupted family capture is safe to publish.
 The producer freezes context selections for each record. Selected-leaf changes,
 including verified changes without transcript writes, change the revision when
 they change parsed context facts. Process identity, absolute evidence paths,
-heartbeat timestamps and live status are local overlays and do not enter the
-revision. Pi is admitted only to local portable composition, not SSH collection.
+heartbeat timestamps, live status and runtime modality (`pi-tui`, `pi-rpc`, etc.)
+are local overlays and do not enter the revision. Pi portable composition emits
+`entrypoint:null`, including when runtime owners disagree or disappear. Other
+vendors retain their portable entrypoints. Direct canonical adapters preserve
+explicit entrypoint values; composition owns the runtime exclusion.
+Pi is admitted only to local portable composition, not SSH collection.
 Legacy snapshot export remains unchanged. Capture, queueing and Hub acceptance
 require their own producer/consumer support before uploads can be enabled.
 
@@ -201,6 +205,7 @@ require their own producer/consumer support before uploads can be enabled.
 | Command outputs (session and subagent) | Claude and Codex parsers (tool call IDs); Cursor IDE/CLI result stores (command text and order); Grok and OpenCode parsers (same tool record) | Optional `commandOutputs` and subagent command `output`; dropped from a record that exceeds a bound; excluded from the local list API, remote facts, and snapshot export | Adapter round-trip and revision equality |
 | Grok model-unattributed counters and nullable cost | Grok parser and local portable composition | Optional `unattributedTokens` on session and direct subagent rows | Source-fixture totals and nested-family adapter byte round trips |
 | Pi accounting, completeness and branch/context annotations | Pi parser and local portable composition | Nullable usage/costs, optional digest annotations and `detailsIncomplete` | Canonical fixtures, context revision changes and lossless adapter round trips |
+| Pi runtime modality from verified owners | Excluded runtime enrichment in portable composition | `entrypoint:null`; direct canonical adapters remain lossless | Absent, differing and conflicting modality leave canonical revisions unchanged |
 | Subagent identity, task/result, commands, usage, and cost | Claude and Codex family composition | Typed `subagents` list | Ordered value equality |
 | File-edit summaries | Claude and Codex file-edit accumulators | Typed `fileEdits` rows | Ordered value equality |
 | File-change kind, operation, counts, and exact text | Claude and Codex file-edit accumulators | Change metadata in the record row; text in cache `changeBodies` | Per-body byte count/hash and exact read assertion |
