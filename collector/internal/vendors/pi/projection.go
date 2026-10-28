@@ -13,6 +13,7 @@ import (
 )
 
 type projectedPayload struct {
+	valid            bool
 	Content          json.RawMessage `json:"content"`
 	ModelID          string          `json:"modelId"`
 	Name             string          `json:"name"`
@@ -168,7 +169,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		}
 		switch e.Type {
 		case "message", "custom_message", "model_change", "session_info", "compaction", "branch_summary", "context_edit":
-			_ = json.Unmarshal(e.Raw, &payloads[i])
+			payloads[i].valid = json.Unmarshal(e.Raw, &payloads[i]) == nil
 			if e.Type == "custom_message" {
 				payloads[i].Message.Role = "custom"
 				payloads[i].Message.Content = payloads[i].Content
@@ -214,6 +215,8 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 
 	commands := session.CommandLog{}
 	toolCommands := map[string]string{}
+	skills := session.SkillLog{}
+	skillReads := map[string]string{}
 	pullRequests := map[string]struct{}{}
 	pullRequestTools := map[string]bool{} // GitHub MCP create calls, by assistant entry and call ID
 	edits := session.NewFileEditSet()
@@ -297,6 +300,9 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			if decoded {
 				commands.AttachOutput(callID, session.TruncateOutput(output))
 			}
+			if name := skillReads[callID]; name != "" && p.valid && decoded && !p.Message.IsError {
+				skills.Note(name, output)
+			}
 			if command := toolCommands[callID]; command != "" {
 				s.CommitLog = append(s.CommitLog, session.ParseCommitObservations(command, output, !p.Message.IsError)...)
 				if !p.Message.IsError && session.IsPullRequestCreate(command) {
@@ -318,7 +324,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			s.Errors++
 		}
 		var blocks []contentBlock
-		_ = json.Unmarshal(p.Message.Content, &blocks)
+		blocksValid := json.Unmarshal(p.Message.Content, &blocks) == nil
 		if p.Message.NestedCalls != nil {
 			for _, b := range p.Message.NestedCalls.Calls {
 				b.Type = "toolCall"
@@ -341,6 +347,11 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				toolCommands[e.ID+"\x00"+b.ID] = b.Arguments.Command
 			}
 			a := b.Arguments
+			if p.valid && blocksValid && p.Message.Role == "assistant" && b.Name == "read" {
+				if skill, ok := session.SkillFromPath(a.Path, ""); ok {
+					skillReads[e.ID+"\x00"+b.ID] = skill.Name
+				}
+			}
 			if a.Path != "" && (b.Name == "write" || b.Name == "edit") && (b.Status == "ok" || completedTools[e.ID+"\x00"+b.ID]) {
 				if b.Name == "write" {
 					edits.Add(a.Path, session.CountLines(a.Content), 0, false)
@@ -378,6 +389,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 	s.TokensKnown = !s.TokensUnavailable
 	s.Commands, s.FileEdits, s.EditedFileCount = commands.Raw(), edits.Edits, len(edits.Edits)
 	s.CommandOutputs = commands.Outputs()
+	s.Skills = skills.Entries()
 	s.SetPullRequestLinks(session.NewPullRequestLinks(pullRequests))
 	result.Commands = commands.Labelled()
 	if s.StartedAt > 0 && s.LastActivityTime >= s.StartedAt {
