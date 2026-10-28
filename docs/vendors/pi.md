@@ -49,6 +49,7 @@ Code: `collector/internal/vendors/pi/`. The package reads local Pi JSONL transcr
 - Synthesis uses `--print --no-session` with all resources disabled. The system prompt goes to `--system-prompt` as a path to a private file. `--append-system-prompt " "` stops automatic `APPEND_SYSTEM.md` loading. An empty value does not work, because Windows native argument transport drops it. Observed: 2026-10-06, commit 3cf08183, `collector/internal/synthesis/runner.go`.
 - Review checks Pi with `--help`, but Pi sends help to stderr in print mode. The probe keeps the isolation flags. Observed: `collector/internal/launch/launch.go`.
 - Pi is local only on macOS and Windows. Linux and remote Pi are not supported. Windows was enabled after native probes passed. Observed: 2026-10-01 to 2026-10-02, commits 7f72d2f1, b7dc1a9e, 0f0c11e6.
+- Local collection, runtime integration, and personal V4 sync also support Linux as of 2026-10-28. CLI launch, synthesis, and review actions remain limited to macOS and Windows. Pi SSH collection and legacy snapshot export remain unsupported. See `docs/decisions/personal-hub-sync-consent.md` for the personal-sync boundary.
 
 ## Open questions
 
