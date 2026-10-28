@@ -33,7 +33,7 @@ func TestGrokDiscoveryIdentityAndMetadata(t *testing.T) {
 		{Agent: "grok", ID: "child", ParentSessionID: "shared"},
 		{Agent: "pi", ID: "pi"},
 		{Agent: "Grok", ID: "case"},
-	}, "install", nil, map[string]string{"shared": "verified-source"})
+	}, "install", nil, map[string]string{"shared": "verified-source"}, nil)
 	if len(entries) != 2 {
 		t.Fatalf("eligible entries = %+v, want Grok and Codex", entries)
 	}
@@ -290,7 +290,7 @@ func TestGrokAutomaticQueueFamilyUpdatesAndRestart(t *testing.T) {
 func TestGrokForkEligibilityKeepsLocalLineage(t *testing.T) {
 	fork := &session.Session{Agent: "grok", ID: "fork", ParentSessionID: "origin"}
 	child := &session.Session{Agent: "grok", ID: "child", ParentSessionID: "origin"}
-	entries := discoveredEntries([]*session.Session{fork, child}, "install", nil, map[string]string{"fork": "verified-source"})
+	entries := discoveredEntries([]*session.Session{fork, child}, "install", nil, map[string]string{"fork": "verified-source"}, nil)
 	if len(entries) != 1 || entries[0].Selection.SessionID != "fork" || fork.ParentSessionID != "origin" {
 		t.Fatalf("fork eligibility or local lineage: %+v %+v", entries, fork)
 	}
@@ -342,7 +342,7 @@ func TestGrokUploadPolicyGuards(t *testing.T) {
 }
 
 func TestGrokDiscoveryRequiresVerifiedRoot(t *testing.T) {
-	entries := discoveredEntries([]*session.Session{{Agent: "grok", ID: "unverified"}}, "install", nil, map[string]string{})
+	entries := discoveredEntries([]*session.Session{{Agent: "grok", ID: "unverified"}}, "install", nil, map[string]string{}, nil)
 	if len(entries) != 0 {
 		t.Fatalf("unverified root entered queue: %+v", entries)
 	}

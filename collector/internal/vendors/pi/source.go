@@ -266,7 +266,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	snapshot, _ := LoadRuntimeSnapshotContext(ctx)
+	snapshot, _ := snapshotContext(ctx)
 	ctx = WithRuntimeSnapshot(ctx, snapshot)
 	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
 	items, scan, _, err := readSessionsSinceContext(ctx, since, metadata)
