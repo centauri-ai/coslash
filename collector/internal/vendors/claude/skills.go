@@ -8,7 +8,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
-var skillCat = regexp.MustCompile(`^\s*cat\s+(?:--\s+)?(?:'([^'\r\n]+)'|"([^"$` + "`" + `\r\n]+)"|([^\s;'"&|<>$` + "`" + `]+))\s*$`)
+var skillCat = regexp.MustCompile(`^\s*cat\s+(?:--\s+)?(?:'([^'\r\n]+)'|"([^"$` + "`" + `\r\n]+)"|([^\s;'"&|<>$` + "`" + `*?\[\]{}~\\()!#]+))\s*$`)
 var readLineNumber = regexp.MustCompile(`(?m)^[ \t]*\d+→([^\n]*(?:\n|$))`)
 
 type skillCall struct {
@@ -95,6 +95,9 @@ func (skills *claudeSkills) note(row claudeSessionRecord) {
 			}
 		} else {
 			call.body = claudeToolOutput(block.Content)
+			if strings.HasPrefix(call.body, "<persisted-output>") {
+				call.body = ""
+			}
 			if call.read {
 				if result.File != nil {
 					call.body = result.File.Content
@@ -107,9 +110,6 @@ func (skills *claudeSkills) note(row claudeSessionRecord) {
 						call.body = body.String()
 					}
 				}
-			}
-			if strings.HasPrefix(call.body, "<persisted-output>") {
-				call.body = ""
 			}
 		}
 		call.entry = &session.Skill{Name: call.name, Content: call.body}
