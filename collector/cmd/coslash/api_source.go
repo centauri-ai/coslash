@@ -124,14 +124,15 @@ func boardLocalSession(value *session.Session) boardSession {
 		Revision: value.LastActivityTime, DetailRevision: value.DetailRevision,
 		Completion: completionFor(value, true),
 		Privacy:    privacyFor(value), ShareEligibility: eligibilityFor(value, true, false),
-		EligibleForAggregates: true, Session: sessionWithJSONCollections(withoutCommandOutputs(*value)),
+		EligibleForAggregates: true, Session: sessionWithJSONCollections(withoutDetailBodies(*value)),
 	}
 }
 
-// withoutCommandOutputs drops command outputs from a list row. Only the exact
-// detail response carries them, so list polls stay small.
-func withoutCommandOutputs(value session.Session) session.Session {
+// withoutDetailBodies keeps captured outputs and instructions in exact detail
+// responses so list polls stay small.
+func withoutDetailBodies(value session.Session) session.Session {
 	value.CommandOutputs = nil
+	value.Skills = nil
 	value.Subagents = slices.Clone(value.Subagents)
 	for i := range value.Subagents {
 		value.Subagents[i].Commands = slices.Clone(value.Subagents[i].Commands)
