@@ -74,6 +74,7 @@ type Session struct {
 	FirstPrompt        *string            `json:"firstPrompt"`
 	Commands           []string           `json:"commands"`
 	CommandOutputs     []*string          `json:"commandOutputs,omitempty"`
+	Skills             []Skill            `json:"skills,omitempty"`
 	Commits            []string           `json:"commits"`
 	CommitSHAs         []string           `json:"commitShas"`
 	PullRequests       int                `json:"pullRequests"`
@@ -88,6 +89,11 @@ type Session struct {
 
 // PullRequestLink is one pull request that an agent created in the session.
 // Repository and Number repeat the parts of URL so a reader needs no parsing.
+type Skill struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
 type PullRequestLink struct {
 	URL        string `json:"url"`
 	Repository string `json:"repository"`
@@ -243,6 +249,7 @@ func cloneRecord(record Record) Record {
 	s.DeclaredGoal = clonePointer(s.DeclaredGoal)
 	s.Usage = cloneSlice(s.Usage)
 	s.UnpricedModels = cloneSlice(s.UnpricedModels)
+	s.Skills = cloneSlice(s.Skills)
 	s.Commands = cloneSlice(s.Commands)
 	s.CommandOutputs = cloneSlice(s.CommandOutputs)
 	for i := range s.CommandOutputs {
@@ -442,7 +449,7 @@ func validate(record Record, requireRevision bool) error {
 		stringValue(s.FirstPrompt), stringValue(s.DeclaredGoal)) {
 		return fmt.Errorf("%w: invalid session text", ErrInvalid)
 	}
-	if !boundedItems(len(s.Usage), len(s.UnpricedModels), len(s.Subagents), len(s.Commands), len(s.CommandOutputs), len(s.Commits),
+	if !boundedItems(len(s.Usage), len(s.UnpricedModels), len(s.Subagents), len(s.Commands), len(s.CommandOutputs), len(s.Skills), len(s.Commits),
 		len(s.CommitSHAs), len(s.Todos), len(s.Digest), len(s.FileEdits)) {
 		return fmt.Errorf("%w: session collection exceeds item limit", ErrInvalid)
 	}
@@ -471,6 +478,11 @@ func validate(record Record, requireRevision bool) error {
 	for _, output := range s.CommandOutputs {
 		if !commandOutputValid(output) {
 			return fmt.Errorf("%w: invalid command output", ErrInvalid)
+		}
+	}
+	for _, skill := range s.Skills {
+		if skill.Name == "" || strings.TrimSpace(skill.Name) != skill.Name || !stringsValid(skill.Name) || !commandOutputValid(&skill.Content) {
+			return fmt.Errorf("%w: invalid skill", ErrInvalid)
 		}
 	}
 	for _, item := range s.Todos {
@@ -543,7 +555,7 @@ func (b *collectionBudget) add(items int) bool {
 func validCollectionSizes(s Session) bool {
 	budget := collectionBudget{}
 	if !budget.add(len(s.Usage)) || !budget.add(len(s.UnpricedModels)) ||
-		!budget.add(len(s.Subagents)) || !budget.add(len(s.Commands)) || !budget.add(len(s.CommandOutputs)) ||
+		!budget.add(len(s.Subagents)) || !budget.add(len(s.Commands)) || !budget.add(len(s.CommandOutputs)) || !budget.add(len(s.Skills)) ||
 		!budget.add(len(s.Commits)) || !budget.add(len(s.CommitSHAs)) ||
 		!budget.add(len(s.Todos)) || !budget.add(len(s.Digest)) ||
 		!budget.add(len(s.FileEdits)) || !budget.add(len(s.PullRequestLinks)) {

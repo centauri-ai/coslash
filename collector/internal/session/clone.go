@@ -40,6 +40,7 @@ func Clone(source *Session) *Session {
 		cloned.Subagents[i].Tokens = cloneMap(source.Subagents[i].Tokens)
 	}
 	cloned.CommitLog = cloneSlice(source.CommitLog)
+	cloned.Skills = cloneSlice(source.Skills)
 	cloned.Commands = cloneSlice(source.Commands)
 	cloned.CommandOutputs = cloneSlice(source.CommandOutputs)
 	for i := range cloned.CommandOutputs {
