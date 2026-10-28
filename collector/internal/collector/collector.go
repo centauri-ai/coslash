@@ -466,6 +466,14 @@ func enrichModelsAndCostsContext(ctx context.Context, parsed []*vendors.ParsedSe
 		if s.ContextWindow == nil && s.Model != nil {
 			s.ContextWindow = session.ContextWindowFor(*s.Model)
 		}
+		if s.Agent == vendors.AgentPi {
+			// Pi reports an aggregate source cost, without component pricing.
+			s.Cost = item.RecordedCost
+			if s.CostUnavailable {
+				s.Cost = nil
+			}
+			continue
+		}
 		if s.Agent != vendors.AgentGrok || s.CostUnavailable || s.TokensUnavailable || s.UnattributedTokens != nil {
 			session.AttachCost(s, item.RecordedCost)
 			continue
@@ -751,12 +759,12 @@ func listRemote(
 	return sessions
 }
 
-func remoteInputs(collections map[string]vendors.RemoteCollection, includeGrok bool) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
+func remoteInputs(collections map[string]vendors.RemoteCollection, includeLocalAgents bool) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
 	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
 	agents := []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode}
-	if includeGrok {
-		agents = append(agents, vendors.AgentGrok)
+	if includeLocalAgents {
+		agents = append(agents, vendors.AgentGrok, vendors.AgentPi)
 	}
 	for _, agent := range agents {
 		collection, ok := collections[agent]
