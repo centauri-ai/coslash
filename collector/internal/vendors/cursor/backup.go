@@ -359,6 +359,9 @@ func projectTable(ctx context.Context, tx *sql.Tx, id string, filter tableFilter
 		return sessionbackupv1.DatabaseTable{}, nil
 	}
 	query := `SELECT * FROM "` + filter.table + `"`
+	if filter.table == "blobs" {
+		query = `SELECT rowid AS coslash_rowid, * FROM "blobs"`
+	}
 	args := []any(nil)
 	if filter.where != "" {
 		query += ` WHERE ` + filter.where

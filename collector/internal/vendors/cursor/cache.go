@@ -8,7 +8,7 @@ import (
 
 // ParserVersion identifies this exporter's parse output. Bumping it
 // invalidates only Cursor entries in the local parse cache.
-const ParserVersion = "cursor-2"
+const ParserVersion = "cursor-3"
 
 // parseTranscriptFragmentsCachedContext parses one session's fragments
 // through the local parse cache, keyed by the session ID and the fingerprint
