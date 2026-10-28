@@ -74,6 +74,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 	tokens := map[string]session.ModelTokens{}
 	var digest session.DigestLog
 	var commands session.CommandLog
+	var skills session.SkillLog
 	spawns := map[string]vendors.SpawnState{}
 	tasks := map[string]taskLink{}
 	turns := 0
@@ -281,6 +282,27 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 					notePullRequests(pullRequests, true, deref(part.State.Output))
 				}
 				if part.State.Status == "completed" {
+					if part.Tool == "skill" {
+						name := part.State.Input.Name
+						if name == "" {
+							name = part.State.Metadata.Name
+						}
+						if name == "" && part.State.Metadata.Dir != "" {
+							if skill, ok := session.SkillFromPath(strings.TrimRight(part.State.Metadata.Dir, "/\\")+"/SKILL.md", ""); ok {
+								name = skill.Name
+							}
+						}
+						skills.Note(name, deref(part.State.Output))
+					}
+					if part.Tool == "read" {
+						path := part.State.Input.FilePath
+						if path == "" {
+							path = part.State.Metadata.FilePath
+						}
+						if skill, ok := session.SkillFromPath(path, deref(part.State.Output)); ok {
+							skills.Note(skill.Name, skill.Content)
+						}
+					}
 					if addCompletedToolEdits(row.directory, &part, fileEdits) &&
 						part.State.Time.End != nil &&
 						(lastEditAt == nil || *part.State.Time.End > *lastEditAt) {
@@ -355,6 +377,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 		Compactions:    compactions,
 		Commands:       commands.Raw(),
 		CommandOutputs: commands.Outputs(),
+		Skills:         skills.Entries(),
 		Commits:        session.ReconcileCommits(commitLog, "", nil),
 		Todos:          todos,
 		Digest:         digest.Entries(),

@@ -62,6 +62,7 @@ type storedPart struct {
 		Title  string  `json:"title"`
 		Output *string `json:"output"`
 		Input  struct {
+			Name         string           `json:"name"`
 			Command      string           `json:"command"`
 			FilePath     string           `json:"filePath"`
 			Content      string           `json:"content"`
@@ -77,6 +78,8 @@ type storedPart struct {
 			} `json:"todos"`
 		} `json:"input"`
 		Metadata struct {
+			Name            string           `json:"name"`
+			Dir             string           `json:"dir"`
 			Answers         [][]string       `json:"answers"`
 			Exists          *bool            `json:"exists"`
 			Exit            *int             `json:"exit"`
