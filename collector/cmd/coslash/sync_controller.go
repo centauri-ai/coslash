@@ -280,6 +280,13 @@ func (w observedSyncWorker) RequestDiscovery() {
 	}
 }
 
+func (w observedSyncWorker) CheckInGeneration() uint64 {
+	if reporter, ok := w.runner.(interface{ CheckInGeneration() uint64 }); ok {
+		return reporter.CheckInGeneration()
+	}
+	return 0
+}
+
 func (c *syncController) observedWait(wait func(context.Context, int64) (hubclient.V4Wait, error), client *hubclient.Client) func(context.Context, int64) (hubclient.V4Wait, error) {
 	c.mu.RLock()
 	binding := c.binding

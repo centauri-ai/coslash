@@ -33,6 +33,41 @@ import (
 const fixtureRootID = "11111111-2222-3333-4444-555555555555"
 const cursorFixtureID = "11111111-2222-4333-8444-555555555555"
 
+type checkInCommandHub struct{ *planHub }
+
+func (h checkInCommandHub) V4CheckIn(ctx context.Context, queue hubclient.V4Queue, version int64, results []hubclient.V4CommandResult, agents []string, logs []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+	result, err := h.planHub.V4CheckIn(ctx, queue, version, results, agents, logs)
+	result.Commands = []hubclient.V4Command{{ID: "generation-command", Type: "test"}}
+	return result, err
+}
+
+func TestCheckInGenerationAdvancesOnlyAfterCommandHandling(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := checkInCommandHub{&planHub{withoutScale: true}}
+	runner := Runner{Queue: queue, Hub: hub}
+	called := false
+	runner.Command = func(context.Context, hubclient.V4Command) error {
+		called = true
+		if runner.CheckInGeneration() != 0 {
+			t.Fatal("check-in acknowledged before command handling finished")
+		}
+		return nil
+	}
+	if err := runner.refreshConsent(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !called || runner.CheckInGeneration() != 1 {
+		t.Fatal("completed check-in did not acknowledge command handling")
+	}
+	hub.checkInErr = errors.New("unavailable")
+	if err := runner.refreshConsent(t.Context()); err == nil || runner.CheckInGeneration() != 1 {
+		t.Fatal("failed check-in advanced the notification generation")
+	}
+}
+
 type fixedCredential struct{}
 
 func (fixedCredential) Load(context.Context) (string, error) { return "fixture-device-key", nil }

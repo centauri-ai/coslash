@@ -162,6 +162,13 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		authFailures := 0
 		transportBackoff := transportRetryBackoff{}
 		syncRequestPending := false
+		commandsPending := false
+		var commandsGeneration uint64
+		checkInGeneration := func() uint64 { return 0 }
+		if reporter, ok := runner.(interface{ CheckInGeneration() uint64 }); ok {
+			checkInGeneration = reporter.CheckInGeneration
+		}
+		notifiedConfigVersion := int64(-1)
 		for ctx.Err() == nil {
 			if queue.LastHubFailure() != nil {
 				select {
@@ -172,6 +179,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 				continue
 			}
 			version, _, _ := queue.Policy()
+			generation := checkInGeneration()
 			result, err := wait(ctx, version)
 			if ctx.Err() != nil {
 				return
@@ -181,7 +189,17 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 				if !result.SyncRequested {
 					syncRequestPending = false
 				}
+				if !result.CommandsAvailable || generation != commandsGeneration {
+					commandsPending = false
+				}
+				// Wait repeats until check-in acknowledges the change. Interrupt once
+				// so that repeated responses cannot cancel that check-in forever.
 				blockedAt := blockedPolicyVersion
+				policyChanged := result.ConfigVersion > notifiedConfigVersion &&
+					(result.ConfigVersion > version || blockedAt >= 0 && result.ConfigVersion > blockedAt)
+				if policyChanged {
+					notifiedConfigVersion = result.ConfigVersion
+				}
 				switch {
 				case blockedAt >= 0 && result.ConfigVersion > blockedAt:
 					select {
@@ -189,7 +207,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 					default:
 					}
 				case blockedAt < 0:
-					if result.Changed || result.CommandsAvailable {
+					if policyChanged || result.CommandsAvailable && !commandsPending {
+						commandsPending = result.CommandsAvailable
+						commandsGeneration = generation
 						control.signal()
 					}
 					if result.SyncRequested && !syncRequestPending {
@@ -276,6 +296,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 	hasLoggedNotPaired := false
 	for ctx.Err() == nil {
 		control.beginPass()
+		startingVersion, _, _ := queue.Policy()
 		passContext, cancel := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() { done <- runner.SyncOnce(passContext) }()
@@ -308,6 +329,10 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		}
 		cancel()
 		control.setIdle(true)
+		if version, _, _ := queue.Policy(); version > startingVersion {
+			// Acknowledge the applied policy without waiting for the idle cadence.
+			continue
+		}
 		if errors.Is(err, syncv4.ErrCommandPickedUp) {
 			continue
 		}

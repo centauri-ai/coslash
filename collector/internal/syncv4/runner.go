@@ -162,6 +162,7 @@ type Runner struct {
 	waitSince           time.Time
 	waitMu              sync.Mutex
 	lastProgressCheckIn atomic.Int64
+	checkInGeneration   atomic.Uint64
 	checkInRetryUntil   atomic.Int64
 	checkInRejections   atomic.Int32
 	lastReportedPhase   string
@@ -190,6 +191,9 @@ func (r *Runner) now() time.Time {
 func (r *Runner) RequestDiscovery() {
 	r.discoveryRequests.Add(1)
 }
+
+// CheckInGeneration advances after a normal check-in has handled its commands.
+func (r *Runner) CheckInGeneration() uint64 { return r.checkInGeneration.Load() }
 
 func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.Queue == nil || r.Backup == nil || r.Hub == nil || r.Discover == nil {
@@ -1024,6 +1028,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 			return err
 		}
 	}
+	r.checkInGeneration.Add(1)
 	if !wasScaleSupported && r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
 		return r.refreshConsent(ctx)
 	}
