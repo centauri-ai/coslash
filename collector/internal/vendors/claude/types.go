@@ -29,6 +29,7 @@ type claudeSessionRecord struct {
 	Subtype              string          `json:"subtype"`
 	Content              string          `json:"content"`
 	IsCompactSummary     bool            `json:"isCompactSummary"`
+	SourceToolUseID      string          `json:"sourceToolUseID"`
 	IsMeta               bool            `json:"isMeta"`
 	TurnDurationMs       *int            `json:"durationMs"`
 	Message              *claudeMessage  `json:"message"`
@@ -79,6 +80,7 @@ type subagentMeta struct {
 }
 
 type toolInput struct {
+	Skill       string `json:"skill"`
 	FilePath    string `json:"file_path"`
 	Command     string `json:"command"`
 	Description string `json:"description"`

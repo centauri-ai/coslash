@@ -43,6 +43,7 @@ type claudeSessionAnalysis struct {
 	errors                   int
 	spawns                   map[string]vendors.SpawnState
 	commands                 session.CommandLog
+	skills                   session.SkillLog
 	outputsUncacheable       bool
 	commitLog                []session.CommitObservation
 	dedupedMessageTokenUsage map[string]messageUsage
@@ -223,6 +224,7 @@ func analyzeClaudeSessionSource(
 		commitLog:                commitLog,
 	}
 	pendingCommand := ""
+	skills := claudeSkills{child: ParentIDFromPath(file) != ""}
 	pullRequestCreates := map[string]bool{} // tool use ID -> GitHub MCP call
 	emitPrompt := func(text string, timestamp int64) {
 		analysis.inTurn = true
@@ -242,6 +244,7 @@ func analyzeClaudeSessionSource(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		skills.note(row)
 		if row.SessionID != "" {
 			analysis.sessionID = row.SessionID
 		}
@@ -499,6 +502,7 @@ func analyzeClaudeSessionSource(
 			}
 		}
 	}
+	analysis.skills = skills.log()
 	for _, message := range analysis.dedupedMessageTokenUsage {
 		usage := message.usage
 		currentTotalUsage := analysis.tokens[message.model]
@@ -535,6 +539,7 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		ToolUses:         analysis.toolUseCount,
 		Errors:           analysis.errors,
 		Commands:         analysis.commands.Raw(),
+		Skills:           analysis.skills.Entries(),
 		CommandOutputs:   analysis.commands.Outputs(),
 		Commits:          session.ReconcileCommits(analysis.commitLog, "", nil),
 		FileEdits:        analysis.fileEdits.Edits,
