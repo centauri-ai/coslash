@@ -149,6 +149,7 @@ type SessionDetails struct {
 	FirstPrompt       *string           `json:"firstPrompt"`
 	Commands          []string          `json:"commands"`
 	CommandOutputs    []*string         `json:"commandOutputs,omitempty"`
+	Skills            []Skill           `json:"skills,omitempty"`
 	Commits           []string          `json:"commits"`
 	CommitSHAs        []string          `json:"-"`
 	PullRequests      int               `json:"prs"`

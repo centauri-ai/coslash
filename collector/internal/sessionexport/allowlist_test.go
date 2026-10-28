@@ -64,6 +64,7 @@ var census = map[string]decision{
 	"FirstPrompt":      {false, "raw prompts remain local"},
 	"Commands":         {false, "raw commands never cross; only len() as session.counts.commands"},
 	"CommandOutputs":   {false, "command outputs never cross the snapshot export boundary"},
+	"Skills":           {false, "skill instructions travel only in private full-session records"},
 	"CommitLog":        {false, "local commit observations used for git reconciliation"},
 	"Commits":          {false, "commit subjects can contain arbitrary local content"},
 	"CommitSHAs":       {true, "resolved lowercase full Git object IDs only"},
