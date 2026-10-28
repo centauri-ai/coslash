@@ -54,7 +54,7 @@ func PiSourceRevision(ctx context.Context, inputs pi.SessionInputs) (revision st
 	}
 	_, revision, err = frozen.project(ctx, inputs)
 	if err != nil {
-		return "", err
+		return "", frozen.projectionFailure(ctx, inputs, err)
 	}
 	if err := frozen.verify(ctx, inputs); err != nil {
 		return "", err
@@ -138,6 +138,26 @@ func (frozen *piFrozen) project(ctx context.Context, inputs pi.SessionInputs) (f
 	return records[0], hashStrings(parts), nil
 }
 
+func (frozen *piFrozen) projectionFailure(ctx context.Context, inputs pi.SessionInputs, failure error) error {
+	unstable := captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
+	plan, err := pi.PlanSourcesContext(ctx)
+	if err != nil {
+		return unstable
+	}
+	current, err := plan.SessionInputsContext(ctx, inputs.ID)
+	if err != nil || current.ID != inputs.ID || current.Path != inputs.Path || !slices.Equal(current.Files, inputs.Files) {
+		return unstable
+	}
+	// A permanent failure must also survive fresh planning over the same bytes.
+	if _, _, err := frozen.project(ctx, current); err == nil {
+		return unstable
+	}
+	if err := frozen.verify(ctx, inputs); err != nil {
+		return err
+	}
+	return failure
+}
+
 func (frozen *piFrozen) verify(ctx context.Context, inputs pi.SessionInputs) error {
 	for i, path := range inputs.Files {
 		file, info, err := openPiInput(ctx, path)
@@ -174,7 +194,7 @@ func (manager *Manager) capturePi(ctx context.Context, staging string, selection
 	}
 	record, revision, err := frozen.project(ctx, inputs)
 	if err != nil {
-		return nil, err
+		return nil, frozen.projectionFailure(ctx, inputs, err)
 	}
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
