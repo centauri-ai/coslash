@@ -179,6 +179,10 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan) []Entry {
 func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	return q.freezeCatchUpLocked(plan, true)
+}
+
+func (q *Queue) freezeCatchUpLocked(plan hubclient.V4ImportPlan, persist bool) error {
 	if q.state.PlanStartedAt <= 0 || q.state.Config.ImportPlan == nil || q.state.Config.ImportPlan.Version != plan.Version {
 		return errors.New("cannot freeze catch-up without the current import plan")
 	}
@@ -273,6 +277,9 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 		return nil
 	}
 	q.state.CatchUpFrozenVersion = plan.Version
+	if !persist {
+		return nil
+	}
 	if err := q.save(); err != nil {
 		q.state.Entries = priorEntries
 		q.state.CatchUpFrozenVersion = priorFrozen
