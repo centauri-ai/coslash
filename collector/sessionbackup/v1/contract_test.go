@@ -686,6 +686,7 @@ func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
 		"cursor/local": true, "cursor/ssh": false,
 		"opencode/local": true, "opencode/ssh": false,
 		"grok/local": true, "grok/ssh": false,
+		"pi/local": true, "pi/ssh": false,
 	}
 	for _, status := range CoverageMatrix {
 		key := status.Agent + "/" + status.SourceKind
@@ -1119,12 +1120,46 @@ func TestGrokBackupRoundTripAndGuards(t *testing.T) {
 	if _, err := Freeze(missingSummary, missingBlobs); !errors.Is(err, ErrIncomplete) {
 		t.Fatalf("Freeze() without a Grok member summary error = %v; want incomplete", err)
 	}
-	for _, change := range []struct{ agent, kind string }{{"grok", SourceSSH}, {"pi", SourceLocal}, {"Grok", SourceLocal}} {
+	for _, change := range []struct{ agent, kind string }{{"grok", SourceSSH}, {"pi", SourceSSH}, {"Grok", SourceLocal}} {
 		invalid := frozen
 		invalid.Source.Agent = change.agent
 		invalid.Source.Kind = change.kind
 		if err := Validate(invalid); err == nil {
 			t.Fatalf("accepted %s/%s", change.agent, change.kind)
+		}
+	}
+}
+
+func TestPiBackupFixtureRoundTripAndGuards(t *testing.T) {
+	root := filepath.Join("testdata", "fixtures", "valid", "pi")
+	manifest, err := VerifyDirectory(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Source.Agent != "pi" || manifest.Source.Kind != SourceLocal || len(manifest.Members) != 1 || manifest.Members[0].ParentMemberID != "" {
+		t.Fatalf("Pi identity = %+v", manifest)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ManifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	validateAgainstSchema(t, "schema.json", data)
+	for _, change := range []string{SourceSSH, "PI"} {
+		invalid := cloneManifest(manifest)
+		if change == SourceSSH {
+			invalid.Source.Kind = change
+		} else {
+			invalid.Source.Agent = change
+		}
+		if err := Validate(invalid); err == nil {
+			t.Fatalf("accepted Pi variant %q", change)
+		}
+		invalidBytes, err := json.Marshal(invalid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := schemaValidationError(t, "schema.json", invalidBytes); err == nil {
+			t.Fatalf("schema accepted Pi variant %q", change)
 		}
 	}
 }

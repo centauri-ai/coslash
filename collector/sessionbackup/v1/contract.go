@@ -44,6 +44,7 @@ const (
 	ArtifactSourceCursor   = "cursor"
 	ArtifactSourceOpenCode = "opencode"
 	ArtifactSourceGrok     = "grok"
+	ArtifactSourcePi       = "pi"
 	ArtifactSourceCoSlash  = "coslash"
 
 	KindRawTranscript       = "raw-transcript"
@@ -194,6 +195,8 @@ var CoverageMatrix = []SupportStatus{
 	{Agent: "opencode", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 	{Agent: "grok", SourceKind: SourceLocal, Supported: true},
 	{Agent: "grok", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
+	{Agent: "pi", SourceKind: SourceLocal, Supported: true},
+	{Agent: "pi", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 }
 
 // usesDatabaseRows reports whether an agent's exporter captures database
@@ -365,7 +368,7 @@ func validate(manifest Manifest, requireHash bool) error {
 		return fmt.Errorf("%w: database projection version mismatch", ErrInvalid)
 	}
 	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude &&
-		manifest.Source.Agent != ArtifactSourceOpenCode && manifest.Source.Agent != ArtifactSourceCursor && manifest.Source.Agent != ArtifactSourceGrok) ||
+		manifest.Source.Agent != ArtifactSourceOpenCode && manifest.Source.Agent != ArtifactSourceCursor && manifest.Source.Agent != ArtifactSourceGrok && manifest.Source.Agent != ArtifactSourcePi) ||
 		(manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Kind != SourceLocal) ||
 		(manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
@@ -380,6 +383,7 @@ func validate(manifest Manifest, requireHash bool) error {
 		return fmt.Errorf("%w: completed manifest contains capture problems", ErrIncomplete)
 	}
 	if len(manifest.Members) == 0 || len(manifest.Members) > MaxMembers || len(manifest.Artifacts) > MaxArtifacts ||
+		(manifest.Source.Agent == ArtifactSourcePi && len(manifest.Members) != 1) ||
 		manifest.Members[0].MemberID != manifest.Family.RootMemberID || manifest.Members[0].ParentMemberID != "" {
 		return fmt.Errorf("%w: invalid family root", ErrInvalid)
 	}
