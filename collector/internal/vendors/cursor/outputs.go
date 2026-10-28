@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -16,16 +17,17 @@ import (
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
-// shellCall is one shell command from a side store, in conversation order.
+// shellCall is a shell command or captured skill read from a side store.
 // output is nil when the store has no usable result for it.
 type shellCall struct {
-	command string
-	output  *string
+	command   string
+	output    *string
+	skillPath string
 }
 
-// sessionCalls are the shell calls of one session from a side store. CLI blobs
-// have no order that survives a backup projection, so a CLI session pairs only
-// commands that occur once.
+// sessionCalls are the tool calls of one session from a side store. CLI shell
+// pairing stays unique-only for compatibility with older backup projections
+// that discarded blob order.
 type sessionCalls struct {
 	calls   []shellCall
 	ordered bool
@@ -42,7 +44,7 @@ func applyCommandOutputs(ctx context.Context, home string, parsed []*vendors.Par
 	}
 	lanes := map[string][]string{}
 	for _, item := range parsed {
-		if item == nil || item.Session == nil || len(item.Session.Commands) == 0 {
+		if item == nil || item.Session == nil {
 			continue
 		}
 		if entry := metadata.Lookup(item.Session.ID); entry != nil {
@@ -80,7 +82,7 @@ func applyBackupCommandOutputs(parsed []*vendors.ParsedSession, metadata *vendor
 	}
 	calls := map[string]sessionCalls{}
 	for _, item := range parsed {
-		if item == nil || item.Session == nil || len(item.Session.Commands) == 0 {
+		if item == nil || item.Session == nil {
 			continue
 		}
 		id := item.Session.ID
@@ -105,7 +107,19 @@ func applyBackupCommandOutputs(parsed []*vendors.ParsedSession, metadata *vendor
 
 func setCommandOutputs(parsed []*vendors.ParsedSession, calls map[string]sessionCalls) {
 	for _, item := range parsed {
-		if item == nil || item.Session == nil || len(item.Session.Commands) == 0 || len(item.Commands) != len(item.Session.Commands) {
+		if item == nil || item.Session == nil {
+			continue
+		}
+		skills := session.SkillLog{}
+		for _, call := range calls[item.Session.ID].calls {
+			if call.output != nil {
+				if skill, ok := session.SkillFromPath(call.skillPath, *call.output); ok {
+					skills.Note(skill.Name, skill.Content)
+				}
+			}
+		}
+		item.Session.Skills = skills.Entries()
+		if len(item.Session.Commands) == 0 || len(item.Commands) != len(item.Session.Commands) {
 			continue
 		}
 		outputs, found := pairShellOutputs(item.Session.Commands, calls[item.Session.ID])
@@ -148,14 +162,14 @@ func pairShellOutputs(commands []string, source sessionCalls) ([]*string, bool) 
 	return outputs, found
 }
 
-// bubbleCall is a shell call from an IDE bubble with the data that orders it.
+// bubbleCall is a tool call from an IDE bubble with the data that orders it.
 type bubbleCall struct {
 	key, createdAt string
 	call           shellCall
 }
 
 // ideBubbleCall decodes one cursorDiskKV bubble. It reports false for a bubble
-// that is not a terminal call, or that has no time and so no reliable place in
+// that is not a terminal or skill read, or that has no reliable place in
 // the order.
 func ideBubbleCall(key, value string) (string, bubbleCall, bool) {
 	parts := strings.SplitN(key, ":", 3)
@@ -174,10 +188,27 @@ func ideBubbleCall(key, value string) (string, bubbleCall, bool) {
 		return "", bubbleCall{}, false
 	}
 	command, ok := terminalCommand(tool.Name, tool.RawArgs, tool.Params)
+	call := shellCall{command: command, output: ideShellOutput(tool.Status, tool.Result)}
+	if tool.Name == "read_file_v2" || tool.Name == "read_file" {
+		var params struct {
+			TargetFile string `json:"targetFile"`
+		}
+		raw := tool.Params
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			raw = []byte(text)
+		}
+		if json.Unmarshal(raw, &params) == nil && tool.Status == "completed" {
+			if _, valid := session.SkillFromPath(params.TargetFile, ""); valid {
+				call = shellCall{skillPath: params.TargetFile, output: &tool.Result}
+				ok = true
+			}
+		}
+	}
 	if _, timed := parseTimestamp(bubble.CreatedAt); !ok || !timed {
 		return "", bubbleCall{}, false
 	}
-	return canonicalCursorID(parts[1]), bubbleCall{key, bubble.CreatedAt, shellCall{command, ideShellOutput(tool.Status, tool.Result)}}, true
+	return canonicalCursorID(parts[1]), bubbleCall{key, bubble.CreatedAt, call}, true
 }
 
 func orderedShellCalls(list []bubbleCall) []shellCall {
@@ -203,7 +234,7 @@ func loadIDEShellCalls(ctx context.Context, home string, ids []string) (map[stri
 	}
 	defer db.Close()
 	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", canonicalCursorIDs(ids))
-	rows, err := db.QueryContext(ctx, query+` AND value LIKE '%run_terminal_c%'`, args...)
+	rows, err := db.QueryContext(ctx, query+` AND (value LIKE '%run_terminal_c%' OR value LIKE '%read_file%')`, args...)
 	if err != nil {
 		return nil, ctx.Err()
 	}
@@ -281,7 +312,7 @@ func readCLIStoreShellCalls(ctx context.Context, path string) ([]shellCall, erro
 		return nil, ctx.Err()
 	}
 	defer db.Close()
-	rows, err := db.QueryContext(ctx, `SELECT data FROM blobs`)
+	rows, err := db.QueryContext(ctx, `SELECT data FROM blobs ORDER BY rowid`)
 	if err != nil {
 		return nil, ctx.Err()
 	}
@@ -302,7 +333,7 @@ func readCLIStoreShellCalls(ctx context.Context, path string) ([]shellCall, erro
 	return reader.calls, ctx.Err()
 }
 
-// cliCallReader collects the shell calls of one CLI store from its blobs.
+// cliCallReader collects shell calls and skill reads from one CLI store.
 type cliCallReader struct {
 	calls []shellCall
 	index map[string]int
@@ -317,6 +348,7 @@ func (reader *cliCallReader) add(data []byte) {
 			Type       string          `json:"type"`
 			ToolCallID string          `json:"toolCallId"`
 			ToolName   string          `json:"toolName"`
+			IsError    bool            `json:"isError"`
 			Args       json.RawMessage `json:"args"`
 			Result     json.RawMessage `json:"result"`
 		} `json:"content"`
@@ -325,6 +357,30 @@ func (reader *cliCallReader) add(data []byte) {
 		return
 	}
 	for _, block := range message.Content {
+		if block.ToolName == "Read" || block.ToolName == "ReadFile" {
+			switch block.Type {
+			case "tool-call":
+				var args struct {
+					Path string `json:"path"`
+				}
+				if json.Unmarshal(block.Args, &args) != nil || block.ToolCallID == "" {
+					continue
+				}
+				if _, ok := session.SkillFromPath(args.Path, ""); !ok {
+					continue
+				}
+				if _, seen := reader.index[block.ToolCallID]; !seen {
+					reader.index[block.ToolCallID] = len(reader.calls)
+					reader.calls = append(reader.calls, shellCall{skillPath: args.Path})
+				}
+			case "tool-result":
+				var content string
+				if at, known := reader.index[block.ToolCallID]; known && reader.calls[at].skillPath != "" && !block.IsError && json.Unmarshal(block.Result, &content) == nil {
+					reader.calls[at].output = &content
+				}
+			}
+			continue
+		}
 		if block.ToolName != "Shell" && block.ToolName != "run_terminal_cmd" {
 			continue
 		}
@@ -337,7 +393,7 @@ func (reader *cliCallReader) add(data []byte) {
 			}
 		case "tool-result":
 			at, known := reader.index[block.ToolCallID]
-			if output, ok := cliShellOutput(block.Result); known && ok {
+			if output, ok := cliShellOutput(block.Result); known && ok && reader.calls[at].skillPath == "" {
 				reader.calls[at].output = &output
 			}
 		}
@@ -387,6 +443,23 @@ func frozenCLIShellCalls(rows []BackupRows, id string) (sessionCalls, error) {
 		return sessionCalls{}, err
 	}
 	data := slices.Index(table.Columns, "data")
+	// The row ordinal survives canonical backup sorting and preserves read order.
+	ordinal := slices.Index(table.Columns, "coslash_rowid")
+	if ordinal >= 0 {
+		for _, row := range table.Rows {
+			if len(row.Values) != len(table.Columns) {
+				return sessionCalls{}, vendors.ErrInvalidData
+			}
+			if _, err := strconv.ParseInt(row.Values[ordinal].Value, 10, 64); err != nil {
+				return sessionCalls{}, vendors.ErrInvalidData
+			}
+		}
+		sort.SliceStable(table.Rows, func(i, j int) bool {
+			a, _ := strconv.ParseInt(table.Rows[i].Values[ordinal].Value, 10, 64)
+			b, _ := strconv.ParseInt(table.Rows[j].Values[ordinal].Value, 10, 64)
+			return a < b
+		})
+	}
 	reader := cliCallReader{index: map[string]int{}}
 	for _, row := range table.Rows {
 		if data < 0 || len(row.Values) != len(table.Columns) {
@@ -399,6 +472,12 @@ func frozenCLIShellCalls(rows []BackupRows, id string) (sessionCalls, error) {
 			if decoded, err := base64.StdEncoding.DecodeString(value.Value); err == nil {
 				reader.add(decoded)
 			}
+		}
+	}
+	if ordinal < 0 {
+		// Older projections cannot establish the observed order of skill loads.
+		for i := range reader.calls {
+			reader.calls[i].skillPath = ""
 		}
 	}
 	return sessionCalls{reader.calls, false}, nil
