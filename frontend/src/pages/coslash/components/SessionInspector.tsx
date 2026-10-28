@@ -99,6 +99,7 @@ import {
   type SessionIdentity,
 } from '@/pages/coslash/lib/session';
 import { HOUR, MINUTE, promptCacheTiming } from '@/pages/coslash/lib/time';
+import { SkillsSection } from './SkillsSection';
 
 type SynthesisResponse = {
   synthesis: SessionDetail['synthesis'];
@@ -1690,6 +1691,7 @@ function InspectorBody({
         <DigestSection detail={detail} />
         <ArtifactStats detail={detail} />
         <CommandsSection detail={detail} />
+        <SkillsSection skills={detail.skills} />
         <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
         <CommitsAndTodos detail={detail} />
       </div>
