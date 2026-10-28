@@ -129,7 +129,7 @@ func TestSkillsLiveAndFrozen(t *testing.T) {
 			if parsed.ParentID != parentID {
 				t.Fatalf("parent = %q", parsed.ParentID)
 			}
-			want := []session.Skill{{"review", body}, {"review", "new body\n"}, {"empty", ""}}
+			want := []session.Skill{{Name: "review", Content: body}, {Name: "review", Content: "new body\n"}, {Name: "empty", Content: ""}}
 			if err := applyCommandOutputs(context.Background(), home, []*vendors.ParsedSession{parsed}, metadata); err != nil {
 				t.Fatal(err)
 			}
