@@ -52,6 +52,28 @@ func TestPiRecordAdapterRoundTripsAccountingAvailability(t *testing.T) {
 	}
 }
 
+func TestPiDirectAdapterRetainsExplicitEntrypoint(t *testing.T) {
+	empty, tui, rpc := "", "pi-tui", "pi-rpc"
+	for _, entrypoint := range []*string{nil, &empty, &tui, &rpc} {
+		value := session.Session{Agent: "pi", ID: "s", StartedAt: 1, LastActivityTime: 2, Entrypoint: entrypoint}
+		record, err := FromSession("local", value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := ToSession(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (restored.Entrypoint == nil) != (entrypoint == nil) || entrypoint != nil && *restored.Entrypoint != *entrypoint {
+			t.Fatal("direct adapter lost an explicit entrypoint")
+		}
+		again, err := FromSession("local", *restored)
+		if err != nil || again.RevisionID != record.RevisionID {
+			t.Fatalf("direct adapter changed canonical revision: %v", err)
+		}
+	}
+}
+
 func TestPublishedRecordsRetainCanonicalBytesThroughAdapter(t *testing.T) {
 	for _, name := range []string{"codex", "grok", "skills", "pull-request-links", "pi", "pi-unavailable", "pi-zero"} {
 		t.Run(name, func(t *testing.T) {

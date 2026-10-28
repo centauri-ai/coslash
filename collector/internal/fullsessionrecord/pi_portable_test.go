@@ -1,6 +1,7 @@
 package fullsessionrecord
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -9,10 +10,83 @@ import (
 	"strings"
 	"testing"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
+
+func TestPiPortableRevisionExcludesRuntimeEntrypoint(t *testing.T) {
+	tui, rpc := "pi-tui", "pi-rpc"
+	for _, initial := range []*string{nil, &tui, &rpc} {
+		selected := true
+		parsed := []*vendors.ParsedSession{{Session: &session.Session{
+			Agent: "pi", ID: "s", StartedAt: 1, LastActivityTime: 2, Entrypoint: initial,
+			SessionDetails: session.SessionDetails{Turns: 1, Digest: []session.DigestEntry{{Description: "prompt", ContextSelected: &selected}}},
+		}}}
+		before := session.Clone(parsed[0].Session)
+		var canonical []byte
+		var revision string
+		for _, modality := range []string{"absent", "pi-tui", "pi-rpc", "conflicting"} {
+			metadata := vendors.EmptySessionMetadata()
+			if modality != "absent" {
+				metadata.Session("s").Live = "idle"
+				if modality != "conflicting" {
+					metadata.Session("s").Entrypoint = modality
+				}
+			}
+			metadataBefore, err := json.Marshal(metadata)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records, err := FromParsedFamily("local", "pi", vendors.LocalReadSource, parsed, metadata)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("%s: records=%d err=%v", modality, len(records), err)
+			}
+			if records[0].Session.Entrypoint != nil {
+				t.Fatalf("%s: runtime modality entered portable content", modality)
+			}
+			data, err := fullsessionv1.Marshal(records[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if canonical != nil && !bytes.Equal(canonical, data) {
+				t.Fatalf("%s: runtime modality changed canonical revision", modality)
+			}
+			canonical, revision = data, records[0].RevisionID
+			metadataAfter, err := json.Marshal(metadata)
+			if err != nil || !bytes.Equal(metadataBefore, metadataAfter) || !reflect.DeepEqual(before, parsed[0].Session) {
+				t.Fatalf("%s: composition mutated caller inputs: %v", modality, err)
+			}
+		}
+		*parsed[0].Session.Digest[0].ContextSelected = false
+		changed, err := FromParsedFamily("local", "pi", vendors.LocalReadSource, parsed, nil)
+		if err != nil || len(changed) != 1 {
+			t.Fatalf("changed context: records=%d err=%v", len(changed), err)
+		}
+		data, err := fullsessionv1.Marshal(changed[0])
+		if err != nil || bytes.Equal(canonical, data) || changed[0].RevisionID == revision {
+			t.Fatalf("context selection did not change canonical revision: %v", err)
+		}
+	}
+}
+
+func TestPortableCompositionPreservesOtherVendorEntrypoints(t *testing.T) {
+	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "grok"} {
+		t.Run(agent, func(t *testing.T) {
+			metadata := vendors.EmptySessionMetadata()
+			metadata.Session("s").Entrypoint = "sdk"
+			parsed := []*vendors.ParsedSession{{Session: &session.Session{Agent: agent, ID: "s", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}}}
+			records, err := FromParsedFamily("local", agent, vendors.LocalReadSource, parsed, metadata)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("records=%d err=%v", len(records), err)
+			}
+			if records[0].Session.Entrypoint == nil || *records[0].Session.Entrypoint != "sdk" || parsed[0].Session.Entrypoint != nil || metadata.Lookup("s").Entrypoint != "sdk" {
+				t.Fatal("vendor entrypoint lost or caller inputs changed")
+			}
+		})
+	}
+}
 
 func TestPiPortableCompositionPreservesAccountingAndContext(t *testing.T) {
 	active, selected, inherited, description, cost := false, true, true, "selected after compaction", 0.25

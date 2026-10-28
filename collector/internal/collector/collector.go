@@ -729,7 +729,14 @@ func ComposePortableContext(
 			return nil, err
 		}
 		if belongsToRoot(item, byKey, rootKeys) {
-			portable = append(portable, PortableSession{ParentSessionID: item.ParentID, Session: item.Session})
+			value := item.Session
+			if value.Agent == vendors.AgentPi {
+				// Pi modality comes from runtime ownership, not transcript content.
+				copy := *value
+				copy.Entrypoint = nil
+				value = &copy
+			}
+			portable = append(portable, PortableSession{ParentSessionID: item.ParentID, Session: value})
 		}
 	}
 	return portable, nil
