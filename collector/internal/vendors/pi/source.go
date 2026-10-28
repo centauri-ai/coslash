@@ -360,7 +360,7 @@ func readTranscriptHeader(ctx context.Context, path string) (header, error) {
 	if err := ctx.Err(); err != nil {
 		return h, err
 	}
-	file, err := os.Open(path)
+	file, err := openRegularInput(ctx, path)
 	if err != nil {
 		return h, err
 	}
@@ -404,7 +404,7 @@ func readProjectSettings(ctx context.Context, path string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	file, err := os.Open(path)
+	file, err := openRegularInput(ctx, path)
 	if err != nil {
 		return nil, err
 	}
