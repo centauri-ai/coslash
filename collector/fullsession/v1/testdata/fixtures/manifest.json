@@ -8,6 +8,11 @@
       "valid": true
     },
     {
+      "path": "valid/skills.json",
+      "sha256": "91fcdcc000bfdb9c5b85720c29a0cec1b9a212871506c6ba27681f140b0c16f1",
+      "valid": true
+    },
+    {
       "path": "valid/grok.json",
       "sha256": "c5452e8db07980eab409bbe744001382fa93808b4443595688efb55f83e9789e",
       "valid": true
