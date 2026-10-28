@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -41,6 +42,27 @@ type syncLoopDiscoveryWorker struct {
 type syncLoopWorkerFunc func(context.Context) error
 
 func (f syncLoopWorkerFunc) SyncOnce(ctx context.Context) error { return f(ctx) }
+
+type checkInSyncLoopWorker struct {
+	syncLoopWorkerFunc
+	generation atomic.Uint64
+}
+
+func (w *checkInSyncLoopWorker) CheckInGeneration() uint64 { return w.generation.Load() }
+
+type blockingPolicyQueue struct {
+	syncLoopQueue
+	block         atomic.Bool
+	read, release chan struct{}
+}
+
+func (q *blockingPolicyQueue) Policy() (int64, hubclient.V4Config, string) {
+	if q.block.Swap(false) {
+		close(q.read)
+		<-q.release
+	}
+	return q.syncLoopQueue.Policy()
+}
 
 func runV4SyncLoopForTest(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), externalWake ...chan struct{}) {
 	runV4SyncLoopWithControl(ctx, runner, queue, wait, newSyncLoopControl(nil), externalWake...)
@@ -151,6 +173,147 @@ func TestV4WaitInterruptsActiveSyncForCommands(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("sync loop did not stop")
 	}
+}
+
+func TestV4RepeatedWaitNotificationAllowsCheckInToFinish(t *testing.T) {
+	for _, notification := range []struct {
+		name string
+		wait hubclient.V4Wait
+	}{
+		{"policy", hubclient.V4Wait{ConfigVersion: 2, Changed: true}},
+		{"commands", hubclient.V4Wait{Changed: true, CommandsAvailable: true}},
+		{"sync_request", hubclient.V4Wait{Changed: true, SyncRequested: true}},
+	} {
+		t.Run(notification.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				queue := &policyVersionQueue{}
+				var passes, completed atomic.Int32
+				event := make(chan struct{})
+				go runV4SyncLoopForTest(ctx, syncLoopWorkerFunc(func(ctx context.Context) error {
+					if passes.Add(1) == 1 {
+						<-ctx.Done()
+						return ctx.Err()
+					}
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(time.Second):
+						queue.version.Store(notification.wait.ConfigVersion)
+						completed.Add(1)
+						return nil
+					}
+				}), queue, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+					select {
+					case <-ctx.Done():
+						return hubclient.V4Wait{}, ctx.Err()
+					case <-event:
+						if completed.Load() == 0 {
+							return notification.wait, nil
+						}
+						return hubclient.V4Wait{}, nil
+					}
+				})
+				synctest.Wait()
+				close(event)
+				time.Sleep(3 * time.Second)
+				synctest.Wait()
+				wantPasses := int32(2)
+				if notification.wait.ConfigVersion > 0 {
+					wantPasses++ // The next check-in acknowledges the applied version.
+				}
+				if passes.Load() != wantPasses || completed.Load() != wantPasses-1 {
+					t.Fatalf("passes=%d completed=%d; repeated notification starved check-in", passes.Load(), completed.Load())
+				}
+			})
+		})
+	}
+}
+
+func TestV4WaitInterruptsAgainForNewPolicyOrCommands(t *testing.T) {
+	for _, mode := range []string{"policy", "commands_cleared", "commands_acknowledged"} {
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var passes atomic.Int32
+			events := make(chan hubclient.V4Wait, 1)
+			worker := &checkInSyncLoopWorker{syncLoopWorkerFunc: func(ctx context.Context) error {
+				passes.Add(1)
+				<-ctx.Done()
+				return ctx.Err()
+			}}
+			go runV4SyncLoopForTest(ctx, observedSyncWorker{runner: worker, controller: &syncController{}}, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+				select {
+				case event := <-events:
+					return event, nil
+				case <-ctx.Done():
+					return hubclient.V4Wait{}, ctx.Err()
+				}
+			})
+			synctest.Wait()
+			for _, version := range []int64{2, 3} {
+				if mode == "commands_cleared" {
+					events <- hubclient.V4Wait{}
+					time.Sleep(100 * time.Millisecond)
+					synctest.Wait()
+				}
+				if mode == "commands_acknowledged" {
+					worker.generation.Add(1)
+				}
+				configVersion := int64(1)
+				if mode == "policy" {
+					configVersion = version
+				}
+				events <- hubclient.V4Wait{ConfigVersion: configVersion, Changed: true, CommandsAvailable: mode != "policy"}
+				time.Sleep(100 * time.Millisecond)
+				synctest.Wait()
+				if got := passes.Load(); got != int32(version) {
+					t.Fatalf("mode=%s version=%d passes=%d", mode, version, got)
+				}
+			}
+		})
+	}
+}
+
+func TestV4PolicyNotificationBeforeBlockedStateIsNotLost(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		queue := &blockingPolicyQueue{read: make(chan struct{}), release: make(chan struct{})}
+		waitStarted, changed := make(chan struct{}), make(chan struct{})
+		var passes atomic.Int32
+		var waiting atomic.Bool
+		go runV4SyncLoopForTest(ctx, syncLoopWorkerFunc(func(ctx context.Context) error {
+			if passes.Add(1) == 1 {
+				<-waitStarted
+				queue.block.Store(true)
+				return syncv4.ErrPolicyBlocked
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		}), queue, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			if waiting.CompareAndSwap(false, true) {
+				close(waitStarted)
+			}
+			select {
+			case <-changed:
+				return hubclient.V4Wait{ConfigVersion: 2, Changed: true}, nil
+			case <-ctx.Done():
+				return hubclient.V4Wait{}, ctx.Err()
+			}
+		})
+		<-queue.read
+		close(changed)
+		synctest.Wait()
+		close(queue.release)
+		synctest.Wait()
+		time.Sleep(100 * time.Millisecond)
+		synctest.Wait()
+		if passes.Load() != 2 {
+			t.Fatal("policy notification was lost while entering the blocked state")
+		}
+	})
 }
 
 func TestSyncRequestedTriggersInventoryBeforeTheNextPass(t *testing.T) {
