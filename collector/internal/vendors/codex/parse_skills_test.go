@@ -82,7 +82,7 @@ func TestSkillCatalogMentionsAndUnfinishedReadsDoNotCount(t *testing.T) {
 }
 
 func TestCodeModeSkillsPairAllCommands(t *testing.T) {
-	script := `text(await tools.exec_command({cmd: "cat /old/first/SKILL.md"})); text(await tools.exec_command({cmd: "cat /old/second/SKILL.md"})); text(await tools.exec_command({cmd: "cat /old/failed/SKILL.md"}));`
+	script := "// @exec: {}\n" + `text(await tools.exec_command({cmd: "cat /old/first/SKILL.md", max_output_tokens: 4000})); text(await tools.exec_command({"cmd": "cat /old/second/SKILL.md", "workdir": "/old"})); text(await tools.exec_command({cmd: "cat /old/failed/SKILL.md"}));`
 	call := string(mustJSON(map[string]any{"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "code", "input": script}}))
 	blocks := []map[string]string{
 		{"text": "Script completed\nOutput:\n"},
@@ -156,4 +156,24 @@ func TestSkillBackupFamilyAndCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCapturedSkills(t, decoded.transcript.Session, want)
+}
+
+func TestCodeModeSkillsSkipAmbiguousScripts(t *testing.T) {
+	for _, script := range []string{
+		`const first = await tools.exec_command({cmd: "cat /old/first/SKILL.md"}); const second = await tools.exec_command({cmd: "cat /old/second/SKILL.md"}); text(second); text(first);`,
+		`const example = {cmd: "cat /old/phantom/SKILL.md"}; text({exit_code: 0, output: "status only"});`,
+		`if (false) text(await tools.exec_command({cmd: "cat /old/phantom/SKILL.md"})); text({exit_code: 0, output: "status only"});`,
+		`text(await tools.exec_command({cmd: "cat /old/phantom/SKILL.md", cmd: "echo status"}));`,
+		`text(await tools.exec_command({cmd: "cat /old/phantom/SKILL.md"})); text({exit_code: 0, output: "extra"});`,
+	} {
+		t.Run(script, func(t *testing.T) {
+			call := string(mustJSON(map[string]any{"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "code", "input": script}}))
+			blocks := []map[string]string{{"text": "Script completed\nOutput:\n"}, {"text": `{"output":"status only","exit_code":0}`}}
+			if strings.HasPrefix(script, "const first") {
+				blocks = append(blocks, map[string]string{"text": `{"output":"other body","exit_code":0}`})
+			}
+			parsed := parseLifecycleRows(t, []string{call, execResult("custom_tool_call_output", "code", blocks)})
+			assertCapturedSkills(t, parsed.Session, nil)
+		})
+	}
 }
