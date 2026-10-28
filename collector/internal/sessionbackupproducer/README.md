@@ -111,6 +111,9 @@ Before publication, capture obtains fresh discovery and runtime evidence.
 It checks input identity and presence, file identity, and actual byte hashes.
 It then projects the frozen copies against the new effective selection.
 This detects leaf-only changes and same-size edits with restored timestamps.
+Projection failures require stable byte evidence and failure under fresh planning
+before they become permanent. Observed drift remains retryable, while an
+unchanged malformed root remains non-retryable.
 The queue must compare its source revision with the prepared manifest before upload.
 V4 transfers only parsed records. Pi SSH remains unsupported.
 
