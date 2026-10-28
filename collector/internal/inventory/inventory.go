@@ -27,6 +27,9 @@
 //     ~/.grok/sessions), beside a regular summary.json. Conversation copies,
 //     credentials and shared databases are excluded. Each summary estimates one
 //     session; verified subagent lineage is resolved during discovery.
+//   - Pi: stat only the transcript paths supplied by Pi's prior source plan.
+//     The plan owns settings, runtime and header reads. Each file estimates one
+//     independent session; discovery resolves header identity and fork evidence.
 package inventory
 
 import (
@@ -82,6 +85,8 @@ type Options struct {
 	OpenCodeDB string
 	Now        time.Time
 	Tracker    *Tracker
+	// Pi supplies already planned paths; Scan never discovers Pi roots or reads headers.
+	Pi *vendors.SourceScan
 }
 
 // OpenCodeDatabasePath returns the configured OpenCode database path without
@@ -180,6 +185,29 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 		snapshot.Missing = append(snapshot.Missing, vendors.AgentCodex)
 	}
 	snapshot.Files = dedupeArchivedRollouts(snapshot.Files)
+	if opts.Pi != nil {
+		snapshot.Skipped += opts.Pi.SkippedTotal
+		if opts.Pi.RootMissing {
+			snapshot.Missing = append(snapshot.Missing, vendors.AgentPi)
+		}
+		seen := map[string]bool{}
+		for _, path := range opts.Pi.Files {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			path = filepath.Clean(path)
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() {
+				snapshot.Skipped++
+				continue
+			}
+			snapshot.Files = append(snapshot.Files, File{Agent: vendors.AgentPi, Path: path, Size: info.Size(), ModTimeMs: info.ModTime().UnixMilli(), Session: true, FamilyID: path})
+		}
+	}
 
 	dbPath := opts.OpenCodeDB
 	if dbPath == "" {
@@ -395,7 +423,7 @@ func (s *Snapshot) Inventory() hubclient.DeviceInventory {
 		agent.Files++
 		agent.Bytes += file.Size
 	}
-	for _, name := range []string{vendors.AgentCodex, vendors.AgentClaude, vendors.AgentCursor, vendors.AgentOpenCode, vendors.AgentGrok} {
+	for _, name := range []string{vendors.AgentCodex, vendors.AgentClaude, vendors.AgentCursor, vendors.AgentOpenCode, vendors.AgentGrok, vendors.AgentPi} {
 		if agent := agents[name]; agent != nil {
 			inventory.Agents = append(inventory.Agents, *agent)
 		}
