@@ -87,13 +87,13 @@ type Session struct {
 	DeclaredGoal       *string            `json:"declaredGoal"`
 }
 
-// PullRequestLink is one pull request that an agent created in the session.
-// Repository and Number repeat the parts of URL so a reader needs no parsing.
 type Skill struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
 }
 
+// PullRequestLink is one pull request that an agent created in the session.
+// Repository and Number repeat the parts of URL so a reader needs no parsing.
 type PullRequestLink struct {
 	URL        string `json:"url"`
 	Repository string `json:"repository"`

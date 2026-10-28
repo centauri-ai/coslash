@@ -521,7 +521,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"DetailsIncomplete": "unrepresentable detail completeness refused",
 		"Model":             "included", "ObservedModels": "excluded local Cursor IDE enrichment", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
 		"ToolUses": "included", "Errors": "included", "Compactions": "included", "FirstPrompt": "included",
-		"Commands": "included", "CommandOutputs": "included for Claude, absent for vendors that do not collect outputs", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included", "PullRequestLinks": "included",
+		"Skills": "included with captured content", "Commands": "included", "CommandOutputs": "included for Claude, absent for vendors that do not collect outputs", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included", "PullRequestLinks": "included",
 		"Todos": "included", "Digest": "included", "FileEdits": "included with bodies", "Git": "excluded local filesystem enrichment",
 		"GitProbed": "runtime probe marker", "LastEditAt": "excluded local filesystem enrichment", "Synthesis": "included",
 		"SynthesisPending": "included", "DeclaredGoal": "included", "CompactionSeed": "parser-only composition seed",

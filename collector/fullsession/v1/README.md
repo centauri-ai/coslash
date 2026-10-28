@@ -24,7 +24,7 @@ without reducing child sessions to the display-oriented `subagents` list.
 
 Canonical records use UTF-8 without a BOM, insignificant whitespace, or a
 trailing newline. Every field is present, including null pointers and empty or
-null arrays, except optional `unattributedTokens`, `commandOutputs`, `pullRequestLinks`, and subagent command `output`, which are omitted when absent.
+null arrays, except optional `unattributedTokens`, `commandOutputs`, `skills`, `pullRequestLinks`, and subagent command `output`, which are omitted when absent.
 Usage arrays declare models in ascending model-name order; all other arrays
 retain their declared order. Integers use the shortest base-10
 form (no leading zero or plus sign); booleans and null use their lowercase JSON
@@ -33,7 +33,7 @@ literals.
 Object members occur in the following order:
 
 - Record: `schemaVersion`, `sourceId`, `agent`, `sessionId`, `parentSessionId`, `revisionId`, `session`.
-- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, optional `unattributedTokens`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, optional `commandOutputs`, `commits`, `commitShas`, `pullRequests`, optional `pullRequestLinks`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
+- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, optional `unattributedTokens`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, optional `commandOutputs`, optional `skills`, `commits`, `commitShas`, `pullRequests`, optional `pullRequestLinks`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
 - Model usage: `model`, `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Unattributed usage: `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, optional `unattributedTokens`, `costMicroUsd`; a subagent command uses `label`, `command`, optional `output`.
@@ -175,3 +175,19 @@ identity fields:
 ```sh
 go run ./fullsession/v1/cmd/measure --collector-version <commit> <record.json>...
 ```
+
+## Captured skills
+
+Optional `skills` contains `{name, content}` entries in observed order. Identical
+name and content pairs appear once; different content under the same name stays
+as separate entries. Content is the instruction text captured in the session,
+never a later read of the current skill file. An empty content string means the
+instructions were unavailable. Each name is nonempty and has no surrounding
+whitespace. Each content string obeys the command-output UTF-8, NUL and 1 MiB
+limits. Oversized content includes a truncation marker and its captured-content
+SHA-256, so different versions remain distinct after bounding. Entries count toward the aggregate item budget.
+
+The collector keeps skills from child sessions in ancestor session collections.
+Absent skills remain omitted, so existing record bytes and revisions do not
+change. Hub exposes captured skills only in the owner's own space. Deploy Hub's
+contract support before a collector starts uploading this optional field.

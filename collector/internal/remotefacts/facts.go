@@ -613,6 +613,7 @@ func cloneDisplay(value session.Session) (*session.Session, error) {
 	value.ReviewPending = false
 	value.ReviewError = ""
 	// Command outputs are unbounded content that the sparse remote facts never carry.
+	value.Skills = nil
 	value.CommandOutputs = nil
 	value.Subagents = slices.Clone(value.Subagents)
 	for i := range value.Subagents {

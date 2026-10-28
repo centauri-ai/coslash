@@ -153,6 +153,16 @@ func main() {
 		}
 		return data
 	}
+	skills := record()
+	skills.Session.Skills = []fullsessionv1.Skill{{Name: "review", Content: "# Review\nFirst captured version.\n"}, {Name: "review", Content: "# Review\nSecond captured version.\n"}}
+	skills, err = fullsessionv1.Freeze(skills)
+	if err != nil {
+		panic(err)
+	}
+	skillsCanonical, err := fullsessionv1.Marshal(skills)
+	if err != nil {
+		panic(err)
+	}
 	entries := []struct {
 		path   string
 		data   []byte
@@ -160,6 +170,7 @@ func main() {
 		reason string
 	}{
 		{"valid/codex.json", canonical, true, ""},
+		{"valid/skills.json", skillsCanonical, true, ""},
 		{"valid/grok.json", grokCanonical, true, ""},
 		{"invalid/grok-inconsistent-cost.json", inconsistentCostBytes, false, "unattributed and enclosing costs differ in presence"},
 		{"invalid/grok-mixed-usage.json", mixedUsageBytes, false, "attributed and unattributed usage coexist"},
