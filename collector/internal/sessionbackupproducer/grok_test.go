@@ -814,7 +814,7 @@ func TestGrokMixedModelUsageDoesNotPublishPartialEstimate(t *testing.T) {
 					if cost != nil || !reflect.DeepEqual(record.Session.UnpricedModels, []string{"unpriced-synthetic-model"}) {
 						t.Fatalf("%s partial aggregate=%v unpriced=%v", id, cost, record.Session.UnpricedModels)
 					}
-					if record.Session.Usage[0].Model != "gpt-5" || record.Session.Usage[0].CostMicroUSD <= 0 {
+					if record.Session.Usage[0].Model != "gpt-5" || *record.Session.Usage[0].CostMicroUSD <= 0 {
 						t.Fatal("priced model estimate lost")
 					}
 				}
@@ -910,7 +910,7 @@ func TestGrokSourceModelCostsSurviveAggregateAvailability(t *testing.T) {
 						if mixed {
 							expected = 2
 						}
-						if len(rows) != expected || rows["gpt-5"].InputTokens != 12 || rows["gpt-5"].CostMicroUSD != wantModel {
+						if len(rows) != expected || rows["gpt-5"].InputTokens != 12 || *rows["gpt-5"].CostMicroUSD != wantModel {
 							t.Fatalf("%s model accounting=%+v want=%d", id, rows, wantModel)
 						}
 						if mixed && rows["unpriced-synthetic-model"].InputTokens != 12 {
@@ -1056,11 +1056,11 @@ func TestGrokNonnegativeSubmicroCosts(t *testing.T) {
 			records := grokRecords(t, spool, prepared)
 			for _, id := range []string{"root", "child", "grandchild"} {
 				s := records[id].Session
-				if s.CostMicroUSD == nil || *s.CostMicroUSD != tc.micros || len(s.Usage) != 1 || s.Usage[0].InputTokens != 1 || s.Usage[0].CostMicroUSD != tc.micros {
+				if s.CostMicroUSD == nil || *s.CostMicroUSD != tc.micros || len(s.Usage) != 1 || s.Usage[0].InputTokens != 1 || *s.Usage[0].CostMicroUSD != tc.micros {
 					t.Fatalf("%s cost=%v usage=%+v want=%d", id, s.CostMicroUSD, s.Usage, tc.micros)
 				}
 				for _, child := range s.Subagents {
-					if child.CostMicroUSD == nil || *child.CostMicroUSD != tc.micros || len(child.Usage) != 1 || child.Usage[0].CostMicroUSD != tc.micros {
+					if child.CostMicroUSD == nil || *child.CostMicroUSD != tc.micros || len(child.Usage) != 1 || *child.Usage[0].CostMicroUSD != tc.micros {
 						t.Fatalf("%s child cost=%v usage=%+v", id, child.CostMicroUSD, child.Usage)
 					}
 				}

@@ -112,8 +112,19 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 }
 
 func fromSession(sourceID, parentSessionID string, value session.Session) (fullsessionv1.Record, error) {
-	if value.Agent == "pi" || value.TokensUnavailable || value.CostUnavailable || (value.UnattributedTokens != nil && value.Agent != "grok") || value.DetailsIncomplete {
+	pi := value.Agent == vendors.AgentPi
+	if !pi && (value.TokensUnavailable || value.CostUnavailable || value.DetailsIncomplete) || value.UnattributedTokens != nil && value.Agent != vendors.AgentGrok && !pi {
 		return fullsessionv1.Record{}, fmt.Errorf("local session facts cannot be represented by full-session/v1")
+	}
+	if pi && (value.TokensUnavailable && (value.TokensKnown || len(value.Tokens) != 0 || value.UnattributedTokens != nil) || value.CostUnavailable && value.Cost != nil) {
+		return fullsessionv1.Record{}, fmt.Errorf("inconsistent Pi accounting availability")
+	}
+	if pi {
+		for _, tokens := range value.Tokens {
+			if !tokens.CostKnown && tokens.Cost != 0 {
+				return fullsessionv1.Record{}, fmt.Errorf("Pi model cost without availability")
+			}
+		}
 	}
 	for _, child := range value.Subagents {
 		if child.TokensUnavailable || child.CostUnavailable || (child.UnattributedTokens != nil && value.Agent != "grok") {
@@ -121,11 +132,11 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 		}
 	}
 	for _, row := range value.Digest {
-		if row.SourceEntryID != "" || row.ParentEntryID != "" || row.BranchID != "" || row.Active != nil || row.Inherited != nil || row.ContextSelected != nil || row.ContextDescription != nil {
+		if !pi && (row.SourceEntryID != "" || row.ParentEntryID != "" || row.BranchID != "" || row.Active != nil || row.Inherited != nil || row.ContextSelected != nil || row.ContextDescription != nil) {
 			return fullsessionv1.Record{}, fmt.Errorf("branch context cannot be represented by full-session/v1")
 		}
 	}
-	unattributed, err := unattributedFromTokens(value.UnattributedTokens, value.Cost)
+	unattributed, err := unattributedFromTokens(value.UnattributedTokens, value.Cost, pi)
 	if err != nil {
 		return fullsessionv1.Record{}, err
 	}
@@ -142,8 +153,9 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			Commands: cloneSlice(value.Commands), CommandOutputs: cloneOutputs(value.CommandOutputs, len(value.Commands)),
 			Skills:  cloneSlice(value.Skills),
 			Commits: cloneSlice(value.Commits), CommitSHAs: cloneSlice(value.CommitSHAs), PullRequests: value.PullRequests,
-			SynthesisPending: value.SynthesisPending,
-			DeclaredGoal:     cloneString(value.DeclaredGoal),
+			SynthesisPending:  value.SynthesisPending,
+			DeclaredGoal:      cloneString(value.DeclaredGoal),
+			DetailsIncomplete: value.DetailsIncomplete,
 		},
 	}
 	if len(value.PullRequestLinks) > 0 {
@@ -152,13 +164,18 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			record.Session.PullRequestLinks[i] = fullsessionv1.PullRequestLink(link)
 		}
 	}
-	record.Session.Usage = usageFromTokens(value.Tokens)
+	record.Session.Usage = usageFromTokens(value.Tokens, pi)
+	if pi && value.TokensUnavailable {
+		record.Session.Usage = nil
+	} else if pi && value.TokensKnown && record.Session.Usage == nil && unattributed == nil {
+		record.Session.Usage = []fullsessionv1.ModelUsage{}
+	}
 	record.Session.UnattributedTokens = unattributed
 	if value.Subagents != nil {
 		record.Session.Subagents = make([]fullsessionv1.Subagent, 0, len(value.Subagents))
 	}
 	for _, value := range value.Subagents {
-		unattributed, err := unattributedFromTokens(value.UnattributedTokens, value.Cost)
+		unattributed, err := unattributedFromTokens(value.UnattributedTokens, value.Cost, false)
 		if err != nil {
 			return fullsessionv1.Record{}, err
 		}
@@ -166,7 +183,7 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			ID: value.ID, Name: value.Name, Model: cloneString(value.Model), Status: value.Status,
 			Task: value.Task, Result: value.Result, DurationMs: cloneInt(value.DurationMs),
 			SpawnedAtTurn: cloneInt(value.SpawnedAtTurn), ToolUses: value.ToolUses,
-			Usage: usageFromTokens(value.Tokens), CostMicroUSD: optionalMicros(value.Cost), UnattributedTokens: unattributed,
+			Usage: usageFromTokens(value.Tokens, false), CostMicroUSD: optionalMicros(value.Cost), UnattributedTokens: unattributed,
 		}
 		if value.Commands != nil {
 			item.Commands = make([]fullsessionv1.SubagentCommand, 0, len(value.Commands))
@@ -189,6 +206,8 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 		record.Session.Digest = append(record.Session.Digest, fullsessionv1.DigestEntry{
 			Turn: value.Turn, Category: value.Category, Description: value.Description, Answer: value.Answer,
 			SubagentID: value.SubagentID, TimeMs: value.Time,
+			SourceEntryID: value.SourceEntryID, ParentEntryID: value.ParentEntryID, BranchID: value.BranchID,
+			Inherited: cloneBool(value.Inherited), Active: cloneBool(value.Active), ContextSelected: cloneBool(value.ContextSelected), ContextDescription: cloneString(value.ContextDescription),
 		})
 	}
 	if value.FileEdits != nil {
@@ -251,13 +270,14 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	if err := fullsessionv1.Validate(record); err != nil {
 		return nil, err
 	}
+	pi := record.Agent == vendors.AgentPi
 	value := &session.Session{
 		Agent: record.Agent, ID: record.SessionID, ParentSessionID: record.ParentSessionID,
 		Name: cloneString(record.Session.Name), Summary: cloneString(record.Session.Summary),
 		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
 		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
-		DurationMs: cloneInt(record.Session.DurationMs), Tokens: tokensFromUsage(record.Session.Usage),
-		UnattributedTokens: tokensFromUnattributed(record.Session.UnattributedTokens),
+		DurationMs: cloneInt(record.Session.DurationMs), Tokens: tokensFromUsage(record.Session.Usage, pi),
+		UnattributedTokens: tokensFromUnattributed(record.Session.UnattributedTokens, pi),
 		Cost:               optionalDollars(record.Session.CostMicroUSD), UnpricedModels: cloneSlice(record.Session.UnpricedModels),
 		StartedAt: record.Session.StartedAtMs, LastActivityTime: record.Session.LastActivityAtMs,
 		Entrypoint: cloneString(record.Session.Entrypoint),
@@ -271,7 +291,13 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			Commits:        cloneSlice(record.Session.Commits), CommitSHAs: cloneSlice(record.Session.CommitSHAs),
 			PullRequests:     record.Session.PullRequests,
 			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: cloneString(record.Session.DeclaredGoal),
+			DetailsIncomplete: record.Session.DetailsIncomplete,
 		},
+	}
+	if pi {
+		value.TokensKnown = record.Session.Usage != nil || record.Session.UnattributedTokens != nil
+		value.TokensUnavailable = !value.TokensKnown
+		value.CostUnavailable = record.Session.CostMicroUSD == nil
 	}
 	for _, link := range record.Session.PullRequestLinks {
 		value.PullRequestLinks = append(value.PullRequestLinks, session.PullRequestLink(link))
@@ -283,8 +309,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		subagent := session.Subagent{
 			ID: item.ID, Name: item.Name, Model: cloneString(item.Model), Status: item.Status, Task: item.Task,
 			Result: item.Result, DurationMs: cloneInt(item.DurationMs), SpawnedAtTurn: cloneInt(item.SpawnedAtTurn),
-			UnattributedTokens: tokensFromUnattributed(item.UnattributedTokens),
-			ToolUses:           item.ToolUses, Tokens: tokensFromUsage(item.Usage), Cost: optionalDollars(item.CostMicroUSD),
+			UnattributedTokens: tokensFromUnattributed(item.UnattributedTokens, false),
+			ToolUses:           item.ToolUses, Tokens: tokensFromUsage(item.Usage, false), Cost: optionalDollars(item.CostMicroUSD),
 		}
 		if item.Commands != nil {
 			subagent.Commands = make([]session.SubagentCommand, 0, len(item.Commands))
@@ -307,6 +333,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		value.Digest = append(value.Digest, session.DigestEntry{
 			Turn: item.Turn, Category: item.Category, Description: item.Description, Answer: item.Answer,
 			SubagentID: item.SubagentID, Time: item.TimeMs,
+			SourceEntryID: item.SourceEntryID, ParentEntryID: item.ParentEntryID, BranchID: item.BranchID,
+			Inherited: cloneBool(item.Inherited), Active: cloneBool(item.Active), ContextSelected: cloneBool(item.ContextSelected), ContextDescription: cloneString(item.ContextDescription),
 		})
 	}
 	if record.Session.FileEdits != nil {
@@ -339,11 +367,17 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	return value, nil
 }
 
-func unattributedFromTokens(tokens *session.ModelTokens, cost *float64) (*fullsessionv1.UnattributedUsage, error) {
+func unattributedFromTokens(tokens *session.ModelTokens, cost *float64, pi bool) (*fullsessionv1.UnattributedUsage, error) {
 	if tokens == nil {
 		return nil, nil
 	}
-	if tokens.Cost != 0 || cost != nil && (math.IsNaN(*cost) || math.IsInf(*cost, 0) || *cost < 0 || *cost > float64(fullsessionv1.MaxCostMicroUSD)/1_000_000) {
+	if pi {
+		cost = nil
+		if tokens.CostKnown {
+			cost = &tokens.Cost
+		}
+	}
+	if (!pi || !tokens.CostKnown) && tokens.Cost != 0 || cost != nil && (math.IsNaN(*cost) || math.IsInf(*cost, 0) || *cost < 0 || *cost > float64(fullsessionv1.MaxCostMicroUSD)/1_000_000) {
 		return nil, fmt.Errorf("invalid unattributed accounting cost")
 	}
 	return &fullsessionv1.UnattributedUsage{
@@ -352,17 +386,21 @@ func unattributedFromTokens(tokens *session.ModelTokens, cost *float64) (*fullse
 	}, nil
 }
 
-func tokensFromUnattributed(usage *fullsessionv1.UnattributedUsage) *session.ModelTokens {
+func tokensFromUnattributed(usage *fullsessionv1.UnattributedUsage, pi bool) *session.ModelTokens {
 	if usage == nil {
 		return nil
 	}
-	return &session.ModelTokens{
+	result := &session.ModelTokens{
 		InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheCreationInputTokens: usage.CacheCreationInputTokens,
 		CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens, CacheReadInputTokens: usage.CacheReadInputTokens,
 	}
+	if pi && usage.CostMicroUSD != nil {
+		result.CostKnown, result.Cost = true, dollars(*usage.CostMicroUSD)
+	}
+	return result
 }
 
-func usageFromTokens(tokens map[string]session.ModelTokens) []fullsessionv1.ModelUsage {
+func usageFromTokens(tokens map[string]session.ModelTokens, pi bool) []fullsessionv1.ModelUsage {
 	if tokens == nil {
 		return nil
 	}
@@ -374,17 +412,21 @@ func usageFromTokens(tokens map[string]session.ModelTokens) []fullsessionv1.Mode
 	sort.Strings(models)
 	for _, model := range models {
 		tokens := tokens[model]
+		cost := optionalMicros(&tokens.Cost)
+		if pi && !tokens.CostKnown {
+			cost = nil
+		}
 		usage = append(usage, fullsessionv1.ModelUsage{
 			Model: model, InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens,
 			CacheCreationInputTokens:   tokens.CacheCreationInputTokens,
 			CacheCreation1hInputTokens: tokens.CacheCreation1hInputTokens,
-			CacheReadInputTokens:       tokens.CacheReadInputTokens, CostMicroUSD: micros(tokens.Cost),
+			CacheReadInputTokens:       tokens.CacheReadInputTokens, CostMicroUSD: cost,
 		})
 	}
 	return usage
 }
 
-func tokensFromUsage(usage []fullsessionv1.ModelUsage) map[string]session.ModelTokens {
+func tokensFromUsage(usage []fullsessionv1.ModelUsage, pi bool) map[string]session.ModelTokens {
 	if usage == nil {
 		return nil
 	}
@@ -394,7 +436,13 @@ func tokensFromUsage(usage []fullsessionv1.ModelUsage) map[string]session.ModelT
 			InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
 			CacheCreationInputTokens:   usage.CacheCreationInputTokens,
 			CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens,
-			CacheReadInputTokens:       usage.CacheReadInputTokens, Cost: dollars(usage.CostMicroUSD),
+			CacheReadInputTokens:       usage.CacheReadInputTokens,
+		}
+		if usage.CostMicroUSD != nil {
+			used := tokens[usage.Model]
+			used.CostKnown = pi
+			used.Cost = dollars(*usage.CostMicroUSD)
+			tokens[usage.Model] = used
 		}
 	}
 	return tokens
@@ -472,6 +520,13 @@ func cloneString(value *string) *string {
 	return &copy
 }
 func cloneInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+func cloneBool(value *bool) *bool {
 	if value == nil {
 		return nil
 	}

@@ -51,11 +51,11 @@ func TestCostValidationBeforeMicroRounding(t *testing.T) {
 					var got int64
 					switch field {
 					case "model":
-						got = record.Session.Usage[0].CostMicroUSD
+						got = *record.Session.Usage[0].CostMicroUSD
 					case "session":
 						got = *record.Session.CostMicroUSD
 					case "child model":
-						got = record.Session.Subagents[0].Usage[0].CostMicroUSD
+						got = *record.Session.Subagents[0].Usage[0].CostMicroUSD
 					case "child session":
 						got = *record.Session.Subagents[0].CostMicroUSD
 					}
@@ -210,10 +210,10 @@ func TestRecordRoundTripPreservesMaximumExactMicroUSDCost(t *testing.T) {
 		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
 		Session: fullsessionv1.Session{
 			StartedAtMs: 1, LastActivityAtMs: 1, CostMicroUSD: &cost,
-			Usage: []fullsessionv1.ModelUsage{{Model: "gpt-5", CostMicroUSD: cost}},
+			Usage: []fullsessionv1.ModelUsage{{Model: "gpt-5", CostMicroUSD: &cost}},
 			Subagents: []fullsessionv1.Subagent{{
 				ID: "subagent-1", CostMicroUSD: &cost,
-				Usage: []fullsessionv1.ModelUsage{{Model: "gpt-5", CostMicroUSD: cost}},
+				Usage: []fullsessionv1.ModelUsage{{Model: "gpt-5", CostMicroUSD: &cost}},
 			}},
 		},
 	})
@@ -457,8 +457,8 @@ func TestParsedFamilyPopulatesPerModelCosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(records) != 1 || len(records[0].Session.Usage) != 1 ||
-		records[0].Session.Usage[0].CostMicroUSD <= 0 || records[0].Session.CostMicroUSD == nil ||
-		records[0].Session.Usage[0].CostMicroUSD != *records[0].Session.CostMicroUSD {
+		*records[0].Session.Usage[0].CostMicroUSD <= 0 || records[0].Session.CostMicroUSD == nil ||
+		*records[0].Session.Usage[0].CostMicroUSD != *records[0].Session.CostMicroUSD {
 		t.Fatalf("portable costs = %#v", records)
 	}
 }
@@ -784,7 +784,6 @@ func TestGrokNestedFamilyAccountingIsNotRolledIntoParent(t *testing.T) {
 func TestGrokPreservesUnrepresentableFactGuards(t *testing.T) {
 	falseValue, text := false, "context"
 	for name, mutate := range map[string]func(*session.Session){
-		"Pi":                       func(s *session.Session) { s.Agent = "pi" },
 		"tokens unavailable":       func(s *session.Session) { s.TokensUnavailable = true },
 		"cost unavailable":         func(s *session.Session) { s.CostUnavailable = true },
 		"details incomplete":       func(s *session.Session) { s.DetailsIncomplete = true },
