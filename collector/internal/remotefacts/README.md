@@ -25,7 +25,8 @@ Family identity and incremental-refresh metadata remain separately bounded:
   Codex key-to-session/parent header mappings used only for warm discovery.
 
 Complete Codex detail and file-change bodies are represented in the separate
-full-record contract, not by widening or disabling this row's bounds. The facts
+full-record contract, not by widening or disabling this row's bounds. Captured skill instructions travel in those complete records, not in bounded
+remote display facts. The facts
 adapter still excludes `LogPath`, transcript rows, and fingerprint paths.
 Fingerprint keys are comparison data; consumers must never open them as paths.
 The reflection test makes additions to the source model require a new decision.
