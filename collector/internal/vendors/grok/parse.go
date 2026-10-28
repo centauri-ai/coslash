@@ -81,6 +81,7 @@ type updateLine struct {
 			Title      string          `json:"title"`
 			Content    json.RawMessage `json:"content"`
 			RawOutput  json.RawMessage `json:"rawOutput"`
+			RawInput   json.RawMessage `json:"rawInput"`
 			Meta       struct {
 				HideFromScrollback bool `json:"hideFromScrollback"`
 			} `json:"_meta"`
@@ -116,6 +117,16 @@ type bashOutput struct {
 	Output   string `json:"output_for_prompt"`
 	ExitCode *int   `json:"exit_code"`
 	TimedOut bool   `json:"timed_out"`
+}
+
+type readFileOutput struct {
+	Type        string `json:"type"`
+	FileContent *struct {
+		AbsolutePath   string  `json:"absolute_path"`
+		RawOutput      *string `json:"raw_output"`
+		Content        *string `json:"content"`
+		ContentConcise *string `json:"content_concise"`
+	} `json:"FileContent"`
 }
 
 // toolContent is one item of a tool_call_update's content array.
@@ -189,6 +200,7 @@ func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSessio
 	s.EditedFileCount = len(s.FileEdits)
 	s.Commands = updates.commands.Raw()
 	s.CommandOutputs = updates.commands.Outputs()
+	s.Skills = updates.skills.Entries()
 	s.CommitLog = updates.commitLog
 	s.SetPullRequestLinks(session.NewPullRequestLinks(updates.pullRequests))
 	s.Todos = readTodos(filepath.Join(dir, "plan.json"))
@@ -336,6 +348,7 @@ type updatesSummary struct {
 	pendingTools  map[string]struct{}
 	edits         *session.FileEditSet
 	commands      session.CommandLog
+	skills        session.SkillLog
 	commitLog     []session.CommitObservation
 	pullRequests  map[string]struct{}
 	digest        session.DigestLog
@@ -359,6 +372,7 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 	}
 	defer file.Close()
 	firstPromptDone := false
+	skillReads := map[string]string{}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	for scanner.Scan() {
@@ -376,6 +390,13 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 		update.Status = strings.ToLower(update.Status)
 		if update.Kind == "tool_call_update" {
 			result.noteTool(update.ToolCallID, update.Title, update.Status)
+			if path := skillReads[update.ToolCallID]; path != "" && update.Status == "completed" {
+				result.noteSkillRead(path, update.RawOutput)
+			}
+			switch update.Status {
+			case "completed", "failed", "cancelled":
+				delete(skillReads, update.ToolCallID)
+			}
 			// The diff repeats on the update that completes the call, so count only that one.
 			var items []toolContent
 			var shell bashOutput
@@ -422,6 +443,17 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 				result.userBuf += content.Text
 			}
 		case "tool_call":
+			delete(skillReads, update.ToolCallID)
+			if update.Title == "read_file" && update.ToolCallID != "" {
+				var input struct {
+					TargetFile string `json:"target_file"`
+				}
+				if json.Unmarshal(update.RawInput, &input) == nil {
+					if _, ok := session.SkillFromPath(input.TargetFile, ""); ok {
+						skillReads[update.ToolCallID] = input.TargetFile
+					}
+				}
+			}
 			result.inTurn = true
 			result.openToolCalls++
 			result.noteTool(update.ToolCallID, update.Title, update.Status)
@@ -440,6 +472,7 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			result.openToolCalls = 0
 			result.inTurn = false
 			result.pendingTools = nil
+			clear(skillReads)
 		}
 	}
 	result.flushUser()
@@ -448,6 +481,43 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 		return updatesSummary{}, err
 	}
 	return result, scanner.Err()
+}
+
+func (r *updatesSummary) noteSkill(path, content string) {
+	if skill, ok := session.SkillFromPath(path, content); ok {
+		r.skills.Note(skill.Name, skill.Content)
+	}
+}
+
+func (r *updatesSummary) noteSkillRead(path string, raw json.RawMessage) {
+	var output readFileOutput
+	if json.Unmarshal(raw, &output) != nil || output.Type != "ReadFile" || output.FileContent == nil {
+		return
+	}
+	file := output.FileContent
+	path = cmp.Or(file.AbsolutePath, path)
+	content := ""
+	for _, captured := range []*string{file.RawOutput, file.Content, file.ContentConcise} {
+		if captured != nil {
+			content = *captured
+			break
+		}
+	}
+	r.noteSkill(path, content)
+}
+
+func (r *updatesSummary) noteShellSkill(shell bashOutput) {
+	// Only a single literal cat operand can be paired unambiguously with this output.
+	if strings.ContainsAny(shell.Command, "\"'\\$`;&|<>()*?{}[]~\n\r") {
+		return
+	}
+	words := strings.Fields(shell.Command)
+	if len(words) == 3 && words[1] == "--" {
+		words = []string{words[0], words[2]}
+	}
+	if len(words) == 2 && words[0] == "cat" && !strings.HasPrefix(words[1], "-") {
+		r.noteSkill(words[1], shell.Output)
+	}
 }
 
 func (r *updatesSummary) noteTool(id, title, status string) {
@@ -630,10 +700,13 @@ func (result *updatesSummary) noteCommand(id string, shell bashOutput) {
 	id = cmp.Or(id, strconv.Itoa(len(result.commands.Labelled())))
 	result.commands.NoteCall(id, shell.Command, "")
 	result.commands.AttachOutput(id, session.TruncateOutput(shell.Output))
+	succeeded := shell.ExitCode != nil && *shell.ExitCode == 0 && !shell.TimedOut
+	if succeeded {
+		result.noteShellSkill(shell)
+	}
 	if commandHasOption(shell.Command, "--dry-run") {
 		return
 	}
-	succeeded := shell.ExitCode != nil && *shell.ExitCode == 0 && !shell.TimedOut
 	result.commitLog = append(result.commitLog, session.ParseCommitObservations(shell.Command, shell.Output, succeeded)...)
 	if succeeded && session.IsPullRequestCreate(shell.Command) {
 		result.notePullRequests(false, shell.Output)
