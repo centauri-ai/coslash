@@ -95,7 +95,7 @@ func main() {
 		panic(err)
 	}
 	mixedUsage := grok
-	mixedUsage.Session.Usage = []fullsessionv1.ModelUsage{{Model: "grok-4.7", InputTokens: 12}}
+	mixedUsage.Session.Usage = []fullsessionv1.ModelUsage{{Model: "grok-4.7", InputTokens: 12, CostMicroUSD: new(int64)}}
 	mixedUsageBytes, err := canonicalWithRevision(mixedUsage)
 	if err != nil {
 		panic(err)
@@ -163,6 +163,20 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	piBytes := func(mutate func(*fullsessionv1.Record)) []byte {
+		value, err := fullsessionv1.Freeze(piRecord())
+		if err != nil {
+			panic(err)
+		}
+		if mutate != nil {
+			mutate(&value)
+		}
+		data, err := canonicalWithRevision(value)
+		if err != nil {
+			panic(err)
+		}
+		return data
+	}
 	entries := []struct {
 		path   string
 		data   []byte
@@ -172,6 +186,19 @@ func main() {
 		{"valid/codex.json", canonical, true, ""},
 		{"valid/skills.json", skillsCanonical, true, ""},
 		{"valid/grok.json", grokCanonical, true, ""},
+		{"valid/pi.json", piBytes(nil), true, ""},
+		{"valid/pi-unavailable.json", piBytes(func(r *fullsessionv1.Record) {
+			r.Session.Usage, r.Session.UnattributedTokens, r.Session.CostMicroUSD = nil, nil, nil
+		}), true, ""},
+		{"valid/pi-zero.json", piBytes(func(r *fullsessionv1.Record) {
+			r.Session.Usage, r.Session.UnattributedTokens, r.Session.CostMicroUSD = []fullsessionv1.ModelUsage{}, nil, new(int64)
+		}), true, ""},
+		{"invalid/pi-parent.json", piBytes(func(r *fullsessionv1.Record) { r.ParentSessionID = "fork-parent" }), false, "Pi fork lineage is not subagent lineage"},
+		{"invalid/pi-negative-unattributed.json", piBytes(func(r *fullsessionv1.Record) { r.Session.UnattributedTokens.InputTokens = -1 }), false, "negative unattributed counter"},
+		{"invalid/pi-invalid-entry-id.json", piBytes(func(r *fullsessionv1.Record) { r.Session.Digest[0].SourceEntryID = "/private/transcript" }), false, "source entry is not an opaque identifier"},
+		{"invalid/non-pi-null-model-cost.json", piBytes(func(r *fullsessionv1.Record) {
+			r.Agent, r.Session.DetailsIncomplete, r.Session.Digest, r.Session.UnattributedTokens = "codex", false, nil, nil
+		}), false, "unknown model cost is Pi-only"},
 		{"invalid/grok-inconsistent-cost.json", inconsistentCostBytes, false, "unattributed and enclosing costs differ in presence"},
 		{"invalid/grok-mixed-usage.json", mixedUsageBytes, false, "attributed and unattributed usage coexist"},
 		{"valid/escaping.json", escapingCanonical, true, ""},
@@ -238,7 +265,7 @@ func boundaryValuesRecord() fullsessionv1.Record {
 		SourceID: strings.Repeat("s", 512), Agent: "claude", SessionID: strings.Repeat("i", 512),
 		Session: fullsessionv1.Session{
 			StartedAtMs: fullsessionv1.MaxSessionTimestampMs, LastActivityAtMs: fullsessionv1.MaxSessionTimestampMs,
-			CostMicroUSD: &cost, Usage: []fullsessionv1.ModelUsage{{Model: "boundary-model", CostMicroUSD: cost}},
+			CostMicroUSD: &cost, Usage: []fullsessionv1.ModelUsage{{Model: "boundary-model", CostMicroUSD: &cost}},
 			Subagents: []fullsessionv1.Subagent{{ID: "boundary-subagent", CostMicroUSD: &cost}},
 		},
 	}
@@ -276,7 +303,7 @@ func record() fullsessionv1.Record {
 		Session: fullsessionv1.Session{
 			Name: &name, Summary: &summary, Status: &status, WorkingDirectory: "/workspace/coslash",
 			Branch: &branch, EditedFileCount: 1, DurationMs: &duration,
-			Usage:        []fullsessionv1.ModelUsage{{Model: "gpt-5", InputTokens: 2000, OutputTokens: 400, CacheReadInputTokens: 800, CostMicroUSD: 125000}},
+			Usage:        []fullsessionv1.ModelUsage{{Model: "gpt-5", InputTokens: 2000, OutputTokens: 400, CacheReadInputTokens: 800, CostMicroUSD: &cost}},
 			CostMicroUSD: &cost, UnpricedModels: []string{}, StartedAtMs: 1_800_000_000_000,
 			LastActivityAtMs: 1_800_000_012_000, Entrypoint: &entrypoint, Model: &model,
 			ContextTokens: &contextTokens, ContextWindow: &contextWindow, Turns: 3, ToolUses: 4,
@@ -340,5 +367,24 @@ func pullRequestLinksRecord() fullsessionv1.Record {
 		{URL: "https://github.com/acme/api/pull/10", Repository: "acme/api", Number: 10},
 		{URL: "https://github.com/acme/web/pull/1", Repository: "acme/web", Number: 1},
 	}
+	return value
+}
+
+func piRecord() fullsessionv1.Record {
+	value := pullRequestLinksRecord()
+	value.Agent, value.SessionID = "pi", "pi-fork"
+	value.Session.Subagents = []fullsessionv1.Subagent{}
+	value.Session.Usage = []fullsessionv1.ModelUsage{
+		{Model: "provider/known-zero", InputTokens: 12, CostMicroUSD: new(int64)},
+		{Model: "provider/unknown", InputTokens: 9007199254740993},
+	}
+	value.Session.UnattributedTokens = &fullsessionv1.UnattributedUsage{InputTokens: 7}
+	yes, no, context := true, false, "Retained after compaction"
+	value.Session.Digest = []fullsessionv1.DigestEntry{
+		{Turn: 1, Category: "user", Description: "Inherited prompt", TimeMs: 1_800_000_000_000, SourceEntryID: "e1", BranchID: "b1", Inherited: &yes, Active: &no, ContextSelected: &yes, ContextDescription: &context},
+		{Turn: 2, Category: "user", Description: "Current branch", TimeMs: 1_800_000_001_000, SourceEntryID: "e2", ParentEntryID: "e1", BranchID: "b2", Inherited: &no, Active: &yes, ContextSelected: &no},
+	}
+	value.Session.DetailsIncomplete = true
+	value.Session.Skills = []fullsessionv1.Skill{{Name: "review", Content: "# Synthetic captured instructions\n"}}
 	return value
 }

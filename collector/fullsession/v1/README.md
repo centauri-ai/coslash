@@ -24,7 +24,7 @@ without reducing child sessions to the display-oriented `subagents` list.
 
 Canonical records use UTF-8 without a BOM, insignificant whitespace, or a
 trailing newline. Every field is present, including null pointers and empty or
-null arrays, except optional `unattributedTokens`, `commandOutputs`, `skills`, `pullRequestLinks`, and subagent command `output`, which are omitted when absent.
+null arrays, except optional `unattributedTokens`, `commandOutputs`, `skills`, `pullRequestLinks`, `detailsIncomplete`, digest annotations, and subagent command `output`, which are omitted when absent. A false `detailsIncomplete` is omitted.
 Usage arrays declare models in ascending model-name order; all other arrays
 retain their declared order. Integers use the shortest base-10
 form (no leading zero or plus sign); booleans and null use their lowercase JSON
@@ -33,12 +33,12 @@ literals.
 Object members occur in the following order:
 
 - Record: `schemaVersion`, `sourceId`, `agent`, `sessionId`, `parentSessionId`, `revisionId`, `session`.
-- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, optional `unattributedTokens`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, optional `commandOutputs`, optional `skills`, `commits`, `commitShas`, `pullRequests`, optional `pullRequestLinks`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
+- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, optional `unattributedTokens`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, optional `commandOutputs`, optional `skills`, `commits`, `commitShas`, `pullRequests`, optional `pullRequestLinks`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`, optional `detailsIncomplete`.
 - Model usage: `model`, `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Unattributed usage: `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, optional `unattributedTokens`, `costMicroUsd`; a subagent command uses `label`, `command`, optional `output`.
 - Pull request link: `url`, `repository`, `number`.
-- Todo: `text`, `done`; digest entry: `turn`, `category`, `description`, `answer`, `subagentId`, `timeMs`.
+- Todo: `text`, `done`; digest entry: `turn`, `category`, `description`, `answer`, `subagentId`, `timeMs`, optional `sourceEntryId`, `parentEntryId`, `branchId`, `inherited`, `active`, `contextSelected`, `contextDescription`.
 - File edit: `path`, `additions`, `deletions`, `edits`, `isNew`, `changes`; file change: `id`, `kind`, `text`, `operation`, `additions`, `deletions`, `byteCount`, `sha256`.
 - Synthesis: `goals`, `outcome`, `keyDecisions`, `nextStep`.
 
@@ -77,7 +77,7 @@ A consumer must reject a record unless all of these rules hold:
   or a different identifier from `sessionId`. An identifier is 1 through 512
   UTF-8 bytes, has no leading or trailing whitespace, contains no slash or
   reverse solidus, and contains no Unicode code point U+0000 through U+0020 or
-  U+007F. `agent` is exactly `codex`, `claude`, `cursor`, `opencode`, or `grok`.
+  U+007F. `agent` is exactly `codex`, `claude`, `cursor`, `opencode`, `grok`, or `pi`.
 - `revisionId` is the lowercase hexadecimal SHA-256 described above. Every
   file-change `sha256` is likewise the lowercase SHA-256 of `text`, and every
   change ID is an identifier unique across the record.
@@ -95,10 +95,10 @@ A consumer must reject a record unless all of these rules hold:
   turn/time, edit addition/deletion, and subagent spawn/tool-use counts are
   nonnegative signed 64-bit integers. `editedFileCount` equals the number of
   `fileEdits`.
-- Every present session or subagent cost and every model cost is within the
+- Every non-null session, subagent, unattributed, and model cost is within the
   micro-USD range above. Session and subagent costs may be null; model costs
-  are always present. Session and subagent usage arrays are strictly ascending
-  by nonempty model name.
+  are required and may be null only for Pi. Session and subagent usage arrays
+  are strictly ascending by nonempty model name.
 - `commandOutputs` is absent when the producer did not collect outputs. When
   present, it has one item per `commands` item in the same order, and `commands`
   is not empty. An item is null for a command without a result and an empty
@@ -108,9 +108,10 @@ A consumer must reject a record unless all of these rules hold:
   producers keep the first 8 KiB and the last 8 KiB of an output longer than
   16 KiB, joined by `\n… [N bytes truncated] …\n`, where N is the number of
   bytes removed.
-- `unattributedTokens` is allowed only for Grok sessions and their subagents.
+- `unattributedTokens` is allowed for Pi sessions and for Grok sessions and
+  their subagents.
   Its five counters obey the same nonnegative integer bounds as model usage.
-  When present, the same session or subagent has no attributed usage entries,
+  For Grok, the same session or subagent has no attributed usage entries,
   and its inner and enclosing `costMicroUsd` must have equal presence and value.
   Two null costs mean unknown; two present zeros mean known zero. Costs obey
   the shared micro-USD bounds. The enclosing nullable cost is authoritative;
@@ -140,8 +141,55 @@ or price is inferred for unattributed totals. Portable inner and enclosing costs
 must agree so the existing private nullable session/subagent cost can preserve
 every valid record through both adapter directions. The adapter rejects an
 independently populated nonzero private unattributed float cost rather than
-discarding it. Pi, unavailable accounting, incomplete detail, and branch-context
-facts remain rejected by the complete-record adapter.
+discarding it. Unavailable accounting, incomplete detail, and branch-context
+facts remain rejected for agents other than Pi.
+
+## Pi accounting and context snapshots
+
+Pi records represent independent sessions: `parentSessionId` is empty and
+`subagents` is null or empty. A header's `parentSession` is private fork evidence,
+not a subagent relationship. Verified inherited work is excluded from the fork's
+accounting before composition.
+
+For Pi, `usage:null` with absent `unattributedTokens` means unavailable token
+accounting. `usage:[]` means known zero attributed usage. Present unattributed
+counters are additive to model counters. Model and unattributed `costMicroUsd`
+values are independently nullable; a known aggregate cost does not imply a
+known component cost. Null means unknown and a present zero means known zero.
+Never infer model attribution or component prices from an aggregate. The private
+adapter uses `ModelTokens.CostKnown` to distinguish an explicit component cost
+from its default float zero. Pi composition preserves source aggregate cost
+without running local price estimates.
+
+Digest annotations are Pi-only. Each nonempty entry or branch ID obeys the
+identifier rules above. Annotation strings obey the shared UTF-8 and string
+bounds. `inherited`, `active`, and `contextSelected` are optional booleans;
+present false differs from absence. `contextDescription` is an optional string;
+a present empty string differs from absence. History remains in chronological
+source order. Active ancestry and context retained after compaction or edits
+are different facts and must not be flattened into one selection flag.
+
+Consumers that need the selected conversation, including synthesis and
+last-turn checks, must exclude rows with `contextSelected:false`. Include rows
+with true or absent `contextSelected`, preserving their declared order; absence
+retains legacy behavior. For included rows, use `contextDescription` instead of
+`description` when present, including a present empty string. Do not overwrite
+the stored chronological `description`. Neither `active` nor `inherited` is a
+context filter. An absent `active` or `inherited` means unknown, not false.
+The session's model, context occupancy, prompt and summary already describe the
+selected context; raw chronological history must not override them.
+
+`detailsIncomplete:true` is Pi-only and reports incomplete source detail in an
+otherwise complete parsed record. It is omitted when false. It does not claim
+that interrupted family capture is safe to publish.
+
+The producer freezes context selections for each record. Selected-leaf changes,
+including verified changes without transcript writes, change the revision when
+they change parsed context facts. Process identity, absolute evidence paths,
+heartbeat timestamps and live status are local overlays and do not enter the
+revision. Pi is admitted only to local portable composition, not SSH collection.
+Legacy snapshot export remains unchanged. Capture, queueing and Hub acceptance
+require their own producer/consumer support before uploads can be enabled.
 
 ## Included-field inventory
 
@@ -152,6 +200,7 @@ facts remain rejected by the complete-record adapter.
 | Prompts, summary, goals, commands, commits, todos, digest | Claude and Codex parsers/composers | Typed `session` detail fields | Restart and unchanged-refresh equality |
 | Command outputs (session and subagent) | Claude and Codex parsers (tool call IDs); Cursor IDE/CLI result stores (command text and order); Grok and OpenCode parsers (same tool record) | Optional `commandOutputs` and subagent command `output`; dropped from a record that exceeds a bound; excluded from the local list API, remote facts, and snapshot export | Adapter round-trip and revision equality |
 | Grok model-unattributed counters and nullable cost | Grok parser and local portable composition | Optional `unattributedTokens` on session and direct subagent rows | Source-fixture totals and nested-family adapter byte round trips |
+| Pi accounting, completeness and branch/context annotations | Pi parser and local portable composition | Nullable usage/costs, optional digest annotations and `detailsIncomplete` | Canonical fixtures, context revision changes and lossless adapter round trips |
 | Subagent identity, task/result, commands, usage, and cost | Claude and Codex family composition | Typed `subagents` list | Ordered value equality |
 | File-edit summaries | Claude and Codex file-edit accumulators | Typed `fileEdits` rows | Ordered value equality |
 | File-change kind, operation, counts, and exact text | Claude and Codex file-edit accumulators | Change metadata in the record row; text in cache `changeBodies` | Per-body byte count/hash and exact read assertion |

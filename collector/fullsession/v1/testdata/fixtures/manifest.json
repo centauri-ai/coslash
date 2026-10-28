@@ -18,6 +18,45 @@
       "valid": true
     },
     {
+      "path": "valid/pi.json",
+      "sha256": "227907b97cb20b1fb9415d4698068012a73007b1d2d3ac157086871a473ff802",
+      "valid": true
+    },
+    {
+      "path": "valid/pi-unavailable.json",
+      "sha256": "88c5c8b539c898408ee3b4423b42ace612de0238fae61e1086918d85aaa07609",
+      "valid": true
+    },
+    {
+      "path": "valid/pi-zero.json",
+      "sha256": "fd8f07fe57a833c34605949764378a76600107a3fc4281b8c8a2cb41a260d63b",
+      "valid": true
+    },
+    {
+      "path": "invalid/pi-parent.json",
+      "sha256": "2d9df33eddd41b8a55e792bd4e64b627a77872ea2c166f11a89000601d732eda",
+      "valid": false,
+      "reason": "Pi fork lineage is not subagent lineage"
+    },
+    {
+      "path": "invalid/pi-negative-unattributed.json",
+      "sha256": "791038e8f613d4dac84629caba167edcdb7407f850646b5bd407ec556e66be6e",
+      "valid": false,
+      "reason": "negative unattributed counter"
+    },
+    {
+      "path": "invalid/pi-invalid-entry-id.json",
+      "sha256": "bb6856a62708db300ebde8aa4f46f2c908afa89e82cce59757ca8479036b5514",
+      "valid": false,
+      "reason": "source entry is not an opaque identifier"
+    },
+    {
+      "path": "invalid/non-pi-null-model-cost.json",
+      "sha256": "6a97e2a2bbadbc51501e9e6e88f03a27aff604518c68857197bd252ec352aeda",
+      "valid": false,
+      "reason": "unknown model cost is Pi-only"
+    },
+    {
       "path": "invalid/grok-inconsistent-cost.json",
       "sha256": "a5236b5802aedf81220c0bc3f5cb9aa00d8d93aa23205f75e41cdbe1fc948491",
       "valid": false,
