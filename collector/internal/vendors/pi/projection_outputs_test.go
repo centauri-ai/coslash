@@ -147,3 +147,27 @@ func TestCommandOutputsKeepFullResultPRLinks(t *testing.T) {
 		t.Fatal("expected the PR link inside the truncated portion of the result")
 	}
 }
+
+func TestCommandOutputsMalformedContentStaysPending(t *testing.T) {
+	for _, raw := range []string{`{}`, `42`, `true`, `[{"type":"text","text":42}]`, `[{"type":"text","text":null}]`, `[{"type":"text"}]`, `[null]`} {
+		for _, retry := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/retry=%v", raw, retry), func(t *testing.T) {
+				rows := []string{
+					`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"call","name":"bash","arguments":{"command":"pwd"}}]}}`,
+					fmt.Sprintf(`{"type":"message","id":"bad","parentId":"a","message":{"role":"toolResult","toolCallId":"call","content":%s}}`, raw),
+				}
+				leaf, want := "bad", []*string{nil}
+				if retry {
+					rows = append(rows, `{"type":"message","id":"good","parentId":"bad","message":{"role":"toolResult","toolCallId":"call","content":"actual output"}}`)
+					output := "actual output"
+					leaf, want = "good", []*string{&output}
+				}
+				parsed, err := projectLeaf(projectionFixture(t, "malformed", "", rows...), nil, leaf, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertCommandOutputs(t, parsed, want)
+			})
+		}
+	}
+}
