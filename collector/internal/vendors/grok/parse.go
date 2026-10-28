@@ -373,6 +373,7 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 	defer file.Close()
 	firstPromptDone := false
 	skillReads := map[string]string{}
+	skillNames := map[string]string{}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	for scanner.Scan() {
@@ -393,9 +394,13 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			if path := skillReads[update.ToolCallID]; path != "" && update.Status == "completed" {
 				result.noteSkillRead(path, update.RawOutput)
 			}
+			if update.Status == "completed" {
+				result.noteNativeSkill(skillNames[update.ToolCallID], update.RawOutput)
+			}
 			switch update.Status {
 			case "completed", "failed", "cancelled":
 				delete(skillReads, update.ToolCallID)
+				delete(skillNames, update.ToolCallID)
 			}
 			// The diff repeats on the update that completes the call, so count only that one.
 			var items []toolContent
@@ -444,6 +449,15 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			}
 		case "tool_call":
 			delete(skillReads, update.ToolCallID)
+			delete(skillNames, update.ToolCallID)
+			if strings.EqualFold(update.Title, "skill") && update.ToolCallID != "" {
+				var input struct {
+					Skill string `json:"skill"`
+				}
+				if json.Unmarshal(update.RawInput, &input) == nil {
+					skillNames[update.ToolCallID] = input.Skill
+				}
+			}
 			if update.Title == "read_file" && update.ToolCallID != "" {
 				var input struct {
 					TargetFile string `json:"target_file"`
@@ -473,6 +487,7 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			result.inTurn = false
 			result.pendingTools = nil
 			clear(skillReads)
+			clear(skillNames)
 		}
 	}
 	result.flushUser()
@@ -487,6 +502,23 @@ func (r *updatesSummary) noteSkill(path, content string) {
 	if skill, ok := session.SkillFromPath(path, content); ok {
 		r.skills.Note(skill.Name, skill.Content)
 	}
+}
+
+func (r *updatesSummary) noteNativeSkill(name string, raw json.RawMessage) {
+	var output struct {
+		Type         string  `json:"type"`
+		Success      bool    `json:"success"`
+		SkillName    string  `json:"skill_name"`
+		SkillMessage *string `json:"skill_message"`
+	}
+	if json.Unmarshal(raw, &output) != nil || output.Type != "Skill" || !output.Success {
+		return
+	}
+	content := ""
+	if output.SkillMessage != nil {
+		content = *output.SkillMessage
+	}
+	r.skills.Note(cmp.Or(output.SkillName, name), content)
 }
 
 func (r *updatesSummary) noteSkillRead(path string, raw json.RawMessage) {

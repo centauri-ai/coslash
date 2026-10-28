@@ -25,6 +25,84 @@ func skillReadResult(id, status string, fields map[string]any) string {
 	return string(body)
 }
 
+func nativeSkillCall(id, name string) string {
+	quoted, _ := json.Marshal(name)
+	return `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"` + id + `","title":"skill","rawInput":{"skill":` + string(quoted) + `}}}}`
+}
+
+func nativeSkillResult(id, status string, fields map[string]any) string {
+	body, _ := json.Marshal(map[string]any{"params": map[string]any{"update": map[string]any{
+		"sessionUpdate": "tool_call_update", "toolCallId": id, "status": status, "rawOutput": fields,
+	}}})
+	return string(body)
+}
+
+func TestNativeSkillsRetainCapturedNamesAndMessageVariants(t *testing.T) {
+	body := "<skill name=\"demo\">\n  Captured **instructions**.\n</skill>\n"
+	var rows []string
+	for _, content := range []string{body, body, "changed\n"} {
+		rows = append(rows, nativeSkillCall("a", "user:demo"), nativeSkillResult("a", "completed", map[string]any{
+			"type": "Skill", "success": true, "skill_name": "demo", "skill_message": content,
+			"tool_result": "Loaded demo", "error": nil,
+		}))
+	}
+	rows = append(rows, skillReadCall("b", "/skills/demo/SKILL.md"), skillReadResult("b", "completed", map[string]any{"raw_output": body}))
+	s, _ := parseOutputSession(t, rows...)
+	want := []session.Skill{{Name: "demo", Content: body}, {Name: "demo", Content: "changed\n"}}
+	if !reflect.DeepEqual(s.Skills, want) {
+		t.Fatalf("skills = %#v, want %#v", s.Skills, want)
+	}
+}
+
+func TestNativeSkillsRequireSuccessfulCompletedResults(t *testing.T) {
+	for _, test := range []struct {
+		name, status string
+		fields       map[string]any
+	}{
+		{"failed resolution", "completed", map[string]any{"type": "Skill", "success": false, "skill_name": "demo", "skill_message": "not loaded", "tool_result": "error"}},
+		{"unknown success", "completed", map[string]any{"type": "Skill", "skill_name": "demo", "tool_result": "error"}},
+		{"failed call", "failed", map[string]any{"type": "Skill", "success": true, "skill_name": "demo", "skill_message": "body"}},
+		{"cancelled call", "cancelled", map[string]any{"type": "Skill", "success": true, "skill_name": "demo"}},
+		{"running call", "in_progress", map[string]any{"type": "Skill", "success": true, "skill_name": "demo"}},
+		{"wrong variant", "completed", map[string]any{"type": "ListDir", "success": true, "skill_name": "demo", "skill_message": "body"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, _ := parseOutputSession(t, nativeSkillCall("a", "demo"), nativeSkillResult("a", test.status, test.fields))
+			if s.Skills != nil {
+				t.Fatalf("unexpected skills: %#v", s.Skills)
+			}
+		})
+	}
+}
+
+func TestNativeSkillsKeepUnknownContentAndFallbackNames(t *testing.T) {
+	for _, test := range []struct {
+		name, input, output string
+		message             any
+		want                []session.Skill
+	}{
+		{"null message", "user:demo", "demo", nil, []session.Skill{{Name: "demo", Content: ""}}},
+		{"missing message", "user:demo", "demo", nil, []session.Skill{{Name: "demo", Content: ""}}},
+		{"empty message", "user:demo", "demo", "", []session.Skill{{Name: "demo", Content: ""}}},
+		{"input name", "user:demo", "", "body", []session.Skill{{Name: "user:demo", Content: "body"}}},
+		{"unknown name", "", "", "body", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fields := map[string]any{
+				"type": "Skill", "success": true, "skill_name": test.output, "skill_message": test.message,
+				"tool_result": "fallback result is not instructions",
+			}
+			if test.name == "missing message" {
+				delete(fields, "skill_message")
+			}
+			s, _ := parseOutputSession(t, nativeSkillCall("a", test.input), nativeSkillResult("a", "completed", fields))
+			if !reflect.DeepEqual(s.Skills, test.want) {
+				t.Fatalf("skills = %#v, want %#v", s.Skills, test.want)
+			}
+		})
+	}
+}
+
 func TestSkillsRetainObservedBodiesInCompletionOrder(t *testing.T) {
 	body := "---\nname: demo\n---\n\n  Keep **formatting**.\n"
 	path := "/historical/skills/demo/SKILL.md"
@@ -149,6 +227,9 @@ func TestFrozenFamilySkillsBelongToEachParsedSession(t *testing.T) {
 		name := filepath.Base(dir)
 		path := filepath.Join(live, "skills", name, "SKILL.md")
 		rows := []string{skillReadCall("a", path), skillReadResult("a", "completed", map[string]any{"absolute_path": path, "raw_output": name + " instructions\n"})}
+		rows = append(rows, nativeSkillCall("b", "native-"+name), nativeSkillResult("b", "completed", map[string]any{
+			"type": "Skill", "success": true, "skill_name": "native-" + name, "skill_message": "native instructions\n",
+		}))
 		if err := os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(strings.Join(rows, "\n")+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -175,7 +256,7 @@ func TestFrozenFamilySkillsBelongToEachParsedSession(t *testing.T) {
 	}
 	for _, item := range parsed {
 		name := item.Session.ID
-		want := []session.Skill{{Name: name, Content: name + " instructions\n"}}
+		want := []session.Skill{{Name: name, Content: name + " instructions\n"}, {Name: "native-" + name, Content: "native instructions\n"}}
 		if !reflect.DeepEqual(item.Session.Skills, want) {
 			t.Fatalf("%s skills = %#v, want %#v", name, item.Session.Skills, want)
 		}
