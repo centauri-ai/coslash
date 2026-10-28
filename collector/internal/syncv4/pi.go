@@ -44,6 +44,12 @@ func (q *Queue) piRevisionCandidates(found []Entry) []Entry {
 	if configured := view.state.Config.ImportPlan; configured != nil {
 		plan := *configured
 		view.state.Config.ImportPlan = &plan
+		if view.state.CatchUpFrozenVersion == plan.Version {
+			// A new admission must not displace a source the real queue can resume.
+			for _, entry := range view.plannedEntriesLocked(plan) {
+				view.state.Entries[index[entry.Key]].ChangedPlanVersion = plan.Version
+			}
+		}
 		if view.state.LiveOnlyPlanVersion == plan.Version && !plan.History && !plan.Backfill {
 			active := view.activeSinceLocked(time.UnixMilli(view.state.PlanStartedAt)).UnixMilli()
 			for i := range view.state.Entries {
@@ -53,9 +59,8 @@ func (q *Queue) piRevisionCandidates(found []Entry) []Entry {
 				}
 			}
 		} else {
-			view.state.CatchUpFrozenVersion = 0
-			if !plan.History && !plan.Backfill && plan.MaxSessionsPerAgent == 0 {
-				plan.MaxSessionsPerAgent = 30
+			if err := view.freezeCatchUpLocked(plan, false); err != nil {
+				return nil
 			}
 		}
 		entries = view.plannedEntriesLocked(plan)
