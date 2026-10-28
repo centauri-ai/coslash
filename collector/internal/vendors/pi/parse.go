@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -30,7 +29,7 @@ func parseTranscriptContext(ctx context.Context, path string) (*transcript, erro
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(abs)
+	f, err := openRegularInput(ctx, abs)
 	if err != nil {
 		return nil, err
 	}
