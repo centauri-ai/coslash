@@ -330,10 +330,10 @@ func TestGrokRejectsAmbiguousOrUnsafeFamily(t *testing.T) {
 	}
 }
 
-func TestGrokSSHAndPiRemainUnsupported(t *testing.T) {
+func TestGrokAndPiSSHRemainUnsupported(t *testing.T) {
 	for _, selection := range []Selection{
 		{SourceKind: sessionbackupv1.SourceSSH, SourceID: "remote", Agent: vendors.AgentGrok, SessionID: "root"},
-		{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: "pi", SessionID: "root"},
+		{SourceKind: sessionbackupv1.SourceSSH, SourceID: "remote", Agent: "pi", SessionID: "root"},
 	} {
 		manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
 			t.Fatal("unsupported source opened")
