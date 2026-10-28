@@ -140,6 +140,7 @@ func TestSkillsReadBoundaries(t *testing.T) {
 		{"numbered-read", "Read", map[string]any{"file_path": `C:\skills\review\SKILL.md`}, "     1→# Review\n     2→\n     3→  indented  \n\n<system-reminder>read wrapper</system-reminder>", "# Review\n\n  indented  \n"},
 		{"bash-keeps-numbers", "Bash", map[string]any{"command": `cat "/skills/review/SKILL.md"`}, "1→literal\n", "1→literal\n"},
 		{"persisted-body-unknown", "Read", map[string]any{"file_path": "/skills/review/SKILL.md"}, "<persisted-output>\nnot instruction content\n</persisted-output>", ""},
+		{"persisted-numbered-preview-unknown", "Read", map[string]any{"file_path": "/skills/review/SKILL.md"}, "<persisted-output>\nPreview:\n     1→# Review\n     2→Only a preview\n</persisted-output>", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
@@ -151,6 +152,43 @@ func TestSkillsReadBoundaries(t *testing.T) {
 			assertSkills(t, parsed.Session, []session.Skill{{Name: "review", Content: test.want}})
 		})
 	}
+}
+
+func TestSkillsCatRequiresLiteralPath(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		want    []session.Skill
+	}{
+		{command: "cat /skills/*/SKILL.md"},
+		{command: "cat /skills/review?/SKILL.md"},
+		{command: "cat /skills/[ab]/SKILL.md"},
+		{command: "cat /skills/{alpha,beta}/SKILL.md"},
+		{command: "cat ~/skills/review/SKILL.md"},
+		{command: `cat /skills/review\*/SKILL.md`},
+		{command: "cat '/skills/review[old]/SKILL.md'", want: []session.Skill{{Name: "review[old]", Content: "# Captured\n"}}},
+		{command: `cat "/skills/review[old]/SKILL.md"`, want: []session.Skill{{Name: "review[old]", Content: "# Captured\n"}}},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
+			writeOutputTranscript(t, path, bashRows(skillUse(t, "cat", "Bash", map[string]any{"command": test.command}), skillResult(t, "cat", "# Captured\n", false, nil)))
+			parsed, err := parseTranscript(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertSkills(t, parsed.Session, test.want)
+		})
+	}
+}
+
+func TestSkillsStructuredReadOverridesPersistedPreview(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
+	body := "<persisted-output>\nliteral skill instructions\n</persisted-output>"
+	writeOutputTranscript(t, path, bashRows(skillUse(t, "read", "Read", map[string]any{"file_path": "/skills/review/SKILL.md"}), skillResult(t, "read", "<persisted-output>\n     1→preview\n</persisted-output>", false, map[string]any{"file": map[string]any{"content": body}})))
+	parsed, err := parseTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSkills(t, parsed.Session, []session.Skill{{Name: "review", Content: body}})
 }
 
 type skillBackupSource struct{ fstest.MapFS }
