@@ -165,6 +165,82 @@ func TestSkillsKeepObservationOrderAcrossBranches(t *testing.T) {
 	}
 }
 
+func TestSkillsRequireNativeMessageEvidence(t *testing.T) {
+	for _, entryType := range []string{"message", "context_edit", "compaction", "branch_summary", "model_change", "session_info"} {
+		for _, endpoint := range []string{"call", "result"} {
+			t.Run(entryType+"/"+endpoint, func(t *testing.T) {
+				callType, resultType := "message", "message"
+				if endpoint == "call" {
+					callType = entryType
+				} else {
+					resultType = entryType
+				}
+				tr := projectionFixture(t, "native-evidence", "",
+					fmt.Sprintf(`{"type":%q,"id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":"read","arguments":{"path":"skills/review/SKILL.md"}}]}}`, callType),
+					fmt.Sprintf(`{"type":%q,"id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"read","content":"body"}}`, resultType),
+				)
+				parsed, err := projectLeaf(tr, nil, "r", false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var want []session.Skill
+				if entryType == "message" {
+					want = []session.Skill{{Name: "review", Content: "body"}}
+				}
+				if !reflect.DeepEqual(parsed.Session.Skills, want) {
+					t.Fatalf("skills = %#v, want %#v", parsed.Session.Skills, want)
+				}
+			})
+		}
+	}
+	tr := projectionFixture(t, "native-ancestry", "",
+		`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":"read","arguments":{"path":"skills/review/SKILL.md"}},{"type":"toolCall","id":"pr","name":"bash","arguments":{"command":"gh pr create --fill"}}]}}`,
+		`{"type":"context_edit","id":"metadata","parentId":"a","message":{"role":"assistant","content":"not an assistant message"}}`,
+		`{"type":"message","id":"r","parentId":"metadata","message":{"role":"toolResult","toolCallId":"read","content":"body"}}`,
+		`{"type":"message","id":"p","parentId":"r","message":{"role":"toolResult","toolCallId":"pr","content":"https://github.com/example/project/pull/42"}}`,
+	)
+	parsed, err := projectLeaf(tr, nil, "p", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []session.Skill{{Name: "review", Content: "body"}}; !reflect.DeepEqual(parsed.Session.Skills, want) {
+		t.Fatalf("native ancestry skills = %#v, want %#v", parsed.Session.Skills, want)
+	}
+	pr := "https://github.com/example/project/pull/42"
+	assertCommandOutputs(t, parsed, []*string{&pr})
+	if parsed.Session.PullRequests != 1 || len(parsed.Session.PullRequestLinks) != 1 {
+		t.Fatalf("native ancestry PR links = %+v", parsed.Session.PullRequestLinks)
+	}
+}
+
+func TestSkillsRejectCollidingCallIDs(t *testing.T) {
+	read := `{"type":"toolCall","id":"shared","name":"read","arguments":{"path":"skills/review/SKILL.md"}}`
+	other := `{"type":"toolCall","id":"shared","name":"read","arguments":{"path":"skills/other/SKILL.md"}}`
+	write := `{"type":"toolCall","id":"shared","name":"write","arguments":{"path":"unrelated.txt","content":"written"}}`
+	for _, tc := range []struct{ name, calls string }{
+		{"read/read", read + "," + other},
+		{"read/write", read + "," + write},
+		{"write/read", write + "," + read},
+		{"read/write/read", read + "," + write + "," + other},
+		{"identical calls", read + "," + read},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := projectionFixture(t, "colliding-calls", "",
+				fmt.Sprintf(`{"type":"message","id":"a","message":{"role":"assistant","content":[%s,{"type":"toolCall","id":"unique","name":"read","arguments":{"path":"skills/valid/SKILL.md"}}]}}`, tc.calls),
+				`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"shared","content":"Successfully wrote file"}}`,
+				`{"type":"message","id":"valid","parentId":"r","message":{"role":"toolResult","toolCallId":"unique","content":"observed"}}`,
+			)
+			parsed, err := projectLeaf(tr, nil, "valid", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []session.Skill{{Name: "valid", Content: "observed"}}; !reflect.DeepEqual(parsed.Session.Skills, want) {
+				t.Fatalf("skills = %#v, want %#v", parsed.Session.Skills, want)
+			}
+		})
+	}
+}
+
 func TestSkillsKeepEmptyAndBoundedCapturedBodies(t *testing.T) {
 	for _, raw := range []string{`""`, `[]`, `[{"type":"image","data":"ignored"}]`} {
 		tr := projectionFixture(t, "empty-skill", "",
