@@ -626,6 +626,21 @@ func TestPortableRemoteGrokRemainsExcluded(t *testing.T) {
 	}
 }
 
+func TestPortablePiKeepsCallerRuntimeEntrypoint(t *testing.T) {
+	entrypoint := "pi-tui"
+	value := &session.Session{Agent: "pi", ID: "s", Entrypoint: &entrypoint, StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}
+	collections := map[string]vendors.RemoteCollection{vendors.AgentPi: {
+		Sessions: []*vendors.ParsedSession{{Session: value}}, Metadata: vendors.EmptySessionMetadata(),
+	}}
+	portable, err := ComposePortableContext(t.Context(), vendors.LocalReadSource, collections)
+	if err != nil || len(portable) != 1 {
+		t.Fatalf("portable=%d err=%v", len(portable), err)
+	}
+	if portable[0].Session.Entrypoint != nil || value.Entrypoint == nil || *value.Entrypoint != "pi-tui" {
+		t.Fatal("portable exclusion lost or caller runtime entrypoint changed")
+	}
+}
+
 func TestGrokSourceCostEnrichmentKeepsAvailabilityAndAgentPolicy(t *testing.T) {
 	for _, tc := range []struct {
 		name, agent                                  string
