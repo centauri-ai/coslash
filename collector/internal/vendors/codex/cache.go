@@ -9,7 +9,7 @@ import (
 
 // ParserVersion identifies this exporter's parse output. Bumping it
 // invalidates only Codex entries in the local parse cache.
-const ParserVersion = "codex-4"
+const ParserVersion = "codex-5"
 
 type cachedSample struct {
 	Model string          `json:"model"`

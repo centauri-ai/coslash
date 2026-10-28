@@ -43,6 +43,7 @@ type codexSessionAnalysis struct {
 	spawns           map[string]vendors.SpawnState
 	tokenSamples     []codexTokenSample
 	commands         session.CommandLog
+	skills           codexSkills
 	commitLog        []session.CommitObservation
 	pullRequests     map[string]struct{}
 	fileEdits        *session.FileEditSet
@@ -425,6 +426,7 @@ func analyzeCodexSessionSource(
 				analysis.noteFileChanges(row.Payload.Changes)
 			}
 		case "response_item":
+			analysis.skills.note(row.Payload)
 			if (row.Payload.Type == "function_call_output" || row.Payload.Type == "custom_tool_call_output") &&
 				analysis.commands.Pending(row.Payload.CallID) {
 				result := decodeCodexCommandResult(row.Payload.Output)
@@ -545,6 +547,7 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		Compactions:    analysis.compactions,
 		Errors:         0, // Codex does not report exit code (may change in the future)
 		Commands:       analysis.commands.Raw(),
+		Skills:         analysis.skills.log.Entries(),
 		CommandOutputs: analysis.commands.Outputs(),
 		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
 		FileEdits:      analysis.fileEdits.Edits,
