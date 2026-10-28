@@ -1538,7 +1538,7 @@ function FilesChangedList({
   onSelectFile,
 }: {
   detail: SessionDetail;
-  onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number]) => void) | null;
+  onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number], trigger: HTMLButtonElement) => void) | null;
 }) {
   if (detail.fileEdits.length === 0) return null;
   const newFiles = detail.fileEdits.filter((fileEdit) => fileEdit.isNew).length;
@@ -1567,7 +1567,7 @@ function FilesChangedList({
                     'text-success-fg': fileEdit.isNew,
                   },
                 )}
-                onClick={() => onSelectFile(fileEdit)}
+                onClick={(event) => onSelectFile(fileEdit, event.currentTarget)}
               >
                 {fileEdit.path.split('/').pop()}
               </button>
@@ -1665,7 +1665,7 @@ function InspectorBody({
 }: {
   detail: SessionDetail;
   exactDetailsAvailable: boolean;
-  onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number]) => void) | null;
+  onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number], trigger: HTMLButtonElement) => void) | null;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
   handoff?: DirectedHandoff;
@@ -1793,6 +1793,7 @@ export function SessionInspector({
     currentWidth: number;
   } | null>(null);
   const [selectedDiffState, setSelectedDiff] = useState<FileSelection | null>(null);
+  const diffTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedDiff = filePanelOpen(selectedDiffState, detail) ? selectedDiffState : null;
   const [fileDiffRetryToken, setFileDiffRetryToken] = useState(0);
   const [modal, setModal] = useState(() =>
@@ -2014,7 +2015,8 @@ export function SessionInspector({
               onSelectFile={
                 summaryOnly
                   ? null
-                  : (fileEdit) =>
+                  : (fileEdit, trigger) => {
+                      diffTriggerRef.current = trigger;
                       setSelectedDiff({
                         sourceId: detail.sourceId,
                         agent: detail.agent,
@@ -2022,7 +2024,8 @@ export function SessionInspector({
                         revision: detail.detailRevision,
                         path: fileEdit.path,
                         changeIds: fileEdit.changeIds ?? [],
-                      })
+                      });
+                    }
               }
             />
             <InspectorFooter
@@ -2039,7 +2042,15 @@ export function SessionInspector({
           if (!open) setSelectedDiff(null);
         }}
       >
-        <SheetContent className="coslash-shell w-full! max-w-none! gap-0 sm:w-1/2!" showCloseButton={true}>
+        <SheetContent
+          className="coslash-shell w-full! max-w-none! gap-0 sm:w-1/2!"
+          showCloseButton={true}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = diffTriggerRef.current;
+            (trigger?.isConnected ? trigger : contentRef.current)?.focus();
+          }}
+        >
           {selectedDiff != null && (
             <>
               <SheetHeader className="border-b">
