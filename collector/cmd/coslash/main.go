@@ -331,31 +331,7 @@ func main() {
 		}
 		if fingerprints != nil {
 			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
-				var resume *inventory.Cursor
-				if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
-					resume = inventory.DecodeCursor(saved)
-				}
-				plan, startedAt := queue.DiscoveryPlan()
-				planVersion := int64(0)
-				if plan != nil {
-					planVersion = plan.Version
-				}
-				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume, PlanVersion: planVersion, MinActivityMs: syncv4.DiscoveryMinActivity(plan, startedAt), BatchFamilies: 64, FirstBatchFamilies: 8}) {
-					if err != nil {
-						return err
-					}
-					if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes, GrokFamilies: batch.GrokFamilies}); err != nil {
-						return err
-					}
-					encoded, err := json.Marshal(batch.Cursor)
-					if err != nil {
-						return err
-					}
-					if err := fingerprints.SaveDiscoveryCursor(encoded); err != nil {
-						return err
-					}
-				}
-				return nil
+				return discoverLocalBatches(ctx, fingerprints, queue, visit)
 			}
 		}
 		loopControl := newSyncLoopControl(func() bool {
@@ -455,11 +431,13 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 }
 
 func scanLocalInventory(ctx context.Context, options inventory.Options) (*inventory.Snapshot, error) {
-	plan, err := pi.PlanSourcesContext(ctx)
+	plan, err := localPiSourcePlan(ctx)
 	if err != nil {
 		return nil, err
 	}
-	options.Pi = plan.Scan
+	if plan != nil {
+		options.Pi = plan.Scan
+	}
 	return inventory.Scan(ctx, options)
 }
 
@@ -493,6 +471,55 @@ func runInventoryWithTicks(ctx context.Context, fingerprints *syncv4.Fingerprint
 			return true, false, false
 		}
 	}, scanComplete)
+}
+
+func localPiSourcePlan(ctx context.Context) (*pi.SourcePlan, error) {
+	if plan, ok := pi.SourcePlanFromContext(ctx); ok {
+		return plan, ctx.Err()
+	}
+	if !vendors.PiCollectionSupported() {
+		return nil, ctx.Err()
+	}
+	plan, err := pi.PlanSourcesContext(ctx)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		plan = &pi.SourcePlan{Scan: &vendors.SourceScan{SkippedTotal: 1}, Metadata: vendors.EmptySessionMetadata()}
+	}
+	return plan, nil
+}
+
+func discoverLocalBatches(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, visit func(syncv4.DiscoveryBatch) error) error {
+	sources, err := localPiSourcePlan(ctx)
+	if err != nil {
+		return err
+	}
+	var resume *inventory.Cursor
+	if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
+		resume = inventory.DecodeCursor(saved)
+	}
+	plan, startedAt := queue.DiscoveryPlan()
+	planVersion := int64(0)
+	if plan != nil {
+		planVersion = plan.Version
+	}
+	for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Pi: sources, Resume: resume, PlanVersion: planVersion, MinActivityMs: syncv4.DiscoveryMinActivity(plan, startedAt), BatchFamilies: 64, FirstBatchFamilies: 8}) {
+		if err != nil {
+			return err
+		}
+		if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes, GrokFamilies: batch.GrokFamilies, PiInputs: batch.PiInputs}); err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(batch.Cursor)
+		if err != nil {
+			return err
+		}
+		if err := fingerprints.SaveDiscoveryCursor(encoded); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, wait func(context.Context, time.Duration, time.Time) (bool, bool, bool), scanComplete chan<- struct{}) {
