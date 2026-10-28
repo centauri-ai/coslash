@@ -138,6 +138,7 @@ type discoveryPlan struct {
 	persist       func(Cursor) error
 	live          map[string]string
 	planningError error
+	minActivityMs int64
 }
 
 func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, error) {
@@ -179,7 +180,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		return total
 	}
 
-	plan := &discoveryPlan{metadata: map[string]*vendors.SessionMetadata{}, batch: opts.BatchFamilies, firstBatch: opts.FirstBatchFamilies, persist: opts.Persist}
+	plan := &discoveryPlan{metadata: map[string]*vendors.SessionMetadata{}, batch: opts.BatchFamilies, firstBatch: opts.FirstBatchFamilies, persist: opts.Persist, minActivityMs: opts.MinActivityMs}
 	if plan.batch <= 0 {
 		plan.batch = defaultBatchFamilies
 	}
@@ -204,13 +205,6 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 					continue
 				}
 				activityMs = info.ModTime().UnixMilli()
-			}
-			live := false
-			if metadata := opts.Pi.Metadata.Lookup(ref.ID); metadata != nil {
-				live = metadata.Live == "busy" || metadata.Live == "idle" || metadata.Live == "waiting"
-			}
-			if opts.MinActivityMs > 0 && activityMs < opts.MinActivityMs && !live {
-				continue
 			}
 			inputs, err := opts.Pi.SessionInputsContext(ctx, ref.ID)
 			if ctx.Err() != nil {
@@ -389,6 +383,9 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 		kept := make([]*session.Session, 0, len(sessions))
 		piIDs := map[string]bool{}
 		for _, item := range sessions {
+			if item.Agent == vendors.AgentPi && plan.minActivityMs > 0 && item.LastActivityTime < plan.minActivityMs {
+				continue
+			}
 			key := sessionKey{agent: item.Agent, id: item.ID}
 			if yielded[key] {
 				continue
