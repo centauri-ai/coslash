@@ -11,8 +11,12 @@
       "else": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup/v1"] } } }
     },
     {
-      "if": { "properties": { "source": { "properties": { "agent": { "enum": ["claude", "cursor", "opencode", "grok"] } } } } },
+      "if": { "properties": { "source": { "properties": { "agent": { "enum": ["claude", "cursor", "opencode", "grok", "pi"] } } } } },
       "then": { "properties": { "source": { "properties": { "kind": { "const": "local" } } } } }
+    },
+    {
+      "if": { "properties": { "source": { "properties": { "agent": { "const": "pi" } } } } },
+      "then": { "properties": { "members": { "maxItems": 1 } } }
     }
   ],
   "required": [
@@ -78,7 +82,7 @@
       "properties": {
         "kind": { "enum": ["local", "ssh"] },
         "sourceId": { "$ref": "#/$defs/identifier" },
-        "agent": { "enum": ["codex", "claude", "cursor", "opencode", "grok"] },
+        "agent": { "enum": ["codex", "claude", "cursor", "opencode", "grok", "pi"] },
         "sourceRevision": { "$ref": "#/$defs/identifier" }
       }
     },
@@ -149,7 +153,7 @@
           "pattern": "^(?![A-Za-z]:/)(?!/)(?!.*//)(?!.*(?:^|/)\\.(?:/|$))(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])[^/]+(?:/[^/]+)*$"
         },
         "memberId": { "$ref": "#/$defs/identifier" },
-        "source": { "enum": ["codex", "claude", "cursor", "opencode", "grok", "coslash"] },
+        "source": { "enum": ["codex", "claude", "cursor", "opencode", "grok", "pi", "coslash"] },
         "kind": {
           "enum": ["exact-change-body", "parsed-session-record", "raw-metadata-rows", "raw-sidecar", "raw-transcript", "session-enrichment", "synthesis"]
         },
