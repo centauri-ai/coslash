@@ -45,7 +45,7 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 
 func (manager *Manager) prepare(ctx context.Context, selection Selection) (*Prepared, error) {
 	if selection.Agent != vendors.AgentCodex &&
-		!((selection.Agent == vendors.AgentClaude || selection.Agent == vendors.AgentOpenCode || selection.Agent == vendors.AgentCursor || selection.Agent == vendors.AgentGrok) &&
+		!((selection.Agent == vendors.AgentClaude || selection.Agent == vendors.AgentOpenCode || selection.Agent == vendors.AgentCursor || selection.Agent == vendors.AgentGrok || selection.Agent == vendors.AgentPi) &&
 			selection.SourceKind == sessionbackupv1.SourceLocal) {
 		return problem(selection, sessionbackupv1.ProblemUnsupported, "", false)
 	}
@@ -99,7 +99,9 @@ func (manager *Manager) prepare(ctx context.Context, selection Selection) (*Prep
 		defer handle.Close()
 	}
 	var prepared *Prepared
-	if selection.Agent == vendors.AgentGrok {
+	if selection.Agent == vendors.AgentPi {
+		prepared, err = manager.capturePi(ctx, staging, selection, handle)
+	} else if selection.Agent == vendors.AgentGrok {
 		prepared, err = manager.captureGrok(ctx, staging, selection, handle)
 	} else if selection.Agent == vendors.AgentCursor {
 		prepared, err = manager.captureCursor(ctx, staging, selection, handle)

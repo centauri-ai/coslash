@@ -1,5 +1,5 @@
-// Package sessionbackupproducer freezes complete Codex and local Claude session
-// families into retryable session-backup/v1 spools.
+// Package sessionbackupproducer freezes supported session families into
+// verified, retryable session-backup/v1 spools.
 package sessionbackupproducer
 
 import (

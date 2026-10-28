@@ -2,7 +2,7 @@
 
 `sessionbackupproducer` is the local owner of complete `session-backup/v1`
 capture. It supports local and SSH Codex plus local Claude, local OpenCode,
-local Cursor IDE/CLI, and local Grok sources. Claude SSH, OpenCode SSH, and Cursor SSH
+local Cursor IDE/CLI, local Grok, and local Pi sources. Claude SSH, OpenCode SSH, and Cursor SSH
 return the product-visible
 `complete_backup_unsupported` blocker and never produce a metadata-only bundle.
 
@@ -83,13 +83,36 @@ Missing required, malformed
 present, ambiguous or changing family inputs block publication. Parsing uses
 only the private frozen tree, without active-session metadata or process probes.
 Usage without a model breakdown remains unattributed, and partial or missing
-cost remains unknown. Grok SSH and Pi complete capture remain unsupported.
+cost remains unknown. Grok SSH remains unsupported.
 The queue reuses this producer's input enumeration for bounded source hashes,
 including all recursive members and optional input presence. Discovery activity
 and canonical root revision do not substitute for this family source revision.
 The revision hook returns ordinary failures per family. Cancellation and deadline
 errors stop the scan and retain their context error identity. Exported revision
 errors use the same preparation classification as capture, including size limits.
+
+Pi capture selects one unique header ID from the configured local roots.
+It retains exact root JSONL and up to 256 ancestor transcripts as private evidence.
+Every artifact belongs to the selected root. Fork ancestry never creates
+additional members or subagent parents. Parsing reads only the frozen copies.
+Stable partial tails and unavailable ancestry preserve useful detail with
+incomplete-detail status and truthful accounting. Invalid root data blocks capture.
+
+`PiSourceRevision(ctx, inputs)` accepts `pi.SessionInputs` from one planning
+snapshot. It uses the same bounded temporary copies, parser, and normalization
+as capture. Both source and member revisions hash indexed file lengths and
+SHA-256 values, effective leaf selection, and the portable record revision.
+Portable composition uses the fixed internal source ID `pi-source-revision`.
+This includes ancestry verification, context, accounting, and observed Skills.
+Runtime modality, PID, heartbeat, and original evidence paths remain excluded
+from curated records. Paths recorded inside native bytes remain private evidence.
+
+Before publication, capture obtains fresh discovery and runtime evidence.
+It checks input identity and presence, file identity, and actual byte hashes.
+It then projects the frozen copies against the new effective selection.
+This detects leaf-only changes and same-size edits with restored timestamps.
+The queue must compare its source revision with the prepared manifest before upload.
+V4 transfers only parsed records. Pi SSH remains unsupported.
 
 Focused verification is:
 
