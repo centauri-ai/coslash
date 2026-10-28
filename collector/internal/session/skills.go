@@ -1,6 +1,8 @@
 package session
 
 import (
+	"crypto/sha256"
+	"fmt"
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"path"
 	"strings"
@@ -21,7 +23,7 @@ func (log *SkillLog) Note(name, content string) {
 	}
 	content = withoutNUL(strings.ToValidUTF8(content, "\uFFFD"))
 	if len(content) > fullsessionv1.MaxStringBytes {
-		const marker = "\n[Skill content truncated]"
+		marker := fmt.Sprintf("\n[Skill content truncated; sha256=%x]", sha256.Sum256([]byte(content)))
 		end := fullsessionv1.MaxStringBytes - len(marker)
 		for !utf8.RuneStart(content[end]) {
 			end--

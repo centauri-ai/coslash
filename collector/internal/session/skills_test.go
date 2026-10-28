@@ -38,7 +38,19 @@ func TestSkillLogBoundsUntrustedContentWithoutBreakingUTF8(t *testing.T) {
 	var log SkillLog
 	log.Note("review", strings.Repeat("界", fullsessionv1.MaxStringBytes)+"\x00")
 	got := log.Entries()[0].Content
-	if len(got) > fullsessionv1.MaxStringBytes || !utf8.ValidString(got) || strings.ContainsRune(got, 0) || !strings.HasSuffix(got, "[Skill content truncated]") {
+	if len(got) > fullsessionv1.MaxStringBytes || !utf8.ValidString(got) || strings.ContainsRune(got, 0) || !strings.Contains(got, "[Skill content truncated; sha256=") {
 		t.Fatalf("invalid bounded content: %d bytes", len(got))
+	}
+}
+
+func TestDistinctOversizedSkillsRemainDistinctAfterMerging(t *testing.T) {
+	var log SkillLog
+	prefix := strings.Repeat("x", fullsessionv1.MaxStringBytes)
+	log.Note("review", prefix+"first")
+	log.Note("review", prefix+"second")
+	log.Note("review", prefix+"first")
+	got := MergeSkills(log.Entries())
+	if len(got) != 2 || got[0].Content == got[1].Content {
+		t.Fatalf("lost captured versions: %d", len(got))
 	}
 }
