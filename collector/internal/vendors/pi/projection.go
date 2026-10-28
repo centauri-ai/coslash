@@ -277,17 +277,22 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				}
 			}
 		}
-		if p.Message.Role == "toolResult" {
-			if command := toolCommands[nearestAssistant[e.ID]+"\x00"+p.Message.ToolCallID]; command != "" {
-				s.CommitLog = append(s.CommitLog, session.ParseCommitObservations(command, contentText(p.Message.Content), !p.Message.IsError)...)
+		if p.Message.Role == "toolResult" && p.Message.ToolCallID != "" {
+			callID := nearestAssistant[e.ID] + "\x00" + p.Message.ToolCallID
+			output := contentText(p.Message.Content)
+			if len(p.Message.Content) > 0 && string(p.Message.Content) != "null" {
+				commands.AttachOutput(callID, session.TruncateOutput(output))
+			}
+			if command := toolCommands[callID]; command != "" {
+				s.CommitLog = append(s.CommitLog, session.ParseCommitObservations(command, output, !p.Message.IsError)...)
 				if !p.Message.IsError && session.IsPullRequestCreate(command) {
-					for _, url := range session.CreatedPullRequestURLs(false, contentText(p.Message.Content)) {
+					for _, url := range session.CreatedPullRequestURLs(false, output) {
 						pullRequests[url] = struct{}{}
 					}
 				}
 			}
-			if !p.Message.IsError && pullRequestTools[nearestAssistant[e.ID]+"\x00"+p.Message.ToolCallID] {
-				for _, url := range session.CreatedPullRequestURLs(true, contentText(p.Message.Content)) {
+			if !p.Message.IsError && pullRequestTools[callID] {
+				for _, url := range session.CreatedPullRequestURLs(true, output) {
 					pullRequests[url] = struct{}{}
 				}
 			}
@@ -318,7 +323,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				pullRequestTools[e.ID+"\x00"+b.ID] = true
 			}
 			if b.Arguments.Command != "" {
-				commands.Note(b.Arguments.Command, "")
+				commands.NoteCall(e.ID+"\x00"+b.ID, b.Arguments.Command, "")
 				toolCommands[e.ID+"\x00"+b.ID] = b.Arguments.Command
 			}
 			a := b.Arguments
@@ -358,6 +363,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 	}
 	s.TokensKnown = !s.TokensUnavailable
 	s.Commands, s.FileEdits, s.EditedFileCount = commands.Raw(), edits.Edits, len(edits.Edits)
+	s.CommandOutputs = commands.Outputs()
 	s.SetPullRequestLinks(session.NewPullRequestLinks(pullRequests))
 	result.Commands = commands.Labelled()
 	if s.StartedAt > 0 && s.LastActivityTime >= s.StartedAt {

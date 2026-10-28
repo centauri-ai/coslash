@@ -19,7 +19,7 @@ import (
 func projectionFixture(t *testing.T, name, parent string, rows ...string) *transcript {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name+".jsonl")
-	h, _ := json.Marshal(header{Type: "session", Version: 3, ID: name, CWD: "/tmp", Timestamp: "2026-01-01T00:00:00Z", ParentSession: parent})
+	h, _ := json.Marshal(header{Type: "session", Version: 3, ID: name, CWD: filepath.Dir(path), Timestamp: "2026-01-01T00:00:00Z", ParentSession: parent})
 	if err := os.WriteFile(path, []byte(string(h)+"\n"+strings.Join(rows, "\n")+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
