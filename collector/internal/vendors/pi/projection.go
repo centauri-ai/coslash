@@ -189,7 +189,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		if e.ParentID != nil {
 			nearestAssistant[e.ID] = nearestAssistant[*e.ParentID]
 		}
-		if p.Message.Role == "assistant" {
+		if e.Type == "message" && p.Message.Role == "assistant" {
 			nearestAssistant[e.ID] = e.ID
 		}
 		if p.Message.Role == "toolResult" && !p.Message.IsError && p.Message.ToolCallID != "" && nearestAssistant[e.ID] != "" {
@@ -300,7 +300,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			if decoded {
 				commands.AttachOutput(callID, session.TruncateOutput(output))
 			}
-			if name := skillReads[callID]; name != "" && p.valid && decoded && !p.Message.IsError {
+			if name := skillReads[callID]; name != "" && e.Type == "message" && p.valid && decoded && !p.Message.IsError {
 				skills.Note(name, output)
 			}
 			if command := toolCommands[callID]; command != "" {
@@ -334,6 +334,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				}
 			}
 		}
+		seenCallIDs := map[string]bool{}
 		for _, b := range blocks {
 			if b.Type != "toolCall" {
 				continue
@@ -347,10 +348,16 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				toolCommands[e.ID+"\x00"+b.ID] = b.Arguments.Command
 			}
 			a := b.Arguments
-			if p.valid && blocksValid && p.Message.Role == "assistant" && b.Name == "read" {
-				if skill, ok := session.SkillFromPath(a.Path, ""); ok {
-					skillReads[e.ID+"\x00"+b.ID] = skill.Name
+			if e.Type == "message" && p.valid && blocksValid && p.Message.Role == "assistant" {
+				callID := e.ID + "\x00" + b.ID
+				if seenCallIDs[b.ID] {
+					delete(skillReads, callID)
+				} else if b.ID != "" && b.Name == "read" {
+					if skill, ok := session.SkillFromPath(a.Path, ""); ok {
+						skillReads[callID] = skill.Name
+					}
 				}
+				seenCallIDs[b.ID] = true
 			}
 			if a.Path != "" && (b.Name == "write" || b.Name == "edit") && (b.Status == "ok" || completedTools[e.ID+"\x00"+b.ID]) {
 				if b.Name == "write" {
