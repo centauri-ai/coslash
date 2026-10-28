@@ -44,7 +44,7 @@ coSlash restricts storage to the current account (`0700`/`0600` modes on
 macOS and a protected current-user ACL on Windows). Programs running as that
 same account can still read it.
 
-The managed Pi extension is installed under `PI_CODING_AGENT_DIR/extensions` (default `~/.pi/agent/extensions`). Installation preserves settings and other extensions and refuses unmanaged replacement. Restart Pi to activate updates. Removing its runtime/history directories removes retained evidence; removing the managed extension disables reliable Pi live status. Transcript paths remain backend-only and are excluded from public session JSON. Pi portable sharing is unavailable until the formats can represent its branch context and accounting.
+The managed Pi extension is installed under `PI_CODING_AGENT_DIR/extensions` (default `~/.pi/agent/extensions`). Installation preserves settings and other extensions and refuses unmanaged replacement. Restart Pi to activate updates. Removing its runtime/history directories removes retained evidence; removing the managed extension disables reliable Pi live status. Transcript paths remain backend-only and are excluded from public session JSON. Personal V4 sync includes Pi branch context and accounting. Legacy snapshot exports and SSH collection still exclude Pi.
 
 ## Optional SSH/SFTP access and helper installation
 
@@ -165,6 +165,12 @@ OpenCode, Cursor, Grok, and Pi sessions under the Hub policy and Local settings.
 Eligible activity can upload without a separate preview or approval for each
 session. Sync starts by default after pairing or startup with a stored
 credential, but uploads require a compatible Hub import plan.
+Pi uploads contain one parsed session record per native session. Fork ancestors
+remain private capture evidence. Missing or unverifiable ancestry leaves
+accounting unavailable; it does not turn inherited usage into new spending.
+Runtime process IDs, heartbeat records, and transcript evidence paths remain
+local. A verified selected branch can change the uploaded record even when
+the transcript itself has not changed.
 The first check-in advertises sync capabilities and reports the
 normalized Local version, install channel, operating system, and content-free
 queue state. A new owner's default Hub policy (version 0) is enough to start.

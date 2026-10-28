@@ -200,15 +200,16 @@ as a new store, losing earlier history without an unavailable response.
 
 ## Pi and Grok support addendum - 2026-10-07
 
-Pi session discovery is supported on macOS and Windows only; Linux Pi sessions,
-runtime integration, synthesis, and launch actions are unsupported. Pi CLI
-reviews work on both supported platforms. Grok Build session discovery works on
+Pi session discovery, runtime integration, and personal V4 sync are supported
+on macOS, Windows, and Linux. Pi synthesis, launch actions, and CLI reviews
+are supported on macOS and Windows. Grok Build session discovery works on
 all platforms, but Grok synthesis, reviews, and handoffs into Grok are supported
 only on macOS and Windows. coSlash reads both transcript stores without
 modifying them. On supported platforms, both agents support resume, handoff and
 review destinations, their local synthesis backends (`pi-cli` and `grok-cli`),
 and the coSlash agent skills. SSH collection does not include either agent, and
-Pi snapshot and full-session exports are unavailable.
+Pi legacy snapshot exports remain unavailable. Its parsed full-session records
+preserve branch context and nullable accounting for personal V4 sync.
 
 Pi reads transcript schema 3 and needs a managed extension, which coSlash
 installs on startup, for live status. Pi costs are pricing estimates, and
