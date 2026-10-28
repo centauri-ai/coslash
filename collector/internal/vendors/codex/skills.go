@@ -12,6 +12,31 @@ var skillOutputPattern = regexp.MustCompile(`(?s)^(?:Chunk ID: [^\n]*\n)?Wall ti
 
 var skillReadPattern = regexp.MustCompile(`^(?:rtk (?:proxy )?)?(?:cat(?: --)?|sed -n (?:'[0-9]+(?:,[0-9]+)?p'|"[0-9]+(?:,[0-9]+)?p"|[0-9]+(?:,[0-9]+)?p))\s+("[^"$\x60]*"|'[^']*'|[^\s'"$\x60;|&<>()]+)\s*$`)
 
+// Only direct, sequential emissions prove which read produced each result.
+var skillScriptCallPattern = regexp.MustCompile(`^text\(\s*await\s+tools\.exec_command\(\s*\{\s*(?:cmd|"cmd")\s*:\s*("(?:[^"\\]|\\.)*")` +
+	`(?:\s*,\s*(?:"?(?:workdir|max_output_tokens|yield_time_ms|login|tty)"?)\s*:\s*(?:"(?:[^"\\]|\\.)*"|[0-9]+|true|false))*\s*,?\s*\}\s*\)\s*\)\s*;?`)
+
+func skillScriptCommands(script string) []string {
+	script = strings.TrimSpace(script)
+	if strings.HasPrefix(script, "// @exec:") {
+		_, script, _ = strings.Cut(script, "\n")
+	}
+	var commands []string
+	for script = strings.TrimSpace(script); script != ""; script = strings.TrimSpace(script) {
+		match := skillScriptCallPattern.FindStringSubmatch(script)
+		if len(match) == 0 {
+			return nil
+		}
+		var command string
+		if json.Unmarshal([]byte(match[1]), &command) != nil {
+			return nil
+		}
+		commands = append(commands, command)
+		script = script[len(match[0]):]
+	}
+	return commands
+}
+
 type codexSkills struct {
 	log     session.SkillLog
 	pending map[string]codexPayload
@@ -101,8 +126,8 @@ func (skills *codexSkills) note(payload codexPayload) {
 			}
 			return
 		}
-		// Pair only captured exec results, never the script's completion status.
-		commands := commandsFrom(call)
+		// General scripts can emit results in a different order than calls.
+		commands := skillScriptCommands(payloadText(call))
 		results := decodeCodexCommandResults(payload.Output)
 		if len(commands) != len(results) {
 			return
