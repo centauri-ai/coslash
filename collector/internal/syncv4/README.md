@@ -6,8 +6,8 @@ integration SHA `b39c4e942c9f1c8ed9bc78cc835c773c630f7685`.
 The additive Local check-in and command consumer is `local-device-v4/1`, pinned
 to server `device-v4/2` at `e52bf98faa2b584a4ff0947358d1d7a84f2206cc`.
 
-The scheduler discovers local Codex, Claude, OpenCode, Cursor IDE/CLI, and Grok
-families. Pi remains local and ineligible for sync. A source exporter may join
+The scheduler discovers local Codex, Claude, OpenCode, Cursor IDE/CLI, Grok,
+and Pi families. A source exporter may join
 this queue only after it produces a complete, verified family through `sessionbackupproducer`; parsed cards alone
 are ineligible. SSH relay discovery and the remaining vendor exporters have
 separate owners. A Cursor card without an unambiguous IDE or CLI entrypoint is
@@ -47,12 +47,29 @@ its prior failure outcome and wakes discovery before the command can settle.
 If the source cannot be rediscovered within the active window, the retry fails
 with `unreadable_source` and retains the last verified capture.
 Existing failure codes and logs report the blocked source. No empty source hash admits a root.
-Grok metadata sums all five counters with checked integer addition. An
+Pi discovery and queued-source verification share one source plan and runtime
+snapshot per refresh. Discovery passes its `pi.SessionInputs` unchanged to
+`sessionbackupproducer.PiSourceRevision`; the queue does not duplicate the
+producer's frozen-byte and effective-selection revision algorithm. Eligibility,
+import-window and session-cap checks precede that expensive work. Recorded Pi
+activity, rather than file mtime, decides the import window. Pi bypasses the
+mtime parse cache and discovery cursor shortcut because a selected leaf can
+change without transcript writes. Heartbeats and runtime modality do not
+change the source revision. Previously imported live-only rows remain eligible
+for selection-only revisions, including when an agreeing owner ends.
+Before resuming a queued Pi capture on a discovery refresh, Local verifies its
+current source. Failure blocks listing and transfer while retaining the last
+verified capture. Preparation must match the queued source revision before
+upload. Each native Pi session is an independent root; ancestor transcripts
+remain local evidence. Stable incomplete tails and unverifiable provenance can
+produce useful records with incomplete detail or unavailable accounting;
+malformed or unstable inputs retain the last good capture.
+Grok and Pi metadata sum all five counters with checked integer addition. An
 unrepresentable total uses the compatible Hub's existing zero sentinel for
 unavailable metadata. Individual canonical counters and upload eligibility stay
 unchanged. Accepted parsed content remains authoritative for known zero.
-Grok inventory and uploads require a Hub that accepts Grok and its optional
-unattributed accounting. Deploy compatible check-in validation and readers before
+Grok and Pi inventory and uploads require a Hub that accepts their agent values
+and optional unattributed accounting. Deploy compatible check-in validation and readers before
 selecting this Local build.
 Without the Hub's `scale-import/v1` capability, recent families (activity in the newest 72 hours) are ordered first. Their
 metadata creates run before their bytes. Older families drain newest first
@@ -165,7 +182,7 @@ continues with other queued sessions.
 Leave-outs are checked locally and at Hub create/finalize. Raw paths and
 transcript text never enter sync logs.
 
-Local discovery reads every local source through the parse cache
+Local discovery reads cache-compatible local sources through the parse cache
 (`fingerprints/v1`, `internal/syncv4/fingerprints.go`): one private file per
 transcript, Cursor session or OpenCode family under
 `$COSLASH_HOME/fingerprints/v1/<agent>/`, keyed by the source identity, its
@@ -183,8 +200,11 @@ capability in its request. `COSLASH_SCALE_IMPORT=0` turns the cache, the
 inventory and the capability off and restores full-parse discovery. Streamed
 discovery (`inventory.Discover`) yields whole families newest first in
 batches and persists a cursor (`discovery-cursor.json`) after each batch so a
-restart resumes below it and revisits only families that changed since the
-pass began.
+restart resumes below it and revisits families that changed since the
+pass began. Pi always revisits its planned sources. Before stat-only inventory,
+startup resolves Pi settings, runtime roots, project roots, and header identities
+through Pi's existing planner. Inventory only stats the resulting selected paths;
+it does not read session contents or run a second discovery scanner.
 OpenCode inventory stats the configured database path, including `OPENCODE_DB`
 overrides and the standard XDG path when no override is set. A custom path
 discoverable only by invoking the OpenCode CLI is omitted because that lookup

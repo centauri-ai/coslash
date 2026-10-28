@@ -30,7 +30,7 @@ func (h *legacyUploadHub) V4Abort(_ context.Context, uploadID string) error {
 }
 
 func TestCuratedArtifactsSelectsOnlyParsedRecordsForSupportedAgents(t *testing.T) {
-	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "grok"} {
+	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "grok", "pi"} {
 		t.Run(agent, func(t *testing.T) {
 			prepared := &sessionbackupproducer.Prepared{Manifest: sessionbackupv1.Manifest{
 				Source:  sessionbackupv1.SourceIdentity{Agent: agent},

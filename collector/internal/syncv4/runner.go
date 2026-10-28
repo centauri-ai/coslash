@@ -27,6 +27,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
@@ -177,6 +178,7 @@ type DiscoveryBatch struct {
 	Sessions     []*session.Session
 	ContentBytes map[string]int64 // keyed by agent + "\x00" + session ID
 	GrokFamilies []grok.FamilyRef // verified planning context, unchanged across batching
+	PiInputs     []pi.SessionInputs
 }
 
 func (r *Runner) now() time.Time {
@@ -240,8 +242,23 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		refreshSources := discoveryRequest != r.completedDiscovery || planVersion != r.discoveredPlan || r.lastDiscoveryAt.IsZero() || r.now().Sub(r.lastDiscoveryAt) >= 5*time.Minute
 		var verifiedGrok map[string]string
 		var failedGrok map[string]error
+		verifiedPi := map[string]string{}
+		var piPlan *pi.SourcePlan
 		if refreshSources {
 			var err error
+			piPlan, err = planPiSources(ctx, r.Queue)
+			if err != nil {
+				return err
+			}
+			if piPlan != nil {
+				ctx = pi.WithSourcePlan(ctx, piPlan)
+			}
+			if err := r.syncPiSources(ctx, piPlan, nil, verifiedPi, nil); err != nil {
+				if stopSync(err) {
+					return err
+				}
+				sourceErr = errors.Join(sourceErr, err)
+			}
 			verifiedGrok, failedGrok, err = r.grokSourceRevisions(ctx, nil)
 			if err != nil {
 				return err
@@ -290,20 +307,40 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			if err := r.reconcileGrokSources(grokRevisions, failures); err != nil {
 				return err
 			}
-			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, grokRevisions)
-			for i := range entries {
-				entries[i].ContentBytes = batch.ContentBytes[entries[i].Selection.Agent+"\x00"+entries[i].Selection.SessionID]
-			}
-			if r.config.ImportPlan == nil {
-				if err := r.Queue.Merge(entries, r.now()); err != nil {
-					return err
+			merge := func(entries []Entry) error {
+				if len(entries) == 0 {
+					return nil
 				}
-			} else {
+				for i := range entries {
+					entries[i].ContentBytes = batch.ContentBytes[entries[i].Selection.Agent+"\x00"+entries[i].Selection.SessionID]
+				}
+				if r.config.ImportPlan == nil {
+					return r.Queue.Merge(entries, r.now())
+				}
 				count, err := r.Queue.MergePlannedDiscovery(entries, r.now(), *r.config.ImportPlan, r.activeSince)
 				if err != nil {
 					return err
 				}
 				unlistedSince += count
+				return nil
+			}
+			if err := merge(discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, grokRevisions, nil)); err != nil {
+				return err
+			}
+			if err := r.syncPiSources(ctx, piPlan, piDiscoveryEntries(batch.Sessions, r.Queue.InstallID()), verifiedPi, batch.PiInputs); err != nil {
+				if stopSync(err) {
+					return err
+				}
+				sourceErr = errors.Join(sourceErr, err)
+			}
+			var piEntries []Entry
+			for _, entry := range discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, nil, verifiedPi) {
+				if entry.Selection.Agent == vendors.AgentPi {
+					piEntries = append(piEntries, entry)
+				}
+			}
+			if err := merge(piEntries); err != nil {
+				return err
 			}
 			if err := r.releaseParked(); err != nil {
 				return err
@@ -342,9 +379,22 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.scaleEnabled && r.config.ImportPlan == nil {
 		return r.runPlannedAndReport(ctx)
 	}
+	piPlan, err := planPiSources(ctx, r.Queue)
+	if err != nil {
+		return err
+	}
+	if piPlan != nil {
+		ctx = pi.WithSourcePlan(ctx, piPlan)
+	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {
 		return err
+	}
+	if piPlan == nil && len(piDiscoveryEntries(sessions, r.Queue.InstallID())) > 0 {
+		piPlan, err = pi.PlanSourcesContext(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	var claudeRevisions map[string]string
 	for _, item := range sessions {
@@ -371,7 +421,14 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	for _, err := range failures {
 		sourceErr = errors.Join(sourceErr, err)
 	}
-	discovered := discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions, revisions)
+	verifiedPi := map[string]string{}
+	if err := r.syncPiSources(ctx, piPlan, piDiscoveryEntries(sessions, r.Queue.InstallID()), verifiedPi, nil); err != nil {
+		if stopSync(err) {
+			return err
+		}
+		sourceErr = errors.Join(sourceErr, err)
+	}
+	discovered := discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions, revisions, verifiedPi)
 	if plan := r.config.ImportPlan; plan != nil {
 		if _, err := r.Queue.MergePlannedDiscovery(discovered, r.now(), *plan, r.activeSince); err != nil {
 			return err
@@ -560,15 +617,18 @@ func (r *Runner) reconcileGrokSources(revisions map[string]string, failures map[
 // discoveredEntries selects root sessions of the synced local agents. Child
 // sessions travel inside their root's family bundle. Source revisions also
 // cover family inputs whose changes the root detail revision does not see.
-func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions, grokRevisions map[string]string) []Entry {
+func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions, grokRevisions, piRevisions map[string]string) []Entry {
 	found := make([]Entry, 0, len(sessions))
 	for _, item := range sessions {
-		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode" && item.Agent != "cursor" && item.Agent != "grok") ||
+		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode" && item.Agent != "cursor" && item.Agent != "grok" && item.Agent != "pi") ||
 			item.ID == "" {
 			continue
 		}
 		_, grokRoot := grokRevisions[item.ID]
 		if item.Agent == "grok" && !grokRoot {
+			continue
+		}
+		if item.Agent == vendors.AgentPi && (piRevisions[item.ID] == "" || !vendors.PiCollectionSupported()) {
 			continue
 		}
 		if item.ParentSessionID != "" && item.Agent != "grok" {
@@ -584,6 +644,9 @@ func discoveredEntries(sessions []*session.Session, installID string, claudeRevi
 		}
 		if item.Agent == "grok" {
 			revision += ":" + grokRevisions[item.ID]
+		}
+		if item.Agent == vendors.AgentPi {
+			revision = piRevisions[item.ID]
 		}
 		live := false
 		if item.Status != nil {
@@ -616,6 +679,8 @@ func agentLabel(agent string) string {
 		return "OpenCode"
 	case "grok":
 		return "Grok"
+	case "pi":
+		return "Pi"
 	default:
 		return "Codex"
 	}
@@ -803,8 +868,8 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 		t := time.UnixMilli(item.LastActivityTime).UTC()
 		meta.EndedAt = &t
 	}
-	if item.Agent == "grok" {
-		meta.Tokens = grokMetadataTokens(item)
+	if item.Agent == "grok" || item.Agent == "pi" {
+		meta.Tokens = metadataTokens(item)
 	} else {
 		for _, tokens := range item.Tokens {
 			meta.Tokens += int64(tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationInputTokens + tokens.CacheCreation1hInputTokens + tokens.CacheReadInputTokens)
@@ -826,8 +891,8 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 	return meta
 }
 
-// Zero is the Hub's unavailable sentinel before Grok content is parsed.
-func grokMetadataTokens(item *session.Session) int64 {
+// Zero is the Hub's metadata sentinel for unavailable or unrepresentable totals.
+func metadataTokens(item *session.Session) int64 {
 	if item.TokensUnavailable {
 		return 0
 	}
@@ -1292,6 +1357,10 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 	prepared, err := r.Backup.Open(entry.BundleID)
 	if err != nil {
 		return err
+	}
+	if entry.Selection.Agent == vendors.AgentPi && prepared.Manifest.Source.SourceRevision != entry.SourceRevision {
+		r.RequestDiscovery()
+		return piSourceProblem(entry.Selection.SessionID, sessionbackupv1.ProblemUnstable)
 	}
 	manifest := entry.Manifest
 	artifacts := curatedArtifacts(prepared)

@@ -21,6 +21,7 @@ type SourcePlan struct {
 	headers    map[string]header
 	identities map[string][]string
 	leaves     map[string]*string
+	runtime    *RuntimeSnapshot
 }
 
 // SessionInputs separates one visible session from its private fork evidence.
@@ -49,7 +50,7 @@ func PlanSourcesContext(ctx context.Context) (*SourcePlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	plan := &SourcePlan{Scan: scan, headers: headers, identities: map[string][]string{}, leaves: map[string]*string{}}
+	plan := &SourcePlan{Scan: scan, headers: headers, identities: map[string][]string{}, leaves: map[string]*string{}, runtime: snapshot}
 	plan.Metadata = vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
 	for path, h := range headers {
 		plan.identities[h.ID] = append(plan.identities[h.ID], path)
