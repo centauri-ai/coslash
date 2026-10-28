@@ -15,10 +15,21 @@ backup.
 ## Producer and artifact inventory
 
 Complete backup v1 supports local Codex, SSH Codex, local Claude, local
-OpenCode, local Cursor IDE/CLI, and local Grok. Claude SSH, OpenCode SSH, and Cursor SSH
-and Grok SSH must surface the blocking code
+OpenCode, local Cursor IDE/CLI, local Grok, and local Pi. Claude SSH, OpenCode SSH,
+Cursor SSH, Grok SSH, and Pi SSH must surface the blocking code
 `complete_backup_unsupported`; they must not fall back to a metadata-only
 success. The table below specifies the Codex inputs.
+
+Local Pi represents exactly one independently visible header-ID root. Its exact
+JSONL and up to 256 fork ancestors are private `raw-transcript` artifacts owned
+by that root. Ancestors never become members or subagent parents. The root has
+one parsed record and enrichment, plus exact changes and revision-matched
+synthesis when present. Stable incomplete tails and unavailable ancestry retain
+useful detail with `detailsIncomplete` and truthful nullable accounting. Invalid
+root data or changing bytes, identity, inputs, or effective context selection
+block publication. Runtime registry files, process identity, heartbeat and
+original evidence paths never enter curated records. V4 selects only parsed
+records; raw evidence stays in the private Local spool.
 
 The [local source and transport proof matrix](local-source-transport-proof-v1.md)
 records per-source evidence, build gaps, and the v4 compatibility boundary.

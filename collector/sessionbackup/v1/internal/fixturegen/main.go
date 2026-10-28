@@ -55,6 +55,9 @@ func main() {
 	writeBundle(filepath.Join(root, "valid", "family"), manifest, blobs, "")
 
 	entries := []fixtureEntry{{Path: "valid/family", Valid: true}}
+	piManifest, piBlobs := piFixture()
+	writeBundle(filepath.Join(root, "valid", "pi"), piManifest, piBlobs, "")
+	entries = append(entries, fixtureEntry{Path: "valid/pi", Valid: true})
 	invalid := []struct {
 		name   string
 		reason string
@@ -130,6 +133,57 @@ func main() {
 		panic(err)
 	}
 	write(filepath.Join(root, "index.json"), data)
+}
+
+func piFixture() (sessionbackupv1.Manifest, map[string][]byte) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "fullsession", "v1", "testdata", "fixtures", "valid", "pi.json"))
+	if err != nil {
+		panic(err)
+	}
+	record, err := fullsessionv1.Decode(data)
+	if err != nil {
+		panic(err)
+	}
+	record.Session.FileEdits, record.Session.Synthesis = nil, nil
+	record.Session.EditedFileCount = 0
+	record, err = fullsessionv1.Freeze(record)
+	if err != nil {
+		panic(err)
+	}
+	data, err = fullsessionv1.Marshal(record)
+	if err != nil {
+		panic(err)
+	}
+	prefix := "members/" + record.SessionID
+	raw, ancestor := prefix+"/raw/transcript-000000.jsonl", prefix+"/raw/transcript-000001.jsonl"
+	parsed, enrichment := prefix+"/processed/full-session-record.json", prefix+"/processed/enrichment.json"
+	enrichmentBytes, err := sessionbackupv1.MarshalEnrichment(sessionbackupv1.Enrichment{})
+	if err != nil {
+		panic(err)
+	}
+	blobs := map[string][]byte{
+		raw:      []byte("{\"type\":\"session\",\"id\":\"pi-fork\"}\n"),
+		ancestor: []byte("{\"type\":\"session\",\"id\":\"private-ancestor\"}\n"),
+		parsed:   data, enrichment: enrichmentBytes,
+	}
+	manifest, err := sessionbackupv1.Freeze(sessionbackupv1.Manifest{
+		RequiredVersions: []string{sessionbackupv1.ParsedRecordVersion, sessionbackupv1.SchemaVersion},
+		Source:           sessionbackupv1.SourceIdentity{Kind: sessionbackupv1.SourceLocal, SourceID: record.SourceID, Agent: "pi", SourceRevision: "source-revision"},
+		Repository:       sessionbackupv1.RepositoryIdentity{VCS: sessionbackupv1.RepositoryVCSNone},
+		Producer:         sessionbackupv1.ProducerIdentity{Name: "coslash", Version: "fixture", ParserVersion: "fixture"},
+		Family:           sessionbackupv1.FamilyIdentity{FamilyID: record.SessionID, RootMemberID: record.SessionID},
+		Members:          []sessionbackupv1.Member{{MemberID: record.SessionID, SourceRevision: "source-revision"}},
+		Artifacts: []sessionbackupv1.Artifact{
+			artifact(raw, record.SessionID, "pi", sessionbackupv1.KindRawTranscript, "transcript-000000", "application/x-ndjson"),
+			artifact(ancestor, record.SessionID, "pi", sessionbackupv1.KindRawTranscript, "transcript-000001", "application/x-ndjson"),
+			artifact(parsed, record.SessionID, "coslash", sessionbackupv1.KindParsedSessionRecord, record.RevisionID, "application/json"),
+			artifact(enrichment, record.SessionID, "coslash", sessionbackupv1.KindSessionEnrichment, "session-overlay", "application/json"),
+		},
+	}, blobs)
+	if err != nil {
+		panic(err)
+	}
+	return manifest, blobs
 }
 
 func validFixture() (sessionbackupv1.Manifest, map[string][]byte) {
