@@ -14,16 +14,17 @@ import (
 func TestFreezeDoesNotMutateOrAliasInput(t *testing.T) {
 	name, model := "original name", "original model"
 	duration, turn := 10, 2
+	cost := int64(7)
 	record := Record{
 		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
 		Session: Session{
 			Name: &name, EditedFileCount: 1, StartedAtMs: 1, LastActivityAtMs: 2,
-			Usage: []ModelUsage{}, Commands: []string{"original command"},
+			Usage: []ModelUsage{{Model: "root-model", CostMicroUSD: &cost}}, Commands: []string{"original command"},
 			Subagents: []Subagent{{
 				ID: "child-1", Name: "child", Model: &model, Status: "returned",
 				DurationMs: &duration, SpawnedAtTurn: &turn,
 				Commands: []SubagentCommand{{Label: "check", Command: "go test ./..."}},
-				Usage:    []ModelUsage{},
+				Usage:    []ModelUsage{{Model: "child-model", CostMicroUSD: &cost}},
 			}},
 			FileEdits: []FileEdit{{
 				Path: "main.go", Edits: 1,
@@ -44,6 +45,7 @@ func TestFreezeDoesNotMutateOrAliasInput(t *testing.T) {
 	}
 
 	*record.Session.Name = "changed name"
+	cost = 8
 	record.Session.Commands[0] = "changed command"
 	*record.Session.Subagents[0].Model = "changed model"
 	record.Session.Subagents[0].Commands[0].Command = "changed subagent command"
@@ -51,7 +53,7 @@ func TestFreezeDoesNotMutateOrAliasInput(t *testing.T) {
 	record.Session.Synthesis.Goals[0] = "changed goal"
 
 	if *frozen.Session.Name != "original name" || frozen.Session.Commands[0] != "original command" ||
-		*frozen.Session.Subagents[0].Model != "original model" ||
+		*frozen.Session.Subagents[0].Model != "original model" || *frozen.Session.Usage[0].CostMicroUSD != 7 || *frozen.Session.Subagents[0].Usage[0].CostMicroUSD != 7 ||
 		frozen.Session.Subagents[0].Commands[0].Command != "go test ./..." ||
 		frozen.Session.FileEdits[0].Changes[0].Text != "original body" ||
 		frozen.Session.Synthesis.Goals[0] != "original goal" {
@@ -184,10 +186,11 @@ func TestFreezeRejectsUnsortedSubagentUsage(t *testing.T) {
 }
 
 func TestFreezeRejectsCostAboveExactAdapterLimit(t *testing.T) {
+	cost := MaxCostMicroUSD + 1
 	record := Record{
 		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
 		Session: Session{StartedAtMs: 1, LastActivityAtMs: 1, Usage: []ModelUsage{{
-			Model: "gpt-5", CostMicroUSD: MaxCostMicroUSD + 1,
+			Model: "gpt-5", CostMicroUSD: &cost,
 		}}},
 	}
 	if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
@@ -217,11 +220,11 @@ func TestValidateRejectsOversizedRecord(t *testing.T) {
 	}
 }
 
-func TestGrokRecordAdmission(t *testing.T) {
+func TestRecordAgentAdmission(t *testing.T) {
 	for _, agent := range []string{"codex", "claude", "cursor", "opencode", "grok", "pi", "Grok", "unknown"} {
 		t.Run(agent, func(t *testing.T) {
 			_, err := Freeze(Record{SourceID: "local", Agent: agent, SessionID: "root", Session: Session{StartedAtMs: 1, LastActivityAtMs: 2}})
-			valid := agent == "codex" || agent == "claude" || agent == "cursor" || agent == "opencode" || agent == "grok"
+			valid := agent == "codex" || agent == "claude" || agent == "cursor" || agent == "opencode" || agent == "grok" || agent == "pi"
 			if (err == nil) != valid {
 				t.Fatalf("agent %q: error = %v, want valid=%v", agent, err, valid)
 			}

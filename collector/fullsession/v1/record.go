@@ -85,6 +85,7 @@ type Session struct {
 	Synthesis          *SessionSynthesis  `json:"synthesis"`
 	SynthesisPending   bool               `json:"synthesisPending"`
 	DeclaredGoal       *string            `json:"declaredGoal"`
+	DetailsIncomplete  bool               `json:"detailsIncomplete,omitempty"`
 }
 
 type Skill struct {
@@ -107,7 +108,7 @@ type ModelUsage struct {
 	CacheCreationInputTokens   int    `json:"cacheCreationInputTokens"`
 	CacheCreation1hInputTokens int    `json:"cacheCreation1hInputTokens"`
 	CacheReadInputTokens       int    `json:"cacheReadInputTokens"`
-	CostMicroUSD               int64  `json:"costMicroUsd"`
+	CostMicroUSD               *int64 `json:"costMicroUsd"`
 }
 
 type UnattributedUsage struct {
@@ -147,12 +148,19 @@ type Todo struct {
 }
 
 type DigestEntry struct {
-	Turn        int    `json:"turn"`
-	Category    string `json:"category"`
-	Description string `json:"description"`
-	Answer      string `json:"answer"`
-	SubagentID  string `json:"subagentId"`
-	TimeMs      int64  `json:"timeMs"`
+	Turn               int     `json:"turn"`
+	Category           string  `json:"category"`
+	Description        string  `json:"description"`
+	Answer             string  `json:"answer"`
+	SubagentID         string  `json:"subagentId"`
+	TimeMs             int64   `json:"timeMs"`
+	SourceEntryID      string  `json:"sourceEntryId,omitempty"`
+	ParentEntryID      string  `json:"parentEntryId,omitempty"`
+	BranchID           string  `json:"branchId,omitempty"`
+	Inherited          *bool   `json:"inherited,omitempty"`
+	Active             *bool   `json:"active,omitempty"`
+	ContextSelected    *bool   `json:"contextSelected,omitempty"`
+	ContextDescription *string `json:"contextDescription,omitempty"`
 }
 
 type FileEdit struct {
@@ -248,6 +256,9 @@ func cloneRecord(record Record) Record {
 	s.FirstPrompt = clonePointer(s.FirstPrompt)
 	s.DeclaredGoal = clonePointer(s.DeclaredGoal)
 	s.Usage = cloneSlice(s.Usage)
+	for i := range s.Usage {
+		s.Usage[i].CostMicroUSD = clonePointer(s.Usage[i].CostMicroUSD)
+	}
 	s.UnpricedModels = cloneSlice(s.UnpricedModels)
 	s.Skills = cloneSlice(s.Skills)
 	s.Commands = cloneSlice(s.Commands)
@@ -259,6 +270,12 @@ func cloneRecord(record Record) Record {
 	s.CommitSHAs = cloneSlice(s.CommitSHAs)
 	s.Todos = cloneSlice(s.Todos)
 	s.Digest = cloneSlice(s.Digest)
+	for i := range s.Digest {
+		s.Digest[i].Inherited = clonePointer(s.Digest[i].Inherited)
+		s.Digest[i].Active = clonePointer(s.Digest[i].Active)
+		s.Digest[i].ContextSelected = clonePointer(s.Digest[i].ContextSelected)
+		s.Digest[i].ContextDescription = clonePointer(s.Digest[i].ContextDescription)
+	}
 	s.Subagents = cloneSlice(s.Subagents)
 	for i := range s.Subagents {
 		s.Subagents[i].Model = clonePointer(s.Subagents[i].Model)
@@ -271,6 +288,9 @@ func cloneRecord(record Record) Record {
 			s.Subagents[i].Commands[j].Output = clonePointer(s.Subagents[i].Commands[j].Output)
 		}
 		s.Subagents[i].Usage = cloneSlice(s.Subagents[i].Usage)
+		for j := range s.Subagents[i].Usage {
+			s.Subagents[i].Usage[j].CostMicroUSD = clonePointer(s.Subagents[i].Usage[j].CostMicroUSD)
+		}
 	}
 	s.FileEdits = cloneSlice(s.FileEdits)
 	for i := range s.FileEdits {
@@ -424,7 +444,7 @@ func Validate(record Record) error {
 
 func validate(record Record, requireRevision bool) error {
 	if record.SchemaVersion != SchemaVersion || !identifier(record.SourceID) ||
-		(record.Agent != "codex" && record.Agent != "claude" && record.Agent != "cursor" && record.Agent != "opencode" && record.Agent != "grok") || !identifier(record.SessionID) ||
+		(record.Agent != "codex" && record.Agent != "claude" && record.Agent != "cursor" && record.Agent != "opencode" && record.Agent != "grok" && record.Agent != "pi") || !identifier(record.SessionID) ||
 		(record.ParentSessionID != "" && (!identifier(record.ParentSessionID) || record.ParentSessionID == record.SessionID)) {
 		return fmt.Errorf("%w: invalid envelope", ErrInvalid)
 	}
@@ -435,6 +455,9 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: revision must be empty while freezing", ErrInvalid)
 	}
 	s := record.Session
+	if record.Agent == "pi" && (record.ParentSessionID != "" || len(s.Subagents) != 0) || record.Agent != "pi" && s.DetailsIncomplete {
+		return fmt.Errorf("%w: invalid Pi lineage or completeness", ErrInvalid)
+	}
 	if !validCollectionSizes(s) {
 		return fmt.Errorf("%w: aggregate collection exceeds item limit", ErrInvalid)
 	}
@@ -461,7 +484,7 @@ func validate(record Record, requireRevision bool) error {
 	}
 	previousModel := ""
 	for index, usage := range s.Usage {
-		if !validUsage(usage) || (index > 0 && usage.Model <= previousModel) {
+		if !validUsage(usage, record.Agent) || (index > 0 && usage.Model <= previousModel) {
 			return fmt.Errorf("%w: invalid or unsorted usage", ErrInvalid)
 		}
 		previousModel = usage.Model
@@ -493,6 +516,15 @@ func validate(record Record, requireRevision bool) error {
 	for _, item := range s.Digest {
 		if item.Turn < 0 || item.TimeMs < 0 || !stringsValid(item.Category, item.Description, item.Answer, item.SubagentID) {
 			return fmt.Errorf("%w: invalid digest", ErrInvalid)
+		}
+		annotated := item.SourceEntryID != "" || item.ParentEntryID != "" || item.BranchID != "" || item.Inherited != nil || item.Active != nil || item.ContextSelected != nil || item.ContextDescription != nil
+		if annotated && record.Agent != "pi" || !stringsValid(stringValue(item.ContextDescription)) {
+			return fmt.Errorf("%w: invalid digest context", ErrInvalid)
+		}
+		for _, id := range []string{item.SourceEntryID, item.ParentEntryID, item.BranchID} {
+			if id != "" && !identifier(id) {
+				return fmt.Errorf("%w: invalid digest entry identifier", ErrInvalid)
+			}
 		}
 	}
 	seenChanges := map[string]bool{}
@@ -527,7 +559,7 @@ func validate(record Record, requireRevision bool) error {
 		}
 		previousModel := ""
 		for index, usage := range subagent.Usage {
-			if !validUsage(usage) || (index > 0 && usage.Model <= previousModel) {
+			if !validUsage(usage, record.Agent) || (index > 0 && usage.Model <= previousModel) {
 				return fmt.Errorf("%w: invalid or unsorted subagent usage", ErrInvalid)
 			}
 			previousModel = usage.Model
@@ -585,12 +617,12 @@ func validUnattributed(usage *UnattributedUsage, attributed []ModelUsage, cost *
 		return true
 	}
 	sameCost := usage.CostMicroUSD == nil && cost == nil || usage.CostMicroUSD != nil && cost != nil && *usage.CostMicroUSD == *cost
-	return agent == "grok" && len(attributed) == 0 && sameCost && optionalInt64Nonnegative(usage.CostMicroUSD) &&
+	return (agent == "pi" || agent == "grok" && len(attributed) == 0 && sameCost) && optionalInt64Nonnegative(usage.CostMicroUSD) &&
 		nonnegative(usage.InputTokens, usage.OutputTokens, usage.CacheCreationInputTokens, usage.CacheCreation1hInputTokens, usage.CacheReadInputTokens)
 }
 
-func validUsage(usage ModelUsage) bool {
-	return stringsValid(usage.Model) && usage.Model != "" && validCost(usage.CostMicroUSD) &&
+func validUsage(usage ModelUsage, agent string) bool {
+	return stringsValid(usage.Model) && usage.Model != "" && (usage.CostMicroUSD != nil || agent == "pi") && optionalInt64Nonnegative(usage.CostMicroUSD) &&
 		nonnegative(usage.InputTokens, usage.OutputTokens, usage.CacheCreationInputTokens,
 			usage.CacheCreation1hInputTokens, usage.CacheReadInputTokens)
 }

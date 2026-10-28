@@ -84,6 +84,7 @@ var census = map[string]decision{
 
 var nestedCensus = map[reflect.Type]map[string]decision{
 	reflect.TypeOf(session.ModelTokens{}): {
+		"CostKnown":                  {false, "Pi component cost provenance; Pi is excluded from snapshot export"},
 		"InputTokens":                {true, "model usage inputTokens"},
 		"OutputTokens":               {true, "model usage outputTokens"},
 		"CacheCreationInputTokens":   {true, "model usage cacheCreationInputTokens"},
