@@ -201,7 +201,10 @@ func (q *Queue) freezeCatchUpLocked(plan hubclient.V4ImportPlan, persist bool) e
 	if limit < 0 || limit > 500 || limit == 0 && !backfill {
 		return errors.New("invalid max sessions per agent")
 	}
-	priorEntries := slices.Clone(q.state.Entries)
+	var priorEntries []Entry
+	if persist {
+		priorEntries = slices.Clone(q.state.Entries)
+	}
 	priorFrozen := q.state.CatchUpFrozenVersion
 	firstSelection := priorFrozen != plan.Version
 	changed := firstSelection
