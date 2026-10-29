@@ -179,6 +179,7 @@ type DiscoveryBatch struct {
 	ContentBytes map[string]int64 // keyed by agent + "\x00" + session ID
 	GrokFamilies []grok.FamilyRef // verified planning context, unchanged across batching
 	PiInputs     []pi.SessionInputs
+	PiMetadata   *vendors.SessionMetadata
 }
 
 func (r *Runner) now() time.Time {
@@ -253,7 +254,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			if piPlan != nil {
 				ctx = pi.WithSourcePlan(ctx, piPlan)
 			}
-			if err := r.syncPiSources(ctx, piPlan, nil, verifiedPi, nil); err != nil {
+			if _, err := r.syncPiSources(ctx, piPlan, nil, verifiedPi, nil); err != nil {
 				if stopSync(err) {
 					return err
 				}
@@ -327,18 +328,18 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			if err := merge(discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, grokRevisions, nil)); err != nil {
 				return err
 			}
-			if err := r.syncPiSources(ctx, piPlan, piDiscoveryEntries(batch.Sessions, r.Queue.InstallID()), verifiedPi, batch.PiInputs); err != nil {
-				if stopSync(err) {
-					return err
-				}
-				sourceErr = errors.Join(sourceErr, err)
+			batchPiPlan := piPlan
+			if batchPiPlan == nil && batch.PiMetadata != nil {
+				batchPiPlan = &pi.SourcePlan{Metadata: batch.PiMetadata}
 			}
-			var piEntries []Entry
-			for _, entry := range discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, nil, verifiedPi) {
-				if entry.Selection.Agent == vendors.AgentPi {
-					piEntries = append(piEntries, entry)
+			piSnapshots, piErr := r.syncPiSources(ctx, batchPiPlan, piDiscoveryEntries(batch.Sessions, r.Queue.InstallID()), verifiedPi, batch.PiInputs)
+			if piErr != nil {
+				if stopSync(piErr) {
+					return piErr
 				}
+				sourceErr = errors.Join(sourceErr, piErr)
 			}
+			piEntries := discoveredEntries(piSnapshotSessions(batch.Sessions, piSnapshots), r.Queue.InstallID(), nil, nil, verifiedPi)
 			if err := merge(piEntries); err != nil {
 				return err
 			}
@@ -422,13 +423,14 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		sourceErr = errors.Join(sourceErr, err)
 	}
 	verifiedPi := map[string]string{}
-	if err := r.syncPiSources(ctx, piPlan, piDiscoveryEntries(sessions, r.Queue.InstallID()), verifiedPi, nil); err != nil {
-		if stopSync(err) {
-			return err
+	piSnapshots, piErr := r.syncPiSources(ctx, piPlan, piDiscoveryEntries(sessions, r.Queue.InstallID()), verifiedPi, nil)
+	if piErr != nil {
+		if stopSync(piErr) {
+			return piErr
 		}
-		sourceErr = errors.Join(sourceErr, err)
+		sourceErr = errors.Join(sourceErr, piErr)
 	}
-	discovered := discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions, revisions, verifiedPi)
+	discovered := discoveredEntries(replacePiSnapshots(sessions, piSnapshots), r.Queue.InstallID(), claudeRevisions, revisions, verifiedPi)
 	if plan := r.config.ImportPlan; plan != nil {
 		if _, err := r.Queue.MergePlannedDiscovery(discovered, r.now(), *plan, r.activeSince); err != nil {
 			return err
@@ -1359,7 +1361,15 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 		return err
 	}
 	if entry.Selection.Agent == vendors.AgentPi && prepared.Manifest.Source.SourceRevision != entry.SourceRevision {
+		bundleID := entry.BundleID
+		entry.BundleID, entry.ContentSHA256, entry.ContentBytes, entry.Manifest = "", "", 0, nil
+		if err := r.Queue.Update(*entry); err != nil {
+			return err
+		}
 		r.RequestDiscovery()
+		if err := r.Backup.Discard(bundleID); err != nil && !errors.Is(err, sessionbackupproducer.ErrNotPrepared) {
+			return err
+		}
 		return piSourceProblem(entry.Selection.SessionID, sessionbackupv1.ProblemUnstable)
 	}
 	manifest := entry.Manifest

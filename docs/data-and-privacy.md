@@ -161,8 +161,7 @@ the connection in that agent to clear its local OAuth credential; the Hub
 checks access on each tool request and denies revoked access.
 
 Pairing a device authorizes personal V4 background sync of local Codex, Claude,
-OpenCode, Cursor, and Grok sessions under the Hub policy and Local settings.
-Pi sessions remain local and do not sync.
+OpenCode, Cursor, Grok, and Pi sessions under the Hub policy and Local settings.
 Eligible activity can upload without a separate preview or approval for each
 session. Sync starts by default after pairing or startup with a stored
 credential, but uploads require a compatible Hub import plan.

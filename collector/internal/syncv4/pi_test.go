@@ -1,6 +1,7 @@
 package syncv4
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -124,7 +125,7 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &Runner{Queue: q, config: config, checkedAt: now, Now: func() time.Time { return now }, Version: "test"}
-	if err := runner.syncPiSources(t.Context(), sources, nil, map[string]string{}, nil); err == nil {
+	if _, err := runner.syncPiSources(t.Context(), sources, nil, map[string]string{}, nil); err == nil {
 		t.Fatal("malformed source did not fail")
 	}
 	blocked := q.Entries()[0]
@@ -136,7 +137,7 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runner.syncPiSources(t.Context(), sources, nil, map[string]string{}, nil); err != nil {
+	if _, err := runner.syncPiSources(t.Context(), sources, nil, map[string]string{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	current := q.Entries()[0]
@@ -145,7 +146,7 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := runner.syncPiSources(ctx, sources, nil, map[string]string{}, nil); !errors.Is(err, context.Canceled) {
+	if _, err := runner.syncPiSources(ctx, sources, nil, map[string]string{}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("revision cancellation = %v", err)
 	}
 	if err := os.Remove(path); err != nil {
@@ -155,11 +156,69 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runner.syncPiSources(t.Context(), sources, nil, map[string]string{}, nil); err == nil {
+	if _, err := runner.syncPiSources(t.Context(), sources, nil, map[string]string{}, nil); err == nil {
 		t.Fatal("absent queued source was treated as verified")
 	}
 	if absent := q.Entries()[0]; !absent.SourceBlocked || absent.FailureCode != "unreadable_source" || absent.SourceRevision != current.SourceRevision {
 		t.Fatalf("missing source outcome = %+v", absent)
+	}
+}
+
+func TestPiBatchRefreshPairsCardAndRevisionFromOneSnapshot(t *testing.T) {
+	_, path, original := piQueueSource(t)
+	sources, err := pi.PlanSourcesContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var batchSessions []*session.Session
+	var batchInputs []pi.SessionInputs
+	for batch, err := range inventory.Discover(t.Context(), inventory.DiscoverOptions{Pi: sources}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(batch.Sessions) > 0 {
+			batchSessions, batchInputs = batch.Sessions, batch.PiInputs
+			break
+		}
+	}
+	if len(batchSessions) != 1 || len(batchInputs) != 1 {
+		t.Fatalf("discovery batch = sessions %d, inputs %d", len(batchSessions), len(batchInputs))
+	}
+	id := batchSessions[0].ID
+	priorRevision, err := sessionbackupproducer.PiSourceRevision(t.Context(), batchInputs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := bytes.Replace(original, []byte("last branch"), []byte("updated branch"), 1)
+	grokQueueWrite(t, path, updated)
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	runner := &Runner{Queue: q, Now: func() time.Time { return now }, checkedAt: now}
+	verified := map[string]string{id: priorRevision}
+	snapshots, err := runner.syncPiSources(t.Context(), sources, piDiscoveryEntries(batchSessions, q.InstallID()), verified, batchInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshed := discoveredEntries(piSnapshotSessions(batchSessions, snapshots), q.InstallID(), nil, nil, verified)
+	if len(refreshed) != 1 || refreshed[0].Session.Summary != "updated branch" || refreshed[0].SourceRevision != verified[id] || verified[id] == priorRevision {
+		t.Fatalf("refreshed Pi card/revision = %+v, prior=%q", refreshed, priorRevision)
+	}
+	prepared, err := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}).Prepare(t.Context(), refreshed[0].Selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Manifest.Source.SourceRevision != refreshed[0].SourceRevision {
+		t.Fatalf("prepared revision %q does not match queued revision %q", prepared.Manifest.Source.SourceRevision, refreshed[0].SourceRevision)
 	}
 }
 
@@ -206,7 +265,7 @@ func TestPiAutomaticQueueLeafOnlyUpdatesAndRestart(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if err := emit(DiscoveryBatch{Sessions: batch.Sessions, PiInputs: batch.PiInputs, ContentBytes: batch.ContentBytes}); err != nil {
+				if err := emit(DiscoveryBatch{Sessions: batch.Sessions, PiInputs: batch.PiInputs, PiMetadata: batch.PiMetadata, ContentBytes: batch.ContentBytes}); err != nil {
 					return err
 				}
 			}
@@ -296,7 +355,7 @@ func TestPiRevisionWorkHonorsPolicyAndOutOfWindowSources(t *testing.T) {
 			if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: config}, now); err != nil {
 				t.Fatal(err)
 			}
-			err = runner.syncPiSources(t.Context(), sources, []Entry{entry}, map[string]string{}, nil)
+			_, err = runner.syncPiSources(t.Context(), sources, []Entry{entry}, map[string]string{}, nil)
 			if name == "left out" || name == "outside window" {
 				if err != nil {
 					t.Fatalf("ineligible source was parsed/frozen: %v", err)
@@ -322,12 +381,19 @@ func TestPiPreparedRevisionMustMatchQueuedSnapshot(t *testing.T) {
 	if err := q.Merge([]Entry{entry}, now); err != nil {
 		t.Fatal(err)
 	}
-	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()})
+	spool := t.TempDir()
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: spool})
 	runner := &Runner{Queue: q, Backup: manager}
 	err = runner.prepareEntry(t.Context(), &entry)
 	var failure *sessionbackupproducer.PreparationError
-	if !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 || failure.Coverage.Problems[0].Code != backup.ProblemUnstable || entry.Manifest != nil || runner.discoveryRequests.Load() == 0 {
+	if !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 || failure.Coverage.Problems[0].Code != backup.ProblemUnstable || entry.BundleID != "" || entry.Manifest != nil || runner.discoveryRequests.Load() == 0 {
 		t.Fatalf("mismatched preparation = %+v, %v", entry, err)
+	}
+	if stored := q.Entries()[0]; stored.BundleID != "" {
+		t.Fatalf("mismatched bundle remains queued: %+v", stored)
+	}
+	if bundles, err := os.ReadDir(spool); err != nil || len(bundles) != 0 {
+		t.Fatalf("mismatched bundle remains in spool: entries=%v err=%v", bundles, err)
 	}
 }
 

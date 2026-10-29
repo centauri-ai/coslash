@@ -48,15 +48,16 @@ If the source cannot be rediscovered within the active window, the retry fails
 with `unreadable_source` and retains the last verified capture.
 Existing failure codes and logs report the blocked source. No empty source hash admits a root.
 Pi discovery and queued-source verification share one source plan and runtime
-snapshot per refresh. Discovery passes its `pi.SessionInputs` unchanged to
-`sessionbackupproducer.PiSourceRevision`; the queue does not duplicate the
-producer's frozen-byte and effective-selection revision algorithm. Eligibility,
-import-window and session-cap checks precede that expensive work. Recorded Pi
-activity, rather than file mtime, decides the import window. Pi bypasses the
-mtime parse cache and discovery cursor shortcut because a selected leaf can
-change without transcript writes. Heartbeats and runtime modality do not
-change the source revision. Previously imported live-only rows remain eligible
-for selection-only revisions, including when an agreeing owner ends.
+snapshot per refresh. `sessionbackupproducer.PiSourceSnapshot` derives the
+selected card and source revision from the same frozen `pi.SessionInputs`; the
+queue does not duplicate the producer's frozen-byte and effective-selection
+revision algorithm. Eligibility, import-window and session-cap checks precede
+that expensive work. Recorded Pi activity, rather than file mtime, decides the
+import window. Pi bypasses the mtime parse cache and discovery cursor shortcut
+because a selected leaf can change without transcript writes. Heartbeats and
+runtime modality do not change the source revision. Previously imported
+live-only rows remain eligible for selection-only revisions, including when an
+agreeing owner ends.
 Before resuming a queued Pi capture on a discovery refresh, Local verifies its
 current source. Failure blocks listing and transfer while retaining the last
 verified capture. Preparation must match the queued source revision before
