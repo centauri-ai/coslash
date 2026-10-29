@@ -1,4 +1,28 @@
 {
+  "abliteration/abliterated-model": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000003
+  },
+  "abliteration/abliterated-model-large": {
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000005
+  },
+  "abliteration/abliterated-model-large-flash": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000002
+  },
+  "abliteration/abliterated-model-large-v2": {
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000005
+  },
   "ai21.j2-mid-v1": {
     "input_cost_per_token": 0.0000125,
     "max_input_tokens": 8191,
@@ -23,6 +47,84 @@
     "input_cost_per_token": 5E-7,
     "max_input_tokens": 70000,
     "output_cost_per_token": 7E-7
+  },
+  "aiand/deepseek-ai/deepseek-v4-flash": {
+    "cache_read_input_token_cost": 8E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.5E-7
+  },
+  "aiand/deepseek-ai/deepseek-v4-pro": {
+    "cache_read_input_token_cost": 2.5E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000025
+  },
+  "aiand/deepseek-ai/deepseek-v4.1-flash": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 6E-7
+  },
+  "aiand/google/gemma-4-31b-it": {
+    "cache_read_input_token_cost": 5E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 5E-7
+  },
+  "aiand/moonshotai/kimi-k2.7-code": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 7.5E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.0000035
+  },
+  "aiand/moonshotai/kimi-k3": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000125
+  },
+  "aiand/motif-technologies/motif-3": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 5E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000002
+  },
+  "aiand/openai/gpt-oss-120b": {
+    "cache_read_input_token_cost": 8E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 6E-7
+  },
+  "aiand/qwen/qwen3.6-27b": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 3.2E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.0000032
+  },
+  "aiand/qwen/qwen3.8-27b": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 4E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000003
+  },
+  "aiand/zai-org/glm-5.2": {
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000004
+  },
+  "aiand/zai-org/glm-5.3": {
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000004
+  },
+  "aiand/zai-org/glm-5.3-flash": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1048550,
+    "output_cost_per_token": 5E-7
   },
   "aihubmix/agnes-2.5-flash": {
     "input_cost_per_token": 3E-8,
@@ -1033,6 +1135,13 @@
     "max_input_tokens": 922000,
     "output_cost_per_token": 0.000012
   },
+  "azure/apac/gpt-6.1-terra": {
+    "cache_creation_input_token_cost": 0.0000015,
+    "cache_read_input_token_cost": 6E-8,
+    "input_cost_per_token": 0.0000012,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.000006
+  },
   "azure/chat-latest": {
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000005,
@@ -1317,6 +1426,13 @@
     "input_cost_per_token": 0.0000024,
     "max_input_tokens": 922000,
     "output_cost_per_token": 0.000012
+  },
+  "azure/eu/gpt-6.1-terra": {
+    "cache_creation_input_token_cost": 0.0000015,
+    "cache_read_input_token_cost": 6E-8,
+    "input_cost_per_token": 0.0000012,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.000006
   },
   "azure/eu/o1": {
     "cache_read_input_token_cost": 0.00000825,
@@ -1917,6 +2033,13 @@
     "max_input_tokens": 922000,
     "output_cost_per_token": 0.00001
   },
+  "azure/gpt-6.1-terra": {
+    "cache_creation_input_token_cost": 0.00000125,
+    "cache_read_input_token_cost": 5E-8,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.000005
+  },
   "azure/gpt-audio": {
     "input_cost_per_token": 0.0000025,
     "max_input_tokens": 128000,
@@ -2336,6 +2459,13 @@
     "input_cost_per_token": 0.0000022,
     "max_input_tokens": 922000,
     "output_cost_per_token": 0.000011
+  },
+  "azure/us/gpt-6.1-terra": {
+    "cache_creation_input_token_cost": 0.000001375,
+    "cache_read_input_token_cost": 5.5E-8,
+    "input_cost_per_token": 0.0000011,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.0000055
   },
   "azure/us/gpt-chat-latest": {
     "cache_read_input_token_cost": 5.5E-7,
@@ -2782,7 +2912,7 @@
   "azure_ai/claude-sonnet-5-5": {
     "cache_creation_input_token_cost": 0.0000025,
     "cache_creation_input_token_cost_above_1hr": 0.000004,
-    "cache_read_input_token_cost": 2E-7,
+    "cache_read_input_token_cost": 1E-7,
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00001
@@ -2936,6 +3066,13 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 922000,
     "output_cost_per_token": 0.00001
+  },
+  "azure_ai/gpt-6.1-terra": {
+    "cache_creation_input_token_cost": 0.00000125,
+    "cache_read_input_token_cost": 5E-8,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.000005
   },
   "azure_ai/gpt-chat-latest": {
     "cache_read_input_token_cost": 5E-7,
@@ -4281,13 +4418,13 @@
   "bedrock_mantle/openai.gpt-5.4": {
     "cache_read_input_token_cost": 2.75E-7,
     "input_cost_per_token": 0.00000275,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000165
   },
   "bedrock_mantle/openai.gpt-5.5": {
     "cache_read_input_token_cost": 5.5E-7,
     "input_cost_per_token": 0.0000055,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000033
   },
   "bedrock_mantle/openai.gpt-5.6-cyber": {
@@ -4301,42 +4438,42 @@
     "cache_creation_input_token_cost": 2.75E-7,
     "cache_read_input_token_cost": 2.2E-8,
     "input_cost_per_token": 2.2E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00000132
   },
   "bedrock_mantle/openai.gpt-5.6-sol": {
     "cache_creation_input_token_cost": 0.0000055,
     "cache_read_input_token_cost": 4.4E-7,
     "input_cost_per_token": 0.0000044,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000022
   },
   "bedrock_mantle/openai.gpt-5.6-terra": {
     "cache_creation_input_token_cost": 0.00000275,
     "cache_read_input_token_cost": 2.2E-7,
     "input_cost_per_token": 0.0000022,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000132
   },
   "bedrock_mantle/openai.gpt-6-astra": {
     "cache_creation_input_token_cost": 0.00001375,
     "cache_read_input_token_cost": 0.0000011,
     "input_cost_per_token": 0.000011,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000055
   },
   "bedrock_mantle/openai.gpt-6-luna": {
     "cache_creation_input_token_cost": 1.375E-7,
     "cache_read_input_token_cost": 1.1E-8,
     "input_cost_per_token": 1.1E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 5.5E-7
   },
   "bedrock_mantle/openai.gpt-6-sol": {
     "cache_creation_input_token_cost": 0.00000275,
     "cache_read_input_token_cost": 2.2E-7,
     "input_cost_per_token": 0.0000022,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000011
   },
   "bedrock_mantle/openai.gpt-6.1-sol": {
@@ -4345,6 +4482,13 @@
     "input_cost_per_token": 0.0000022,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000011
+  },
+  "bedrock_mantle/openai.gpt-6.1-terra": {
+    "cache_creation_input_token_cost": 0.000001375,
+    "cache_read_input_token_cost": 5.5E-8,
+    "input_cost_per_token": 0.0000011,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.0000055
   },
   "bedrock_mantle/openai.gpt-daybreak-blue-5.6-sol": {
     "cache_creation_input_token_cost": 0.0000055,
@@ -4406,7 +4550,7 @@
   "bedrock_mantle/us-gov-east-1/openai.gpt-5.4": {
     "cache_read_input_token_cost": 3.3E-7,
     "input_cost_per_token": 0.0000033,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000198
   },
   "bedrock_mantle/us-gov-east-1/openai.gpt-oss-120b": {
@@ -4467,21 +4611,21 @@
   "bedrock_mantle/us-gov-west-1/openai.gpt-5.4": {
     "cache_read_input_token_cost": 3.375E-7,
     "input_cost_per_token": 0.000003375,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00002025
   },
   "bedrock_mantle/us-gov-west-1/openai.gpt-5.6-luna": {
     "cache_creation_input_token_cost": 3.375E-7,
     "cache_read_input_token_cost": 2.7E-8,
     "input_cost_per_token": 2.7E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00000162
   },
   "bedrock_mantle/us-gov-west-1/openai.gpt-5.6-terra": {
     "cache_creation_input_token_cost": 0.000003375,
     "cache_read_input_token_cost": 2.7E-7,
     "input_cost_per_token": 0.0000027,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000162
   },
   "bedrock_mantle/us-gov-west-1/openai.gpt-oss-120b": {
@@ -5243,56 +5387,72 @@
     "output_cost_per_token": 0.0000024
   },
   "databricks/databricks-claude-fable-5": {
-    "cache_creation_input_token_cost": 0.00001250004,
+    "cache_creation_input_token_cost": 0.00001249997,
+    "cache_creation_input_token_cost_above_1hr": 0.00001999998,
     "cache_read_input_token_cost": 0.00000100002,
-    "input_cost_per_token": 0.00001000006,
+    "input_cost_per_token": 0.00000999999,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00005000002
   },
   "databricks/databricks-claude-fable-5-1": {
-    "cache_creation_input_token_cost": 0.00001250004,
-    "cache_read_input_token_cost": 2.5004E-7,
-    "input_cost_per_token": 0.00001000006,
+    "cache_creation_input_token_cost": 0.00001249997,
+    "cache_creation_input_token_cost_above_1hr": 0.00001999998,
+    "cache_read_input_token_cost": 2.4997E-7,
+    "input_cost_per_token": 0.00000999999,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00005000002
   },
   "databricks/databricks-claude-haiku-4-5": {
     "cache_creation_input_token_cost": 0.00000124999,
+    "cache_creation_input_token_cost_above_1hr": 0.00000199997,
     "cache_read_input_token_cost": 1.0003E-7,
     "input_cost_per_token": 0.00000100002,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.00000500003
   },
+  "databricks/databricks-claude-haiku-5-5": {
+    "cache_creation_input_token_cost": 1.2502E-7,
+    "cache_creation_input_token_cost_above_1hr": 1.9999E-7,
+    "cache_read_input_token_cost": 1.001E-8,
+    "input_cost_per_token": 1.0003E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 5.0001E-7
+  },
   "databricks/databricks-claude-opus-4": {
     "cache_creation_input_token_cost": 0.00001874999,
+    "cache_creation_input_token_cost_above_1hr": 0.00002999997,
     "cache_read_input_token_cost": 0.00000150003,
-    "input_cost_per_token": 0.000015000020000000002,
+    "input_cost_per_token": 0.00001500002,
     "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00007500003000000001
+    "output_cost_per_token": 0.0000750001
   },
   "databricks/databricks-claude-opus-4-1": {
     "cache_creation_input_token_cost": 0.00001874999,
+    "cache_creation_input_token_cost_above_1hr": 0.00002999997,
     "cache_read_input_token_cost": 0.00000150003,
-    "input_cost_per_token": 0.000015000020000000002,
+    "input_cost_per_token": 0.00001500002,
     "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00007500003000000001
+    "output_cost_per_token": 0.0000750001
   },
   "databricks/databricks-claude-opus-4-5": {
     "cache_creation_input_token_cost": 0.00000625002,
+    "cache_creation_input_token_cost_above_1hr": 0.00000999999,
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 0.00000500003,
     "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000025000010000000002
+    "output_cost_per_token": 0.00002500001
   },
   "databricks/databricks-claude-opus-4-6": {
     "cache_creation_input_token_cost": 0.00000625002,
+    "cache_creation_input_token_cost_above_1hr": 0.00000999999,
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 0.00000500003,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000025000010000000002
+    "output_cost_per_token": 0.00002500001
   },
   "databricks/databricks-claude-opus-4-7": {
     "cache_creation_input_token_cost": 0.00000625002,
+    "cache_creation_input_token_cost_above_1hr": 0.00000999999,
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 0.00000500003,
     "max_input_tokens": 1000000,
@@ -5300,6 +5460,7 @@
   },
   "databricks/databricks-claude-opus-4-8": {
     "cache_creation_input_token_cost": 0.00000625002,
+    "cache_creation_input_token_cost_above_1hr": 0.00000999999,
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 0.00000500003,
     "max_input_tokens": 1000000,
@@ -5307,6 +5468,7 @@
   },
   "databricks/databricks-claude-opus-5": {
     "cache_creation_input_token_cost": 0.00000625002,
+    "cache_creation_input_token_cost_above_1hr": 0.00000999999,
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 0.00000500003,
     "max_input_tokens": 1000000,
@@ -5336,24 +5498,49 @@
   },
   "databricks/databricks-claude-sonnet-4-5": {
     "cache_creation_input_token_cost": 0.00000374997,
+    "cache_creation_input_token_cost_above_1hr": 0.00000599998,
     "cache_read_input_token_cost": 3.0002E-7,
-    "input_cost_per_token": 0.0000029999900000000002,
+    "input_cost_per_token": 0.00000299999,
     "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015000020000000002
+    "output_cost_per_token": 0.00001500002
   },
   "databricks/databricks-claude-sonnet-4-6": {
     "cache_creation_input_token_cost": 0.00000374997,
-    "cache_read_input_token_cost": 3.0002E-7,
-    "input_cost_per_token": 0.0000029999900000000002,
-    "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000015000020000000002
-  },
-  "databricks/databricks-claude-sonnet-5": {
-    "cache_creation_input_token_cost": 0.00000374997,
+    "cache_creation_input_token_cost_above_1hr": 0.00000599998,
     "cache_read_input_token_cost": 3.0002E-7,
     "input_cost_per_token": 0.00000299999,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00001500002
+  },
+  "databricks/databricks-claude-sonnet-5": {
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_creation_input_token_cost_above_1hr": 0.00000400001,
+    "cache_read_input_token_cost": 1.9999E-7,
+    "input_cost_per_token": 0.00000199997,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00000999999
+  },
+  "databricks/databricks-claude-sonnet-5-5": {
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_creation_input_token_cost_above_1hr": 0.00000400001,
+    "cache_read_input_token_cost": 1.0003E-7,
+    "input_cost_per_token": 0.00000199997,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00000999999
+  },
+  "databricks/databricks-deepseek-v4-1-flash": {
+    "cache_creation_input_token_cost": 3.0002E-7,
+    "cache_read_input_token_cost": 3.003E-8,
+    "input_cost_per_token": 3.0002E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00000120001
+  },
+  "databricks/databricks-deepseek-v4-1-flash-1017": {
+    "cache_creation_input_token_cost": 3.0002E-7,
+    "cache_read_input_token_cost": 7E-9,
+    "input_cost_per_token": 3.0002E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00000120001
   },
   "databricks/databricks-deepseek-v4-flash-0731": {
     "cache_creation_input_token_cost": 1.4E-7,
@@ -5376,6 +5563,13 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.00000249998
   },
+  "databricks/databricks-gemini-2-5-flash-lite": {
+    "cache_creation_input_token_cost": 1.2502E-7,
+    "cache_read_input_token_cost": 1.253E-8,
+    "input_cost_per_token": 1.2502E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5.0001E-7
+  },
   "databricks/databricks-gemini-2-5-pro": {
     "cache_creation_input_token_cost": 0.00000124999,
     "cache_read_input_token_cost": 1.24999E-7,
@@ -5383,11 +5577,25 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000009999990000000002
   },
+  "databricks/databricks-gemini-3-1-flash-image": {
+    "cache_creation_input_token_cost": 6.2503E-7,
+    "cache_read_input_token_cost": 6.2503E-7,
+    "input_cost_per_token": 6.2503E-7,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 0.00000374997
+  },
   "databricks/databricks-gemini-3-1-flash-lite": {
     "cache_creation_input_token_cost": 3.1248E-7,
     "cache_read_input_token_cost": 3.122E-8,
     "input_cost_per_token": 3.1248E-7,
     "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000187502
+  },
+  "databricks/databricks-gemini-3-1-flash-lite-image": {
+    "cache_creation_input_token_cost": 3.1248E-7,
+    "cache_read_input_token_cost": 3.1248E-7,
+    "input_cost_per_token": 3.1248E-7,
+    "max_input_tokens": 65536,
     "output_cost_per_token": 0.00000187502
   },
   "databricks/databricks-gemini-3-1-pro": {
@@ -5412,11 +5620,25 @@
     "output_cost_per_token": 0.00000312501
   },
   "databricks/databricks-gemini-3-6-flash": {
-    "cache_creation_input_token_cost": 0.00000187502,
-    "cache_read_input_token_cost": 1.8753E-7,
-    "input_cost_per_token": 0.00000187502,
+    "cache_creation_input_token_cost": 7.4998E-7,
+    "cache_read_input_token_cost": 7.497E-8,
+    "input_cost_per_token": 7.4998E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000937503
+    "output_cost_per_token": 0.00000374997
+  },
+  "databricks/databricks-gemini-3-7-flash": {
+    "cache_creation_input_token_cost": 7.4998E-7,
+    "cache_read_input_token_cost": 7.497E-8,
+    "input_cost_per_token": 7.4998E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000374997
+  },
+  "databricks/databricks-gemini-3-8-flash": {
+    "cache_creation_input_token_cost": 7.4998E-7,
+    "cache_read_input_token_cost": 7.497E-8,
+    "input_cost_per_token": 7.4998E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000374997
   },
   "databricks/databricks-gemini-3-flash": {
     "cache_creation_input_token_cost": 6.2503E-7,
@@ -5431,6 +5653,20 @@
     "input_cost_per_token": 0.00000249998,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000015000020000000002
+  },
+  "databricks/databricks-gemini-3-pro-image": {
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_read_input_token_cost": 0.00000249998,
+    "input_cost_per_token": 0.00000249998,
+    "max_input_tokens": 65536,
+    "output_cost_per_token": 0.00001500002
+  },
+  "databricks/databricks-gemini-4-argon": {
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_read_input_token_cost": 1.2502E-7,
+    "input_cost_per_token": 0.00000249998,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00001249997
   },
   "databricks/databricks-gemma-3-12b": {
     "cache_creation_input_token_cost": 1.5001E-7,
@@ -5509,6 +5745,13 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.00000124999
   },
+  "databricks/databricks-gpt-5-4-pro": {
+    "cache_creation_input_token_cost": 0.00002999997,
+    "cache_read_input_token_cost": 0.00002999997,
+    "input_cost_per_token": 0.00002999997,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.0001800001
+  },
   "databricks/databricks-gpt-5-5": {
     "cache_creation_input_token_cost": 0.00000500003,
     "cache_read_input_token_cost": 5.0001E-7,
@@ -5521,14 +5764,14 @@
     "cache_read_input_token_cost": 0.00002999997,
     "input_cost_per_token": 0.00002999997,
     "max_input_tokens": 922000,
-    "output_cost_per_token": 0.00018000003
+    "output_cost_per_token": 0.0001800001
   },
   "databricks/databricks-gpt-5-6-luna": {
-    "cache_creation_input_token_cost": 0.00000124999,
-    "cache_read_input_token_cost": 1.0003E-7,
-    "input_cost_per_token": 0.00000100002,
+    "cache_creation_input_token_cost": 2.4997E-7,
+    "cache_read_input_token_cost": 2.002E-8,
+    "input_cost_per_token": 1.9999E-7,
     "max_input_tokens": 922000,
-    "output_cost_per_token": 0.00000599998
+    "output_cost_per_token": 0.00000120001
   },
   "databricks/databricks-gpt-5-6-sol": {
     "cache_creation_input_token_cost": 0.00000500003,
@@ -5538,11 +5781,11 @@
     "output_cost_per_token": 0.00001999998
   },
   "databricks/databricks-gpt-5-6-terra": {
-    "cache_creation_input_token_cost": 0.00000312501,
-    "cache_read_input_token_cost": 2.4997E-7,
-    "input_cost_per_token": 0.00000249998,
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_read_input_token_cost": 1.9999E-7,
+    "input_cost_per_token": 0.00000199997,
     "max_input_tokens": 922000,
-    "output_cost_per_token": 0.00001500002
+    "output_cost_per_token": 0.00001200003
   },
   "databricks/databricks-gpt-5-mini": {
     "cache_creation_input_token_cost": 2.4997E-7,
@@ -5557,6 +5800,41 @@
     "input_cost_per_token": 4.998E-8,
     "max_input_tokens": 272000,
     "output_cost_per_token": 3.9998000000000007E-7
+  },
+  "databricks/databricks-gpt-6-1-sol": {
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_read_input_token_cost": 1.0003E-7,
+    "input_cost_per_token": 0.00000199997,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.00000999999
+  },
+  "databricks/databricks-gpt-6-1-terra": {
+    "cache_creation_input_token_cost": 0.00000124999,
+    "cache_read_input_token_cost": 4.998E-8,
+    "input_cost_per_token": 0.00000100002,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.00000500003
+  },
+  "databricks/databricks-gpt-6-astra": {
+    "cache_creation_input_token_cost": 0.00001249997,
+    "cache_read_input_token_cost": 0.00000100002,
+    "input_cost_per_token": 0.00000999999,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.00005000002
+  },
+  "databricks/databricks-gpt-6-luna": {
+    "cache_creation_input_token_cost": 1.2502E-7,
+    "cache_read_input_token_cost": 1.001E-8,
+    "input_cost_per_token": 1.0003E-7,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 5.0001E-7
+  },
+  "databricks/databricks-gpt-6-sol": {
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_read_input_token_cost": 1.9999E-7,
+    "input_cost_per_token": 0.00000199997,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.00000999999
   },
   "databricks/databricks-gpt-oss-120b": {
     "cache_creation_input_token_cost": 1.5001E-7,
@@ -5579,12 +5857,26 @@
     "max_input_tokens": 500000,
     "output_cost_per_token": 0.00000750001
   },
+  "databricks/databricks-grok-4-7": {
+    "cache_creation_input_token_cost": 0.00000249998,
+    "cache_read_input_token_cost": 6.2503E-7,
+    "input_cost_per_token": 0.00000249998,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.00000750001
+  },
   "databricks/databricks-inkling": {
     "cache_creation_input_token_cost": 0.00000100002,
     "cache_read_input_token_cost": 1.7003E-7,
     "input_cost_per_token": 0.00000100002,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00000404999
+  },
+  "databricks/databricks-kimi-k2-7": {
+    "cache_creation_input_token_cost": 9.4997E-7,
+    "cache_read_input_token_cost": 1.8998E-7,
+    "input_cost_per_token": 9.4997E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.00000400001
   },
   "databricks/databricks-kimi-k3": {
     "cache_creation_input_token_cost": 0.00000299999,
@@ -8087,6 +8379,18 @@
     "max_input_tokens": 32768,
     "output_cost_per_token": 2E-7
   },
+  "fireworks_ai/accounts/fireworks/routers/deepseek-v4p1-flash-1017-spot": {
+    "cache_read_input_token_cost": 4.2E-9,
+    "input_cost_per_token": 2.1E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8.4E-7
+  },
+  "fireworks_ai/accounts/fireworks/routers/deepseek-v4p1-flash-spot": {
+    "cache_read_input_token_cost": 4.2E-9,
+    "input_cost_per_token": 2.1E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8.4E-7
+  },
   "fireworks_ai/accounts/fireworks/routers/deepseek-v4p1-flash-us": {
     "cache_read_input_token_cost": 9E-9,
     "input_cost_per_token": 4.5E-7,
@@ -8123,6 +8427,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 7.5E-7
   },
+  "fireworks_ai/accounts/fireworks/routers/glm-5p3-spot": {
+    "cache_read_input_token_cost": 1.82E-7,
+    "input_cost_per_token": 9.8E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000308
+  },
   "fireworks_ai/accounts/fireworks/routers/glm-5p3-us": {
     "cache_read_input_token_cost": 3.9E-7,
     "input_cost_per_token": 0.0000021,
@@ -8147,11 +8457,23 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000225
   },
+  "fireworks_ai/accounts/fireworks/routers/kimi-k3-spot": {
+    "cache_read_input_token_cost": 2.1E-7,
+    "input_cost_per_token": 0.0000021,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000105
+  },
   "fireworks_ai/accounts/fireworks/routers/kimi-k3-us": {
     "cache_read_input_token_cost": 4.5E-7,
     "input_cost_per_token": 0.0000045,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000225
+  },
+  "fireworks_ai/accounts/fireworks/routers/spot-deepseek-v4-flash": {
+    "cache_read_input_token_cost": 2.1E-8,
+    "input_cost_per_token": 1.05E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.1E-7
   },
   "fireworks_ai/deepseek-v4-flash": {
     "cache_read_input_token_cost": 2.8E-8,
@@ -9212,55 +9534,55 @@
   "global.openai.gpt-5.4": {
     "cache_read_input_token_cost": 2.5E-7,
     "input_cost_per_token": 0.0000025,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000015
   },
   "global.openai.gpt-5.5": {
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000005,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00003
   },
   "global.openai.gpt-5.6-luna": {
     "cache_creation_input_token_cost": 2.5E-7,
     "cache_read_input_token_cost": 2E-8,
     "input_cost_per_token": 2E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000012
   },
   "global.openai.gpt-5.6-sol": {
     "cache_creation_input_token_cost": 0.000005,
     "cache_read_input_token_cost": 4E-7,
     "input_cost_per_token": 0.000004,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00002
   },
   "global.openai.gpt-5.6-terra": {
     "cache_creation_input_token_cost": 0.0000025,
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.000002,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000012
   },
   "global.openai.gpt-6-astra": {
     "cache_creation_input_token_cost": 0.0000125,
     "cache_read_input_token_cost": 0.000001,
     "input_cost_per_token": 0.00001,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00005
   },
   "global.openai.gpt-6-luna": {
     "cache_creation_input_token_cost": 1.25E-7,
     "cache_read_input_token_cost": 1E-8,
     "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 5E-7
   },
   "global.openai.gpt-6-sol": {
     "cache_creation_input_token_cost": 0.0000025,
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.000002,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00001
   },
   "global.openai.gpt-6.1-sol": {
@@ -10936,6 +11258,12 @@
     "max_input_tokens": 256000,
     "output_cost_per_token": 2.5E-7
   },
+  "mistral/deepseek-v4-1-flash-1017": {
+    "cache_read_input_token_cost": 7E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
   "mistral/devstral-latest": {
     "cache_read_input_token_cost": 4E-8,
     "input_cost_per_token": 4E-7,
@@ -11067,16 +11395,16 @@
     "output_cost_per_token": 0.0000015
   },
   "mistral/mistral-large-4": {
-    "cache_read_input_token_cost": 6.8E-8,
-    "input_cost_per_token": 6.8E-7,
+    "cache_read_input_token_cost": 1.4E-7,
+    "input_cost_per_token": 0.00000136,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000209
+    "output_cost_per_token": 0.00000418
   },
   "mistral/mistral-large-4-0": {
-    "cache_read_input_token_cost": 6.8E-8,
-    "input_cost_per_token": 6.8E-7,
+    "cache_read_input_token_cost": 1.4E-7,
+    "input_cost_per_token": 0.00000136,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000209
+    "output_cost_per_token": 0.00000418
   },
   "mistral/mistral-large-latest": {
     "cache_read_input_token_cost": 5E-8,
@@ -11240,10 +11568,20 @@
     "output_cost_per_token": 0.000004
   },
   "moonshot/kimi-k3": {
+    "cache_creation_input_token_cost": 0.000003,
+    "cache_creation_input_token_cost_above_1hr": 0.000006,
     "cache_read_input_token_cost": 3E-7,
     "input_cost_per_token": 0.000003,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000015
+  },
+  "moonshot/kimi-k3.1-pro": {
+    "cache_creation_input_token_cost": 0.000002,
+    "cache_creation_input_token_cost_above_1hr": 0.000004,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00001
   },
   "moonshot/moonshot-v1-128k": {
     "input_cost_per_token": 0.000002,
@@ -11291,6 +11629,54 @@
     "input_cost_per_token": 0.0000033,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000165
+  },
+  "morph/morph-dsv41flash": {
+    "cache_read_input_token_cost": 8E-9,
+    "input_cost_per_token": 1.2E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8E-7
+  },
+  "morph/morph-dsv41flash-1017": {
+    "cache_read_input_token_cost": 8E-9,
+    "input_cost_per_token": 1.2E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8E-7
+  },
+  "morph/morph-dsv41flash-abliterated": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
+  "morph/morph-dsv4flash": {
+    "cache_read_input_token_cost": 3.59375E-8,
+    "input_cost_per_token": 1.41953125E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 3.99625E-7
+  },
+  "morph/morph-glm53-744b": {
+    "cache_read_input_token_cost": 1.955E-7,
+    "input_cost_per_token": 0.00000119,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000006
+  },
+  "morph/morph-glm53flash": {
+    "cache_read_input_token_cost": 4E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 7E-7
+  },
+  "morph/morph-kimik3": {
+    "cache_read_input_token_cost": 2.9E-7,
+    "input_cost_per_token": 0.0000025,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000014
+  },
+  "morph/morph-kimik3-fast": {
+    "cache_read_input_token_cost": 6E-7,
+    "input_cost_per_token": 0.000006,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000225
   },
   "morph/morph-v3-fast": {
     "input_cost_per_token": 8E-7,
@@ -12777,14 +13163,14 @@
     "cache_creation_input_token_cost": 1.25E-7,
     "cache_read_input_token_cost": 1E-8,
     "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 5E-7
   },
   "openai.gpt-6-sol": {
     "cache_creation_input_token_cost": 0.0000025,
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.000002,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00001
   },
   "openai.gpt-oss-120b-1:0": {
@@ -14673,6 +15059,36 @@
     "max_input_tokens": 98304,
     "output_cost_per_token": 0.0000024
   },
+  "refuseless/deepseek-v4.1-flash-abliterated": {
+    "cache_read_input_token_cost": 3.5E-8,
+    "input_cost_per_token": 1.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
+  },
+  "refuseless/deepseek-v4.1-flash-fast": {
+    "cache_read_input_token_cost": 3E-9,
+    "input_cost_per_token": 5E-8,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 1.5E-7
+  },
+  "refuseless/glm-5.3-abliterated": {
+    "cache_read_input_token_cost": 1.5E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000002
+  },
+  "refuseless/glm-5.3-flash-abliterated": {
+    "cache_read_input_token_cost": 4E-8,
+    "input_cost_per_token": 1.2E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
+  },
+  "refuseless/minimax-m3.1-flash": {
+    "cache_read_input_token_cost": 2E-9,
+    "input_cost_per_token": 5E-8,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.5E-7
+  },
   "replicate/anthropic/claude-3.5-haiku": {
     "input_cost_per_token": 0.000001,
     "output_cost_per_token": 0.000005
@@ -15500,10 +15916,10 @@
     "output_cost_per_token": 0.000003
   },
   "together_ai/Qwen/Qwen3.7-Max": {
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.0000015,
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.0000025,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.0000045
+    "output_cost_per_token": 0.0000075
   },
   "together_ai/Qwen/Qwen3.7-Plus": {
     "input_cost_per_token": 3.2E-7,
@@ -16204,55 +16620,55 @@
   "us.openai.gpt-5.4": {
     "cache_read_input_token_cost": 2.75E-7,
     "input_cost_per_token": 0.00000275,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000165
   },
   "us.openai.gpt-5.5": {
     "cache_read_input_token_cost": 5.5E-7,
     "input_cost_per_token": 0.0000055,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000033
   },
   "us.openai.gpt-5.6-luna": {
     "cache_creation_input_token_cost": 2.75E-7,
     "cache_read_input_token_cost": 2.2E-8,
     "input_cost_per_token": 2.2E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.00000132
   },
   "us.openai.gpt-5.6-sol": {
     "cache_creation_input_token_cost": 0.0000055,
     "cache_read_input_token_cost": 4.4E-7,
     "input_cost_per_token": 0.0000044,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000022
   },
   "us.openai.gpt-5.6-terra": {
     "cache_creation_input_token_cost": 0.00000275,
     "cache_read_input_token_cost": 2.2E-7,
     "input_cost_per_token": 0.0000022,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000132
   },
   "us.openai.gpt-6-astra": {
     "cache_creation_input_token_cost": 0.00001375,
     "cache_read_input_token_cost": 0.0000011,
     "input_cost_per_token": 0.000011,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000055
   },
   "us.openai.gpt-6-luna": {
     "cache_creation_input_token_cost": 1.375E-7,
     "cache_read_input_token_cost": 1.1E-8,
     "input_cost_per_token": 1.1E-7,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 5.5E-7
   },
   "us.openai.gpt-6-sol": {
     "cache_creation_input_token_cost": 0.00000275,
     "cache_read_input_token_cost": 2.2E-7,
     "input_cost_per_token": 0.0000022,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.000011
   },
   "us.openai.gpt-6.1-sol": {
@@ -17708,10 +18124,10 @@
     "output_cost_per_token": 2E-7
   },
   "wandb/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B": {
-    "cache_read_input_token_cost": 2E-8,
-    "input_cost_per_token": 1.5E-7,
+    "cache_read_input_token_cost": 5E-8,
+    "input_cost_per_token": 2.5E-7,
     "max_input_tokens": 1049000,
-    "output_cost_per_token": 7.5E-7
+    "output_cost_per_token": 0.0000015
   },
   "wandb/openai/gpt-oss-120b": {
     "input_cost_per_token": 3E-8,
@@ -18294,5 +18710,81 @@
     "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 5E-7
+  },
+  "zerogpu/LFM2.5-1.2B-Instruct": {
+    "input_cost_per_token": 2E-8,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 5E-8
+  },
+  "zerogpu/LFM2.5-1.2B-Thinking": {
+    "input_cost_per_token": 2E-8,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 5E-8
+  },
+  "zerogpu/deepseek-v4.1-flash": {
+    "cache_read_input_token_cost": 3E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
+  "zerogpu/glm-5.3-flash": {
+    "cache_read_input_token_cost": 1.5E-8,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 3.5E-7
+  },
+  "zerogpu/gpt-4.1-mini": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 4E-7,
+    "max_input_tokens": 1047576,
+    "output_cost_per_token": 0.0000016
+  },
+  "zerogpu/gpt-5.4-nano": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00000125
+  },
+  "zerogpu/gpt-5.6-luna": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.0000012
+  },
+  "zerogpu/gpt-6-luna": {
+    "cache_read_input_token_cost": 1E-8,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 5E-7
+  },
+  "zerogpu/gpt-oss-120b": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 128000,
+    "output_cost_per_token": 6E-7
+  },
+  "zerogpu/llama-3.1-8b-instruct-fast": {
+    "cache_read_input_token_cost": 2.5E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 2.8E-7
+  },
+  "zerogpu/llama-3.2-3b-instruct-fast": {
+    "cache_read_input_token_cost": 2.5E-8,
+    "input_cost_per_token": 5E-8,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 3E-7
+  },
+  "zerogpu/qwen3-30b-a3b-fp8": {
+    "cache_read_input_token_cost": 5E-8,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 4.5E-7
+  },
+  "zerogpu/qwen3.6-35b-a3b": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 2E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.0000015
   }
 }
