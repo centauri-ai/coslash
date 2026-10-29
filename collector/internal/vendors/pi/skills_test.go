@@ -53,6 +53,21 @@ func TestSkillsCollectedFromSuccessfulReads(t *testing.T) {
 	}
 }
 
+func TestSkillsDistinguishNULInAssistantAndToolCallIDs(t *testing.T) {
+	tr := projectionFixture(t, "nul-skill-call-ids", "",
+		`{"type":"message","id":"a\u0000b","message":{"role":"assistant","content":[{"type":"toolCall","id":"c","name":"read","arguments":{"path":"skills/first/SKILL.md"}}]}}`,
+		`{"type":"message","id":"a","parentId":"a\u0000b","message":{"role":"assistant","content":[{"type":"toolCall","id":"b\u0000c","name":"read","arguments":{"path":"skills/second/SKILL.md"}}]}}`,
+		`{"type":"message","id":"firstResult","parentId":"a\u0000b","message":{"role":"toolResult","toolCallId":"c","content":"first skill content"}}`,
+	)
+	parsed, err := projectLeaf(tr, nil, "firstResult", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []session.Skill{{Name: "first", Content: "first skill content"}}; !reflect.DeepEqual(parsed.Session.Skills, want) {
+		t.Fatalf("skills = %#v, want %#v", parsed.Session.Skills, want)
+	}
+}
+
 func TestSkillsIgnoreFailedMalformedAndUnmatchedResults(t *testing.T) {
 	for _, tc := range []struct{ name, message string }{
 		{"failed", `{"role":"toolResult","toolCallId":"read","isError":true,"content":"denied"}`},
