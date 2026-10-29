@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,15 @@ type contentBlock struct {
 			NewText *string `json:"newText"`
 		} `json:"edits"`
 	} `json:"arguments"`
+}
+
+type toolCallKey struct {
+	assistantID string
+	callID      string
+}
+
+func (key toolCallKey) commandLogID() string {
+	return strconv.Itoa(len(key.assistantID)) + ":" + key.assistantID + key.callID
 }
 
 func contentText(raw json.RawMessage) string {
@@ -179,7 +189,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			}
 		}
 	}
-	completedTools := map[string]bool{}
+	completedTools := map[toolCallKey]bool{}
 	nearestAssistant := map[string]string{}
 	for i, e := range t.Entries {
 		if err := ctx.Err(); err != nil {
@@ -193,7 +203,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			nearestAssistant[e.ID] = e.ID
 		}
 		if p.Message.Role == "toolResult" && !p.Message.IsError && p.Message.ToolCallID != "" && nearestAssistant[e.ID] != "" {
-			completedTools[nearestAssistant[e.ID]+"\x00"+p.Message.ToolCallID] = true
+			completedTools[toolCallKey{assistantID: nearestAssistant[e.ID], callID: p.Message.ToolCallID}] = true
 		}
 	}
 
@@ -214,11 +224,11 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 	}
 
 	commands := session.CommandLog{}
-	toolCommands := map[string]string{}
+	toolCommands := map[toolCallKey]string{}
 	skills := session.SkillLog{}
-	skillReads := map[string]string{}
+	skillReads := map[toolCallKey]string{}
 	pullRequests := map[string]struct{}{}
-	pullRequestTools := map[string]bool{} // GitHub MCP create calls, by assistant entry and call ID
+	pullRequestTools := map[toolCallKey]bool{} // GitHub MCP create calls, by assistant entry and call ID
 	edits := session.NewFileEditSet()
 	cost := 0.0
 	s.TokensUnavailable, s.CostUnavailable = !verified || t.Incomplete, !verified || t.Incomplete
@@ -295,15 +305,15 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			}
 		}
 		if p.Message.Role == "toolResult" && p.Message.ToolCallID != "" {
-			callID := nearestAssistant[e.ID] + "\x00" + p.Message.ToolCallID
+			callKey := toolCallKey{assistantID: nearestAssistant[e.ID], callID: p.Message.ToolCallID}
 			output, decoded := decodeContentText(p.Message.Content)
 			if decoded {
-				commands.AttachOutput(callID, session.TruncateOutput(output))
+				commands.AttachOutput(callKey.commandLogID(), session.TruncateOutput(output))
 			}
-			if name := skillReads[callID]; name != "" && e.Type == "message" && p.valid && decoded && !p.Message.IsError {
+			if name := skillReads[callKey]; name != "" && e.Type == "message" && p.valid && decoded && !p.Message.IsError {
 				skills.Note(name, output)
 			}
-			if command := toolCommands[callID]; command != "" {
+			if command := toolCommands[callKey]; command != "" {
 				s.CommitLog = append(s.CommitLog, session.ParseCommitObservations(command, output, !p.Message.IsError)...)
 				if !p.Message.IsError && session.IsPullRequestCreate(command) {
 					for _, url := range session.CreatedPullRequestURLs(false, output) {
@@ -311,7 +321,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 					}
 				}
 			}
-			if !p.Message.IsError && pullRequestTools[callID] {
+			if !p.Message.IsError && pullRequestTools[callKey] {
 				for _, url := range session.CreatedPullRequestURLs(true, output) {
 					pullRequests[url] = struct{}{}
 				}
@@ -340,26 +350,26 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				continue
 			}
 			s.ToolUses++
+			callKey := toolCallKey{assistantID: e.ID, callID: b.ID}
 			if session.IsPullRequestCreateTool(b.Name) {
-				pullRequestTools[e.ID+"\x00"+b.ID] = true
+				pullRequestTools[callKey] = true
 			}
 			if b.Arguments.Command != "" {
-				commands.NoteCall(e.ID+"\x00"+b.ID, b.Arguments.Command, "")
-				toolCommands[e.ID+"\x00"+b.ID] = b.Arguments.Command
+				commands.NoteCall(callKey.commandLogID(), b.Arguments.Command, "")
+				toolCommands[callKey] = b.Arguments.Command
 			}
 			a := b.Arguments
 			if e.Type == "message" && p.valid && blocksValid && p.Message.Role == "assistant" {
-				callID := e.ID + "\x00" + b.ID
 				if seenCallIDs[b.ID] {
-					delete(skillReads, callID)
+					delete(skillReads, callKey)
 				} else if b.ID != "" && b.Name == "read" {
 					if skill, ok := session.SkillFromPath(a.Path, ""); ok {
-						skillReads[callID] = skill.Name
+						skillReads[callKey] = skill.Name
 					}
 				}
 				seenCallIDs[b.ID] = true
 			}
-			if a.Path != "" && (b.Name == "write" || b.Name == "edit") && (b.Status == "ok" || completedTools[e.ID+"\x00"+b.ID]) {
+			if a.Path != "" && (b.Name == "write" || b.Name == "edit") && (b.Status == "ok" || completedTools[callKey]) {
 				if b.Name == "write" {
 					edits.Add(a.Path, session.CountLines(a.Content), 0, false)
 					edits.Write(a.Path, a.Content)
