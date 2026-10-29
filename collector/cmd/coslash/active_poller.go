@@ -48,8 +48,9 @@ func signalActiveChange(control *syncLoopControl, changed bool) bool {
 	return changed && control.wakeIfIdle()
 }
 
-// activeSnapshot uses only directory reads and stat calls. It keeps metadata
-// for sessions modified in the last 30 minutes and the agent root mtimes.
+// activeSnapshot keeps metadata for sessions modified in the last 30 minutes
+// and agent root mtimes; Pi source planning also reads its settings, runtime
+// metadata, and transcript headers.
 func activeSnapshot(ctx context.Context, home string, now time.Time) (map[string]string, error) {
 	roots := []string{
 		codex.SessionsRoot(home),
@@ -72,7 +73,7 @@ func activeSnapshot(ctx context.Context, home string, now time.Time) (map[string
 		}
 		snapshot["root:"+root] = fmt.Sprintf("%d:%d", info.ModTime().UnixNano(), info.Size())
 	}
-	inventorySnapshot, err := inventory.Scan(ctx, inventory.Options{Home: home, OpenCodeDB: openCodeDB, Now: now})
+	inventorySnapshot, err := scanLocalInventory(ctx, inventory.Options{Home: home, OpenCodeDB: openCodeDB, Now: now})
 	if err != nil {
 		return nil, err
 	}

@@ -35,6 +35,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
@@ -453,6 +454,15 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 	return store
 }
 
+func scanLocalInventory(ctx context.Context, options inventory.Options) (*inventory.Snapshot, error) {
+	plan, err := pi.PlanSourcesContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.Pi = plan.Scan
+	return inventory.Scan(ctx, options)
+}
+
 // runInventory takes the stat-only inventory at startup and every sync
 // interval, records it for check-in, prunes cache entries whose source is
 // gone, and wakes discovery when sources change or a requested refresh finishes.
@@ -499,7 +509,7 @@ func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerpr
 				continue
 			}
 		}
-		snapshot, err := inventory.Scan(ctx, inventory.Options{Tracker: tracker})
+		snapshot, err := scanLocalInventory(ctx, inventory.Options{Tracker: tracker})
 		if err != nil {
 			if ctx.Err() != nil {
 				return
