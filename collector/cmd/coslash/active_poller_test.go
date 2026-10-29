@@ -94,6 +94,44 @@ func TestActivePollTracksOpenCodeDatabaseOverride(t *testing.T) {
 	}
 }
 
+func TestActivePollTracksPiTranscriptChanges(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	transcript := writePiInventoryFixture(t, home)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	if err := os.Chtimes(transcript, now, now); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := activeSnapshot(context.Background(), home, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("updated\n"); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	changedAt := now.Add(time.Minute)
+	if err := os.Chtimes(transcript, changedAt, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	current, err := activeSnapshot(context.Background(), home, changedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !activeSnapshotChanged(previous, current, changedAt) {
+		t.Fatal("Pi transcript change did not trigger an active wake")
+	}
+}
+
 func itoa(value int64) string {
 	return strconv.FormatInt(value, 10)
 }

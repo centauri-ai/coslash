@@ -48,6 +48,7 @@ func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	writePiInventoryFixture(t, home)
 	fingerprints, err := syncv4.OpenFingerprints(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -70,10 +71,10 @@ func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("inventory did not wake the sync loop")
 	}
-	if inventory := queue.Inventory(); inventory == nil || inventory.Files != 0 || inventory.ScannedAt == "" {
+	if inventory := queue.Inventory(); inventory == nil || inventory.Files != 1 || len(inventory.Agents) != 1 || inventory.Agents[0].Agent != vendors.AgentPi || inventory.Agents[0].Files != 1 || inventory.ScannedAt == "" {
 		t.Fatalf("queue inventory = %+v", inventory)
 	}
-	if tracker.Running() || tracker.FilesSoFar() != 0 {
+	if tracker.Running() || tracker.FilesSoFar() != 1 {
 		t.Fatalf("tracker = running %v, files %d", tracker.Running(), tracker.FilesSoFar())
 	}
 	cancel()
@@ -82,6 +83,24 @@ func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("inventory loop did not stop on cancellation")
 	}
+}
+
+func writePiInventoryFixture(t *testing.T, home string) string {
+	t.Helper()
+	root := filepath.Join(home, "pi-sessions")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GROK_HOME", "")
+	t.Setenv("COSLASH_HOME", filepath.Join(home, "coslash"))
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(home, "pi-agent"))
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("COSLASH_PI_SESSION_ROOTS", root)
+	path := filepath.Join(root, "session.jsonl")
+	if err := os.WriteFile(path, []byte("{\"type\":\"session\",\"version\":3,\"id\":\"pi-inventory-session\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestRunInventorySchedulesShortRetryForFreshSessionFile(t *testing.T) {
