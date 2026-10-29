@@ -73,9 +73,12 @@ func piSourceProblem(id, code string) error {
 	return &sessionbackupproducer.PreparationError{Coverage: sessionbackupproducer.Coverage{Problems: []backup.CaptureProblem{{Code: code, MemberID: id, Kind: backup.KindRawTranscript, Retryable: true}}}}
 }
 
-func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found []Entry, verified map[string]string, batchInputs []pi.SessionInputs) error {
+func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found []Entry, verified map[string]string, batchInputs []pi.SessionInputs) (map[string]*session.Session, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
+	}
+	if verified == nil {
+		verified = map[string]string{}
 	}
 	stored := map[string]Entry{}
 	current := make([]Entry, 0, len(found))
@@ -83,7 +86,7 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 		stored[entry.Key] = entry
 		if entry.Selection.Agent == vendors.AgentPi {
 			entry.Live = false
-			if plan != nil {
+			if plan != nil && plan.Metadata != nil {
 				if metadata := plan.Metadata.Lookup(entry.Selection.SessionID); metadata != nil {
 					entry.Live = metadata.Live == "busy" || metadata.Live == "idle" || metadata.Live == "waiting"
 				}
@@ -100,16 +103,21 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 	for _, entry := range found {
 		foundIDs[entry.Selection.SessionID] = true
 	}
+	metadata := vendors.EmptySessionMetadata()
+	if plan != nil && plan.Metadata != nil {
+		metadata = plan.Metadata
+	}
 	var updates []Entry
+	snapshots := map[string]*session.Session{}
 	var firstErr error
 	for _, entry := range r.Queue.piRevisionCandidates(current) {
 		id := entry.Selection.SessionID
-		revision, seen := verified[id]
-		if seen && (!foundIDs[id] || revision == "") {
+		priorRevision, seen := verified[id]
+		if seen && (!foundIDs[id] || priorRevision == "") {
 			continue
 		}
 		if err := r.allowed(ctx, entry.Session); err != nil {
-			return err
+			return nil, err
 		}
 		var inputs pi.SessionInputs
 		var err error
@@ -123,61 +131,44 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 				err = piSourceProblem(id, backup.ProblemUnreadable)
 			}
 		}
-		_, supplied := inputsByID[id]
-		if err == nil && (!foundIDs[id] || !supplied) && !seen {
-			files := make(map[string]string, len(inputs.Files))
-			for _, path := range inputs.Files {
-				files[path] = path
-			}
-			item, _, parseErr := pi.ParseFrozenSessionContext(ctx, inputs, files)
-			err = parseErr
-			if err != nil && ctx.Err() == nil {
-				_, err = sessionbackupproducer.PiSourceRevision(ctx, inputs)
-				if err == nil {
-					err = piSourceProblem(id, backup.ProblemUnstable)
-				}
-			}
-			if err == nil {
-				cards, composeErr := collector.FinalizeBatchContext(ctx, []*vendors.ParsedSession{item}, map[string]*vendors.SessionMetadata{vendors.AgentPi: plan.Metadata})
-				err = composeErr
-				if err == nil && len(cards) == 1 {
-					candidate := discoveredEntries(cards, r.Queue.InstallID(), nil, nil, map[string]string{id: "pending"})
-					if len(candidate) == 1 {
-						entry.Session, entry.Live = candidate[0].Session, candidate[0].Live
-						entry.Activity = candidate[0].Activity
-					}
-				} else if err == nil {
+		var item *vendors.ParsedSession
+		var revision string
+		if err == nil {
+			item, revision, err = sessionbackupproducer.PiSourceSnapshot(ctx, inputs)
+		}
+		if err == nil {
+			cards, composeErr := collector.FinalizeBatchContext(ctx, []*vendors.ParsedSession{item}, map[string]*vendors.SessionMetadata{vendors.AgentPi: metadata})
+			err = composeErr
+			if err == nil && len(cards) == 1 {
+				candidate := discoveredEntries(cards, r.Queue.InstallID(), nil, nil, map[string]string{id: "pending"})
+				if len(candidate) == 1 {
+					entry.Session, entry.Live = candidate[0].Session, candidate[0].Live
+					entry.Activity = candidate[0].Activity
+					snapshots[id] = cards[0]
+				} else {
 					err = piSourceProblem(id, backup.ProblemUnattributable)
 				}
+			} else if err == nil {
+				err = piSourceProblem(id, backup.ProblemUnattributable)
 			}
 		}
 		if err == nil && leftOut(entry.Session, r.config.LeaveOut) {
+			delete(snapshots, id)
 			if old, known := stored[entry.Key]; known {
 				old.Session, old.Excluded = entry.Session, true
 				if err := r.Queue.Update(old); err != nil {
-					return err
+					return nil, err
 				}
 			}
 			continue
 		}
-		if err == nil {
-			eligible := false
-			for _, selected := range r.Queue.piRevisionCandidates([]Entry{entry}) {
-				eligible = eligible || selected.Key == entry.Key
-			}
-			if !eligible {
-				continue
-			}
-		}
-		if err == nil && !seen {
-			revision, err = sessionbackupproducer.PiSourceRevision(ctx, inputs)
-		}
 		if err != nil || revision == "" {
+			delete(snapshots, id)
 			if stopSync(err) || ctx.Err() != nil {
 				if ctx.Err() != nil {
-					return ctx.Err()
+					return nil, ctx.Err()
 				}
-				return err
+				return nil, err
 			}
 			if err == nil {
 				err = piSourceProblem(id, backup.ProblemUnreadable)
@@ -185,7 +176,7 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 			verified[id] = ""
 			if old, known := stored[entry.Key]; known {
 				if err := r.recordFailureState(&old, err, true); err != nil {
-					return err
+					return nil, err
 				}
 			}
 			firstErr = errors.Join(firstErr, err)
@@ -203,7 +194,7 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 				}
 				old.Listed = false
 				if err := r.Queue.Update(old); err != nil {
-					return err
+					return nil, err
 				}
 			}
 			entry.SourceRevision, entry.SourceBlocked = revision, false
@@ -212,10 +203,36 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 	}
 	if len(updates) > 0 {
 		if err := r.Queue.Merge(updates, r.now()); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return firstErr
+	return snapshots, firstErr
+}
+
+func piSnapshotSessions(found []*session.Session, snapshots map[string]*session.Session) []*session.Session {
+	var refreshed []*session.Session
+	for _, item := range found {
+		if item != nil && item.Agent == vendors.AgentPi {
+			if snapshot := snapshots[item.ID]; snapshot != nil {
+				refreshed = append(refreshed, snapshot)
+			}
+		}
+	}
+	return refreshed
+}
+
+func replacePiSnapshots(found []*session.Session, snapshots map[string]*session.Session) []*session.Session {
+	refreshed := make([]*session.Session, 0, len(found))
+	for _, item := range found {
+		if item != nil && item.Agent == vendors.AgentPi {
+			item = snapshots[item.ID]
+			if item == nil {
+				continue
+			}
+		}
+		refreshed = append(refreshed, item)
+	}
+	return refreshed
 }
 
 func planPiSources(ctx context.Context, queue *Queue) (*pi.SourcePlan, error) {

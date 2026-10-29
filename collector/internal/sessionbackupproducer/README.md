@@ -98,10 +98,11 @@ additional members or subagent parents. Parsing reads only the frozen copies.
 Stable partial tails and unavailable ancestry preserve useful detail with
 incomplete-detail status and truthful accounting. Invalid root data blocks capture.
 
-`PiSourceRevision(ctx, inputs)` accepts `pi.SessionInputs` from one planning
-snapshot. It uses the same bounded temporary copies, parser, and normalization
-as capture. Both source and member revisions hash indexed file lengths and
-SHA-256 values, effective leaf selection, and the portable record revision.
+`PiSourceSnapshot(ctx, inputs)` accepts `pi.SessionInputs` from one planning
+snapshot and returns the parsed session and source revision from the same
+bounded temporary copies. `PiSourceRevision` uses that path when only the
+revision is needed. Both source and member revisions hash indexed file lengths
+and SHA-256 values, effective leaf selection, and the portable record revision.
 Portable composition uses the fixed internal source ID `pi-source-revision`.
 This includes ancestry verification, context, accounting, and observed Skills.
 Runtime modality, PID, heartbeat, and original evidence paths remain excluded

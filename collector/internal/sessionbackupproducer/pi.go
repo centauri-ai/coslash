@@ -29,37 +29,47 @@ type piFrozen struct {
 
 // PiSourceRevision shares capture's bounded frozen bytes and portable selection.
 // The caller supplies inputs from its discovery/runtime snapshot.
-func PiSourceRevision(ctx context.Context, inputs pi.SessionInputs) (revision string, err error) {
+func PiSourceRevision(ctx context.Context, inputs pi.SessionInputs) (string, error) {
+	_, revision, err := PiSourceSnapshot(ctx, inputs)
+	return revision, err
+}
+
+// PiSourceSnapshot returns the parsed session and revision derived from the
+// same bounded frozen inputs. The caller supplies inputs from one discovery
+// and runtime snapshot.
+func PiSourceSnapshot(ctx context.Context, inputs pi.SessionInputs) (parsed *vendors.ParsedSession, revision string, err error) {
 	defer func() {
 		if ctx.Err() != nil {
+			parsed = nil
 			err = ctx.Err()
 			return
 		}
 		var failure *captureError
 		if errors.As(err, &failure) {
+			parsed = nil
 			_, err = captureProblem(Selection{SourceKind: sessionbackupv1.SourceLocal, Agent: vendors.AgentPi, SessionID: inputs.ID}, failure)
 		}
 	}()
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	staging, err := os.MkdirTemp("", "coslash-pi-revision-*")
 	if err != nil {
-		return "", captureFailure(sessionbackupv1.ProblemUnavailable, "", true)
+		return nil, "", captureFailure(sessionbackupv1.ProblemUnavailable, "", true)
 	}
 	defer os.RemoveAll(staging)
 	frozen, err := freezePiInputs(ctx, staging, inputs)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	_, revision, err = frozen.project(ctx, inputs)
+	parsed, _, revision, err = frozen.projectSnapshot(ctx, inputs)
 	if err != nil {
-		return "", frozen.projectionFailure(ctx, inputs, err)
+		return nil, "", frozen.projectionFailure(ctx, inputs, err)
 	}
 	if err := frozen.verify(ctx, inputs); err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return revision, nil
+	return parsed, revision, nil
 }
 
 func freezePiInputs(ctx context.Context, staging string, inputs pi.SessionInputs) (*piFrozen, error) {
@@ -125,17 +135,22 @@ func openPiInput(ctx context.Context, path string) (*os.File, fs.FileInfo, error
 }
 
 func (frozen *piFrozen) project(ctx context.Context, inputs pi.SessionInputs) (fullsessionv1.Record, string, error) {
+	_, record, revision, err := frozen.projectSnapshot(ctx, inputs)
+	return record, revision, err
+}
+
+func (frozen *piFrozen) projectSnapshot(ctx context.Context, inputs pi.SessionInputs) (*vendors.ParsedSession, fullsessionv1.Record, string, error) {
 	parsed, selection, err := pi.ParseFrozenSessionContext(ctx, inputs, frozen.files)
 	if err != nil {
-		return fullsessionv1.Record{}, "", processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
+		return nil, fullsessionv1.Record{}, "", processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 	}
 	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, "pi-source-revision", vendors.AgentPi, vendors.LocalReadSource, []*vendors.ParsedSession{parsed}, vendors.EmptySessionMetadata())
 	if err != nil || len(records) != 1 || records[0].SessionID != inputs.ID || records[0].ParentSessionID != "" || len(records[0].Session.Subagents) != 0 {
-		return fullsessionv1.Record{}, "", processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
+		return nil, fullsessionv1.Record{}, "", processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 	}
 	parts := append([]string(nil), frozen.parts...)
 	parts = append(parts, fmt.Sprintf("context:%t:%s", selection.Verified, selection.LeafID), "portable:"+records[0].RevisionID)
-	return records[0], hashStrings(parts), nil
+	return parsed, records[0], hashStrings(parts), nil
 }
 
 func (frozen *piFrozen) projectionFailure(ctx context.Context, inputs pi.SessionInputs, failure error) error {

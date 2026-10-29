@@ -508,7 +508,7 @@ func discoverLocalBatches(ctx context.Context, fingerprints *syncv4.Fingerprints
 		if err != nil {
 			return err
 		}
-		if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes, GrokFamilies: batch.GrokFamilies, PiInputs: batch.PiInputs}); err != nil {
+		if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes, GrokFamilies: batch.GrokFamilies, PiInputs: batch.PiInputs, PiMetadata: batch.PiMetadata}); err != nil {
 			return err
 		}
 		encoded, err := json.Marshal(batch.Cursor)

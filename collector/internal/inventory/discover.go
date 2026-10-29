@@ -67,6 +67,7 @@ type Batch struct {
 	ContentBytes map[string]int64
 	GrokFamilies []grok.FamilyRef
 	PiInputs     []pi.SessionInputs
+	PiMetadata   *vendors.SessionMetadata
 	Cursor       Cursor
 	Remaining    int
 }
@@ -432,7 +433,7 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 				contentBytes[key] = agentBytes[item.Agent] / agentCount[item.Agent]
 			}
 		}
-		continued := yield(Batch{Sessions: kept, ContentBytes: contentBytes, GrokFamilies: grokFamilies, PiInputs: piInputs, Cursor: cursor, Remaining: len(plan.families) - end}, nil)
+		continued := yield(Batch{Sessions: kept, ContentBytes: contentBytes, GrokFamilies: grokFamilies, PiInputs: piInputs, PiMetadata: plan.metadata[vendors.AgentPi], Cursor: cursor, Remaining: len(plan.families) - end}, nil)
 		if plan.persist != nil {
 			if err := plan.persist(cursor); err != nil {
 				yield(Batch{}, err)
