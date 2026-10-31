@@ -28,6 +28,7 @@ import (
 type planHub struct {
 	plan          *hubclient.V4ImportPlan
 	withoutScale  bool
+	policyOnly    bool
 	creates       int
 	lists         [][]hubclient.V4ListItem
 	checks        int
@@ -580,6 +581,9 @@ func (h *planHub) V4CheckIn(_ context.Context, queue hubclient.V4Queue, _ int64,
 	if h.withoutScale {
 		capabilities = nil
 	}
+	if h.policyOnly {
+		capabilities = []string{hubclient.CapabilitySyncPolicy}
+	}
 	version := max(h.configVersion, 1)
 	return hubclient.V4CheckIn{ConfigVersion: version, Config: hubclient.V4Config{LeaveOut: rules, ImportPlan: h.plan}, Capabilities: capabilities}, nil
 }
@@ -788,6 +792,67 @@ func TestDefaultWorkerDoesNotUploadToHubWithoutImportPlanSupport(t *testing.T) {
 	}
 	if hub.creates != 0 || len(hub.lists) != 0 || hub.checks != 1 {
 		t.Fatalf("creates=%d lists=%d checks=%d", hub.creates, len(hub.lists), hub.checks)
+	}
+}
+
+func TestRequiredPlanAdmissionWithoutScale(t *testing.T) {
+	for _, tc := range []struct {
+		name, scale, policy string
+		plan                *hubclient.V4ImportPlan
+		policyOnly, stale   bool
+		wantUpload          bool
+	}{
+		{"policy plan", "1", "1", &hubclient.V4ImportPlan{Version: 1, Window: "3d"}, true, false, true},
+		{"scale override", "0", "1", &hubclient.V4ImportPlan{Version: 1, Window: "3d"}, true, false, true},
+		{"missing plan", "1", "1", nil, true, false, false},
+		{"missing plan after prior check-in", "1", "1", nil, true, true, false},
+		{"missing capability", "1", "1", &hubclient.V4ImportPlan{Version: 1, Window: "3d"}, false, false, false},
+		{"policy disabled", "1", "0", &hubclient.V4ImportPlan{Version: 1, Window: "3d"}, true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("COSLASH_SCALE_IMPORT", tc.scale)
+			t.Setenv("COSLASH_SYNC_POLICY", tc.policy)
+			now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+			q, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := q.Rebind(strings.Repeat("a", 64)); err != nil {
+				t.Fatal(err)
+			}
+			if tc.stale {
+				prior := &hubclient.V4ImportPlan{Version: 1, Window: "3d"}
+				if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: prior}}, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			manager, prepared, _ := fixtureBundle(t)
+			hub := &preparationRecoveryHub{planHub: planHub{plan: tc.plan, withoutScale: true, policyOnly: tc.policyOnly}}
+			runner := &Runner{Queue: q, Backup: manager, Hub: hub, RequireImportPlan: true,
+				Now: func() time.Time { return now }, Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }}
+			manifest, err := runner.manifest(prepared)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := Entry{Key: "fixture", Activity: now.Add(-time.Hour).UnixMilli(), BundleID: prepared.BundleID,
+				Manifest: &manifest, ContentSHA256: manifest.ContentSHA256,
+				Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "fixture"}}
+			if err := q.Merge([]Entry{entry}, now); err != nil {
+				t.Fatal(err)
+			}
+			err = runner.SyncOnce(t.Context())
+			if tc.wantUpload {
+				if err != nil || len(hub.lists) != 1 || hub.creates != 1 || q.Entries()[0].RevisionID == "" {
+					t.Fatalf("sync = %v, lists=%d creates=%d entry=%+v", err, len(hub.lists), hub.creates, q.Entries()[0])
+				}
+				last := hub.checkInQueue[len(hub.checkInQueue)-1]
+				if last.Import == nil || last.Import.Phase != "complete" || last.Inventory != nil {
+					t.Fatalf("policy-only progress = %+v, want completion without scale inventory", last)
+				}
+			} else if !errors.Is(err, ErrPaused) || len(hub.lists) != 0 || hub.creates != 0 {
+				t.Fatalf("sync = %v, lists=%d creates=%d; want paused", err, len(hub.lists), hub.creates)
+			}
+		})
 	}
 }
 

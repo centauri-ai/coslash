@@ -96,8 +96,12 @@ func (r *Runner) ImportActive() bool {
 // source or network operation. It leaves command and policy handling to the
 // normal pass; a changed response asks the outer loop to interrupt that pass.
 func (r *Runner) ProgressCheckIn(ctx context.Context) (changed bool, retryAfter time.Duration, err error) {
-	if r.Queue == nil || r.Hub == nil || !hubclient.ScaleImportEnabled() ||
-		!r.Queue.HubAdvertises(hubclient.CapabilityScaleImport) || !r.ImportActive() {
+	if r.Queue == nil || r.Hub == nil || !r.ImportActive() {
+		return false, 0, nil
+	}
+	scale := hubclient.ScaleImportEnabled() && r.Queue.HubAdvertises(hubclient.CapabilityScaleImport)
+	policy := hubclient.SyncPolicyEnabled() && r.Queue.HubAdvertises(hubclient.CapabilitySyncPolicy)
+	if !scale && !policy {
 		return false, 0, nil
 	}
 	now := r.now()
@@ -107,7 +111,7 @@ func (r *Runner) ProgressCheckIn(ctx context.Context) (changed bool, retryAfter 
 	if last := r.lastProgressCheckIn.Load(); last > 0 && now.Sub(time.Unix(0, last)) < 8*time.Second {
 		return false, 0, nil
 	}
-	version, _, _ := r.Queue.Policy()
+	version, config, _ := r.Queue.Policy()
 	progress := r.Queue.progressAt(now)
 	progress.Import = r.importProgress(ctx, now)
 	results := slices.DeleteFunc(r.Queue.Results(), func(result hubclient.V4CommandResult) bool {
@@ -125,14 +129,16 @@ func (r *Runner) ProgressCheckIn(ctx context.Context) (changed bool, retryAfter 
 	r.resetCheckInBackoff()
 	r.lastProgressCheckIn.Store(r.now().UnixNano())
 	return response.ConfigVersion != version || len(response.Commands) > 0 || response.UpdateRequired ||
-		!slices.Contains(response.Capabilities, hubclient.CapabilityScaleImport), 0, nil
+		(scale && !slices.Contains(response.Capabilities, hubclient.CapabilityScaleImport)) ||
+		(policy && (!slices.Contains(response.Capabilities, hubclient.CapabilitySyncPolicy) ||
+			config.ImportPlan != nil && (response.Config.ImportPlan == nil || *response.Config.ImportPlan != *config.ImportPlan))), 0, nil
 }
 
 func (r *Runner) runPlannedAndReport(ctx context.Context) error {
 	err := r.runPlanned(ctx)
 	if ctx.Err() == nil {
 		now := r.now()
-		phaseChanged := r.Queue.ImportSnapshot(now).Phase != r.lastReportedPhase
+		phaseChanged := (r.scaleEnabled || r.importPlanAdmitted()) && r.Queue.ImportSnapshot(now).Phase != r.lastReportedPhase
 		pendingLogs := false
 		if !now.Before(r.logRejectedUntil) {
 			lines, _ := r.Queue.PendingLog(now)

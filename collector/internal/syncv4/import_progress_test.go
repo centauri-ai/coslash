@@ -117,6 +117,36 @@ func TestProgressCheckInCoalescesDuringActiveImport(t *testing.T) {
 	}
 }
 
+func TestPolicyOnlyProgressCheckInDetectsMissingPlan(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "0")
+	t.Setenv("COSLASH_SYNC_POLICY", "1")
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "3d"}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1,
+		Config: hubclient.V4Config{ImportPlan: plan}, Capabilities: []string{hubclient.CapabilitySyncPolicy}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{withoutScale: true, policyOnly: true, plan: plan}
+	runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return now }}
+	changed, _, err := runner.ProgressCheckIn(t.Context())
+	if err != nil || changed || hub.checks != 1 || hub.checkInQueue[0].Import == nil || hub.checkInQueue[0].Inventory != nil {
+		t.Fatalf("policy heartbeat changed=%t err=%v checks=%d", changed, err, hub.checks)
+	}
+	now = now.Add(8 * time.Second)
+	hub.plan = nil
+	changed, _, err = runner.ProgressCheckIn(t.Context())
+	if err != nil || !changed {
+		t.Fatalf("missing plan changed=%t err=%v", changed, err)
+	}
+}
+
 func TestProgressCheckInSharesHubRateLimitWithConsent(t *testing.T) {
 	t.Setenv("COSLASH_SCALE_IMPORT", "1")
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
