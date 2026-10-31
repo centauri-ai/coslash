@@ -84,6 +84,7 @@ locally done.
 
 With `config.importPlan` delivered under `sync-policy/1` or `scale-import/v1`,
 the device waits for the plan before creating uploads or listing sessions. The
+plan does not require the optional scale capability when sync policy is enabled.
 plan's window and history choice set the scope. The default plan is recent
 `3d` activity capped at 30 sessions; it does not start an extended backfill.
 Hub Settings can explicitly start a per-device 30-day, 60-day, or all-history
@@ -168,6 +169,8 @@ Routine inventory or policy wake-ups can restart a sync pass without interruptin
 an SSH test or connector install. Shutdown and device revocation still cancel
 commands. A canceled command reports `command_cancelled`, preserving the cause
 when helper status would otherwise describe a transport timeout.
+An unsolicited inventory update waits for an active sync pass to finish before
+starting discovery; a Hub-requested inventory can interrupt the pass.
 
 The command wait request continues while Local runs, including during an
 upload, a pause, and a failed pass. A changed policy or queued command wakes
@@ -239,8 +242,9 @@ retries them after one minute. A binding change drops unsent lines.
 
 Exhausting the warm-start budget yields with the entry pending, including when
 preparation was estimating its size; it does not park the source or report
-malformed content. A planned source-preparation deadline schedules the normal
-retry backoff and reports `unreadable_source`. Both paths can retry unchanged
+malformed content. Expiry of the planned pass budget during preparation also
+yields without recording a failure. A planned source-preparation deadline
+schedules the normal retry backoff and reports `unreadable_source`. Both paths can retry unchanged
 input without a Hub retry command. Owner cancellation stops work without
 recording a content failure; genuinely invalid capture problems remain parked.
 

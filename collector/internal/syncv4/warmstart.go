@@ -402,6 +402,9 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			err = r.prepareEntry(prepareCtx, &entry)
 			sourceTimedOut := prepareCtx.Err() == context.DeadlineExceeded
 			stopPrepare()
+			if workCtx.Err() != nil && ctx.Err() == nil {
+				return firstErr
+			}
 			if sourceTimedOut && workCtx.Err() == nil && ctx.Err() == nil {
 				entry.FailureCode = "unreadable_source"
 				entry.BackoffAttempt++

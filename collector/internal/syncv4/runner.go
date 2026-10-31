@@ -156,6 +156,7 @@ type Runner struct {
 	configVersion       int64
 	retryCommands       map[string]string
 	scaleEnabled        bool
+	confirmedPlan       bool
 	chunkWorkers        int
 	newRetryCommand     bool
 	scaleSupported      bool
@@ -226,7 +227,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.Queue.PolicyBlocked() {
 		return ErrPolicyBlocked
 	}
-	if r.RequireImportPlan && !r.scaleEnabled {
+	if r.RequireImportPlan && !r.importPlanAdmitted() {
 		return ErrPaused
 	}
 	if r.newRetryCommand {
@@ -959,11 +960,12 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		lines, through = nil, 0
 	}
 	progress := r.Queue.progressAt(r.now())
-	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
+	policyProgress := hubclient.SyncPolicyEnabled() && r.Queue.HubAdvertises(hubclient.CapabilitySyncPolicy) && config.ImportPlan != nil
+	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" || policyProgress {
 		progress.Import = r.importProgress(ctx, r.now())
 	}
 	if !r.scaleSupported || os.Getenv("COSLASH_SCALE_IMPORT") == "0" {
-		progress.Inventory, progress.Import = nil, nil
+		progress.Inventory = nil
 		results = slices.DeleteFunc(results, func(result hubclient.V4CommandResult) bool { return result.Result == "in_progress" })
 		for i := range results {
 			results[i].Progress = nil
@@ -1022,6 +1024,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		}
 	}
 	r.configVersion, r.config, _ = r.Queue.Policy()
+	r.confirmedPlan = result.Config.ImportPlan != nil && r.config.ImportPlan != nil && *result.Config.ImportPlan == *r.config.ImportPlan
 	r.checkedAt = r.now()
 	if result.UpdateRequired {
 		return hubclient.V4Problem{Code: "client_update_required"}
@@ -1220,12 +1223,25 @@ func (r *Runner) pausedLocallyOrByHub() bool {
 	return r.config.Paused || r.config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || r.LocalPause != nil && r.LocalPause()
 }
 
+func (r *Runner) importPlanAdmitted() bool {
+	return r.confirmedPlan && r.config.ImportPlan != nil && r.config.ImportPlan.Version > 0 && r.Queue != nil &&
+		(r.scaleEnabled || hubclient.SyncPolicyEnabled() && r.Queue.HubAdvertises(hubclient.CapabilitySyncPolicy))
+}
+
 func (r *Runner) allowed(ctx context.Context, meta hubclient.V4Session) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= consentAge {
 		return ErrStaleConsent
+	}
+	if r.RequireImportPlan {
+		if !r.importPlanAdmitted() {
+			return ErrPaused
+		}
+		if err := validateImportPlan(*r.config.ImportPlan); err != nil {
+			return err
+		}
 	}
 	if r.pausedLocallyOrByHub() {
 		return ErrPaused
@@ -1244,7 +1260,7 @@ func (r *Runner) allowed(ctx context.Context, meta hubclient.V4Session) error {
 
 func (r *Runner) ensureConsent(ctx context.Context) error {
 	phase := ""
-	if r.scaleEnabled && r.Queue != nil {
+	if (r.scaleEnabled || r.importPlanAdmitted()) && r.Queue != nil {
 		phase = r.Queue.ImportSnapshot(r.now()).Phase
 	}
 	if r.InventoryProgress != nil && r.scaleEnabled {
@@ -1256,7 +1272,7 @@ func (r *Runner) ensureConsent(ctx context.Context) error {
 	if lastProgress == 0 {
 		lastProgress = r.checkedAt.UnixNano()
 	}
-	progressDue := r.scaleEnabled && (activeImportPhase(phase) && r.now().Sub(time.Unix(0, lastProgress)) >= 10*time.Second || phase != r.lastReportedPhase)
+	progressDue := (r.scaleEnabled || r.importPlanAdmitted()) && (activeImportPhase(phase) && r.now().Sub(time.Unix(0, lastProgress)) >= 10*time.Second || phase != r.lastReportedPhase)
 	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= 4*time.Minute || progressDue {
 		if err := r.refreshConsent(ctx); err != nil {
 			return err

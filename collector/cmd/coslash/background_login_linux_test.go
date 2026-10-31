@@ -4,9 +4,50 @@ package main
 
 import (
 	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func init() {
+	backgroundLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	backgroundCommand = func(string, ...string) ([]byte, error) {
+		return nil, errors.New("background commands disabled in tests")
+	}
+	writeCrontab = func(string) error { return errors.New("crontab disabled in tests") }
+}
+
+func TestPairingBackgroundPersistenceIsIsolated(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	previousLookPath, previousCommand, previousWrite := backgroundLookPath, backgroundCommand, writeCrontab
+	t.Cleanup(func() {
+		backgroundLookPath, backgroundCommand, writeCrontab = previousLookPath, previousCommand, previousWrite
+	})
+	var lookups []string
+	backgroundLookPath = func(name string) (string, error) {
+		lookups = append(lookups, name)
+		return "", exec.ErrNotFound
+	}
+	backgroundCommand = func(name string, _ ...string) ([]byte, error) {
+		t.Errorf("unexpected background command %s", name)
+		return nil, errors.New("unexpected command")
+	}
+	writeCrontab = func(string) error {
+		t.Error("unexpected crontab write")
+		return errors.New("unexpected crontab write")
+	}
+	reportBackgroundPersistence(io.Discard)
+	if strings.Join(lookups, ",") != "systemctl,crontab" {
+		t.Fatalf("background lookup attempts = %v", lookups)
+	}
+	if _, err := os.Stat(filepath.Join(config, "systemd", "user", systemdUnitName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected user unit: %v", err)
+	}
+}
 
 func TestSystemdUnitQuotesExecutableAndCarriesDataLocations(t *testing.T) {
 	env := map[string]string{
