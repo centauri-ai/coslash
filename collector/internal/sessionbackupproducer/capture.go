@@ -44,8 +44,8 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 }
 
 func (manager *Manager) prepare(ctx context.Context, selection Selection) (*Prepared, error) {
-	if selection.Agent != vendors.AgentCodex &&
-		!((selection.Agent == vendors.AgentClaude || selection.Agent == vendors.AgentOpenCode || selection.Agent == vendors.AgentCursor || selection.Agent == vendors.AgentGrok || selection.Agent == vendors.AgentPi) &&
+	if selection.Agent != vendors.AgentCodex && selection.Agent != vendors.AgentClaude &&
+		!((selection.Agent == vendors.AgentOpenCode || selection.Agent == vendors.AgentCursor || selection.Agent == vendors.AgentGrok || selection.Agent == vendors.AgentPi) &&
 			selection.SourceKind == sessionbackupv1.SourceLocal) {
 		return problem(selection, sessionbackupv1.ProblemUnsupported, "", false)
 	}
@@ -742,6 +742,22 @@ type snapshotSource struct {
 	missing map[string]bool
 	// refused files exist but are not usable input. They read as absent.
 	refused map[string]bool
+}
+
+func (source snapshotSource) JoinPath(elements ...string) string {
+	return vendors.SourcePathJoin(source.ReadSource, elements...)
+}
+
+func (source snapshotSource) RelativePath(root, name string) (string, error) {
+	return vendors.SourcePathRelative(source.ReadSource, root, name)
+}
+
+func (source snapshotSource) DirPath(name string) string {
+	return vendors.SourcePathDir(source.ReadSource, name)
+}
+
+func (source snapshotSource) BasePath(name string) string {
+	return vendors.SourcePathBase(source.ReadSource, name)
 }
 
 func (source snapshotSource) Open(name string) (io.ReadCloser, error) {

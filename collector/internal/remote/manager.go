@@ -2,7 +2,9 @@ package remote
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path"
 	"slices"
@@ -55,6 +57,7 @@ type IndexedSession struct {
 	Launchable            bool
 	LaunchBlockReason     LaunchBlockReason
 	RevisionID            string
+	FamilyRevision        string
 }
 
 type remoteSessionKey struct{ Agent, ID string }
@@ -113,6 +116,7 @@ type Manager struct {
 	legacyStale            bool
 	sessions               []*session.Session
 	familyStale            map[remoteSessionKey]bool
+	syncRoots              map[remoteSessionKey]string
 	state                  State
 	reason                 *Reason
 	complete               bool
@@ -1177,7 +1181,8 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 	}
 	eligible := manager.state == StateOK && manager.complete
 	globalStale := manager.state != StateOK && manager.state != StateLimited
-	revisions := fullRecordRevisions(manager.snapshot)
+	revisions, families := recordRevisions(manager.snapshot)
+	manager.syncRoots = families
 	result := []IndexedSession{}
 	for _, item := range manager.sessions {
 		if remoteSinceMs > 0 && item.Status == nil && item.LastActivityTime < remoteSinceMs {
@@ -1192,6 +1197,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 			Launchable:            blockReason == "",
 			LaunchBlockReason:     blockReason,
 			RevisionID:            revisions[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
+			FamilyRevision:        families[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
 		}
 		if indexed.DisplayStale {
 			indexed.LastSeenStatus = item.Status
@@ -1201,15 +1207,34 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 	return result
 }
 
-func fullRecordRevisions(snapshot *CachedSnapshotV2) map[remoteSessionKey]string {
-	revisions := map[remoteSessionKey]string{}
+// SyncAvailable also guards already prepared uploads after removal or an outage.
+func (manager *Manager) SyncAvailable(sourceID, agent, id string) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.cfg != nil && manager.cfg.Enabled && manager.cfg.ID == sourceID &&
+		manager.snapshot != nil && manager.snapshot.RequestComplete &&
+		(manager.state == StateOK || manager.state == StateLimited) &&
+		age(manager.snapshot.FetchedAtMs, manager.now()) < FreshnessInterval &&
+		manager.syncRoots[remoteSessionKey{Agent: agent, ID: id}] != "" &&
+		!manager.familyStale[remoteSessionKey{Agent: agent, ID: id}]
+}
+
+func recordRevisions(snapshot *CachedSnapshotV2) (sessions, families map[remoteSessionKey]string) {
+	sessions, families = map[remoteSessionKey]string{}, map[remoteSessionKey]string{}
 	if snapshot == nil {
-		return revisions
+		return
 	}
+	parts := map[remoteSessionKey][]string{}
 	for _, full := range snapshot.FullRecords {
-		revisions[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}] = full.Record.RevisionID
+		sessions[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}] = full.Record.RevisionID
+		key := remoteSessionKey{Agent: full.Record.Agent, ID: full.FamilyID}
+		parts[key] = append(parts[key], full.Record.SessionID+":"+full.Record.RevisionID)
 	}
-	return revisions
+	for key, records := range parts {
+		slices.Sort(records)
+		families[key] = fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(records, "\n"))))
+	}
+	return
 }
 
 func launchBlockReason(snapshot *CachedSnapshotV2, item *session.Session) LaunchBlockReason {

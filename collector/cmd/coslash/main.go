@@ -34,9 +34,11 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	"github.com/centauri-ai/coslash/collector/internal/web"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 // version is injected by the release build; see collector/Makefile.
@@ -316,11 +318,60 @@ func main() {
 			}, inventoryRequest)
 		}
 		syncHub := currentHubTransport{current: onboardings.currentHubClient, queue: queue}
+		var remoteHomeID, remoteHome string
 		runner := &syncv4.Runner{
 			Version: collectorVersion,
 			Queue:   queue, Backup: backupManager, Hub: syncHub,
-			RequireImportPlan:  true,
-			Discover:           func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+			RequireImportPlan: true,
+			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+			DiscoverRemote: func(ctx context.Context, since int64) ([]syncv4.Entry, error) {
+				state := settingsStore.State()
+				if !state.Valid || state.Config.Remote == nil || !queue.SSHHostAllowed(state.Config.Remote.HostID) {
+					return nil, nil
+				}
+				view := remoteManager.ListView(since)
+				if len(view.Sessions) == 0 || view.Health.State != remote.StateOK && view.Health.State != remote.StateLimited {
+					return nil, ctx.Err()
+				}
+				if remoteHomeID != state.Config.Remote.ID {
+					source, err := remoteManager.OpenBackupSession(ctx, state.Config.Remote.ID)
+					if err != nil {
+						return nil, ctx.Err()
+					}
+					remoteHomeID, remoteHome = state.Config.Remote.ID, source.Source().Home()
+					source.Close()
+				}
+				entries := syncv4.RemoteEntries(view, queue.InstallID(), remoteHome)
+				localHome, homeErr := os.UserHomeDir()
+				verified := entries[:0]
+				for _, entry := range entries {
+					if entry.Selection.Agent == vendors.AgentClaude {
+						if homeErr != nil {
+							continue
+						}
+						mirror, err := claude.HasLocalSSHMirror(ctx, localHome, entry.Selection.SessionID)
+						if err != nil {
+							continue
+						}
+						entry.LocalMirror = mirror
+					}
+					entry.Session.SSHHost = state.Config.Remote.SSHAlias
+					entry.Session.SSHHostID = state.Config.Remote.HostID
+					verified = append(verified, entry)
+				}
+				if len(verified) != len(entries) {
+					log.Printf("SSH Claude discovery is waiting for local mirror verification")
+				}
+				return verified, ctx.Err()
+			},
+			SourceAvailable: func(selection sessionbackupproducer.Selection) bool {
+				if selection.SourceKind != sessionbackupv1.SourceSSH {
+					return true
+				}
+				state := settingsStore.State()
+				return state.Valid && state.Config.Remote != nil &&
+					queue.SSHHostAllowed(state.Config.Remote.HostID) && remoteManager.SyncAvailable(selection.SourceID, selection.Agent, selection.SessionID)
+			},
 			InventoryProgress:  func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
 			Conditions:         syncv4.LocalConditions,
 			LocalPause:         func() bool { return settingsStore.State().Config.SyncPaused },

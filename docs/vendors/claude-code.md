@@ -39,6 +39,7 @@ Code: `collector/internal/vendors/claude/`. This package reads Claude Code CLI, 
 - A live session file with `status: "idle"` and a `statusUpdatedAt` older than 1 hour is ignored, even when the pid is alive (`metadata.go` `idleStatusTTL`). The reason is not recorded. Observed: unknown, 2026-07-31, 10d4b6ab.
 - A Claude Desktop SSH session appears twice: once from the Mac-side mirror and once from the SSH host. coSlash marks the mirror only when the directory is `ssh-<uuid>` and the file is `<uuid>.jsonl` with a valid UUID. The list hides the mirror only when the matching SSH card exists. Observed: unknown, 2026-09-28, ab523a36.
 - The mirror flag must survive root deduplication. If an ordinary root with the same UUID wins the mtime tie-break, it keeps the mirror identity (`TestCollectPreservesDesktopSSHMirrorIdentityAcrossDuplicateRoots`). Observed: unknown, 2026-10-02, 8c77ed5c.
+- Streamed inventory preserves the same private mirror flag after parsing, including cached parses (`TestStreamedDiscoveryPreservesNativeSSHMirrorProof`). Hub sync verifies the native mirror directory and regular transcript file before adopting a previously local upload key; an ordinary transcript with the same UUID is insufficient (`TestHasLocalSSHMirrorRequiresNativeRegularFile`).
 
 ## Command outputs
 

@@ -132,6 +132,7 @@ func DiscoverAll(ctx context.Context, opts DiscoverOptions) ([]*session.Session,
 
 type discoveryPlan struct {
 	families      []family
+	claudeMirrors map[string]struct{}
 	metadata      map[string]*vendors.SessionMetadata
 	cursor        Cursor
 	batch         int
@@ -226,6 +227,14 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 	}
 	// Claude: families follow paths; the parser reads no header.
 	if files := byAgent[vendors.AgentClaude]; len(files) > 0 {
+		root, err := claude.Root()
+		if err != nil {
+			return nil, err
+		}
+		plan.claudeMirrors, err = claude.LocalSSHMirrorIDs(ctx, root, files)
+		if err != nil {
+			return nil, err
+		}
 		metadata, err := claude.LoadMetadataContext(ctx)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -509,6 +518,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		if err != nil {
 			return nil, err
 		}
+		claude.MarkLocalSSHMirrors(items, plan.claudeMirrors)
 		parsed = append(parsed, items...)
 	}
 	if paths := files[vendors.AgentCodex]; len(paths) > 0 {

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -373,10 +374,17 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 		t.Fatal(err)
 	}
 	installID := queue.InstallID()
-	entry := Entry{Key: localKey("local", source.Agent, source.ID), Selection: prepared.Selection,
+	sourceID := "local"
+	if prepared.Selection.SourceKind == sessionbackupv1.SourceSSH {
+		sourceID = prepared.Selection.SourceID
+	}
+	entry := Entry{Key: localKey(sourceID, source.Agent, source.ID), Selection: prepared.Selection,
 		Session: sessionMetadata(source, installID), Activity: source.LastActivityTime, BundleID: prepared.BundleID}
-	if err := queue.Merge([]Entry{entry}, now); err != nil {
-		t.Fatal(err)
+	entry.Session.LocalKeyHash = entry.Key
+	if prepared.Selection.SourceKind != sessionbackupv1.SourceSSH {
+		if err := queue.Merge([]Entry{entry}, now); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var server *httptest.Server
@@ -513,6 +521,22 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 		return nil, nil
 	},
 		Conditions: func(context.Context) (bool, int, error) { return false, -1, nil }, Now: func() time.Time { return now }}
+	if prepared.Selection.SourceKind == sessionbackupv1.SourceSSH {
+		if len(queue.Entries()) != 0 {
+			t.Fatal("SSH round trip must start without a preloaded upload")
+		}
+		runner.DiscoverRemote = func(context.Context, int64) ([]Entry, error) {
+			entries := RemoteEntries(remote.ListResult{Sessions: []remote.IndexedSession{{
+				Key:     remote.SessionKey{SourceID: prepared.Selection.SourceID, Agent: source.Agent, SourceSessionID: source.ID},
+				Session: source, RevisionID: "verified-root", FamilyRevision: "verified-family",
+			}}}, queue.InstallID(), "/remote")
+			for i := range entries {
+				entries[i].Session.SSHHost = "fixture-box"
+				entries[i].Session.SSHHostID = "11111111-0000-4000-8000-000000000022"
+			}
+			return entries, nil
+		}
+	}
 	firstErr := runner.SyncOnce(t.Context())
 	if exerciseResume && firstErr == nil {
 		t.Fatal("interrupted upload unexpectedly completed")

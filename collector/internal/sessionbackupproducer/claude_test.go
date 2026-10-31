@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
@@ -140,14 +143,77 @@ func TestClaudeCompleteLocalFamilyRevisionAndLastGood(t *testing.T) {
 	}
 }
 
-func TestClaudeSSHRemainsUnsupported(t *testing.T) {
-	manager := New(Options{Root: t.TempDir()})
-	prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceSSH, SourceID: "remote", Agent: vendors.AgentClaude, SessionID: "id"})
-	var failure *PreparationError
-	if prepared != nil || !errors.As(err, &failure) || failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnsupported {
-		t.Fatalf("SSH Claude = %#v, %v", prepared, err)
+func TestClaudeSSHCompleteFamilyAndLastGood(t *testing.T) {
+	home, root, child, selection := claudeFixture(t)
+	selection.SourceKind, selection.SourceID = sessionbackupv1.SourceSSH, "r_0123456789abcdef"
+	source := remoteClaudeSource{home: home}
+	spool := t.TempDir()
+	repository := "github.com/fixture/remote"
+	manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: source, Home: "/fixture/remote-home", Enrichment: map[string]remote.BackupSessionEnrichment{
+			selection.SessionID: {Repository: &repository},
+		}}, nil
+	}})
+	first, err := manager.Prepare(t.Context(), selection)
+	if err != nil {
+		t.Fatalf("%+v", err)
+	}
+	if first.Selection != selection || len(first.Manifest.Members) != 2 {
+		t.Fatalf("remote family: %+v", first)
+	}
+	record := readRootRecord(t, spool, first)
+	if record.SourceID != selection.SourceID || record.SessionID != selection.SessionID {
+		t.Fatalf("remote identity: %+v", record)
+	}
+	original, err := os.ReadFile(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(child, append(original, []byte("{broken\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := manager.Prepare(t.Context(), selection); got != nil || !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("partial remote family: %+v %v", got, err)
+	}
+	if _, err := manager.Open(first.BundleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(child, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original, err = os.ReadFile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := bytes.Replace(original, []byte("hello"), []byte("changed remote prompt"), 1)
+	if err := os.WriteFile(root, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Prepare(t.Context(), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.BundleID == first.BundleID {
+		t.Fatal("remote content change reused revision")
 	}
 }
+
+type remoteClaudeSource struct{ home string }
+
+func (s remoteClaudeSource) local(name string) string {
+	return filepath.Join(s.home, filepath.FromSlash(strings.TrimPrefix(name, "/fixture/remote-home/")))
+}
+func (s remoteClaudeSource) Open(name string) (io.ReadCloser, error) { return os.Open(s.local(name)) }
+func (s remoteClaudeSource) ReadDir(name string) ([]os.DirEntry, error) {
+	return os.ReadDir(s.local(name))
+}
+func (s remoteClaudeSource) Stat(name string) (os.FileInfo, error) { return os.Stat(s.local(name)) }
+func (s remoteClaudeSource) JoinPath(parts ...string) string       { return path.Join(parts...) }
+func (s remoteClaudeSource) RelativePath(root, name string) (string, error) {
+	return strings.TrimPrefix(name, root+"/"), nil
+}
+func (s remoteClaudeSource) DirPath(name string) string  { return path.Dir(name) }
+func (s remoteClaudeSource) BasePath(name string) string { return path.Base(name) }
 
 func TestClaudeMalformedPresentSidecarBlocksCompleteBundle(t *testing.T) {
 	home, _, child, selection := claudeFixture(t)

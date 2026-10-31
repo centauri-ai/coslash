@@ -5,11 +5,77 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 )
+
+func TestStreamedDiscoveryPreservesNativeSSHMirrorProof(t *testing.T) {
+	cache := &discoveryParseCache{}
+	vendors.SetParseCache(cache)
+	t.Cleanup(func() { vendors.SetParseCache(nil) })
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	mirrorID, localID := "11111111-2222-3333-4444-555555555555", "22222222-3333-4444-5555-666666666666"
+	paths := map[string]string{
+		filepath.Join(claude.ProjectsRoot(home), "ssh-"+mirrorID, mirrorID+".jsonl"): mirrorID,
+		filepath.Join(claude.ProjectsRoot(home), "ordinary", localID+".jsonl"):       localID,
+	}
+	for file, id := range paths {
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(map[string]any{"sessionId": id, "type": "user", "timestamp": "2026-10-28T12:00:00Z", "cwd": home,
+			"message": map[string]any{"content": "synthetic fixture"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, append(body, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		items, err := DiscoverAll(t.Context(), DiscoverOptions{BatchFamilies: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := map[string]bool{}
+		for _, item := range items {
+			found[item.ID] = item.LocalSSHMirror
+		}
+		if len(found) != 2 || !found[mirrorID] || found[localID] {
+			t.Fatalf("streamed mirror provenance = %v", found)
+		}
+	}
+	if cache.hits.Load() == 0 {
+		t.Fatal("mirror provenance was not exercised through a cached parse")
+	}
+}
+
+type discoveryParseCache struct {
+	entries sync.Map
+	hits    atomic.Int64
+}
+
+func (cache *discoveryParseCache) Lookup(key vendors.CacheKey) (json.RawMessage, bool) {
+	value, ok := cache.entries.Load(key)
+	if !ok {
+		return nil, false
+	}
+	cache.hits.Add(1)
+	return append(json.RawMessage(nil), value.(json.RawMessage)...), true
+}
+
+func (cache *discoveryParseCache) Store(key vendors.CacheKey, payload json.RawMessage) error {
+	cache.entries.Store(key, append(json.RawMessage(nil), payload...))
+	return nil
+}
 
 func TestDiscoverUsesSmallFirstBatchThenRegularBatches(t *testing.T) {
 	plan := &discoveryPlan{

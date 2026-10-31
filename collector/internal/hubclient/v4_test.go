@@ -71,7 +71,7 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Fatal(err)
 		}
-		if input.OS != runtime.GOOS || input.InstallChannel != "script" || input.AppliedConfigVersion != 7 || strings.Join(input.Capabilities, ",") != "sync-v4,session-backup/v1,launch,ssh-relay,scale-import/v1,sync-policy/1" || strings.Join(input.AgentsFound, ",") != "claude,codex,cursor" ||
+		if input.OS != runtime.GOOS || input.InstallChannel != "script" || input.AppliedConfigVersion != 7 || strings.Join(input.Capabilities, ",") != "sync-v4,session-backup/v1,launch,ssh-relay,ssh-relay-sync/v1,scale-import/v1,sync-policy/1" || strings.Join(input.AgentsFound, ",") != "claude,codex,cursor" ||
 			input.Queue.FirstSync.RecentDone != 2 || input.Queue.FirstSync.RecentTotal != 3 || input.Queue.FirstSync.HistoryState != "syncing" {
 			t.Fatalf("check-in input = %+v", input)
 		}

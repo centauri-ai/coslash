@@ -34,8 +34,9 @@ func (fastSyncLoopQueue) NextCheckInDelay() time.Duration { return 10 * time.Mil
 type syncLoopWorker struct{ started chan context.Context }
 
 type syncLoopDiscoveryWorker struct {
-	started   chan struct{}
+	started   chan context.Context
 	requested chan struct{}
+	finish    <-chan struct{}
 	complete  bool
 }
 
@@ -75,22 +76,27 @@ func (w syncLoopWorker) SyncOnce(ctx context.Context) error {
 }
 
 func (w syncLoopDiscoveryWorker) SyncOnce(ctx context.Context) error {
-	w.started <- struct{}{}
+	w.started <- ctx
 	if w.complete {
 		return nil
 	}
-	<-ctx.Done()
-	return ctx.Err()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-w.finish:
+		return nil
+	}
 }
 
 func (w syncLoopDiscoveryWorker) RequestDiscovery() {
 	w.requested <- struct{}{}
 }
 
-func TestInventoryWakeRequestsDiscovery(t *testing.T) {
+func TestInventoryWakeRequestsDiscoveryWithoutCancellingActiveCapture(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	worker := syncLoopDiscoveryWorker{started: make(chan struct{}, 2), requested: make(chan struct{}, 1)}
+	finish := make(chan struct{})
+	worker := syncLoopDiscoveryWorker{started: make(chan context.Context, 2), requested: make(chan struct{}, 1), finish: finish}
 	inventoryWake := make(chan struct{}, 1)
 	done := make(chan struct{})
 	go func() {
@@ -100,10 +106,20 @@ func TestInventoryWakeRequestsDiscovery(t *testing.T) {
 		}, inventoryWake)
 		close(done)
 	}()
-	<-worker.started
-	inventoryWake <- struct{}{}
-	<-worker.requested
-	<-worker.started
+	active := <-worker.started
+	for range 3 {
+		inventoryWake <- struct{}{}
+		<-worker.requested
+		if active.Err() != nil {
+			t.Fatal("automatic inventory cancelled the active capture")
+		}
+	}
+	close(finish)
+	select {
+	case <-worker.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("completed capture did not run the requested discovery")
+	}
 	cancel()
 	<-done
 }
@@ -111,7 +127,7 @@ func TestInventoryWakeRequestsDiscovery(t *testing.T) {
 func TestInventoryWakeWhileWaitingRequestsDiscovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	worker := syncLoopDiscoveryWorker{started: make(chan struct{}, 2), requested: make(chan struct{}, 1), complete: true}
+	worker := syncLoopDiscoveryWorker{started: make(chan context.Context, 2), requested: make(chan struct{}, 1), complete: true}
 	inventoryWake := make(chan struct{}, 1)
 	done := make(chan struct{})
 	go func() {

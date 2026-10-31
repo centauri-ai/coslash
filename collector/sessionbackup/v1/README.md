@@ -14,11 +14,10 @@ backup.
 
 ## Producer and artifact inventory
 
-Complete backup v1 supports local Codex, SSH Codex, local Claude, local
-OpenCode, local Cursor IDE/CLI, local Grok, and local Pi. Claude SSH, OpenCode SSH,
-Cursor SSH, Grok SSH, and Pi SSH must surface the blocking code
-`complete_backup_unsupported`; they must not fall back to a metadata-only
-success. The table below specifies the Codex inputs.
+Complete backup v1 supports local and SSH Codex and Claude, local OpenCode,
+local Cursor IDE/CLI, local Grok, and local Pi. OpenCode SSH, Cursor SSH, Grok SSH,
+and Pi SSH must surface the blocking code `complete_backup_unsupported`; they must
+not fall back to a metadata-only success. The table below specifies the Codex inputs.
 
 Local Pi represents exactly one independently visible header-ID root. Its exact
 JSONL and up to 256 fork ancestors are private `raw-transcript` artifacts owned
@@ -73,13 +72,15 @@ link, special file, or oversize file is refused and reads as absent, so its
 command output is the preview text. It has no
 `raw-metadata-rows` database input. A skipped discovery path, malformed or
 changing selected transcript or sidecar, or changing sidecar presence blocks
-completion; an absent optional sidecar remains absent. Claude SSH remains
-unsupported until its remote input allowlist and complete capture are proven.
+completion; an absent optional sidecar remains absent. SSH Claude freezes the
+same family inputs through the bounded remote source. Remote paths retain POSIX
+semantics and never open files on the relay outside its private spool. Local
+synthesis is excluded from SSH families, even when vendor session IDs match.
 
-For SSH, these inputs are reachable only through the existing allowlist:
+For SSH capture, Codex inputs are reachable only through the existing allowlist:
 `.codex/sessions`, `.codex/archived_sessions`, and
-`.codex/session_index.jsonl`. A producer must not infer or open another remote
-Codex path.
+`.codex/session_index.jsonl`. Claude family inputs stay under `.claude/projects`.
+A producer must not infer or open another remote path.
 
 **Cursor producer handoff:** `cursor-complete-local/v1`. Local Cursor uses
 `agent=cursor` and requires `raw-transcript` plus

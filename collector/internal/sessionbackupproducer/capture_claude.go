@@ -56,7 +56,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		if err != nil {
 			return captureFailure(sessionbackupv1.ProblemUnreadable, kind, true)
 		}
-		if !claudeInputWithinProjects(file, claude.ProjectsRoot(handle.Home)) {
+		if !claudeSourceInputWithinProjects(handle, selection.SourceKind, file) {
 			return captureFailure(sessionbackupv1.ProblemUnattributable, kind, false)
 		}
 		if info.Size() > sessionbackupv1.MaxArtifactBytes {
@@ -92,11 +92,11 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 			return nil, err
 		}
 		if strings.Contains(filepath.ToSlash(file), "/subagents/workflows/") {
-			runDir := filepath.Dir(strings.Replace(filepath.ToSlash(file), "/subagents/workflows/", "/workflows/", 1))
+			runDir := vendors.SourcePathDir(handle.Source, strings.Replace(filepath.ToSlash(file), "/subagents/workflows/", "/workflows/", 1))
 			if err := add(runDir+".json", memberID, sessionbackupv1.KindRawSidecar, "workflow-state", "application/json", false); err != nil {
 				return nil, err
 			}
-			if err := add(filepath.Join(filepath.Dir(file), "journal.jsonl"), memberID, sessionbackupv1.KindRawSidecar, "workflow-journal", "application/x-ndjson", false); err != nil {
+			if err := add(vendors.SourcePathJoin(handle.Source, vendors.SourcePathDir(handle.Source, file), "journal.jsonl"), memberID, sessionbackupv1.KindRawSidecar, "workflow-journal", "application/x-ndjson", false); err != nil {
 				return nil, err
 			}
 		}
@@ -185,8 +185,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 			}
 			// A link, special file, or oversize file is not usable input. The
 			// parser records the preview for it, as for an absent file.
-			if dir, err := os.Lstat(filepath.Dir(file)); err != nil || !dir.IsDir() ||
-				!claudeInputWithinProjects(file, claude.ProjectsRoot(handle.Home)) || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > sessionbackupv1.MaxArtifactBytes {
+			if !claudeSourceInputWithinProjects(handle, selection.SourceKind, file) || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > sessionbackupv1.MaxArtifactBytes {
 				refused[file] = true
 				continue
 			}
@@ -299,7 +298,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindSessionEnrichment, false)
 	}
 	synthesisRecords := map[string]sessionbackupv1.SynthesisRecord{}
-	if manager.synthesis != nil {
+	if selection.SourceKind == sessionbackupv1.SourceLocal && manager.synthesis != nil {
 		for id, record := range recordByID {
 			if err := ctx.Err(); err != nil {
 				return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindSynthesis, true)
@@ -427,4 +426,17 @@ func claudeInputWithinProjects(file, root string) bool {
 	}
 	relative, err := filepath.Rel(resolvedRoot, resolvedFile)
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
+func claudeSourceInputWithinProjects(handle SourceHandle, kind, file string) bool {
+	if kind == sessionbackupv1.SourceLocal {
+		if info, err := os.Lstat(filepath.Dir(file)); err != nil || !info.IsDir() {
+			return false
+		}
+		return claudeInputWithinProjects(file, claude.ProjectsRoot(handle.Home))
+	}
+	// The remote source rejects links and resolves every read under its allowlist.
+	root := vendors.SourcePathJoin(handle.Source, handle.Home, ".claude", "projects")
+	relative, err := vendors.SourcePathRelative(handle.Source, root, file)
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, "../") && !strings.HasPrefix(relative, "/")
 }

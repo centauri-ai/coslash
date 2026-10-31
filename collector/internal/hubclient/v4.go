@@ -52,6 +52,8 @@ type V4Session struct {
 	Repo         string     `json:"repo,omitempty"`
 	Branch       string     `json:"branch,omitempty"`
 	CWDLabel     string     `json:"cwdLabel,omitempty"`
+	SSHHost      string     `json:"sshHost,omitempty"`
+	SSHHostID    string     `json:"sshHostId,omitempty"`
 	StartedAt    *time.Time `json:"startedAt,omitempty"`
 	EndedAt      *time.Time `json:"endedAt,omitempty"`
 	Tokens       int64      `json:"tokens,omitempty"`
@@ -386,6 +388,9 @@ func localCapabilities() []string {
 		capabilities = append(capabilities, "sync-v4")
 	}
 	capabilities = append(capabilities, "session-backup/v1", "launch", "ssh-relay")
+	if V4SyncEnabled() {
+		capabilities = append(capabilities, CapabilitySSHRelaySync)
+	}
 	if ScaleImportEnabled() {
 		capabilities = append(capabilities, CapabilityScaleImport)
 	}
@@ -396,6 +401,7 @@ func localCapabilities() []string {
 }
 
 const CapabilitySyncPolicy = "sync-policy/1"
+const CapabilitySSHRelaySync = "ssh-relay-sync/v1"
 
 func V4SyncEnabled() bool {
 	return os.Getenv("COSLASH_V4_SYNC") != "0"

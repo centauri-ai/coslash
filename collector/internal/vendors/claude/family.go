@@ -36,7 +36,7 @@ func ParseFamilyFilesSourceContext(ctx context.Context, source vendors.ReadSourc
 }
 
 func CompleteFamilyFilesSourceContext(ctx context.Context, source vendors.ReadSource, home, id string) ([]string, error) {
-	scan, err := ScanSourceContext(ctx, source, ProjectsRoot(home))
+	scan, err := ScanSourceContext(ctx, source, vendors.SourcePathJoin(source, home, ".claude", "projects"))
 	if err != nil {
 		return nil, err
 	}

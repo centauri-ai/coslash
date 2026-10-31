@@ -141,6 +141,8 @@ type Runner struct {
 	Hub                 Transport
 	Discover            func(context.Context) ([]*session.Session, error)
 	DiscoverBatches     func(context.Context, func(DiscoveryBatch) error) error
+	DiscoverRemote      func(context.Context, int64) ([]Entry, error)
+	SourceAvailable     func(sessionbackupproducer.Selection) bool
 	InventoryProgress   func() (files int64, running bool)
 	Conditions          func(context.Context) (metered bool, batteryPercent int, err error)
 	LocalPause          func() bool
@@ -235,6 +237,24 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	}
 	if err := r.discardAbandoned(); err != nil {
 		return err
+	}
+	if r.DiscoverRemote != nil {
+		plan, startedAt := r.Queue.DiscoveryPlan()
+		entries, err := r.DiscoverRemote(ctx, DiscoveryMinActivity(plan, startedAt))
+		if err != nil {
+			return err
+		}
+		if plan != nil {
+			_, err = r.Queue.MergePlannedDiscovery(entries, r.now(), *plan, r.activeSince)
+		} else {
+			err = r.Queue.Merge(entries, r.now())
+		}
+		if err != nil {
+			return err
+		}
+		if err := r.applyExclusions(); err != nil {
+			return err
+		}
 	}
 	if r.DiscoverBatches != nil && (r.config.ImportPlan != nil || r.scaleEnabled) {
 		listedOnce, unlistedSince := false, 0
@@ -548,7 +568,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 
 func (r *Runner) applyExclusions() error {
 	for _, entry := range r.Queue.Entries() {
-		excluded := entry.ServerLeftOut || leftOut(entry.Session, r.config.LeaveOut)
+		excluded := entry.ServerLeftOut || leftOut(entry.Session, r.config.LeaveOut) || r.SourceAvailable != nil && !r.SourceAvailable(entry.Selection)
 		if entry.Excluded == excluded {
 			continue
 		}
@@ -668,7 +688,7 @@ func discoveredEntries(sessions []*session.Session, installID string, claudeRevi
 		found = append(found, Entry{
 			Key:       localKey("local", item.Agent, item.ID),
 			Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: item.Agent, SessionID: item.ID},
-			Session:   meta, Activity: item.LastActivityTime, SourceRevision: revision, Live: live,
+			Session:   meta, Activity: item.LastActivityTime, SourceRevision: revision, Live: live, LocalMirror: item.LocalSSHMirror,
 		})
 	}
 	return found
@@ -1266,6 +1286,9 @@ func (r *Runner) ensureConsent(ctx context.Context) error {
 }
 
 func (r *Runner) entryAllowed(entry Entry) error {
+	if r.SourceAvailable != nil && !r.SourceAvailable(entry.Selection) {
+		return hubclient.V4Problem{Code: "unreadable_source"}
+	}
 	if r.Queue != nil && !r.Queue.Matches(entry) {
 		return ErrPaused
 	}
