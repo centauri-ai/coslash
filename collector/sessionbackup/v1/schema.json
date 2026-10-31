@@ -11,7 +11,7 @@
       "else": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup/v1"] } } }
     },
     {
-      "if": { "properties": { "source": { "properties": { "agent": { "enum": ["claude", "cursor", "opencode", "grok", "pi"] } } } } },
+      "if": { "properties": { "source": { "properties": { "agent": { "enum": ["cursor", "opencode", "grok", "pi"] } } } } },
       "then": { "properties": { "source": { "properties": { "kind": { "const": "local" } } } } }
     },
     {

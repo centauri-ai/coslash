@@ -61,6 +61,7 @@ type Entry struct {
 	LoggedFailure string `json:"loggedFailure,omitempty"`
 	// SourceBlocked retains a verified capture until discovery can hash its source again.
 	SourceBlocked bool `json:"sourceBlocked,omitempty"`
+	LocalMirror   bool `json:"localMirror,omitempty"`
 }
 
 type state struct {
@@ -104,6 +105,8 @@ type state struct {
 	// Hub has advertised scale-import/v1 in HubCapabilities.
 	Inventory       *hubclient.DeviceInventory `json:"inventory,omitempty"`
 	HubCapabilities []string                   `json:"hubCapabilities,omitempty"`
+	SSHHosts        []hubclient.V4SSHHost      `json:"sshHosts,omitempty"`
+	SSHImports      map[string]sshImport       `json:"sshImports,omitempty"`
 }
 
 type commandRecord struct {
@@ -124,6 +127,13 @@ type Queue struct {
 	// retry waiting on its session's upload. It lives in memory only, so a
 	// restart reports them as execution_interrupted.
 	held map[string]bool
+}
+
+func (q *Queue) SSHHostAllowed(id string) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return slices.Contains(q.state.HubCapabilities, hubclient.CapabilitySSHRelaySync) &&
+		slices.ContainsFunc(q.state.SSHHosts, func(host hubclient.V4SSHHost) bool { return host.ID == id })
 }
 
 func Open(root string) (*Queue, error) {
@@ -459,6 +469,7 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 	q.state.UpdateRequired = result.UpdateRequired
 	q.state.RecommendedUpdate = result.RecommendedUpdate
 	q.state.HubCapabilities = append([]string(nil), result.Capabilities...)
+	q.state.SSHHosts = slices.Clone(result.SSHHosts)
 	if err := q.save(); err != nil {
 		q.state = prior
 		return err
@@ -744,10 +755,12 @@ func (q *Queue) MergePlannedDiscovery(found []Entry, now time.Time, plan hubclie
 func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan, activeSince time.Time) (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	found = q.reconcileMirrors(found)
 	changePlan := plan
 	if changePlan == nil {
 		changePlan = q.state.Config.ImportPlan
 	}
+	found = q.initialSSHImport(found, now, changePlan)
 	index := make(map[string]int, len(q.state.Entries))
 	for i, entry := range q.state.Entries {
 		index[entry.Key] = i
@@ -758,7 +771,12 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 		}
 		if i, ok := index[item.Key]; ok {
 			entry := &q.state.Entries[i]
-			sourceChanged := item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision
+			reclassified := item.LocalMirror && item.Selection.SourceKind == "ssh" && entry.Selection.SourceKind == "local"
+			sourceChanged := reclassified || item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision
+			if reclassified {
+				entry.Selection = item.Selection
+			}
+			entry.LocalMirror = entry.LocalMirror || item.LocalMirror
 			entry.Recent = entry.Recent || item.Activity >= now.Add(-recentWindow).UnixMilli()
 			wasLive := entry.Live
 			if item.ContentBytes > 0 || entry.ContentBytes == 0 {
@@ -780,6 +798,9 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.Listed = false
 				entry.ListRejected = false
 				entry.Activity = max(entry.Activity, item.Activity)
+				if reclassified {
+					entry.Activity = item.Activity
+				}
 				entry.SourceRevision = item.SourceRevision
 				entry.SourceBlocked = false
 				entry.Session = item.Session
@@ -791,6 +812,9 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 			}
 			if q.planChangeIsEligible(*entry, now, changePlan, activeSince, sourceChanged) {
+				entry.ChangedPlanVersion = changePlan.Version
+			}
+			if item.Selection.SourceKind == "ssh" && changePlan != nil && item.ChangedPlanVersion == changePlan.Version {
 				entry.ChangedPlanVersion = changePlan.Version
 			}
 		} else {
@@ -933,6 +957,9 @@ func (q *Queue) Agents() []string {
 	seen := map[string]bool{}
 	agents := []string{}
 	for _, entry := range q.state.Entries {
+		if entry.Selection.SourceKind == "ssh" {
+			continue
+		}
 		if agent := entry.Session.Agent; agent != "" && !seen[agent] {
 			seen[agent] = true
 			agents = append(agents, agent)

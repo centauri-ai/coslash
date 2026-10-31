@@ -3,6 +3,9 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -30,7 +33,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
-	mirrorIDs, err := localSSHMirrorIDs(ctx, projectsRoot, files)
+	mirrorIDs, err := LocalSSHMirrorIDs(ctx, projectsRoot, files)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -51,12 +54,12 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	}
 	parsed, err := parseFilesContext(ctx, files)
 	if err == nil {
-		markLocalSSHMirrors(parsed, mirrorIDs)
+		MarkLocalSSHMirrors(parsed, mirrorIDs)
 	}
 	return parsed, metadata, err
 }
 
-func localSSHMirrorIDs(ctx context.Context, projectsRoot string, files []string) (map[string]struct{}, error) {
+func LocalSSHMirrorIDs(ctx context.Context, projectsRoot string, files []string) (map[string]struct{}, error) {
 	ids := make(map[string]struct{})
 	for _, file := range files {
 		if err := ctx.Err(); err != nil {
@@ -70,7 +73,32 @@ func localSSHMirrorIDs(ctx context.Context, projectsRoot string, files []string)
 	return ids, nil
 }
 
-func markLocalSSHMirrors(parsed []*vendors.ParsedSession, mirrorIDs map[string]struct{}) {
+// HasLocalSSHMirror verifies Claude Desktop's native mirror layout without
+// reading transcript content or treating an arbitrary equal session ID as proof.
+func HasLocalSSHMirror(ctx context.Context, home, id string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !desktopSSHMirrorSessionID.MatchString(id) {
+		return false, nil
+	}
+	dir := filepath.Join(ProjectsRoot(home), "ssh-"+id)
+	for index, name := range []string{dir, filepath.Join(dir, id+".jsonl")} {
+		info, err := os.Lstat(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if index == 0 && !info.IsDir() || index == 1 && !info.Mode().IsRegular() {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func MarkLocalSSHMirrors(parsed []*vendors.ParsedSession, mirrorIDs map[string]struct{}) {
 	for _, item := range parsed {
 		if item == nil || item.Session == nil || item.ParentID != "" {
 			continue

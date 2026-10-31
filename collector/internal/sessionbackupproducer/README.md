@@ -1,10 +1,10 @@
 # Complete-backup producer
 
 `sessionbackupproducer` is the local owner of complete `session-backup/v1`
-capture. It supports local and SSH Codex plus local Claude, local OpenCode,
-local Cursor IDE/CLI, local Grok, and local Pi sources. Claude SSH, OpenCode SSH, and Cursor SSH
-return the product-visible
-`complete_backup_unsupported` blocker and never produce a metadata-only bundle.
+capture. It supports local and SSH Codex and Claude, plus local OpenCode,
+local Cursor IDE/CLI, local Grok, and local Pi sources. OpenCode SSH, Cursor SSH,
+Grok SSH, and Pi SSH return the product-visible `complete_backup_unsupported`
+blocker and never produce a metadata-only bundle.
 
 `Manager.Start` exposes an asynchronous `preparing` state with `Status`,
 `Wait`, and `Cancel`. `Prepare` is the synchronous, context-cancellable core
@@ -51,7 +51,10 @@ freezes every selected family transcript plus present subagent metadata,
 workflow state, and workflow journal inputs. Present malformed or unstable
 inputs block completion. Parsed records and optional revision-matched persisted
 synthesis are built from the frozen files. A failed refresh keeps earlier
-verified spool revisions available.
+verified spool revisions available. SSH Claude uses the same complete-family
+validation through the remote source's POSIX path operations and allowlist;
+it never resolves remote paths against the relay filesystem or attaches local
+synthesis belonging to an equal vendor session ID.
 
 The Cursor producer binds each local transcript fragment to one session ID and
 projects only attributed rows from IDE `state.vscdb`, conversation search and

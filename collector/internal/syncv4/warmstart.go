@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 const initialBytesPerSecond = 20_000_000 / 8
 const firstWarmMaxBytes = 25 << 20
 const plannedContentBudget = 2 * time.Minute
 const sourcePreparationBudget = 15 * time.Second
+const sshSourcePreparationBudget = 90 * time.Second
 
 func (r *Runner) withTimeout(ctx context.Context, budget time.Duration) (context.Context, context.CancelFunc) {
 	if r.timeout != nil {
@@ -398,10 +400,17 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			err = r.entryAllowed(entry)
 		}
 		if err == nil && entry.UploadID == "" && entry.RevisionID == "" {
-			prepareCtx, stopPrepare := r.withTimeout(workCtx, sourcePreparationBudget)
+			budget := sourcePreparationBudget
+			if entry.Selection.SourceKind == sessionbackupv1.SourceSSH {
+				budget = sshSourcePreparationBudget
+			}
+			prepareCtx, stopPrepare := r.withTimeout(workCtx, budget)
 			err = r.prepareEntry(prepareCtx, &entry)
 			sourceTimedOut := prepareCtx.Err() == context.DeadlineExceeded
 			stopPrepare()
+			if workCtx.Err() != nil && ctx.Err() == nil {
+				return firstErr
+			}
 			if sourceTimedOut && workCtx.Err() == nil && ctx.Err() == nil {
 				entry.FailureCode = "unreadable_source"
 				entry.BackoffAttempt++

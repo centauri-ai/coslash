@@ -23,8 +23,12 @@ func (h *preparationRecoveryHub) V4Create(context.Context, hubclient.V4Create) (
 
 func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	for _, phase := range []string{"warm-estimate", "warm-create", "planned"} {
+	for _, phase := range []string{"warm-estimate", "warm-create", "planned", "planned-ssh", "planned-slow-ssh", "planned-pass"} {
 		t.Run(phase, func(t *testing.T) {
+			passExpiry := phase == "planned-pass"
+			planned := phase == "planned" || phase == "planned-ssh" || phase == "planned-slow-ssh" || passExpiry
+			slowSSH := phase == "planned-slow-ssh"
+			ssh := phase == "planned-ssh" || slowSSH || passExpiry
 			home := t.TempDir()
 			workspace := filepath.Join(home, "project")
 			dir := filepath.Join(claude.ProjectsRoot(home), "project")
@@ -38,7 +42,13 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 			if err := os.WriteFile(filepath.Join(dir, fixtureRootID+".jsonl"), append(row, '\n'), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+			var expirePass context.CancelFunc
+			manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), OpenSource: func(ctx context.Context, _ sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+				if expirePass != nil {
+					expirePass()
+					expirePass = nil
+					return sessionbackupproducer.SourceHandle{}, ctx.Err()
+				}
 				return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
 			}})
 			queueRoot := t.TempDir()
@@ -55,6 +65,9 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 			entry := Entry{Key: "timeout", SessionID: "ses_timeout", Listed: true, Activity: now.UnixMilli(), SourceRevision: "unchanged",
 				Selection: sessionbackupproducer.Selection{SourceKind: "local", SourceID: "local", Agent: "claude", SessionID: fixtureRootID},
 				Session:   hubclient.V4Session{InstallID: queue.InstallID(), Agent: "claude", LocalKeyHash: "timeout"}}
+			if ssh {
+				entry.Selection.SourceKind, entry.Selection.SourceID = "ssh", "r_0123456789abcdef"
+			}
 			if phase == "warm-create" {
 				entry.ContentBytes = 100
 			}
@@ -66,14 +79,29 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 				Now: func() time.Time { return now }, config: hubclient.V4Config{ImportPlan: &plan}}
 			expired := false
 			runner.timeout = func(ctx context.Context, budget time.Duration) (context.Context, context.CancelFunc) {
-				if !expired && (phase != "planned" || budget == sourcePreparationBudget) {
+				if passExpiry {
+					ctx, cancel := context.WithCancel(ctx)
+					if budget == plannedContentBudget {
+						expirePass, expired = cancel, true
+					}
+					return ctx, cancel
+				}
+				limit := sourcePreparationBudget
+				if ssh {
+					limit = sshSourcePreparationBudget
+				}
+				if slowSSH {
+					// Model SSH work that exceeds the local budget without sleeping.
+					limit = 30 * time.Second
+				}
+				if !expired && (!planned || budget <= limit) {
 					expired = true
 					return context.WithDeadline(ctx, time.Time{})
 				}
 				return context.WithCancel(ctx)
 			}
 			run := func() error {
-				if phase == "planned" {
+				if planned {
 					return runner.syncPlannedContent(t.Context(), plan)
 				}
 				return runner.warmStart(t.Context(), plan, now, 30*time.Second, 0)
@@ -82,11 +110,17 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 				t.Fatal(err)
 			}
 			failed := queue.Entries()[0]
+			if slowSSH {
+				if expired || failed.RevisionID != "recovered" || failed.FailureCode != "" || hub.creates != 1 {
+					t.Fatalf("healthy SSH capture was cut off by a local preparation budget: expired=%t revision=%q failure=%q creates=%d", expired, failed.RevisionID, failed.FailureCode, hub.creates)
+				}
+				return
+			}
 			if !expired || failed.ParkedVersion != "" || failed.RevisionID != "" || hub.creates != 0 {
 				t.Fatalf("budget did not yield pending input: expired=%t entry=%+v creates=%d", expired, failed, hub.creates)
 			}
 			logs, _ := queue.PendingLog(now)
-			if phase == "planned" {
+			if planned && !passExpiry {
 				if failed.FailureCode != "unreadable_source" || !failed.RetryAt.Equal(now.Add(time.Minute)) || len(logs) != 1 || logs[0].Code != "unreadable_source" || logs[0].Parked {
 					t.Fatalf("timeout retry/log = %+v / %+v", failed, logs)
 				}
@@ -98,8 +132,8 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 				}
 				now = failed.RetryAt
 				runner.checkedAt = now
-			} else if failed.FailureCode != "" || len(logs) != 0 {
-				t.Fatalf("warm budget reported bad data: %+v / %+v", failed, logs)
+			} else if failed.FailureCode != "" || len(logs) != 0 || !failed.RetryAt.IsZero() || failed.BackoffAttempt != 0 {
+				t.Fatalf("pass budget reported bad data: %+v / %+v", failed, logs)
 			}
 			// Reopen durable queue state; no retry command or source mutation.
 			runner.Queue, err = Open(queueRoot)

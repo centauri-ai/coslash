@@ -10,6 +10,7 @@
 - coSlash connects through the system `ssh` client and the SSH configuration of the user. It never stores SSH passwords or private keys.
 - The helper reads only a fixed allowlist of paths. No path, command, prompt, or other input from the Mac can choose which files the helper opens.
 - With the helper, transcript parsing, liveness checks, and Git inspection run on the Linux host. Raw transcript rows never leave the host. Bounded parsed records cross SSH into the private local cache.
+- Paired Hub sync freezes complete Codex and Claude family inputs over bounded, allowlisted SFTP into the relay's private spool, even when discovery uses the helper. Only curated parsed records upload to Hub; raw transcripts and sidecars stay in the private spool.
 - Without an installed helper, coSlash uses the read-only SFTP fallback. Transcript files then cross SSH, and the Mac parses them. A helper that fails verification or refresh does not fall back to SFTP.
 - The first helper installation needs an explicit user action. Later releases can replace only a helper that coSlash installed and verified before. Builds without authenticated embedded helper assets never upload a helper.
 - Uninstall can remove a validated locally owned version after current release metadata stops listing it. This does not authorize execution of that version.

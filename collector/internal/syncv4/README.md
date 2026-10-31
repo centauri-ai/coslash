@@ -7,10 +7,33 @@ The additive Local check-in and command consumer is `local-device-v4/1`, pinned
 to server `device-v4/2` at `e52bf98faa2b584a4ff0947358d1d7a84f2206cc`.
 
 The scheduler discovers local Codex, Claude, OpenCode, Cursor IDE/CLI, Grok,
-and Pi families. A source exporter may join
-this queue only after it produces a complete, verified family through `sessionbackupproducer`; parsed cards alone
-are ineligible. SSH relay discovery and the remaining vendor exporters have
-separate owners. A Cursor card without an unambiguous IDE or CLI entrypoint is
+and Pi families, plus verified SSH Codex and Claude families from the configured
+Hub host.
+SSH sources inherit the relay's import plan, caps, pause, and leave-out rules.
+A newly connected SSH source gets one initial recent selection under those
+window and session limits, even if the relay already completed its own import.
+The private queue persists the source's selection across restarts; it does not
+reopen local history or refill the initial quota. Later live activity and
+explicit backfills retain their existing eligibility rules.
+Both peers must advertise `ssh-relay-sync/v1`; deploy the compatible Hub and
+migration 0172 before selecting this Local. Remote discovery runs independently
+of the local inventory stream. Only fresh complete roots enter the queue, and
+family revisions include child records. Source availability is rechecked before
+uploads; stale, disabled, removed, or replaced sources retain their last good
+capture without sending it. Hub host IDs bind selection to the current host;
+opaque source IDs keep local and remote queue keys distinct across restarts.
+For a Claude Desktop mirror proven by its native `ssh-<session-id>` layout,
+the verified SSH root adopts the existing local upload key. Hub re-listing
+corrects the host attribution under the original Hub session ID, and SSH
+capture appends a revision without replacing its history. Streamed discovery
+retains the mirror marker, so subsequent local scans cannot upload a second
+copy. This association survives restart and removal of the Mac mirror. A
+genuine local session with an equal vendor ID stays independent, as do
+replacement SSH hosts. Reconciliation follows the selected import scope;
+unverified historical rows are not guessed or merged by vendor ID alone.
+Raw remote inputs freeze over bounded, allowlisted SFTP into the private spool;
+only curated parsed records reach Hub. Pi remains local-only.
+Other SSH agents remain unsupported. A Cursor card without an unambiguous IDE or CLI entrypoint is
 ineligible. The install ID belongs to
 the private v4 queue, independently of the paired credential. A credential or
 Hub change clears upload and completion state while retaining the install ID.
@@ -164,8 +187,8 @@ parked and not-yet-ready work has no position. The map is omitted if more
 than 10,000 actionable entries exist. The private source key is never sent.
 
 Explicit Hub commands use the Local sync lifecycle context and their own timeout.
-Routine inventory or policy wake-ups can restart a sync pass without interrupting
-an SSH test or connector install. Shutdown and device revocation still cancel
+Restarting a sync pass does not interrupt an SSH test or connector install.
+Shutdown and device revocation still cancel
 commands. A canceled command reports `command_cancelled`, preserving the cause
 when helper status would otherwise describe a transport timeout.
 
@@ -243,6 +266,16 @@ malformed content. A planned source-preparation deadline schedules the normal
 retry backoff and reports `unreadable_source`. Both paths can retry unchanged
 input without a Hub retry command. Owner cancellation stops work without
 recording a content failure; genuinely invalid capture problems remain parked.
+Planned SSH preparation has a 90-second source budget for connection, remote
+family enumeration, and freezing. Local preparation retains its 15-second
+budget. Both remain bounded by the two-minute content pass and owner cancellation.
+If the content pass expires during preparation, the entry stays pending for the
+next pass without a failure log or backoff; only its own source deadline reports
+`unreadable_source`.
+Automatic inventory refreshes request rediscovery after the active pass instead
+of cancelling its capture. This lets SSH preparation finish while local sessions
+are being written. Explicit sync-now inventory, retries, commands, and policy
+changes still interrupt the pass.
 
 The v4 worker starts by default, including before pairing, so Hub can start
 sync without a Local restart. It never uploads until a Hub advertising

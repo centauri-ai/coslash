@@ -125,7 +125,7 @@ func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
 
 func TestUnsupportedAgentsNeverOpenSourceOrPublishBundle(t *testing.T) {
 	for _, unsupported := range []struct{ agent, sourceKind string }{
-		{vendors.AgentClaude, sessionbackupv1.SourceSSH},
+		{vendors.AgentPi, sessionbackupv1.SourceSSH},
 		{vendors.AgentOpenCode, sessionbackupv1.SourceSSH},
 		{vendors.AgentCursor, sessionbackupv1.SourceSSH},
 	} {

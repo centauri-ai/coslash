@@ -15,9 +15,42 @@ func TestLocalSSHMirrorIDsReturnsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := localSSHMirrorIDs(ctx, t.TempDir(), []string{"session.jsonl"})
+	_, err := LocalSSHMirrorIDs(ctx, t.TempDir(), []string{"session.jsonl"})
 	if err != context.Canceled {
 		t.Fatalf("mirror ID scan error = %v, want %v", err, context.Canceled)
+	}
+}
+
+func TestHasLocalSSHMirrorRequiresNativeRegularFile(t *testing.T) {
+	home := t.TempDir()
+	id := "11111111-2222-3333-4444-555555555555"
+	ordinary := filepath.Join(ProjectsRoot(home), "ordinary", id+".jsonl")
+	writeTranscript(t, ordinary, id, "/workspace")
+	if found, err := HasLocalSSHMirror(t.Context(), home, id); err != nil || found {
+		t.Fatalf("ordinary local transcript is not mirror proof: %t %v", found, err)
+	}
+	dir := filepath.Join(ProjectsRoot(home), "ssh-"+id)
+	file := filepath.Join(dir, id+".jsonl")
+	writeTranscript(t, file, id, "/workspace")
+	if found, err := HasLocalSSHMirror(t.Context(), home, id); err != nil || !found {
+		t.Fatalf("native mirror not found: %t %v", found, err)
+	}
+	if found, err := HasLocalSSHMirror(t.Context(), home, "../"+id); err != nil || found {
+		t.Fatalf("invalid ID admitted: %t %v", found, err)
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(file, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := HasLocalSSHMirror(t.Context(), home, id); err != nil || found {
+		t.Fatalf("directory admitted as a transcript: %t %v", found, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := HasLocalSSHMirror(ctx, home, id); err != context.Canceled {
+		t.Fatalf("cancellation lost: %v", err)
 	}
 }
 

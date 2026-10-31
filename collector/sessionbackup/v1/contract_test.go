@@ -282,7 +282,7 @@ func TestValidateRejectsNilProblems(t *testing.T) {
 }
 
 // Each agent's source kind and database rows version are bound together:
-// only OpenCode and Cursor carry rows, and only Codex may come over SSH.
+// only OpenCode and Cursor carry rows; Codex and Claude may come over SSH.
 func TestValidateBindsAgentSourceKindAndRowsVersion(t *testing.T) {
 	for _, tc := range []struct {
 		name, agent, kind, want string
@@ -292,7 +292,7 @@ func TestValidateBindsAgentSourceKindAndRowsVersion(t *testing.T) {
 		{"codex with rows", "codex", SourceLocal, "database projection version mismatch", true},
 		{"opencode without rows", "opencode", SourceLocal, "database projection version mismatch", false},
 		{"cursor without rows", "cursor", SourceLocal, "database projection version mismatch", false},
-		{"claude over ssh", "claude", SourceSSH, "invalid source identity", false},
+		{"claude over ssh with rows", "claude", SourceSSH, "database projection version mismatch", true},
 		{"opencode over ssh", "opencode", SourceSSH, "invalid source identity", true},
 		{"cursor over ssh", "cursor", SourceSSH, "invalid source identity", true},
 		{"unknown agent", "gemini", SourceLocal, "invalid source identity", false},
@@ -682,7 +682,7 @@ func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
 	}
 	wantCoverage := map[string]bool{
 		"codex/local": true, "codex/ssh": true,
-		"claude/local": true, "claude/ssh": false,
+		"claude/local": true, "claude/ssh": true,
 		"cursor/local": true, "cursor/ssh": false,
 		"opencode/local": true, "opencode/ssh": false,
 		"grok/local": true, "grok/ssh": false,

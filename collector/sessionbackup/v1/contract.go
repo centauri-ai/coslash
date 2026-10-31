@@ -189,7 +189,7 @@ var CoverageMatrix = []SupportStatus{
 	{Agent: "codex", SourceKind: SourceSSH, Supported: true},
 	{Agent: "claude", SourceKind: SourceLocal, Supported: true},
 	{Agent: "opencode", SourceKind: SourceLocal, Supported: true},
-	{Agent: "claude", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
+	{Agent: "claude", SourceKind: SourceSSH, Supported: true},
 	{Agent: "cursor", SourceKind: SourceLocal, Supported: true},
 	{Agent: "cursor", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 	{Agent: "opencode", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
@@ -369,7 +369,7 @@ func validate(manifest Manifest, requireHash bool) error {
 	}
 	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude &&
 		manifest.Source.Agent != ArtifactSourceOpenCode && manifest.Source.Agent != ArtifactSourceCursor && manifest.Source.Agent != ArtifactSourceGrok && manifest.Source.Agent != ArtifactSourcePi) ||
-		(manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Kind != SourceLocal) ||
+		(manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude && manifest.Source.Kind != SourceLocal) ||
 		(manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
 		return fmt.Errorf("%w: invalid source identity", ErrInvalid)

@@ -90,8 +90,12 @@ parsed product data—including prompts, commands, edited-file paths, working
 directories, subagent detail, and file-change bodies—is transferred and cached
 locally so exact detail remains available after restart or an SSH outage. Claude
 parsed exact details now cross SSH into the private local cache just like Codex;
-raw transcript rows do not. Exact-detail caching, synthesis, and V4 sync are
-separate capabilities. The versioned local session-family producer remains as
+raw transcript rows do not enter that cache. Paired V4 sync separately reads
+complete Codex and Claude family inputs over bounded, allowlisted SFTP into a
+private verified spool on the relay. That spool can contain raw transcripts and
+sidecars; only parsed session records upload to Hub. SSH sources inherit the
+relay's import/backfill plan, pause, and leave-out rules. Exact-detail caching,
+synthesis, and V4 sync are separate capabilities. The versioned local session-family producer remains as
 input to V4 sync; Local's manual V3 complete-backup share flow has been removed.
 The cache excludes raw transcript rows, SSH configuration, coSlash credentials,
 sockets, and environment values.

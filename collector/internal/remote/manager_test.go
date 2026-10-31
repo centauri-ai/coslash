@@ -27,7 +27,7 @@ func TestFullRecordRevisionsBuildsSessionIndex(t *testing.T) {
 		{Record: fullsessionv1.Record{Agent: vendors.AgentCodex, SessionID: "one", RevisionID: "rev-one"}},
 		{Record: fullsessionv1.Record{Agent: vendors.AgentCodex, SessionID: "two", RevisionID: "rev-two"}},
 	}}
-	revisions := fullRecordRevisions(snapshot)
+	revisions, _ := recordRevisions(snapshot)
 	if revisions[remoteSessionKey{Agent: vendors.AgentCodex, ID: "one"}] != "rev-one" ||
 		revisions[remoteSessionKey{Agent: vendors.AgentCodex, ID: "two"}] != "rev-two" {
 		t.Fatalf("revision index = %#v", revisions)
@@ -1679,5 +1679,67 @@ func TestRemoveHubHostUninstallsPreviouslyOwnedHelper(t *testing.T) {
 				t.Fatalf("helper after removal: %v", err)
 			}
 		})
+	}
+}
+
+func TestSyncAvailabilityRequiresFreshCompleteCurrentFamily(t *testing.T) {
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	manager := NewManager(Options{Now: func() time.Time { return now }, Cache: NewCache(t.TempDir())})
+	manager.cfg = &settings.RemoteSettings{ID: "r_0123456789abcdef", Enabled: true}
+	snapshot := completeCodexSnapshot(t, "sync-generation", "synthetic body\n")
+	snapshot.FetchedAtMs = now.UnixMilli()
+	snapshot.RequestComplete = true
+	manager.snapshot = &snapshot
+	manager.state = StateOK
+	manager.complete = true
+	manager.sessions = []*session.Session{{ID: "root-1", Agent: "codex"}}
+	manager.sessionsLocked(0)
+	allowed := func() bool { return manager.SyncAvailable(manager.cfg.ID, "codex", "root-1") }
+	if !allowed() {
+		t.Fatal("fresh complete family blocked")
+	}
+	if manager.SyncAvailable("r_fedcba9876543210", "codex", "root-1") || manager.SyncAvailable(manager.cfg.ID, "codex", "missing") {
+		t.Fatal("wrong source or deleted family admitted")
+	}
+	manager.familyStale = map[remoteSessionKey]bool{{Agent: "codex", ID: "root-1"}: true}
+	if allowed() {
+		t.Fatal("stale family admitted")
+	}
+	manager.familyStale = nil
+	manager.state = StateError
+	if allowed() {
+		t.Fatal("failed refresh admitted")
+	}
+	manager.state = StateOK
+	manager.snapshot.RequestComplete = false
+	if allowed() {
+		t.Fatal("partial generation admitted")
+	}
+	manager.snapshot.RequestComplete = true
+	now = now.Add(FreshnessInterval)
+	if allowed() {
+		t.Fatal("expired generation admitted")
+	}
+	now = now.Add(-FreshnessInterval)
+	manager.cfg.Enabled = false
+	if allowed() {
+		t.Fatal("disabled source admitted")
+	}
+}
+
+func TestFamilyRecordRevisionIncludesChildContentAndIgnoresOrder(t *testing.T) {
+	snapshot := &CachedSnapshotV2{FullRecords: []remoteprotocol.FullRecord{
+		{FamilyID: "root", Record: fullsessionv1.Record{Agent: "claude", SessionID: "root", RevisionID: "one"}},
+		{FamilyID: "root", Record: fullsessionv1.Record{Agent: "claude", SessionID: "child", RevisionID: "two"}},
+	}}
+	key := remoteSessionKey{Agent: "claude", ID: "root"}
+	_, first := recordRevisions(snapshot)
+	snapshot.FullRecords[0], snapshot.FullRecords[1] = snapshot.FullRecords[1], snapshot.FullRecords[0]
+	if _, got := recordRevisions(snapshot); got[key] != first[key] {
+		t.Fatal("order changed family revision")
+	}
+	snapshot.FullRecords[0].Record.RevisionID = "child-changed"
+	if _, got := recordRevisions(snapshot); got[key] == first[key] {
+		t.Fatal("child content omitted from revision")
 	}
 }
