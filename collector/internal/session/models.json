@@ -66,11 +66,23 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 6E-7
   },
+  "aiand/deepseek-ai/deepseek-v4.1-flash-1017": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 6E-7
+  },
   "aiand/google/gemma-4-31b-it": {
     "cache_read_input_token_cost": 5E-8,
     "input_cost_per_token": 2E-7,
     "max_input_tokens": 262144,
     "output_cost_per_token": 5E-7
+  },
+  "aiand/meta/muse-spark-open": {
+    "cache_read_input_token_cost": 1.5E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000425
   },
   "aiand/moonshotai/kimi-k2.7-code": {
     "cache_read_input_token_cost": 2E-7,
@@ -3448,6 +3460,16 @@
     "max_input_tokens": 196000,
     "output_cost_per_token": 0.00000144
   },
+  "bedrock/ap-northeast-1/mistral.voxtral-mini-3b-2507": {
+    "input_cost_per_token": 5E-8,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 5E-8
+  },
+  "bedrock/ap-northeast-1/mistral.voxtral-small-24b-2507": {
+    "input_cost_per_token": 1.2E-7,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 3.6E-7
+  },
   "bedrock/ap-northeast-1/moonshotai.kimi-k2-thinking": {
     "input_cost_per_token": 7.3E-7,
     "max_input_tokens": 262144,
@@ -3517,6 +3539,16 @@
     "input_cost_per_token": 3.1E-7,
     "max_input_tokens": 196000,
     "output_cost_per_token": 0.00000124
+  },
+  "bedrock/ap-southeast-2/mistral.voxtral-mini-3b-2507": {
+    "input_cost_per_token": 4.12E-8,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 4.12E-8
+  },
+  "bedrock/ap-southeast-2/mistral.voxtral-small-24b-2507": {
+    "input_cost_per_token": 1.03E-7,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 3.09E-7
   },
   "bedrock/ap-southeast-2/qwen.qwen3-next-80b-a3b": {
     "input_cost_per_token": 1.545E-7,
@@ -3784,6 +3816,16 @@
     "input_cost_per_token": 4.7E-7,
     "max_input_tokens": 196000,
     "output_cost_per_token": 0.00000186
+  },
+  "bedrock/eu-west-2/mistral.voxtral-mini-3b-2507": {
+    "input_cost_per_token": 6E-8,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 6E-8
+  },
+  "bedrock/eu-west-2/mistral.voxtral-small-24b-2507": {
+    "input_cost_per_token": 1.6E-7,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 4.7E-7
   },
   "bedrock/eu-west-2/nvidia.nemotron-super-3-120b": {
     "input_cost_per_token": 2.3E-7,
@@ -4431,7 +4473,7 @@
     "cache_creation_input_token_cost": 0.0000171875,
     "cache_read_input_token_cost": 0.000001375,
     "input_cost_per_token": 0.00001375,
-    "max_input_tokens": 1050000,
+    "max_input_tokens": 922000,
     "output_cost_per_token": 0.0000825
   },
   "bedrock_mantle/openai.gpt-5.6-luna": {
@@ -4661,6 +4703,24 @@
     "input_cost_per_token": 0.0000022,
     "max_input_tokens": 500000,
     "output_cost_per_token": 0.0000066
+  },
+  "bigmodel/glm-5.3": {
+    "cache_read_input_token_cost": 2.857142857142857E-7,
+    "input_cost_per_token": 0.0000011428571428571428,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000004
+  },
+  "bigmodel/glm-5.3-flash": {
+    "cache_read_input_token_cost": 3.2857142857142855E-8,
+    "input_cost_per_token": 1.142857142857143E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 4E-7
+  },
+  "bigmodel/glm-5.3-flashx": {
+    "cache_read_input_token_cost": 8.142857142857142E-8,
+    "input_cost_per_token": 2.857142857142857E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000001
   },
   "c4ai-aya-expanse-32b": {
     "input_cost_per_token": 5E-7,
@@ -4906,6 +4966,65 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00001
+  },
+  "clf_ai_gateway/deepseek-v4-flash": {
+    "cache_read_input_token_cost": 5E-9,
+    "input_cost_per_token": 1.76E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5.28E-7
+  },
+  "clf_ai_gateway/deepseek-v4-pro": {
+    "cache_read_input_token_cost": 1.7E-8,
+    "input_cost_per_token": 5.28E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000001584
+  },
+  "clf_ai_gateway/deepseek-v4.1-flash": {
+    "cache_read_input_token_cost": 2E-9,
+    "input_cost_per_token": 1.2E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 4.8E-7
+  },
+  "clf_ai_gateway/glm-4.7-flash": {
+    "input_cost_per_token": 2.4E-8,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 1.6E-7
+  },
+  "clf_ai_gateway/glm-5.2": {
+    "cache_read_input_token_cost": 1.04E-7,
+    "input_cost_per_token": 5.6E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.00000176
+  },
+  "clf_ai_gateway/glm-5.3": {
+    "cache_read_input_token_cost": 1.04E-7,
+    "input_cost_per_token": 5.6E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000176
+  },
+  "clf_ai_gateway/glm-5.3-flash": {
+    "cache_read_input_token_cost": 1.2E-8,
+    "input_cost_per_token": 6E-8,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2E-7
+  },
+  "clf_ai_gateway/kimi-k2.6": {
+    "cache_read_input_token_cost": 6.4E-8,
+    "input_cost_per_token": 3.8E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.0000016
+  },
+  "clf_ai_gateway/kimi-k2.7-code": {
+    "cache_read_input_token_cost": 7.6E-8,
+    "input_cost_per_token": 3.8E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.0000016
+  },
+  "clf_ai_gateway/qwen3.8-27b": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 1.8E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.00000128
   },
   "cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it": {
     "input_cost_per_token": 3.51E-7,
@@ -5485,9 +5604,9 @@
   "databricks/databricks-claude-sonnet-4": {
     "cache_creation_input_token_cost": 0.00000374997,
     "cache_read_input_token_cost": 3.0002E-7,
-    "input_cost_per_token": 0.0000029999900000000002,
+    "input_cost_per_token": 0.00000299999,
     "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015000020000000002
+    "output_cost_per_token": 0.00001500002
   },
   "databricks/databricks-claude-sonnet-4-1": {
     "cache_creation_input_token_cost": 0.00000374997,
@@ -5603,7 +5722,7 @@
     "cache_read_input_token_cost": 2.4997E-7,
     "input_cost_per_token": 0.00000249998,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000015000020000000002
+    "output_cost_per_token": 0.00001500002
   },
   "databricks/databricks-gemini-3-5-flash": {
     "cache_creation_input_token_cost": 0.00000187502,
@@ -5671,7 +5790,7 @@
   "databricks/databricks-gemma-3-12b": {
     "cache_creation_input_token_cost": 1.5001E-7,
     "cache_read_input_token_cost": 1.5001E-7,
-    "input_cost_per_token": 1.5000999999999998E-7,
+    "input_cost_per_token": 1.5001E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 5.0001E-7
   },
@@ -5701,14 +5820,14 @@
     "cache_read_input_token_cost": 1.2502E-7,
     "input_cost_per_token": 0.00000124999,
     "max_input_tokens": 272000,
-    "output_cost_per_token": 0.000009999990000000002
+    "output_cost_per_token": 0.00000999999
   },
   "databricks/databricks-gpt-5-1": {
     "cache_creation_input_token_cost": 0.00000124999,
     "cache_read_input_token_cost": 1.2502E-7,
     "input_cost_per_token": 0.00000124999,
     "max_input_tokens": 272000,
-    "output_cost_per_token": 0.000009999990000000002
+    "output_cost_per_token": 0.00000999999
   },
   "databricks/databricks-gpt-5-2": {
     "cache_creation_input_token_cost": 0.00000175,
@@ -5729,7 +5848,7 @@
     "cache_read_input_token_cost": 2.4997E-7,
     "input_cost_per_token": 0.00000249998,
     "max_input_tokens": 922000,
-    "output_cost_per_token": 0.000015000020000000002
+    "output_cost_per_token": 0.00001500002
   },
   "databricks/databricks-gpt-5-4-mini": {
     "cache_creation_input_token_cost": 7.4998E-7,
@@ -5790,16 +5909,16 @@
   "databricks/databricks-gpt-5-mini": {
     "cache_creation_input_token_cost": 2.4997E-7,
     "cache_read_input_token_cost": 2.499E-8,
-    "input_cost_per_token": 2.4997000000000006E-7,
+    "input_cost_per_token": 2.4997E-7,
     "max_input_tokens": 272000,
-    "output_cost_per_token": 0.0000019999700000000004
+    "output_cost_per_token": 0.00000199997
   },
   "databricks/databricks-gpt-5-nano": {
     "cache_creation_input_token_cost": 4.998E-8,
     "cache_read_input_token_cost": 4.97E-9,
     "input_cost_per_token": 4.998E-8,
     "max_input_tokens": 272000,
-    "output_cost_per_token": 3.9998000000000007E-7
+    "output_cost_per_token": 3.9998E-7
   },
   "databricks/databricks-gpt-6-1-sol": {
     "cache_creation_input_token_cost": 0.00000249998,
@@ -5839,7 +5958,7 @@
   "databricks/databricks-gpt-oss-120b": {
     "cache_creation_input_token_cost": 1.5001E-7,
     "cache_read_input_token_cost": 1.5001E-7,
-    "input_cost_per_token": 1.5000999999999998E-7,
+    "input_cost_per_token": 1.5001E-7,
     "max_input_tokens": 131072,
     "output_cost_per_token": 5.9997E-7
   },
@@ -5848,7 +5967,7 @@
     "cache_read_input_token_cost": 7E-8,
     "input_cost_per_token": 7E-8,
     "max_input_tokens": 131072,
-    "output_cost_per_token": 3.0001999999999996E-7
+    "output_cost_per_token": 3.0002E-7
   },
   "databricks/databricks-grok-4-6": {
     "cache_creation_input_token_cost": 0.00000249998,
@@ -5890,21 +6009,21 @@
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 5.0001E-7,
     "max_input_tokens": 128000,
-    "output_cost_per_token": 0.0000015000300000000002
+    "output_cost_per_token": 0.00000150003
   },
   "databricks/databricks-meta-llama-3-1-8b-instruct": {
     "cache_creation_input_token_cost": 1.5001E-7,
     "cache_read_input_token_cost": 1.5001E-7,
-    "input_cost_per_token": 1.5000999999999998E-7,
+    "input_cost_per_token": 1.5001E-7,
     "max_input_tokens": 200000,
-    "output_cost_per_token": 4.5003000000000007E-7
+    "output_cost_per_token": 4.5003E-7
   },
   "databricks/databricks-meta-llama-3-3-70b-instruct": {
     "cache_creation_input_token_cost": 5.0001E-7,
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 5.0001E-7,
     "max_input_tokens": 128000,
-    "output_cost_per_token": 0.0000015000300000000002
+    "output_cost_per_token": 0.00000150003
   },
   "databricks/databricks-qwen3-next-80b-a3b-instruct": {
     "cache_creation_input_token_cost": 1.5001E-7,
@@ -6877,14 +6996,6 @@
     "input_cost_per_token": 0.000011,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000055
-  },
-  "eu.anthropic.claude-haiku-4-5-20251001-v1:0": {
-    "cache_creation_input_token_cost": 0.000001375,
-    "cache_creation_input_token_cost_above_1hr": 0.0000022,
-    "cache_read_input_token_cost": 1.1E-7,
-    "input_cost_per_token": 0.0000011,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.0000055
   },
   "eu.anthropic.claude-haiku-5-5": {
     "cache_creation_input_token_cost": 1.375E-7,
@@ -8348,6 +8459,12 @@
     "input_cost_per_token": 2E-7,
     "max_input_tokens": 32768,
     "output_cost_per_token": 2E-7
+  },
+  "fireworks_ai/accounts/fireworks/models/ultramarine-1-flash-us": {
+    "cache_read_input_token_cost": 4.5E-8,
+    "input_cost_per_token": 2.25E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 7.5E-7
   },
   "fireworks_ai/accounts/fireworks/models/yi-34b": {
     "input_cost_per_token": 9E-7,
@@ -10153,6 +10270,13 @@
     "max_input_tokens": 922000,
     "output_cost_per_token": 5E-7
   },
+  "gpt-6-rosalind": {
+    "cache_creation_input_token_cost": 0.00001875,
+    "cache_read_input_token_cost": 0.0000015,
+    "input_cost_per_token": 0.000015,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.000075
+  },
   "gpt-6-sol": {
     "cache_creation_input_token_cost": 0.0000025,
     "cache_read_input_token_cost": 2E-7,
@@ -10753,6 +10877,467 @@
     "input_cost_per_token": 0.0,
     "max_input_tokens": 229376,
     "output_cost_per_token": 0.0
+  },
+  "kyma/claude-fable-5": {
+    "input_cost_per_token": 0.0000135,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000675
+  },
+  "kyma/claude-fable-5.1": {
+    "input_cost_per_token": 0.0000135,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000675
+  },
+  "kyma/claude-haiku-4-5": {
+    "cache_read_input_token_cost": 1.35E-7,
+    "input_cost_per_token": 0.00000135,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00000675
+  },
+  "kyma/claude-haiku-5.5": {
+    "cache_read_input_token_cost": 1.35E-8,
+    "input_cost_per_token": 1.35E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 6.75E-7
+  },
+  "kyma/claude-opus-4-7": {
+    "cache_read_input_token_cost": 6.75E-7,
+    "input_cost_per_token": 0.00000675,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00003375
+  },
+  "kyma/claude-opus-5": {
+    "cache_read_input_token_cost": 6.75E-7,
+    "input_cost_per_token": 0.00000675,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00003375
+  },
+  "kyma/claude-opus-5.5": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.0000054,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000027
+  },
+  "kyma/claude-sonnet-4-6": {
+    "cache_read_input_token_cost": 4.05E-7,
+    "input_cost_per_token": 0.00000405,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00002025
+  },
+  "kyma/claude-sonnet-5": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.0000027,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000135
+  },
+  "kyma/claude-sonnet-5.5": {
+    "cache_read_input_token_cost": 1.35E-7,
+    "input_cost_per_token": 0.0000027,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000135
+  },
+  "kyma/deepseek-r1": {
+    "input_cost_per_token": 7.425E-7,
+    "max_input_tokens": 64000,
+    "output_cost_per_token": 0.000002957
+  },
+  "kyma/deepseek-v3": {
+    "input_cost_per_token": 5.18E-7,
+    "max_input_tokens": 160000,
+    "output_cost_per_token": 7.571E-7
+  },
+  "kyma/deepseek-v4-flash": {
+    "cache_read_input_token_cost": 2.43E-8,
+    "input_cost_per_token": 1.23E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 2.458E-7
+  },
+  "kyma/deepseek-v4-flash-vision-exp": {
+    "input_cost_per_token": 3.892E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000001168
+  },
+  "kyma/deepseek-v4.1-flash": {
+    "input_cost_per_token": 2.7E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8.1E-7
+  },
+  "kyma/gemini-3-flash": {
+    "cache_read_input_token_cost": 6.75E-8,
+    "input_cost_per_token": 6.75E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000405
+  },
+  "kyma/gemini-3.1-pro": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.0000027,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000162
+  },
+  "kyma/gemini-3.5-flash": {
+    "cache_read_input_token_cost": 2.025E-7,
+    "input_cost_per_token": 0.000002025,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00001215
+  },
+  "kyma/gemini-3.5-flash-lite": {
+    "cache_read_input_token_cost": 4.05E-8,
+    "input_cost_per_token": 4.05E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000003375
+  },
+  "kyma/gemini-3.6-flash": {
+    "cache_read_input_token_cost": 1.0125E-7,
+    "input_cost_per_token": 0.000001013,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000005063
+  },
+  "kyma/gemini-3.7-flash": {
+    "cache_read_input_token_cost": 1.0125E-7,
+    "input_cost_per_token": 0.000002026,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000010126
+  },
+  "kyma/gemini-3.8-flash": {
+    "input_cost_per_token": 0.000002026,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000010126
+  },
+  "kyma/gemini-4-argon": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.0000054,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000027
+  },
+  "kyma/gemma-4-31b": {
+    "cache_read_input_token_cost": 1.642E-7,
+    "input_cost_per_token": 1.642E-7,
+    "max_input_tokens": 128000,
+    "output_cost_per_token": 4.689E-7
+  },
+  "kyma/glm-4.5-air": {
+    "cache_read_input_token_cost": 3.375E-8,
+    "input_cost_per_token": 1.797E-7,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 0.000001175
+  },
+  "kyma/glm-4.7-flash": {
+    "cache_read_input_token_cost": 1.35E-8,
+    "input_cost_per_token": 8.1E-8,
+    "max_input_tokens": 203000,
+    "output_cost_per_token": 5.4E-7
+  },
+  "kyma/glm-5.1": {
+    "cache_read_input_token_cost": 2.7675E-7,
+    "input_cost_per_token": 0.00000189,
+    "max_input_tokens": 203000,
+    "output_cost_per_token": 0.00000594
+  },
+  "kyma/glm-5.2": {
+    "cache_read_input_token_cost": 2.9835E-7,
+    "input_cost_per_token": 9.029E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000003083
+  },
+  "kyma/glm-5.3": {
+    "input_cost_per_token": 0.000001178,
+    "max_input_tokens": 1310720,
+    "output_cost_per_token": 0.000003702
+  },
+  "kyma/glm-5.3-flash": {
+    "input_cost_per_token": 1.72E-7,
+    "max_input_tokens": 1310720,
+    "output_cost_per_token": 5.733E-7
+  },
+  "kyma/gpt-5.6-luna": {
+    "cache_read_input_token_cost": 2.7E-8,
+    "input_cost_per_token": 2.944E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.000001767
+  },
+  "kyma/gpt-5.6-luna-pro": {
+    "cache_read_input_token_cost": 2.7E-8,
+    "input_cost_per_token": 2.703E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.000001621
+  },
+  "kyma/gpt-5.6-sol": {
+    "cache_read_input_token_cost": 6.75E-7,
+    "input_cost_per_token": 0.0000054,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.000027
+  },
+  "kyma/gpt-5.6-sol-pro": {
+    "cache_read_input_token_cost": 6.75E-7,
+    "input_cost_per_token": 0.0000054,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.000027
+  },
+  "kyma/gpt-5.6-terra": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.0000027,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.0000162
+  },
+  "kyma/gpt-5.6-terra-pro": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.0000027,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.0000162
+  },
+  "kyma/gpt-6-astra": {
+    "cache_read_input_token_cost": 0.00000135,
+    "input_cost_per_token": 0.0000135,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.0000675
+  },
+  "kyma/gpt-6-luna": {
+    "cache_read_input_token_cost": 1.35E-8,
+    "input_cost_per_token": 1.639E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 8.195E-7
+  },
+  "kyma/gpt-6.1-sol": {
+    "cache_read_input_token_cost": 1.35E-7,
+    "input_cost_per_token": 0.0000027,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.0000135
+  },
+  "kyma/gpt-oss-120b": {
+    "input_cost_per_token": 4.73E-8,
+    "max_input_tokens": 128000,
+    "output_cost_per_token": 2.303E-7
+  },
+  "kyma/grok-4.20": {
+    "input_cost_per_token": 0.000001763,
+    "max_input_tokens": 2000000,
+    "output_cost_per_token": 0.000003528
+  },
+  "kyma/grok-4.20-multi-agent": {
+    "input_cost_per_token": 0.000001767,
+    "max_input_tokens": 2000000,
+    "output_cost_per_token": 0.000003534
+  },
+  "kyma/grok-4.3": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.00000192,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000003838
+  },
+  "kyma/grok-4.5": {
+    "input_cost_per_token": 0.00000273,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.000008189
+  },
+  "kyma/grok-4.6": {
+    "input_cost_per_token": 0.000002758,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.000008274
+  },
+  "kyma/grok-4.7": {
+    "cache_read_input_token_cost": 5.4E-7,
+    "input_cost_per_token": 0.00000216,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.00000648
+  },
+  "kyma/grok-build": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.000001389,
+    "max_input_tokens": 256000,
+    "output_cost_per_token": 0.000002777
+  },
+  "kyma/hy3": {
+    "input_cost_per_token": 1.594E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 6.576E-7
+  },
+  "kyma/hy4-preview": {
+    "input_cost_per_token": 0.0000011259,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000033764
+  },
+  "kyma/kimi-k2.6": {
+    "input_cost_per_token": 5.909E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000002758
+  },
+  "kyma/kimi-k2.7-code": {
+    "input_cost_per_token": 0.000001009,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000004774
+  },
+  "kyma/kimi-k3": {
+    "cache_read_input_token_cost": 4.05E-7,
+    "input_cost_per_token": 0.000003052,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000015258
+  },
+  "kyma/kimi-k3.1-pro": {
+    "cache_read_input_token_cost": 2.7E-7,
+    "input_cost_per_token": 0.0000027,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000135
+  },
+  "kyma/llama-3.3-70b": {
+    "input_cost_per_token": 1.35E-7,
+    "max_input_tokens": 128000,
+    "output_cost_per_token": 4.32E-7
+  },
+  "kyma/llama-4-maverick": {
+    "input_cost_per_token": 3.344E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000001337
+  },
+  "kyma/mimo-v2.5": {
+    "input_cost_per_token": 1.859E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 3.718E-7
+  },
+  "kyma/mimo-v2.6-flash": {
+    "input_cost_per_token": 1.89E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 3.78E-7
+  },
+  "kyma/mimo-v2.6-pro": {
+    "input_cost_per_token": 5.805E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.0000011745
+  },
+  "kyma/minimax-m2.5": {
+    "input_cost_per_token": 4.188E-7,
+    "max_input_tokens": 196608,
+    "output_cost_per_token": 0.000001675
+  },
+  "kyma/minimax-m2.7": {
+    "input_cost_per_token": 4.05E-7,
+    "max_input_tokens": 204800,
+    "output_cost_per_token": 0.00000162
+  },
+  "kyma/minimax-m3": {
+    "cache_read_input_token_cost": 7.56E-8,
+    "input_cost_per_token": 3.956E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000001582
+  },
+  "kyma/minimax-m3.1-flash": {
+    "cache_read_input_token_cost": 2.025E-8,
+    "input_cost_per_token": 2.025E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8.1E-7
+  },
+  "kyma/muse-glimmer-30b": {
+    "input_cost_per_token": 4.554E-7,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 0.000001821
+  },
+  "kyma/muse-spark-1.1": {
+    "input_cost_per_token": 0.000001542,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000005243
+  },
+  "kyma/muse-spark-1.2": {
+    "input_cost_per_token": 0.000001773,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000006025
+  },
+  "kyma/muse-spark-1.3": {
+    "input_cost_per_token": 0.000001688,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000005738
+  },
+  "kyma/muse-spark-open": {
+    "input_cost_per_token": 0.000001688,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000005738
+  },
+  "kyma/muse-wonder": {
+    "input_cost_per_token": 0.0000054,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000027
+  },
+  "kyma/nemotron-3-ultra-550b": {
+    "cache_read_input_token_cost": 1.35E-7,
+    "input_cost_per_token": 6.75E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000003375
+  },
+  "kyma/nemotron-3.5-super-vl": {
+    "cache_read_input_token_cost": 1.35E-8,
+    "input_cost_per_token": 8.1E-8,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 4.725E-7
+  },
+  "kyma/qwen-3-32b": {
+    "input_cost_per_token": 1.08E-7,
+    "max_input_tokens": 32768,
+    "output_cost_per_token": 3.78E-7
+  },
+  "kyma/qwen-3-coder": {
+    "cache_read_input_token_cost": 1.35E-7,
+    "input_cost_per_token": 3.546E-7,
+    "max_input_tokens": 131072,
+    "output_cost_per_token": 0.000001612
+  },
+  "kyma/qwen-3.6-plus": {
+    "input_cost_per_token": 4.388E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000002633
+  },
+  "kyma/qwen-3.7-max": {
+    "cache_read_input_token_cost": 1.6875E-7,
+    "input_cost_per_token": 0.000002071,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000006207
+  },
+  "kyma/qwen-3.7-plus": {
+    "cache_read_input_token_cost": 8.64E-8,
+    "input_cost_per_token": 4.325E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000001731
+  },
+  "kyma/qwen-3.8-max": {
+    "cache_read_input_token_cost": 2.781E-7,
+    "input_cost_per_token": 0.000002228,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000006684
+  },
+  "kyma/qwen3.7-flash": {
+    "cache_read_input_token_cost": 8.1E-9,
+    "input_cost_per_token": 4.35E-8,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 1.886E-7
+  },
+  "kyma/qwen3.8-27b": {
+    "input_cost_per_token": 3.826E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000002732
+  },
+  "kyma/qwen3.8-flash": {
+    "input_cost_per_token": 2.045E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 6.41E-7
+  },
+  "kyma/sonar": {
+    "input_cost_per_token": 0.00000135,
+    "max_input_tokens": 127072,
+    "output_cost_per_token": 0.00000135
+  },
+  "kyma/sonar-pro": {
+    "input_cost_per_token": 0.00000405,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00002025
+  },
+  "kyma/step-3.7-flash": {
+    "cache_read_input_token_cost": 5.4E-8,
+    "input_cost_per_token": 2.229E-7,
+    "max_input_tokens": 256000,
+    "output_cost_per_token": 0.000001282
+  },
+  "kyma/step-5-preview": {
+    "cache_read_input_token_cost": 1.35E-7,
+    "input_cost_per_token": 0.00000135,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000003645
   },
   "lambda_ai/deepseek-llama3.3-70b": {
     "input_cost_per_token": 2E-7,
@@ -15615,6 +16200,161 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 7.2E-7
   },
+  "streamlake/DeepSeek-V3": {
+    "cache_read_input_token_cost": 1.14E-7,
+    "input_cost_per_token": 2.86E-7,
+    "max_input_tokens": 56000,
+    "output_cost_per_token": 0.000001143
+  },
+  "streamlake/DeepSeek-V4-Pro-0813": {
+    "cache_read_input_token_cost": 4.4E-8,
+    "input_cost_per_token": 0.00000132,
+    "max_input_tokens": 1048566,
+    "output_cost_per_token": 0.00000396
+  },
+  "streamlake/GLM-5.3": {
+    "cache_read_input_token_cost": 2.6E-7,
+    "input_cost_per_token": 0.0000014,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000044
+  },
+  "streamlake/GLM-5.3-Flash": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
+  },
+  "streamlake/Kimi-K2-Instruct-0905": {
+    "cache_read_input_token_cost": 1.43E-7,
+    "input_cost_per_token": 5.71E-7,
+    "max_input_tokens": 224000,
+    "output_cost_per_token": 0.000002286
+  },
+  "streamlake/deepseek-r1": {
+    "cache_read_input_token_cost": 2.29E-7,
+    "input_cost_per_token": 5.71E-7,
+    "max_input_tokens": 98304,
+    "output_cost_per_token": 0.000002286
+  },
+  "streamlake/deepseek-v3.1": {
+    "cache_read_input_token_cost": 2.29E-7,
+    "input_cost_per_token": 5.71E-7,
+    "max_input_tokens": 98304,
+    "output_cost_per_token": 0.000001714
+  },
+  "streamlake/deepseek-v4-flash": {
+    "cache_read_input_token_cost": 2.8E-8,
+    "input_cost_per_token": 1.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.8E-7
+  },
+  "streamlake/deepseek-v4-flash-0731": {
+    "cache_read_input_token_cost": 1.4E-8,
+    "input_cost_per_token": 4.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000132
+  },
+  "streamlake/deepseek-v4-pro": {
+    "cache_read_input_token_cost": 1.45E-7,
+    "input_cost_per_token": 0.00000174,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000348
+  },
+  "streamlake/deepseek-v4.1-flash-1017": {
+    "cache_read_input_token_cost": 6E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
+  "streamlake/deepseek-v4.1-flash-260910": {
+    "cache_read_input_token_cost": 6E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048568,
+    "output_cost_per_token": 0.0000012
+  },
+  "streamlake/glm-5": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 202752,
+    "output_cost_per_token": 0.0000032
+  },
+  "streamlake/glm-5.1": {
+    "cache_read_input_token_cost": 2.6E-7,
+    "input_cost_per_token": 0.0000014,
+    "max_input_tokens": 202752,
+    "output_cost_per_token": 0.0000044
+  },
+  "streamlake/glm-5.2": {
+    "cache_read_input_token_cost": 2.6E-7,
+    "input_cost_per_token": 0.0000014,
+    "max_input_tokens": 1048566,
+    "output_cost_per_token": 0.0000044
+  },
+  "streamlake/kimi-k2.6": {
+    "cache_read_input_token_cost": 1.6E-7,
+    "input_cost_per_token": 9.5E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000004
+  },
+  "streamlake/kimi-k2.7-code": {
+    "cache_read_input_token_cost": 1.9E-7,
+    "input_cost_per_token": 9.5E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000004
+  },
+  "streamlake/mimo-v2.6-flash": {
+    "cache_read_input_token_cost": 2.8E-9,
+    "input_cost_per_token": 1.4E-7,
+    "output_cost_per_token": 2.8E-7
+  },
+  "streamlake/mimo-v2.6-pro": {
+    "cache_read_input_token_cost": 3.6E-9,
+    "input_cost_per_token": 4.35E-7,
+    "output_cost_per_token": 8.7E-7
+  },
+  "streamlake/minimax-m2.5": {
+    "cache_creation_input_token_cost": 3.75E-7,
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 196608,
+    "output_cost_per_token": 0.0000012
+  },
+  "streamlake/minimax-m3": {
+    "cache_read_input_token_cost": 1.2E-7,
+    "input_cost_per_token": 6E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000024
+  },
+  "streamlake/qwen3.5-397b-a17b": {
+    "cache_read_input_token_cost": 1.2E-7,
+    "input_cost_per_token": 6E-7,
+    "max_input_tokens": 258048,
+    "output_cost_per_token": 0.0000036
+  },
+  "streamlake/qwen3.6-27b": {
+    "input_cost_per_token": 6E-7,
+    "max_input_tokens": 229376,
+    "output_cost_per_token": 0.0000036
+  },
+  "streamlake/qwen3.6-35b-a3b": {
+    "input_cost_per_token": 3.75E-7,
+    "max_input_tokens": 229376,
+    "output_cost_per_token": 0.00000225
+  },
+  "streamlake/qwen3.8-2.4t-a95b": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 2.5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 983616,
+    "output_cost_per_token": 0.000006
+  },
+  "streamlake/qwen3.8-27b": {
+    "cache_creation_input_token_cost": 6.25E-7,
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 5E-7,
+    "max_input_tokens": 983616,
+    "output_cost_per_token": 0.000003
+  },
   "tencent/deepseek-v4-flash": {
     "cache_creation_input_token_cost": 0.0,
     "cache_read_input_token_cost": 2.8E-9,
@@ -15916,10 +16656,10 @@
     "output_cost_per_token": 0.000003
   },
   "together_ai/Qwen/Qwen3.7-Max": {
-    "cache_read_input_token_cost": 5E-7,
-    "input_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.0000015,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.0000075
+    "output_cost_per_token": 0.0000045
   },
   "together_ai/Qwen/Qwen3.7-Plus": {
     "input_cost_per_token": 3.2E-7,
@@ -18148,7 +18888,7 @@
   "wandb/zai-org/GLM-5.2": {
     "cache_read_input_token_cost": 1.4E-7,
     "input_cost_per_token": 7.6E-7,
-    "max_input_tokens": 1049000,
+    "max_input_tokens": 262000,
     "output_cost_per_token": 0.00000242
   },
   "wandb/zai-org/GLM-5.3": {
@@ -18710,6 +19450,12 @@
     "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 5E-7
+  },
+  "zai/glm-5v-turbo": {
+    "cache_read_input_token_cost": 2.4E-7,
+    "input_cost_per_token": 0.0000012,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000004
   },
   "zerogpu/LFM2.5-1.2B-Instruct": {
     "input_cost_per_token": 2E-8,
