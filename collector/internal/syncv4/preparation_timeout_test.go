@@ -23,7 +23,7 @@ func (h *preparationRecoveryHub) V4Create(context.Context, hubclient.V4Create) (
 
 func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	for _, phase := range []string{"warm-estimate", "warm-create", "planned"} {
+	for _, phase := range []string{"warm-estimate", "warm-create", "planned", "planned-pass"} {
 		t.Run(phase, func(t *testing.T) {
 			home := t.TempDir()
 			workspace := filepath.Join(home, "project")
@@ -38,7 +38,13 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 			if err := os.WriteFile(filepath.Join(dir, fixtureRootID+".jsonl"), append(row, '\n'), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+			var expirePass context.CancelFunc
+			manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), OpenSource: func(ctx context.Context, _ sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+				if expirePass != nil {
+					expirePass()
+					expirePass = nil
+					return sessionbackupproducer.SourceHandle{}, ctx.Err()
+				}
 				return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
 			}})
 			queueRoot := t.TempDir()
@@ -66,6 +72,13 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 				Now: func() time.Time { return now }, config: hubclient.V4Config{ImportPlan: &plan}}
 			expired := false
 			runner.timeout = func(ctx context.Context, budget time.Duration) (context.Context, context.CancelFunc) {
+				if phase == "planned-pass" {
+					ctx, cancel := context.WithCancel(ctx)
+					if budget == plannedContentBudget {
+						expirePass, expired = cancel, true
+					}
+					return ctx, cancel
+				}
 				if !expired && (phase != "planned" || budget == sourcePreparationBudget) {
 					expired = true
 					return context.WithDeadline(ctx, time.Time{})
@@ -73,7 +86,7 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 				return context.WithCancel(ctx)
 			}
 			run := func() error {
-				if phase == "planned" {
+				if phase == "planned" || phase == "planned-pass" {
 					return runner.syncPlannedContent(t.Context(), plan)
 				}
 				return runner.warmStart(t.Context(), plan, now, 30*time.Second, 0)
@@ -98,8 +111,8 @@ func TestPreparationBudgetsRecoverIdenticalInputWithoutManualRetry(t *testing.T)
 				}
 				now = failed.RetryAt
 				runner.checkedAt = now
-			} else if failed.FailureCode != "" || len(logs) != 0 {
-				t.Fatalf("warm budget reported bad data: %+v / %+v", failed, logs)
+			} else if failed.FailureCode != "" || len(logs) != 0 || !failed.RetryAt.IsZero() || failed.BackoffAttempt != 0 {
+				t.Fatalf("pass budget reported bad data: %+v / %+v", failed, logs)
 			}
 			// Reopen durable queue state; no retry command or source mutation.
 			runner.Queue, err = Open(queueRoot)

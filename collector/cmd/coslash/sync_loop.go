@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -156,6 +157,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		inventoryRequest = externalWake[2]
 	}
 	policyWake := make(chan struct{}, 1)
+	var requestedInventory atomic.Bool
 	var policyMu sync.Mutex
 	blockedPolicyVersion := int64(-1)
 	go func() {
@@ -217,6 +219,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 						if inventoryRequest == nil {
 							control.signal()
 						} else {
+							requestedInventory.Store(true)
 							requestInventory(inventoryRequest)
 						}
 					}
@@ -301,34 +304,39 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		done := make(chan error, 1)
 		go func() { done <- runner.SyncOnce(passContext) }()
 		var err error
-		select {
-		case err = <-done:
-		case <-control.wake:
-			cancel()
-			<-done
-			control.setIdle(true)
-			continue
-		case <-inventoryWake:
-			cancel()
-			<-done
-			control.setIdle(true)
-			requestDiscovery(runner)
-			continue
-		case <-retryWake:
-			cancel()
-			<-done
-			control.setIdle(true)
-			transportBackoff.reset()
-			bypassRetryBackoff(runner)
-			continue
-		case <-ctx.Done():
-			cancel()
-			<-done
-			control.setIdle(true)
-			return
+		inventoryPending := false
+		interrupted, retryRequested := false, false
+	awaitPass:
+		for {
+			select {
+			case err = <-done:
+				break awaitPass
+			case <-control.wake:
+			case <-inventoryWake:
+				requestDiscovery(runner)
+				if !requestedInventory.Swap(false) {
+					inventoryPending = true
+					continue
+				}
+			case <-retryWake:
+				retryRequested = true
+			case <-ctx.Done():
+			}
+			interrupted = true
+			break
 		}
 		cancel()
+		if interrupted {
+			<-done
+		}
 		control.setIdle(true)
+		if retryRequested {
+			transportBackoff.reset()
+			bypassRetryBackoff(runner)
+		}
+		if interrupted {
+			continue
+		}
 		if version, _, _ := queue.Policy(); version > startingVersion {
 			// Acknowledge the applied policy without waiting for the idle cadence.
 			continue
@@ -343,6 +351,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			// Ignore requests that arrived before the policy block was observed.
 			clearWake(control.wake)
 			if clearWake(inventoryWake) {
+				requestedInventory.Store(false)
 				requestDiscovery(runner)
 			}
 			clearWake(policyWake)
@@ -360,6 +369,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			clearWake(policyWake)
 			clearWake(control.wake)
 			if clearWake(inventoryWake) {
+				requestedInventory.Store(false)
 				requestDiscovery(runner)
 			}
 			policyMu.Unlock()
@@ -417,6 +427,9 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		if terminalResult {
 			continue
 		}
+		if err == nil && inventoryPending {
+			continue
+		}
 		delay := syncv4.NextSyncDelay(err, queue.InFlight(), queue.NextCheckInDelay())
 		if retryableHubContact(err) {
 			delay = transportBackoff.delay(err)
@@ -443,6 +456,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			return
 		case <-control.wake:
 		case <-inventoryWake:
+			requestedInventory.Store(false)
 			requestDiscovery(runner)
 		case <-retryWake:
 			transportBackoff.reset()
