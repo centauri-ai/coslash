@@ -84,6 +84,7 @@ locally done.
 
 With `config.importPlan` delivered under `sync-policy/1` or `scale-import/v1`,
 the device waits for the plan before creating uploads or listing sessions. The
+plan does not require the optional scale capability when sync policy is enabled.
 plan's window and history choice set the scope. The default plan is recent
 `3d` activity capped at 30 sessions; it does not start an extended backfill.
 Hub Settings can explicitly start a per-device 30-day, 60-day, or all-history
