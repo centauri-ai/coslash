@@ -21,7 +21,11 @@ func (q *Queue) SignalUpdate() {
 	default:
 	}
 }
-func (q *Queue) UpdateWake() <-chan struct{} { return q.updateWake }
+func (q *Queue) UpdateWake() <-chan struct{}     { return q.updateWake }
+func (q *Queue) CompletionWake() <-chan struct{} { return q.completionWake }
+
+// CheckInForUpdate applies the normal check-in response without running uploads.
+func (r *Runner) CheckInForUpdate(ctx context.Context) error { return r.refreshConsent(ctx) }
 
 // ReportUpdate sends only the update receipt, without running the upload pass
 // or changing its retry deadlines or backoff.
@@ -147,6 +151,10 @@ func (q *Queue) ConfirmUpdateHandoff(id string) error {
 	if err := q.save(); err != nil {
 		q.state.Update.HandoffReady = prior
 		return err
+	}
+	select {
+	case q.completionWake <- struct{}{}:
+	default:
 	}
 	return nil
 }

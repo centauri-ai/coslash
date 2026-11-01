@@ -61,6 +61,7 @@ const (
 	transportRetryInitial    = 2 * time.Second
 	transportRetryMax        = time.Minute
 	syncNowInventoryDebounce = 30 * time.Second
+	updateCompletionPoll     = 30 * time.Second
 )
 
 type transportRetryBackoff struct{ failures int }
@@ -385,13 +386,38 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			}
 			clearWake(policyWake)
 			policyMu.Unlock()
-			select {
-			case <-ctx.Done():
-				return
-			case <-policyWake:
-			case <-retryWake:
-				transportBackoff.reset()
-				bypassRetryBackoff(runner)
+			completion, canComplete := queue.(interface {
+				PendingUpdate() *syncv4.UpdateAttempt
+				CompletionWake() <-chan struct{}
+			})
+			checker, canCheck := runner.(interface{ CheckInForUpdate(context.Context) error })
+		blocked:
+			for {
+				var completionWake <-chan struct{}
+				var poll <-chan time.Time
+				if canComplete && canCheck {
+					if update := completion.PendingUpdate(); update != nil && update.Stage == "finalizing" {
+						completionWake = completion.CompletionWake()
+						poll = time.After(updateCompletionPoll)
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-policyWake:
+					break blocked
+				case <-retryWake:
+					transportBackoff.reset()
+					bypassRetryBackoff(runner)
+					break blocked
+				case <-completionWake:
+				case <-poll:
+				}
+				if update := completion.PendingUpdate(); update != nil && update.HandoffReady && update.Stage == "finalizing" {
+					if err := checker.CheckInForUpdate(ctx); err == nil {
+						break blocked
+					}
+				}
 			}
 			policyMu.Lock()
 			blockedPolicyVersion = -1
@@ -446,7 +472,16 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		}
 		terminalResult := false
 		if err == nil || errors.Is(err, syncv4.ErrPaused) {
+			var updateID string
+			if state, ok := queue.(interface{ PendingUpdate() *syncv4.UpdateAttempt }); ok {
+				if update := state.PendingUpdate(); update != nil {
+					updateID = update.ID
+				}
+			}
 			for _, result := range queue.Results() {
+				if result.CommandID == updateID && result.Result == "done" {
+					continue
+				}
 				if result.Result != "in_progress" {
 					terminalResult = true
 					break
@@ -480,19 +515,46 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		if errors.As(err, &problem) && problem.RetryAfter > delay {
 			delay = problem.RetryAfter
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-control.wake:
-		case <-inventoryWake:
-			requestedInventory.Store(false)
-			requestDiscovery(runner)
-		case <-retryWake:
-			transportBackoff.reset()
-			bypassRetryBackoff(runner)
-			continue
-		case <-time.After(delay):
+		completion, canComplete := queue.(interface {
+			PendingUpdate() *syncv4.UpdateAttempt
+			CompletionWake() <-chan struct{}
+		})
+		checker, canCheck := runner.(interface{ CheckInForUpdate(context.Context) error })
+		idle := time.NewTimer(delay)
+	idleWait:
+		for {
+			var completionWake <-chan struct{}
+			var poll <-chan time.Time
+			if canComplete && canCheck {
+				if update := completion.PendingUpdate(); update != nil && update.Stage == "finalizing" {
+					completionWake = completion.CompletionWake()
+					poll = time.After(updateCompletionPoll)
+				}
+			}
+			select {
+			case <-ctx.Done():
+				idle.Stop()
+				return
+			case <-control.wake:
+				break idleWait
+			case <-inventoryWake:
+				requestedInventory.Store(false)
+				requestDiscovery(runner)
+				break idleWait
+			case <-retryWake:
+				transportBackoff.reset()
+				bypassRetryBackoff(runner)
+				break idleWait
+			case <-idle.C:
+				break idleWait
+			case <-completionWake:
+			case <-poll:
+			}
+			if update := completion.PendingUpdate(); update != nil && update.HandoffReady && update.Stage == "finalizing" {
+				_ = checker.CheckInForUpdate(ctx)
+			}
 		}
+		idle.Stop()
 	}
 }
 

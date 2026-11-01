@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,8 +17,219 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
+
+type completionTestWorker struct {
+	*syncv4.Runner
+	passDone chan error
+	bypasses atomic.Int32
+}
+
+type completionPollQueue struct {
+	syncLoopQueue
+	active atomic.Bool
+	wake   chan struct{}
+}
+
+func (q *completionPollQueue) PendingUpdate() *syncv4.UpdateAttempt {
+	if !q.active.Load() {
+		return nil
+	}
+	return &syncv4.UpdateAttempt{ID: "update", Stage: "finalizing", HandoffReady: true}
+}
+func (q *completionPollQueue) CompletionWake() <-chan struct{} { return q.wake }
+func (q *completionPollQueue) Results() []hubclient.V4CommandResult {
+	if q.active.Load() {
+		return []hubclient.V4CommandResult{{CommandID: "update", Result: "done"}}
+	}
+	return nil
+}
+
+type completionPollWorker struct {
+	q        *completionPollQueue
+	checks   atomic.Int32
+	bypasses atomic.Int32
+}
+
+func (w *completionPollWorker) SyncOnce(context.Context) error { return syncv4.ErrPolicyBlocked }
+func (w *completionPollWorker) CheckInForUpdate(context.Context) error {
+	if w.checks.Add(1) == 1 {
+		return errors.New("synthetic lost response")
+	}
+	w.q.active.Store(false)
+	return syncv4.ErrPaused
+}
+func (w *completionPollWorker) BypassRetryBackoff() { w.bypasses.Add(1) }
+
+func TestBlockedUpdateCompletionRetriesWithoutBypassingUploads(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		q := &completionPollQueue{wake: make(chan struct{}, 1)}
+		q.active.Store(true)
+		worker := &completionPollWorker{q: q}
+		go runV4SyncLoopForTest(ctx, worker, q, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		})
+		synctest.Wait()
+		q.wake <- struct{}{}
+		synctest.Wait()
+		if worker.checks.Load() != 1 {
+			t.Fatalf("initial checks=%d", worker.checks.Load())
+		}
+		time.Sleep(updateCompletionPoll)
+		synctest.Wait()
+		if worker.checks.Load() != 2 || worker.bypasses.Load() != 0 {
+			t.Fatalf("checks=%d bypasses=%d", worker.checks.Load(), worker.bypasses.Load())
+		}
+	})
+}
+
+type oldHubCompletionWorker struct{ passes, checks atomic.Int32 }
+
+func (w *oldHubCompletionWorker) SyncOnce(context.Context) error {
+	w.passes.Add(1)
+	return syncv4.ErrPaused
+}
+func (w *oldHubCompletionWorker) CheckInForUpdate(context.Context) error {
+	w.checks.Add(1)
+	return syncv4.ErrPaused
+}
+
+func TestPausedUpdateCompletionDoesNotSpinAgainstOlderHub(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		q := &completionPollQueue{wake: make(chan struct{}, 1)}
+		q.active.Store(true)
+		worker := &oldHubCompletionWorker{}
+		go runV4SyncLoopForTest(ctx, worker, q, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		})
+		synctest.Wait()
+		q.wake <- struct{}{}
+		synctest.Wait()
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		if worker.passes.Load() > 5 || worker.checks.Load() < 2 || worker.checks.Load() > 8 {
+			t.Fatalf("passes=%d checks=%d", worker.passes.Load(), worker.checks.Load())
+		}
+	})
+}
+
+func (w *completionTestWorker) SyncOnce(ctx context.Context) error {
+	err := w.Runner.SyncOnce(ctx)
+	w.passDone <- err
+	return err
+}
+func (w *completionTestWorker) BypassRetryBackoff() { w.bypasses.Add(1) }
+
+func TestBlockedUpdateCompletionChecksInWithoutUploadRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	const id = "10000000-0000-4000-8000-000000000001"
+	now := time.Now()
+	q, err := syncv4.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests, uploads atomic.Int32
+	done := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v4/devices/me/check-in" {
+			uploads.Add(1)
+			http.Error(w, "unexpected upload", http.StatusBadRequest)
+			return
+		}
+		var body struct {
+			Results []hubclient.V4CommandResult `json:"results"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		requests.Add(1)
+		commands := []hubclient.V4Command{{ID: id, Type: "update", Payload: json.RawMessage(`{"attemptId":"` + id + `","targetVersion":"0.0.6","expiresAt":"` + now.Add(time.Hour).UTC().Format(time.RFC3339Nano) + `"}`)}}
+		if len(body.Results) > 0 && body.Results[0].Result == "done" {
+			commands = nil
+			done <- struct{}{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"configVersion": 1, "config": map[string]any{"paused": true, "autoUpdate": false, "deviceOff": true, "leaveOut": []string{}, "agentKnowledge": true}, "commands": commands, "minVersion": "0.0.3", "recommendedVersion": "0.0.6", "capabilities": []string{"update-completion/v1"}})
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := &hubclient.Client{BaseURL: base, Credentials: fixedHubCredential("synthetic"), CollectorVersion: "0.0.6"}
+	binding, err := client.V4Binding(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.Rebind(binding); err != nil {
+		t.Fatal(err)
+	}
+	entry := syncv4.Entry{Key: "retry-one", SessionID: "ses_one", Session: hubclient.V4Session{Agent: "codex"}, RetryAt: now.Add(time.Hour), BackoffAttempt: 3}
+	if err = q.Merge([]syncv4.Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{Paused: true, DeviceOff: true}}); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "0.0.6", "expiresAt": now.Add(time.Hour)})
+	if err = q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "0.0.5", now); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.SetUpdateStage(id, "finalizing", ""); err != nil {
+		t.Fatal(err)
+	}
+	before := q.Entries()
+	worker := &completionTestWorker{Runner: &syncv4.Runner{Queue: q, Version: "0.0.6", Hub: client, Backup: &sessionbackupproducer.Manager{}, Discover: func(context.Context) ([]*session.Session, error) { t.Error("unexpected discovery"); return nil, nil }}, passDone: make(chan error, 2)}
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		runV4SyncLoopForTest(ctx, worker, q, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		})
+	}()
+	select {
+	case err := <-worker.passDone:
+		if !errors.Is(err, syncv4.ErrPaused) {
+			t.Fatalf("initial check-in: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("initial check-in did not finish")
+	}
+	if q.PendingUpdate() == nil || requests.Load() != 1 {
+		t.Fatal("initial check-in did not retain unconfirmed attempt")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if requests.Load() != 1 {
+		t.Fatal("unexpected check-in before helper confirmation")
+	}
+	if err = q.ConfirmUpdateHandoff(id); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("confirmed update did not check in while paused")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for q.PendingUpdate() != nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	after := q.Entries()
+	_, config, _ := q.Policy()
+	if q.PendingUpdate() != nil || uploads.Load() != 0 || worker.bypasses.Load() != 0 || len(after) != 1 || !after[0].RetryAt.Equal(before[0].RetryAt) || after[0].BackoffAttempt != before[0].BackoffAttempt || !config.Paused || !config.DeviceOff {
+		t.Fatalf("attempt=%+v uploads=%d bypass=%d before=%+v after=%+v policy=%+v", q.PendingUpdate(), uploads.Load(), worker.bypasses.Load(), before, after, config)
+	}
+	cancel()
+	<-stopped
+}
 
 type syncLoopQueue struct{}
 
