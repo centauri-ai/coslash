@@ -522,24 +522,93 @@ func verifyUpdateVersions(target, staged string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	readVersion := func(executable string) (string, error) {
-		command := exec.CommandContext(ctx, executable, "--version")
-		stdout, err := command.StdoutPipe()
-		if err != nil {
-			return "", errors.New("cannot verify executable version")
-		}
-		if err := command.Start(); err != nil {
-			return "", errors.New("cannot verify executable version")
-		}
-		output, readErr := io.ReadAll(io.LimitReader(stdout, 257))
-		if len(output) > 256 {
-			_ = command.Process.Kill()
-		}
-		if err := command.Wait(); err != nil || readErr != nil || len(output) > 256 {
-			return "", errors.New("cannot verify executable version")
-		}
-		return strings.TrimPrefix(strings.TrimSpace(string(output)), "v"), nil
+		return readExecutableVersion(ctx, executable)
 	}
 	return verifyUpdateVersionsWith(target, staged, readVersion)
+}
+
+func readExecutableVersion(ctx context.Context, executable string) (string, error) {
+	command := exec.CommandContext(ctx, executable, "--version")
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return "", errors.New("cannot verify executable version")
+	}
+	if err := command.Start(); err != nil {
+		return "", errors.New("cannot verify executable version")
+	}
+	output, readErr := io.ReadAll(io.LimitReader(stdout, 257))
+	if len(output) > 256 {
+		_ = command.Process.Kill()
+	}
+	if err := command.Wait(); err != nil || readErr != nil || len(output) > 256 {
+		return "", errors.New("cannot verify executable version")
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(output)), "v"), nil
+}
+
+var errLegacyInstalledChanged = errors.New("installed executable changed during legacy update")
+
+// Retiring the helper's only backup prevents a later legacy rollback. If the
+// rollback won the rename race, the second version check detects it instead.
+func settleLegacyInstallation() (string, error) {
+	if !automaticUpdatesSupported(runtime.GOOS, detectedInstallChannel(), branchBuildMetadata == "true") {
+		return "", errors.New("legacy settlement requires a supported script installation")
+	}
+	target, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "linux" {
+		target = strings.TrimSuffix(target, " (deleted)")
+	}
+	target, err = filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS != "windows" && filepath.Base(target) != "coslash" || runtime.GOOS == "windows" && !strings.EqualFold(filepath.Base(target), "coslash.exe") {
+		return "", errors.New("legacy update target has an unexpected name")
+	}
+	lock, err := acquireUpdateLock()
+	if err != nil {
+		return "", err
+	}
+	defer lock.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = settleLegacyTarget(target, normalizedVersion(), func(name string) (string, error) { return readExecutableVersion(ctx, name) })
+	return target, err
+}
+
+func settleLegacyTarget(target, running string, readVersion func(string) (string, error)) error {
+	check := func() error {
+		info, err := os.Lstat(target)
+		if err != nil || !info.Mode().IsRegular() {
+			return errors.New("installed executable unavailable")
+		}
+		version, err := readVersion(target)
+		if err != nil {
+			return err
+		}
+		if version != running {
+			return errLegacyInstalledChanged
+		}
+		return nil
+	}
+	if err := check(); err != nil {
+		return err
+	}
+	backup := target + ".previous"
+	if info, statErr := os.Lstat(backup); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("legacy update backup is not a regular file")
+		}
+		if err := os.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	return check()
 }
 
 func verifyUpdateVersionsWith(target, staged string, readVersion func(string) (string, error)) error {
@@ -619,7 +688,7 @@ func waitForUpdateHandoff(ctx context.Context, queue *syncv4.Queue, current stri
 	defer ticker.Stop()
 	for {
 		update := queue.PendingUpdate()
-		if update == nil || update.Stage == "failed" || update.TargetVersion != current || update.HandoffReady {
+		if update == nil || update.LegacySettlement || update.Stage == "failed" || update.TargetVersion != current || update.HandoffReady {
 			return nil
 		}
 		if consumeUpdateFailure(queue) {
@@ -661,12 +730,13 @@ func waitForUpdateHandoff(ctx context.Context, queue *syncv4.Queue, current stri
 	}
 }
 
-func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string, string) error, reportUpdate func()) {
+func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string, string) error, onLegacyRollback func(string), reportUpdate func()) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	failedVersion := ""
 	var retryAfter time.Time
 	var nextAutomatic time.Time
+	var nextLegacySettlement time.Time
 	firstCheck := true
 	for {
 		explicit := false
@@ -683,6 +753,24 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 			reportUpdate()
 		}
 		if update := queue.PendingUpdate(); update != nil {
+			if update.LegacySettlement {
+				if update.HandoffReady || time.Now().Before(nextLegacySettlement) {
+					continue
+				}
+				target, err := settleLegacyInstallation()
+				if err == nil {
+					_ = queue.ConfirmUpdateHandoff(update.ID)
+					continue
+				}
+				if errors.Is(err, errLegacyInstalledChanged) {
+					_ = queue.SetUpdateStage(update.ID, "failed", "update_failed")
+					reportUpdate()
+					onLegacyRollback(target)
+					return
+				}
+				nextLegacySettlement = time.Now().Add(30 * time.Second)
+				continue
+			}
 			if update.Stage == "failed" || !hubclient.NewerClientVersion(normalizedVersion(), update.TargetVersion) {
 				continue
 			}

@@ -356,6 +356,7 @@ func main() {
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	shutdownRequests := make(chan struct{}, 1)
 	updateRequests := make(chan struct{}, 1)
+	restartInstalled := make(chan string, 1)
 	settingsOptions := newSettingsOptionsCache()
 	defer settingsOptions.close()
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
@@ -379,6 +380,12 @@ func main() {
 				}
 				shutdown(15 * time.Second)
 				return nil
+			}, func(target string) {
+				select {
+				case restartInstalled <- target:
+				default:
+				}
+				shutdown(15 * time.Second)
 			}, queue.SignalUpdate)
 		}()
 	}
@@ -438,6 +445,18 @@ func main() {
 	controller.Stop()
 	stopDiscovery()
 	directedStore.Shutdown()
+	select {
+	case target := <-restartInstalled:
+		cancelReady()
+		if err := errors.Join(runtimeReady.Close(), runtimeLock.Close()); err != nil {
+			log.Printf("release runtime before installed-version restart: %v", err)
+		} else if !backgroundLoginLoaded() {
+			if err := startDetachedUpdateProcess(target, "--background"); err != nil {
+				log.Printf("restart installed coSlash Local: %v", err)
+			}
+		}
+	default:
+	}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", serveErr)
 	}
