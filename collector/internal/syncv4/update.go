@@ -172,6 +172,9 @@ func (q *Queue) ReconcileUpdate(current string, delivered []hubclient.V4Command,
 	if !reported || (u.Stage != "failed" && current != u.TargetVersion && !hubclient.NewerClientVersion(u.TargetVersion, current)) {
 		return nil
 	}
+	if u.Stage != "failed" && current == u.TargetVersion && !u.HandoffReady {
+		return nil
+	}
 	q.state.Update = nil
 	if err := q.save(); err != nil {
 		q.state.Update = u

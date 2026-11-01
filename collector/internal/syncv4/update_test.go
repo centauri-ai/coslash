@@ -43,8 +43,70 @@ func TestUpdateAttemptSurvivesRestartAndRedelivery(t *testing.T) {
 	if err = q.ReconcileUpdate("1.2.4", []hubclient.V4Command{c}, sent); err != nil || q.PendingUpdate() == nil {
 		t.Fatal("redelivery must retain attempt", err)
 	}
+	if err = q.ConfirmUpdateHandoff(id); err != nil {
+		t.Fatal(err)
+	}
 	if err = q.ReconcileUpdate("1.2.4", nil, sent); err != nil || q.PendingUpdate() != nil {
 		t.Fatal("acknowledged completed attempt must clear", err)
+	}
+}
+
+func TestReconcileUpdateRetainsUnconfirmedTargetAcrossRestart(t *testing.T) {
+	root := t.TempDir()
+	q, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	const id = "10000000-0000-4000-8000-000000000001"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": now.Add(time.Hour)})
+	if err := q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", now); err != nil {
+		t.Fatal(err)
+	}
+	sent := []hubclient.V4CommandResult{{CommandID: id, Result: "in_progress"}}
+	if err := q.ReconcileUpdate("1.2.4", nil, sent); err != nil {
+		t.Fatal(err)
+	}
+	q, err = Open(root)
+	if err != nil || q.PendingUpdate() == nil {
+		t.Fatalf("unconfirmed attempt lost: %v", err)
+	}
+	if err := q.ConfirmUpdateHandoff(id); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ReconcileUpdate("1.2.4", nil, sent); err != nil {
+		t.Fatal(err)
+	}
+	if q.PendingUpdate() != nil {
+		t.Fatal("confirmed attempt was not reconciled")
+	}
+}
+
+func TestReconcileUpdateStillClearsFailedAndNewer(t *testing.T) {
+	for _, tc := range []struct{ current, stage string }{{"1.2.3", "failed"}, {"1.2.5", "finalizing"}} {
+		q, err := Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		const id = "10000000-0000-4000-8000-000000000001"
+		payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": now.Add(time.Hour)})
+		if err := q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", now); err != nil {
+			t.Fatal(err)
+		}
+		code := ""
+		if tc.stage == "failed" {
+			code = "update_failed"
+		}
+		if err := q.SetUpdateStage(id, tc.stage, code); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.ReconcileUpdate(tc.current, nil, []hubclient.V4CommandResult{{CommandID: id, Result: "in_progress"}}); err != nil {
+			t.Fatal(err)
+		}
+		if q.PendingUpdate() != nil {
+			t.Fatalf("%s attempt was not reconciled", tc.current)
+		}
 	}
 }
 
