@@ -1,6 +1,6 @@
 module github.com/centauri-ai/coslash/collector
 
-go 1.26.5
+go 1.26.10
 
 require (
 	github.com/dlclark/regexp2 v1.12.0
