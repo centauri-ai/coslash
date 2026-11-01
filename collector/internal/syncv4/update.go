@@ -60,7 +60,7 @@ func (r *Runner) ReportUpdate(ctx context.Context) error {
 	if active {
 		return nil
 	}
-	return r.Queue.ReconcileUpdate(r.Version, nil, results, false)
+	return r.Queue.ReconcileUpdate(r.Version, nil, results, true)
 }
 
 // UpdateAttempt is persisted with the paired queue before any update starts.
@@ -175,14 +175,19 @@ func (q *Queue) ReconcileUpdate(current string, delivered []hubclient.V4Command,
 	}
 	reported := false
 	completionSent := false
+	failureSent := false
 	for _, r := range sent {
 		if r.CommandID == u.ID {
 			reported = true
 			completionSent = r.Result == "done"
+			failureSent = r.Result == "failed"
 			break
 		}
 	}
 	if !reported || (u.Stage != "failed" && current != u.TargetVersion && !hubclient.NewerClientVersion(u.TargetVersion, current)) {
+		return nil
+	}
+	if u.Stage == "failed" && (!failureSent || !updateAware) {
 		return nil
 	}
 	if u.Stage != "failed" && current == u.TargetVersion && (!u.HandoffReady || !completionSent || !updateAware) {
