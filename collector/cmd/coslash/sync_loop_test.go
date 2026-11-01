@@ -677,3 +677,30 @@ func TestDormantBacksOff(t *testing.T) {
 		t.Fatalf("ordinary retry during import=%s, want %s", got, 10*time.Second)
 	}
 }
+
+func TestBlockedPolicyWakesForQueuedCommandWithoutRetryBypass(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		events := make(chan hubclient.V4Wait, 1)
+		var passes atomic.Int32
+		worker := syncLoopWorkerFunc(func(ctx context.Context) error { passes.Add(1); return syncv4.ErrPolicyBlocked })
+		go runV4SyncLoopForTest(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			select {
+			case value := <-events:
+				return value, nil
+			case <-ctx.Done():
+				return hubclient.V4Wait{}, ctx.Err()
+			}
+		})
+		synctest.Wait()
+		if passes.Load() != 1 {
+			t.Fatalf("initial passes=%d", passes.Load())
+		}
+		events <- hubclient.V4Wait{ConfigVersion: 1, CommandsAvailable: true}
+		synctest.Wait()
+		if passes.Load() != 2 {
+			t.Fatalf("command did not wake blocked check-in: %d", passes.Load())
+		}
+	})
+}

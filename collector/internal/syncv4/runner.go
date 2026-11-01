@@ -966,9 +966,14 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	}
 	if !r.scaleSupported || os.Getenv("COSLASH_SCALE_IMPORT") == "0" {
 		progress.Inventory = nil
-		results = slices.DeleteFunc(results, func(result hubclient.V4CommandResult) bool { return result.Result == "in_progress" })
+		update := r.Queue.PendingUpdate()
+		results = slices.DeleteFunc(results, func(result hubclient.V4CommandResult) bool {
+			return result.Result == "in_progress" && (update == nil || result.CommandID != update.ID)
+		})
 		for i := range results {
-			results[i].Progress = nil
+			if update == nil || results[i].CommandID != update.ID {
+				results[i].Progress = nil
+			}
 		}
 		for i := range lines {
 			lines[i].Attempts, lines[i].Parked = 0, false
@@ -1017,6 +1022,9 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	if err := r.Queue.AcknowledgeResults(results); err != nil {
 		return err
 	}
+	if err := r.Queue.ReconcileUpdate(r.Version, result.Commands, results); err != nil {
+		return err
+	}
 	for _, sent := range results {
 		if sent.Result == "in_progress" && sent.Progress != nil && sent.Progress.Stage == "picked_up" {
 			if err := r.Queue.SetCommandProgress(sent.CommandID, hubclient.V4CommandProgress{Stage: "preparing"}); err != nil {
@@ -1027,11 +1035,25 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	r.configVersion, r.config, _ = r.Queue.Policy()
 	r.confirmedPlan = result.Config.ImportPlan != nil && r.config.ImportPlan != nil && *result.Config.ImportPlan == *r.config.ImportPlan
 	r.checkedAt = r.now()
-	if result.UpdateRequired {
-		return hubclient.V4Problem{Code: "client_update_required"}
-	}
 	for _, command := range result.Commands {
 		if command.ID == "" || len(command.ID) > 64 {
+			continue
+		}
+		if command.Type == "update" {
+			if err := r.Queue.AcceptUpdate(command, r.Version, r.now()); err != nil {
+				started, startErr := r.Queue.StartCommand(command.ID)
+				if startErr != nil {
+					return startErr
+				}
+				if started {
+					if err := r.Queue.FinishCommand(hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "update_unavailable"}); err != nil {
+						return err
+					}
+				}
+			}
+			continue
+		}
+		if result.UpdateRequired {
 			continue
 		}
 		started, err := r.Queue.StartCommand(command.ID)
@@ -1098,6 +1120,9 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		if err := r.Queue.FinishCommand(outcome); err != nil {
 			return err
 		}
+	}
+	if result.UpdateRequired {
+		return hubclient.V4Problem{Code: "client_update_required"}
 	}
 	r.checkInGeneration.Add(1)
 	if !wasScaleSupported && r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {

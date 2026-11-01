@@ -93,6 +93,7 @@ type state struct {
 	RecommendedDownloadURL string          `json:"recommendedDownloadUrl,omitempty"`
 	UpdateRequired         bool            `json:"updateRequired,omitempty"`
 	RecommendedUpdate      bool            `json:"recommendedUpdate,omitempty"`
+	Update                 *UpdateAttempt  `json:"updateAttempt,omitempty"`
 	Commands               []commandRecord `json:"commands,omitempty"`
 	// DiscardBundles are prepared bundles no entry refers to any more. The
 	// runner deletes them at the start of its next pass.
@@ -114,6 +115,7 @@ type commandRecord struct {
 
 type Queue struct {
 	mu                    sync.Mutex
+	updateWake            chan struct{}
 	path                  string
 	state                 state
 	activeSince           time.Time
@@ -139,7 +141,7 @@ func Open(root string) (*Queue, error) {
 	if err := protectQueueDirectory(root); err != nil {
 		return nil, err
 	}
-	q := &Queue{path: filepath.Join(root, "queue.json")}
+	q := &Queue{path: filepath.Join(root, "queue.json"), updateWake: make(chan struct{}, 1)}
 	data, err := readQueueFile(q.path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -260,6 +262,7 @@ func (q *Queue) Rebind(binding string) error {
 		q.state.PlanStartedAt, q.state.Phase = 0, ""
 		q.state.LiveOnlyPlanVersion = 0
 		q.state.Commands = nil
+		q.state.Update = nil
 		// Unsent lines name the previous binding's sessions.
 		q.state.Log = nil
 		q.state.MinVersion, q.state.RecommendedVersion, q.state.RecommendedDownloadURL = "", "", ""
@@ -532,6 +535,13 @@ func (q *Queue) Results() []hubclient.V4CommandResult {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	results := make([]hubclient.V4CommandResult, 0, len(q.state.Commands))
+	if update := q.state.Update; update != nil {
+		result := hubclient.V4CommandResult{CommandID: update.ID, Result: "in_progress", Progress: &hubclient.V4CommandProgress{Stage: update.Stage}}
+		if update.Stage == "failed" {
+			result.Result, result.Error, result.Progress = "failed", update.Error, nil
+		}
+		results = append(results, result)
+	}
 	for _, item := range q.state.Commands {
 		if item.Result.Result != "" && item.Result.Result != "in_progress" && !q.held[item.ID] {
 			results = append(results, item.Result)

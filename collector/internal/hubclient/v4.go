@@ -425,6 +425,9 @@ func localCapabilities() []string {
 		capabilities = append(capabilities, "sync-v4")
 	}
 	capabilities = append(capabilities, "session-backup/v1", "launch", "ssh-relay")
+	if V4SyncEnabled() {
+		capabilities = append(capabilities, "update-v1")
+	}
 	if ScaleImportEnabled() {
 		capabilities = append(capabilities, CapabilityScaleImport)
 	}
@@ -457,6 +460,37 @@ func (c *Client) V4Wait(ctx context.Context, since int64) (V4Wait, error) {
 	var result V4Wait
 	err := c.v4Request(ctx, http.MethodGet, "/v4/devices/me/wait?since="+fmt.Sprint(since), nil, &result)
 	return result, err
+}
+
+type updateReportResponse struct {
+	Active *bool `json:"active"`
+}
+
+func (output *updateReportResponse) UnmarshalJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	type wire updateReportResponse
+	var value wire
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	if value.Active == nil {
+		return errors.New("update report omitted receipt state")
+	}
+	*output = updateReportResponse(value)
+	return nil
+}
+
+func (c *Client) V4ReportUpdate(ctx context.Context, result V4CommandResult) (bool, error) {
+	var output updateReportResponse
+	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/update-report", result, &output)
+	if err != nil {
+		return false, err
+	}
+	if output.Active == nil {
+		return false, errors.New("update report omitted receipt state")
+	}
+	return *output.Active, nil
 }
 
 func clientVersionLess(left, right string) bool {
@@ -492,6 +526,8 @@ func clientVersionLess(left, right string) bool {
 func NewerClientVersion(current, target string) bool {
 	return validClientVersion(current) && validClientVersion(target) && clientVersionLess(current, target)
 }
+
+func ValidClientVersion(version string) bool { return validClientVersion(version) }
 
 func validClientVersion(value string) bool {
 	return len(value) <= 128 && clientVersion.MatchString(value)

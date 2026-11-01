@@ -54,6 +54,15 @@ func (transport currentHubTransport) V4CheckIn(ctx context.Context, queue hubcli
 	return result, err
 }
 
+func (transport currentHubTransport) V4ReportUpdate(ctx context.Context, result hubclient.V4CommandResult) (bool, error) {
+	client, err := transport.client()
+	if err != nil {
+		return false, err
+	}
+	active, err := client.V4ReportUpdate(ctx, result)
+	return active, err
+}
+
 func (transport currentHubTransport) V4Create(ctx context.Context, input hubclient.V4Create) (hubclient.V4Status, error) {
 	client, err := transport.client()
 	if err != nil {
