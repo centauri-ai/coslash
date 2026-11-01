@@ -539,6 +539,8 @@ func (q *Queue) Results() []hubclient.V4CommandResult {
 		result := hubclient.V4CommandResult{CommandID: update.ID, Result: "in_progress", Progress: &hubclient.V4CommandProgress{Stage: update.Stage}}
 		if update.Stage == "failed" {
 			result.Result, result.Error, result.Progress = "failed", update.Error, nil
+		} else if update.HandoffReady {
+			result.Result, result.Progress = "done", nil
 		}
 		results = append(results, result)
 	}
@@ -982,9 +984,6 @@ func (q *Queue) progressAt(now time.Time) hubclient.V4Queue {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	var progress hubclient.V4Queue
-	if q.state.Update != nil && q.state.Update.HandoffReady && slices.Contains(q.state.HubCapabilities, "update-completion/v1") {
-		progress.UpdateReadyAttemptID = q.state.Update.ID
-	}
 	progress.FirstSync.HistoryState = "complete"
 	entries := q.state.Entries
 	plan := q.state.Config.ImportPlan

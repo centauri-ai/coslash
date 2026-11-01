@@ -523,3 +523,74 @@ func TestUpdateReportRevocationAndReceiptReconciliation(t *testing.T) {
 		t.Fatal("receipt-only report changed check-in generation")
 	}
 }
+
+func TestUpdateReceiptSurvivesOlderHubAndReconcilesAfterUpgrade(t *testing.T) {
+	now := time.Now().UTC()
+	root := t.TempDir()
+	q, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "11111111-2222-4333-8444-555555555555"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "0.0.6", "expiresAt": now.Add(time.Hour)})
+	if err = q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "0.0.5", now); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.SetUpdateStage(id, "finalizing", ""); err != nil {
+		t.Fatal(err)
+	}
+	// This cached capability is from a newer Hub before rollback.
+	if err = q.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: []string{"update-completion/v1"}}); err != nil {
+		t.Fatal(err)
+	}
+	upgraded := false
+	var received []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Results []hubclient.V4CommandResult `json:"results"`
+			Queue   map[string]json.RawMessage  `json:"queue"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if _, ok := body.Queue["updateReadyAttemptId"]; ok {
+			t.Error("new queue field sent to old Hub")
+		}
+		if len(body.Results) > 0 {
+			received = append(received, body.Results[0].Result)
+		}
+		if upgraded {
+			io.WriteString(w, `{"configVersion":3,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.3","recommendedVersion":"0.0.6","capabilities":["update-completion/v1"]}`)
+			return
+		}
+		io.WriteString(w, `{"configVersion":2,"config":{"paused":true,"deviceOff":true,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.3","recommendedVersion":"0.0.6"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: q, Version: "0.0.6", Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.6"}}
+	if err = runner.refreshConsent(context.Background()); !errors.Is(err, ErrPaused) || q.PendingUpdate() == nil {
+		t.Fatalf("unconfirmed lost on old Hub: %v", err)
+	}
+	if err = q.ConfirmUpdateHandoff(id); err != nil {
+		t.Fatal(err)
+	}
+	if err = runner.refreshConsent(context.Background()); !errors.Is(err, ErrPaused) || q.PendingUpdate() == nil {
+		t.Fatalf("confirmed lost on old Hub: %v", err)
+	}
+	q, err = Open(root)
+	if err != nil || q.PendingUpdate() == nil {
+		t.Fatalf("restart lost attempt: %v", err)
+	}
+	runner.Queue = q
+	upgraded = true
+	if err = runner.refreshConsent(context.Background()); err != nil || q.PendingUpdate() != nil {
+		t.Fatalf("new Hub did not reconcile: %v", err)
+	}
+	if len(received) != 3 || received[0] != "in_progress" || received[1] != "done" || received[2] != "done" {
+		t.Fatalf("receipts: %v", received)
+	}
+	if runner.CheckInGeneration() != 3 {
+		t.Fatalf("check-in generation=%d", runner.CheckInGeneration())
+	}
+}

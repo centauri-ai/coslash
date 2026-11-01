@@ -40,6 +40,9 @@ func (r *Runner) ReportUpdate(ctx context.Context) error {
 	if len(results) == 0 {
 		return nil
 	}
+	if results[0].Result == "done" {
+		return nil // Completion requires a normal, version-bearing check-in.
+	}
 	transport, ok := r.Hub.(interface {
 		V4ReportUpdate(context.Context, hubclient.V4CommandResult) (bool, error)
 	})
@@ -53,7 +56,7 @@ func (r *Runner) ReportUpdate(ctx context.Context) error {
 	if active {
 		return nil
 	}
-	return r.Queue.ReconcileUpdate(r.Version, nil, results)
+	return r.Queue.ReconcileUpdate(r.Version, nil, results, false)
 }
 
 // UpdateAttempt is persisted with the paired queue before any update starts.
@@ -150,7 +153,7 @@ func (q *Queue) ConfirmUpdateHandoff(id string) error {
 
 // ReconcileUpdate clears only an attempt whose report the Hub just accepted
 // and no longer redelivers. This keeps a lost response safe to retry.
-func (q *Queue) ReconcileUpdate(current string, delivered []hubclient.V4Command, sent []hubclient.V4CommandResult) error {
+func (q *Queue) ReconcileUpdate(current string, delivered []hubclient.V4Command, sent []hubclient.V4CommandResult, updateAware bool) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	u := q.state.Update
@@ -163,16 +166,18 @@ func (q *Queue) ReconcileUpdate(current string, delivered []hubclient.V4Command,
 		}
 	}
 	reported := false
+	completionSent := false
 	for _, r := range sent {
 		if r.CommandID == u.ID {
 			reported = true
+			completionSent = r.Result == "done"
 			break
 		}
 	}
 	if !reported || (u.Stage != "failed" && current != u.TargetVersion && !hubclient.NewerClientVersion(u.TargetVersion, current)) {
 		return nil
 	}
-	if u.Stage != "failed" && current == u.TargetVersion && !u.HandoffReady {
+	if u.Stage != "failed" && current == u.TargetVersion && (!u.HandoffReady || !completionSent || !updateAware) {
 		return nil
 	}
 	q.state.Update = nil

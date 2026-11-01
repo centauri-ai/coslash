@@ -155,8 +155,8 @@ An explicit update attempt also persists its helper handoff state. Normal sync
 starts after runtime readiness is acquired; completion is reported only after
 the replacement helper has committed to keeping the target, or has exited
 without a rollback. A missing marker or marker write failure does not leave a
-healthy replacement offline. Completion is advertised only to a Hub that
-negotiates the update-completion capability.
+healthy replacement offline. Completion uses the existing `done` receipt,
+and the journal is retained until an update-aware Hub acknowledges it.
 On Windows, native power status supplies the battery percentage only off AC;
 below 20% pauses writes. A batteryless desktop or known AC power is exempt.
 A hidden, cancellable Windows PowerShell process queries WinRT for the preferred
