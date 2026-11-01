@@ -488,6 +488,11 @@ func clientVersionLess(left, right string) bool {
 	return len(aIDs) < len(bIDs)
 }
 
+// NewerClientVersion reports whether target is a valid release newer than current.
+func NewerClientVersion(current, target string) bool {
+	return validClientVersion(current) && validClientVersion(target) && clientVersionLess(current, target)
+}
+
 func validClientVersion(value string) bool {
 	return len(value) <= 128 && clientVersion.MatchString(value)
 }

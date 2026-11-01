@@ -103,6 +103,8 @@ When uninstalling a paired Windows copy, remove its login entry with
 Settings → Sync has an **Automatically update coSlash Local** switch, on by
 default. Script installations stage a checksum-verified release, checkpoint
 active queue work, restart, and roll back if the new Local fails to become ready.
+Local only installs a version newer than the installed executable; an old saved
+recommendation cannot downgrade it.
 Homebrew and portable installs use the device's manual update action.
 When a paired device is behind the recommended release, Hub offers **Update
 now** on the computer being updated. On supported script installs, Local
