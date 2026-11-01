@@ -982,6 +982,9 @@ func (q *Queue) progressAt(now time.Time) hubclient.V4Queue {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	var progress hubclient.V4Queue
+	if q.state.Update != nil && q.state.Update.HandoffReady && slices.Contains(q.state.HubCapabilities, "update-completion/v1") {
+		progress.UpdateReadyAttemptID = q.state.Update.ID
+	}
 	progress.FirstSync.HistoryState = "complete"
 	entries := q.state.Entries
 	plan := q.state.Config.ImportPlan

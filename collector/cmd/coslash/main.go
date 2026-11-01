@@ -301,8 +301,14 @@ func main() {
 	}
 	onboardings := newOnboardingManager(collectorVersion)
 	inventoryTracker := &inventory.Tracker{}
+	runtimeReadySignal := make(chan struct{})
 	var controller *syncController
 	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retryWake chan struct{}) {
+		select {
+		case <-syncContext.Done():
+			return
+		case <-runtimeReadySignal:
+		}
 		var inventoryRequest chan struct{}
 		if fingerprints != nil {
 			inventoryRequest = make(chan struct{}, 1)
@@ -365,13 +371,16 @@ func main() {
 		})
 	}
 	if queue := controller.Queue(); queue != nil {
-		go watchAutomaticUpdates(queue, updateRequests, func(staged, attemptID string) error {
-			if err := launchUpdateHelper(staged, attemptID); err != nil {
-				return err
-			}
-			shutdown(15 * time.Second)
-			return nil
-		}, queue.SignalUpdate)
+		go func() {
+			<-runtimeReadySignal
+			watchAutomaticUpdates(queue, updateRequests, func(staged, attemptID string) error {
+				if err := launchUpdateHelper(staged, attemptID); err != nil {
+					return err
+				}
+				shutdown(15 * time.Second)
+				return nil
+			}, queue.SignalUpdate)
+		}()
 	}
 	if startupIntent != nil {
 		switch startupIntent.Action {
@@ -409,6 +418,17 @@ func main() {
 		log.Fatalf("coslash: acquire runtime readiness: %v", err)
 	}
 	defer runtimeReady.Close()
+	readyContext, cancelReady := context.WithCancel(context.Background())
+	defer cancelReady()
+	close(runtimeReadySignal)
+	go func() {
+		if queue := controller.Queue(); queue != nil {
+			if err := waitForUpdateHandoff(readyContext, queue, collectorVersion); err != nil {
+				log.Printf("wait for update handoff: %v", err)
+				return
+			}
+		}
+	}()
 	serveErr := server.Serve(listener)
 	if errors.Is(serveErr, http.ErrServerClosed) {
 		if err := <-shutdownComplete; err != nil {
