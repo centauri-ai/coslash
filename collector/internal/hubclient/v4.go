@@ -426,7 +426,7 @@ func localCapabilities() []string {
 	}
 	capabilities = append(capabilities, "session-backup/v1", "launch", "ssh-relay")
 	if V4SyncEnabled() {
-		capabilities = append(capabilities, "update-v1")
+		capabilities = append(capabilities, "update-v1", "legacy-update-settlement/v1")
 	}
 	if ScaleImportEnabled() {
 		capabilities = append(capabilities, CapabilityScaleImport)

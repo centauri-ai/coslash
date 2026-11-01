@@ -377,3 +377,75 @@ func TestUpdateAssetForShippedPlatforms(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacySettlementRetiresOnlyRegularBackupAndChecksInstalledVersion(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "coslash")
+	backup := target + ".previous"
+	read := func(path string) (string, error) { b, err := os.ReadFile(path); return string(b), err }
+	if err := os.WriteFile(target, []byte("1.2.4"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("1.2.3"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := settleLegacyTarget(target, "1.2.4", read); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(backup); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup still present: %v", err)
+	}
+	if err := settleLegacyTarget(target, "1.2.4", read); err != nil {
+		t.Fatalf("replayed settlement: %v", err)
+	}
+	if err := os.Mkdir(backup, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := settleLegacyTarget(target, "1.2.4", read); err == nil {
+		t.Fatal("removed nonregular backup")
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("1.2.3"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := settleLegacyTarget(target, "1.2.4", read); !errors.Is(err, errLegacyInstalledChanged) {
+		t.Fatalf("rollback not detected: %v", err)
+	}
+}
+
+func TestLegacySettlementAndRollbackHaveOneWinner(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "coslash")
+	backup := target + ".previous"
+	read := func(path string) (string, error) { b, err := os.ReadFile(path); return string(b), err }
+	for i := 0; i < 40; i++ {
+		if err := os.WriteFile(target, []byte("1.2.4"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(backup, []byte("1.2.3"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		settled, restored := make(chan error, 1), make(chan error, 1)
+		go func() { <-start; settled <- settleLegacyTarget(target, "1.2.4", read) }()
+		go func() { <-start; restored <- restoreUpdateTarget(target, backup) }()
+		close(start)
+		settleErr, restoreErr := <-settled, <-restored
+		disk, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(disk) != "1.2.4" && string(disk) != "1.2.3" {
+			t.Fatalf("invalid installed target %q", disk)
+		}
+		if settleErr == nil && (string(disk) != "1.2.4" || restoreErr == nil) {
+			t.Fatalf("reported settlement after rollback: %q %v", disk, restoreErr)
+		}
+		if restoreErr == nil && (string(disk) != "1.2.3" || settleErr == nil) {
+			t.Fatalf("rollback did not prevent settlement: %q %v", disk, settleErr)
+		}
+		_ = os.Remove(backup)
+	}
+}

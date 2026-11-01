@@ -65,12 +65,13 @@ func (r *Runner) ReportUpdate(ctx context.Context) error {
 
 // UpdateAttempt is persisted with the paired queue before any update starts.
 type UpdateAttempt struct {
-	ID            string    `json:"attemptId"`
-	TargetVersion string    `json:"targetVersion"`
-	ExpiresAt     time.Time `json:"expiresAt"`
-	Stage         string    `json:"stage"`
-	Error         string    `json:"error,omitempty"`
-	HandoffReady  bool      `json:"handoffReady,omitempty"`
+	ID               string    `json:"attemptId"`
+	TargetVersion    string    `json:"targetVersion"`
+	ExpiresAt        time.Time `json:"expiresAt"`
+	Stage            string    `json:"stage"`
+	Error            string    `json:"error,omitempty"`
+	HandoffReady     bool      `json:"handoffReady,omitempty"`
+	LegacySettlement bool      `json:"legacySettlement,omitempty"`
 }
 
 func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now time.Time) error {
@@ -78,9 +79,10 @@ func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now ti
 		return errors.New("invalid update payload")
 	}
 	var payload struct {
-		AttemptID     string    `json:"attemptId"`
-		TargetVersion string    `json:"targetVersion"`
-		ExpiresAt     time.Time `json:"expiresAt"`
+		AttemptID        string    `json:"attemptId"`
+		TargetVersion    string    `json:"targetVersion"`
+		ExpiresAt        time.Time `json:"expiresAt"`
+		LegacySettlement bool      `json:"legacySettlement,omitempty"`
 	}
 	d := json.NewDecoder(bytes.NewReader(command.Payload))
 	d.DisallowUnknownFields()
@@ -90,7 +92,7 @@ func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now ti
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if previous := q.state.Update; previous != nil {
-		if previous.ID == command.ID && previous.TargetVersion == payload.TargetVersion && previous.ExpiresAt.Equal(payload.ExpiresAt) {
+		if previous.ID == command.ID && previous.TargetVersion == payload.TargetVersion && previous.ExpiresAt.Equal(payload.ExpiresAt) && previous.LegacySettlement == payload.LegacySettlement {
 			return nil
 		}
 		return errors.New("another update is active")
@@ -98,13 +100,20 @@ func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now ti
 	if strings.ContainsAny(payload.TargetVersion, "-+") || !hubclient.ValidClientVersion(payload.TargetVersion) || !hubclient.ValidClientVersion(current) {
 		return errors.New("invalid update version")
 	}
-	if !hubclient.NewerClientVersion(current, payload.TargetVersion) {
+	if payload.LegacySettlement && hubclient.NewerClientVersion(current, payload.TargetVersion) {
+		return errors.New("legacy settlement requires an installed target")
+	}
+	if !payload.LegacySettlement && !hubclient.NewerClientVersion(current, payload.TargetVersion) {
 		return ErrUpdateAlreadyCurrent
 	}
-	if !payload.ExpiresAt.After(now) || payload.ExpiresAt.After(now.Add(8*24*time.Hour)) {
+	if payload.ExpiresAt.IsZero() || (!payload.LegacySettlement && !payload.ExpiresAt.After(now)) || payload.ExpiresAt.After(now.Add(8*24*time.Hour)) {
 		return errors.New("invalid or expired update")
 	}
-	q.state.Update = &UpdateAttempt{ID: command.ID, TargetVersion: payload.TargetVersion, ExpiresAt: payload.ExpiresAt, Stage: "picked_up"}
+	stage := "picked_up"
+	if payload.LegacySettlement {
+		stage = "finalizing"
+	}
+	q.state.Update = &UpdateAttempt{ID: command.ID, TargetVersion: payload.TargetVersion, ExpiresAt: payload.ExpiresAt, Stage: stage, LegacySettlement: payload.LegacySettlement}
 	if err := q.save(); err != nil {
 		q.state.Update = nil
 		return err
@@ -146,10 +155,13 @@ func (q *Queue) ConfirmUpdateHandoff(id string) error {
 	if q.state.Update == nil || q.state.Update.ID != id {
 		return errors.New("update is no longer active")
 	}
-	prior := q.state.Update.HandoffReady
+	prior := *q.state.Update
 	q.state.Update.HandoffReady = true
+	if q.state.Update.LegacySettlement {
+		q.state.Update.Stage, q.state.Update.Error = "finalizing", ""
+	}
 	if err := q.save(); err != nil {
-		q.state.Update.HandoffReady = prior
+		*q.state.Update = prior
 		return err
 	}
 	select {
@@ -188,6 +200,9 @@ func (q *Queue) ReconcileUpdate(current string, delivered []hubclient.V4Command,
 		return nil
 	}
 	if u.Stage == "failed" && (!failureSent || !updateAware) {
+		return nil
+	}
+	if u.LegacySettlement && (!u.HandoffReady || !completionSent || !updateAware) {
 		return nil
 	}
 	if u.Stage != "failed" && current == u.TargetVersion && (!u.HandoffReady || !completionSent || !updateAware) {

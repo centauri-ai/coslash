@@ -184,3 +184,46 @@ func TestUpdateRejectsInvalidExpiredAndConflictingWork(t *testing.T) {
 		t.Fatal("accepted conflicting replay")
 	}
 }
+
+func TestLegacySettlementIsBoundedNoDownloadWork(t *testing.T) {
+	now := time.Now().UTC()
+	const id = "10000000-0000-4000-8000-000000000001"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": now.Add(-24 * time.Hour), "legacySettlement": true})
+	command := hubclient.V4Command{ID: id, Type: "update", Payload: payload}
+	for _, current := range []string{"1.2.4", "1.2.5"} {
+		root := t.TempDir()
+		q, err := Open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = q.AcceptUpdate(command, current, now); err != nil {
+			t.Fatalf("%s: %v", current, err)
+		}
+		if got := q.PendingUpdate(); got == nil || !got.LegacySettlement || got.Stage != "finalizing" {
+			t.Fatalf("%s: %+v", current, got)
+		}
+		q, err = Open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = q.AcceptUpdate(command, current, now); err != nil {
+			t.Fatalf("replay: %v", err)
+		}
+		if err = q.ConfirmUpdateHandoff(id); err != nil {
+			t.Fatal(err)
+		}
+		if err = q.ReconcileUpdate(current, nil, q.Results(), false); err != nil || q.PendingUpdate() == nil {
+			t.Fatalf("unaware acknowledgement: %v", err)
+		}
+		if err = q.ReconcileUpdate(current, nil, q.Results(), true); err != nil || q.PendingUpdate() != nil {
+			t.Fatalf("aware acknowledgement: %v", err)
+		}
+	}
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.AcceptUpdate(command, "1.2.3", now); err == nil {
+		t.Fatal("accepted legacy settlement before target was installed")
+	}
+}

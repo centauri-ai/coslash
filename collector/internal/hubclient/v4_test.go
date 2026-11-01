@@ -72,7 +72,7 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Fatal(err)
 		}
-		if input.OS != runtime.GOOS || input.InstallChannel != "script" || input.AppliedConfigVersion != 7 || strings.Join(input.Capabilities, ",") != "sync-v4,session-backup/v1,launch,ssh-relay,update-v1,scale-import/v1,sync-policy/1" || strings.Join(input.AgentsFound, ",") != "claude,codex,cursor" ||
+		if input.OS != runtime.GOOS || input.InstallChannel != "script" || input.AppliedConfigVersion != 7 || strings.Join(input.Capabilities, ",") != "sync-v4,session-backup/v1,launch,ssh-relay,update-v1,legacy-update-settlement/v1,scale-import/v1,sync-policy/1" || strings.Join(input.AgentsFound, ",") != "claude,codex,cursor" ||
 			input.Queue.FirstSync.RecentDone != 2 || input.Queue.FirstSync.RecentTotal != 3 || input.Queue.FirstSync.HistoryState != "syncing" {
 			t.Fatalf("check-in input = %+v", input)
 		}
@@ -208,13 +208,13 @@ func TestSyncCapabilitiesDefaultOnAndCanBeDisabled(t *testing.T) {
 	t.Setenv("COSLASH_V4_SYNC", "")
 	t.Setenv("COSLASH_SYNC_POLICY", "")
 	if !V4SyncEnabled() || !SyncPolicyEnabled() ||
-		!slices.Contains(localCapabilities(), "sync-v4") || !slices.Contains(localCapabilities(), "update-v1") || !slices.Contains(localCapabilities(), CapabilitySyncPolicy) {
+		!slices.Contains(localCapabilities(), "sync-v4") || !slices.Contains(localCapabilities(), "update-v1") || !slices.Contains(localCapabilities(), "legacy-update-settlement/v1") || !slices.Contains(localCapabilities(), CapabilitySyncPolicy) {
 		t.Fatal("sync and policy capabilities should be enabled by default")
 	}
 	t.Setenv("COSLASH_V4_SYNC", "0")
 	t.Setenv("COSLASH_SYNC_POLICY", "0")
 	capabilities := localCapabilities()
-	if slices.Contains(capabilities, "sync-v4") || slices.Contains(capabilities, "update-v1") || slices.Contains(capabilities, CapabilitySyncPolicy) {
+	if slices.Contains(capabilities, "sync-v4") || slices.Contains(capabilities, "update-v1") || slices.Contains(capabilities, "legacy-update-settlement/v1") || slices.Contains(capabilities, CapabilitySyncPolicy) {
 		t.Fatalf("disabled sync capabilities are still advertised: %v", capabilities)
 	}
 }
