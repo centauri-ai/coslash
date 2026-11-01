@@ -116,6 +116,7 @@ type commandRecord struct {
 type Queue struct {
 	mu                    sync.Mutex
 	updateWake            chan struct{}
+	completionWake        chan struct{}
 	path                  string
 	state                 state
 	activeSince           time.Time
@@ -141,7 +142,7 @@ func Open(root string) (*Queue, error) {
 	if err := protectQueueDirectory(root); err != nil {
 		return nil, err
 	}
-	q := &Queue{path: filepath.Join(root, "queue.json"), updateWake: make(chan struct{}, 1)}
+	q := &Queue{path: filepath.Join(root, "queue.json"), updateWake: make(chan struct{}, 1), completionWake: make(chan struct{}, 1)}
 	data, err := readQueueFile(q.path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err

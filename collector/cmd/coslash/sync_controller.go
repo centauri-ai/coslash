@@ -305,6 +305,19 @@ func (w observedSyncWorker) ReportUpdate(ctx context.Context) error {
 	return err
 }
 
+func (w observedSyncWorker) CheckInForUpdate(ctx context.Context) error {
+	checker, ok := w.runner.(interface{ CheckInForUpdate(context.Context) error })
+	if !ok {
+		return errors.New("update check-in unavailable")
+	}
+	err := checker.CheckInForUpdate(ctx)
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && problem.Code == "device_revoked" || errors.Is(err, hubclient.ErrNotPaired) {
+		w.controller.markRevokedIfUnpaired(ctx, w.client, w.binding)
+	}
+	return err
+}
+
 func (w observedSyncWorker) RequestDiscovery() {
 	if requester, ok := w.runner.(interface{ RequestDiscovery() }); ok {
 		requester.RequestDiscovery()
