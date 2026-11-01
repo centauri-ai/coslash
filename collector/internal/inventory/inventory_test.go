@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 var now = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
@@ -213,4 +215,34 @@ func TestInventoryJSONIsContentFree(t *testing.T) {
 		}
 	}
 	check("", document)
+}
+
+func TestStandardRootStatesUseScheduledScan(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", "")
+	if err := os.MkdirAll(claude.ProjectsRoot(home), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(codex.SessionsRoot(home), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := Scan(context.Background(), Options{Home: home, OpenCodeDB: filepath.Join(home, "missing.db"), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.StandardRoots["~/.claude/projects"] != "ok" || snapshot.StandardRoots["~/.codex/sessions"] != "ok" || snapshot.StandardRoots["~/.codex/archived_sessions"] != "missing" {
+		t.Fatalf("root states = %v", snapshot.StandardRoots)
+	}
+}
+
+func TestStandardRootStateDistinguishesUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		missing, unreadable bool
+		skipped             int
+		want                string
+	}{{true, false, 0, "missing"}, {false, true, 1, "unreadable"}, {false, false, 1, "unknown"}, {false, false, 0, "ok"}} {
+		if got := standardRootState(tc.missing, tc.unreadable, tc.skipped); got != tc.want {
+			t.Fatalf("state = %q, want %q", got, tc.want)
+		}
+	}
 }

@@ -76,6 +76,8 @@ type Snapshot struct {
 	Missing []string
 	// Skipped counts directories or files the walk could not read.
 	Skipped int
+	// StandardRoots records only the fixed Claude and Codex roots, without paths from the filesystem.
+	StandardRoots map[string]string
 }
 
 // Options selects the roots. Empty fields use the real home and the
@@ -158,13 +160,14 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 	results := make([][]File, len(roots))
 	missing := make([]bool, len(roots))
 	skipped := make([]int, len(roots))
+	unreadable := make([]bool, len(roots))
 	errs := make([]error, len(roots))
 	var wg sync.WaitGroup
 	for index, item := range roots {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[index], missing[index], skipped[index], errs[index] = walk(ctx, item, tracker)
+			results[index], missing[index], skipped[index], unreadable[index], errs[index] = walk(ctx, item, tracker)
 		}()
 	}
 	wg.Wait()
@@ -174,6 +177,10 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 		}
 		snapshot.Files = append(snapshot.Files, results[index]...)
 		snapshot.Skipped += skipped[index]
+	}
+	snapshot.StandardRoots = make(map[string]string, 3)
+	for index, name := range []string{"~/.codex/sessions", "~/.codex/archived_sessions", "~/.claude/projects"} {
+		snapshot.StandardRoots[name] = standardRootState(missing[index], unreadable[index], skipped[index])
 	}
 	codexMissing := missing[0] && missing[1]
 	for index, item := range roots[2:] {
@@ -229,30 +236,46 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 	return snapshot, nil
 }
 
-func walk(ctx context.Context, item root, tracker *Tracker) (files []File, missing bool, skipped int, err error) {
+func standardRootState(missing, unreadable bool, skipped int) string {
+	if missing {
+		return "missing"
+	}
+	if unreadable {
+		return "unreadable"
+	}
+	if skipped > 0 {
+		return "unknown"
+	}
+	return "ok"
+}
+
+func walk(ctx context.Context, item root, tracker *Tracker) (files []File, missing bool, skipped int, unreadable bool, err error) {
 	info, statErr := os.Lstat(item.path)
 	if statErr == nil && item.allowRootSymlink && info.Mode()&os.ModeSymlink != 0 {
 		info, statErr = os.Stat(item.path)
 	}
 	if statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
-			return nil, true, 0, nil
+			return nil, true, 0, false, nil
 		}
-		return nil, false, 1, nil
+		return nil, false, 1, true, nil
 	}
 	if !info.IsDir() {
-		return nil, true, 0, nil
+		return nil, true, 0, false, nil
 	}
 	stack := []string{item.path}
 	for len(stack) > 0 {
 		if err := ctx.Err(); err != nil {
-			return nil, false, skipped, err
+			return nil, false, skipped, unreadable, err
 		}
 		dir := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		entries, readErr := os.ReadDir(dir)
 		if readErr != nil {
 			skipped++
+			if dir == item.path {
+				unreadable = true
+			}
 			continue
 		}
 		for _, entry := range entries {
@@ -276,7 +299,7 @@ func walk(ctx context.Context, item root, tracker *Tracker) (files []File, missi
 			}
 		}
 	}
-	return files, false, skipped, nil
+	return files, false, skipped, unreadable, nil
 }
 
 func acceptCodex(path string) (File, bool) {

@@ -536,6 +536,9 @@ func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerpr
 				continue
 			}
 		}
+		if queue != nil {
+			queue.SetDiagnosticsRoots(nil)
+		}
 		snapshot, err := scanLocalInventory(ctx, inventory.Options{Tracker: tracker})
 		if err != nil {
 			if ctx.Err() != nil {
@@ -546,6 +549,7 @@ func runInventoryWithSchedule(ctx context.Context, fingerprints *syncv4.Fingerpr
 			report := snapshot.Inventory()
 			log.Printf("inventory: %d files, %d bytes in %d ms", report.Files, report.Bytes, report.DurationMs)
 			if queue != nil {
+				queue.SetDiagnosticsRoots(snapshot.StandardRoots)
 				if err := queue.SetInventory(report); err != nil {
 					log.Printf("inventory: record for check-in: %v", err)
 				}

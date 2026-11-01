@@ -174,6 +174,10 @@ the transcript itself has not changed.
 The first check-in advertises sync capabilities and reports the
 normalized Local version, install channel, operating system, and content-free
 queue state. A new owner's default Hub policy (version 0) is enough to start.
+When the paired Hub supports device diagnostics, subsequent check-ins can also
+report the operating-system account name, standard home-relative source roots,
+their availability, and aggregate plan selection and defer counts to the device
+owner. These diagnostics do not include session names, identifiers or text.
 Each check-in reports which agents this install has sessions for. It sends
 recent session metadata before content. With a compatible Hub policy, the
 default plan is recent activity from the last three days, capped at 30

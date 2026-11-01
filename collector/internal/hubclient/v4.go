@@ -92,7 +92,41 @@ type V4Queue struct {
 		HistoryState string `json:"historyState"`
 	} `json:"firstSync"`
 	// Inventory is sent only after the Hub advertised CapabilityScaleImport.
-	Inventory *DeviceInventory `json:"inventory,omitempty"`
+	Inventory        *DeviceInventory  `json:"inventory,omitempty"`
+	LocalDiagnostics *LocalDiagnostics `json:"localDiagnostics,omitempty"`
+}
+
+const CapabilityLocalDiagnostics = "local-sync-diagnostics/v1"
+
+type LocalDiagnostics struct {
+	Version     int                `json:"version"`
+	Account     DiagnosticsAccount `json:"account"`
+	PlanVersion *int64             `json:"planVersion"`
+	ObservedAt  *time.Time         `json:"observedAt"`
+	State       string             `json:"state"`
+	Agents      []DiagnosticsAgent `json:"agents"`
+}
+type DiagnosticsAccount struct {
+	Name *string `json:"name"`
+	Home *string `json:"home"`
+}
+type DiagnosticsRoot struct {
+	Path  string `json:"path"`
+	State string `json:"state"`
+}
+type DiagnosticsReasons struct {
+	GlobalCap   *int `json:"global_cap"`
+	PerAgentCap *int `json:"per_agent_cap"`
+	Deleted     *int `json:"deleted"`
+	Quiet       *int `json:"quiet"`
+}
+type DiagnosticsAgent struct {
+	Agent      string             `json:"agent"`
+	Roots      []DiagnosticsRoot  `json:"roots"`
+	Discovered *int               `json:"discovered"`
+	Eligible   *int               `json:"eligible"`
+	Selected   *int               `json:"selected"`
+	Reasons    DiagnosticsReasons `json:"reasons"`
 }
 
 type V4ImportCurrent struct {

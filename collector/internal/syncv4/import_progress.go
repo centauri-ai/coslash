@@ -114,6 +114,7 @@ func (r *Runner) ProgressCheckIn(ctx context.Context) (changed bool, retryAfter 
 	version, config, _ := r.Queue.Policy()
 	progress := r.Queue.progressAt(now)
 	progress.Import = r.importProgress(ctx, now)
+	progress.LocalDiagnostics = r.Queue.localDiagnostics(now)
 	results := slices.DeleteFunc(r.Queue.Results(), func(result hubclient.V4CommandResult) bool {
 		return result.Result != "in_progress"
 	})
