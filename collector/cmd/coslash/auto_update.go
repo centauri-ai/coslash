@@ -92,6 +92,7 @@ func releaseClient() *http.Client {
 }
 
 const updateLockName = "update.lock"
+const updateConfirmationLockName = "update-confirm.lock"
 
 func acquireUpdateLock() (*os.File, error) {
 	home := settings.Home()
@@ -414,6 +415,19 @@ func runUpdateApply(arguments []string) {
 			_ = updateLock.Close()
 		}
 	}()
+	if attemptID != "" {
+		confirmation, err := os.OpenFile(filepath.Join(settings.Home(), updateConfirmationLockName), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+			return
+		}
+		if err := lockRuntimeFileExclusive(confirmation, true); err != nil {
+			_ = confirmation.Close()
+			_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+			return
+		}
+		defer confirmation.Close()
+	}
 	if err := verifyUpdateVersions(target, staged); err != nil {
 		_ = os.WriteFile(readyPath, []byte("error"), 0o600)
 		return
@@ -469,9 +483,25 @@ func runUpdateApply(arguments []string) {
 	}
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 		if runtimeOwnerActive() {
+			if attemptID != "" {
+				if err := writeUpdateOutcome(attemptID, "update_ready"); err != nil {
+					log.Printf("record update readiness: %v", err)
+					return
+				}
+			}
 			_ = os.Remove(backup)
 			return
 		}
+	}
+	if runtimeOwnerActive() {
+		if attemptID != "" {
+			if err := writeUpdateOutcome(attemptID, "update_ready"); err != nil {
+				log.Printf("record update readiness: %v", err)
+				return
+			}
+		}
+		_ = os.Remove(backup)
+		return
 	}
 	if err := restoreUpdateTarget(target, backup); err != nil {
 		writeUpdateFailure(attemptID)
@@ -525,31 +555,35 @@ func verifyUpdateVersionsWith(target, staged string, readVersion func(string) (s
 }
 
 func writeUpdateFailure(id string) {
-	if uuid.Validate(id) != nil {
+	if id == "" {
 		return
+	}
+	if err := writeUpdateOutcome(id, "update_failed"); err != nil {
+		log.Printf("record update failure: %v", err)
+	}
+}
+
+func writeUpdateOutcome(id, outcome string) error {
+	if uuid.Validate(id) != nil || (outcome != "update_failed" && outcome != "update_ready") {
+		return errors.New("invalid update outcome")
 	}
 	dir := filepath.Join(settings.Home(), "update-results")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		log.Printf("record update failure: %v", err)
-		return
+		return err
 	}
 	file, err := os.CreateTemp(dir, ".result-*")
 	if err != nil {
-		log.Printf("record update failure: %v", err)
-		return
+		return err
 	}
 	tmp := file.Name()
 	defer os.Remove(tmp)
-	_, writeErr := file.WriteString("update_failed")
+	_, writeErr := file.WriteString(outcome)
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-		log.Printf("record update failure: %v", err)
-		return
+		return err
 	}
-	if err := os.Rename(tmp, filepath.Join(dir, id)); err != nil {
-		log.Printf("record update failure: %v", err)
-	}
+	return os.Rename(tmp, filepath.Join(dir, id))
 }
 
 func consumeUpdateFailure(queue *syncv4.Queue) bool {
@@ -576,6 +610,55 @@ func consumeUpdateFailure(queue *syncv4.Queue) bool {
 	}
 	_ = os.Remove(name)
 	return true
+}
+
+// A new target must not report completion until the replacement helper has
+// observed runtime readiness and committed to keeping the replacement.
+func waitForUpdateHandoff(ctx context.Context, queue *syncv4.Queue, current string) error {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		update := queue.PendingUpdate()
+		if update == nil || update.Stage == "failed" || update.TargetVersion != current || update.HandoffReady {
+			return nil
+		}
+		if consumeUpdateFailure(queue) {
+			return nil
+		}
+		name := filepath.Join(settings.Home(), "update-results", update.ID)
+		info, err := os.Lstat(name)
+		if err == nil && info.Mode().IsRegular() {
+			file, err := os.Open(name)
+			if err == nil {
+				body, readErr := io.ReadAll(io.LimitReader(file, 64))
+				_ = file.Close()
+				if readErr == nil && string(body) == "update_ready" {
+					if err := queue.ConfirmUpdateHandoff(update.ID); err != nil {
+						return err
+					}
+					_ = os.Remove(name)
+					return nil
+				}
+			}
+		}
+		lock, lockErr := os.OpenFile(filepath.Join(settings.Home(), updateConfirmationLockName), os.O_RDWR, 0)
+		if errors.Is(lockErr, os.ErrNotExist) {
+			return queue.ConfirmUpdateHandoff(update.ID)
+		}
+		if lockErr == nil {
+			if lockRuntimeFileExclusive(lock, true) == nil {
+				err := queue.ConfirmUpdateHandoff(update.ID)
+				_ = lock.Close()
+				return err
+			}
+			_ = lock.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string, string) error, reportUpdate func()) {

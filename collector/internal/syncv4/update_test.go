@@ -2,6 +2,7 @@ package syncv4
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -47,6 +48,31 @@ func TestUpdateAttemptSurvivesRestartAndRedelivery(t *testing.T) {
 	}
 }
 
+func TestUpdateReadinessIsAdvertisedOnlyAfterHubNegotiation(t *testing.T) {
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	const id = "10000000-0000-4000-8000-000000000001"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": now.Add(time.Hour)})
+	if err := q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ConfirmUpdateHandoff(id); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.Progress().UpdateReadyAttemptID; got != "" {
+		t.Fatalf("sent readiness before negotiation: %q", got)
+	}
+	if err := q.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: []string{"update-completion/v1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.Progress().UpdateReadyAttemptID; got != id {
+		t.Fatalf("readiness = %q", got)
+	}
+}
+
 func TestUpdateRejectsInvalidExpiredAndConflictingWork(t *testing.T) {
 	now := time.Now().UTC()
 	q, err := Open(t.TempDir())
@@ -59,7 +85,7 @@ func TestUpdateRejectsInvalidExpiredAndConflictingWork(t *testing.T) {
 		return hubclient.V4Command{ID: id, Type: "update", Payload: p}
 	}
 	for _, target := range []string{"1.2.2", "1.2.3"} {
-		if err := q.AcceptUpdate(makeCommand(target, now.Add(time.Hour)), "1.2.3", now); err != nil || q.PendingUpdate() != nil {
+		if err := q.AcceptUpdate(makeCommand(target, now.Add(time.Hour)), "1.2.3", now); !errors.Is(err, ErrUpdateAlreadyCurrent) || q.PendingUpdate() != nil {
 			t.Fatalf("already current %q: %v", target, err)
 		}
 	}

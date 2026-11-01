@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var ErrUpdateAlreadyCurrent = errors.New("update target already installed")
+
 func (q *Queue) SignalUpdate() {
 	select {
 	case q.updateWake <- struct{}{}:
@@ -61,6 +63,7 @@ type UpdateAttempt struct {
 	ExpiresAt     time.Time `json:"expiresAt"`
 	Stage         string    `json:"stage"`
 	Error         string    `json:"error,omitempty"`
+	HandoffReady  bool      `json:"handoffReady,omitempty"`
 }
 
 func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now time.Time) error {
@@ -89,7 +92,7 @@ func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now ti
 		return errors.New("invalid update version")
 	}
 	if !hubclient.NewerClientVersion(current, payload.TargetVersion) {
-		return nil
+		return ErrUpdateAlreadyCurrent
 	}
 	if !payload.ExpiresAt.After(now) || payload.ExpiresAt.After(now.Add(8*24*time.Hour)) {
 		return errors.New("invalid or expired update")
@@ -125,6 +128,21 @@ func (q *Queue) SetUpdateStage(id, stage, code string) error {
 	q.state.Update.Stage, q.state.Update.Error = stage, code
 	if err := q.save(); err != nil {
 		*q.state.Update = prior
+		return err
+	}
+	return nil
+}
+
+func (q *Queue) ConfirmUpdateHandoff(id string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.Update == nil || q.state.Update.ID != id {
+		return errors.New("update is no longer active")
+	}
+	prior := q.state.Update.HandoffReady
+	q.state.Update.HandoffReady = true
+	if err := q.save(); err != nil {
+		q.state.Update.HandoffReady = prior
 		return err
 	}
 	return nil

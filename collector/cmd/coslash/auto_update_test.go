@@ -56,6 +56,100 @@ func TestUpdateHelperFailureSurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestUpdateHandoffBlocksCompletionUntilHelperConfirmation(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	root := t.TempDir()
+	queue, err := syncv4.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": time.Now().Add(time.Hour)})
+	if err := queue.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetUpdateStage(id, "finalizing", ""); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(os.Getenv("COSLASH_HOME"), updateConfirmationLockName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lockRuntimeFileExclusive(lock, true); err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- waitForUpdateHandoff(ctx, queue, "1.2.4") }()
+	select {
+	case err := <-done:
+		t.Fatalf("unconfirmed handoff passed: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+	if err := writeUpdateOutcome(id, "update_ready"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := syncv4.Open(root)
+	if err != nil || reopened.PendingUpdate() == nil || !reopened.PendingUpdate().HandoffReady {
+		t.Fatalf("confirmation not persisted: %+v %v", reopened, err)
+	}
+	if err := waitForUpdateHandoff(ctx, reopened, "1.2.4"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateHandoffRecoversAfterHelperExitAndMarkerFailure(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	queue, err := syncv4.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": time.Now().Add(time.Hour)})
+	if err := queue.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetUpdateStage(id, "finalizing", ""); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(os.Getenv("COSLASH_HOME"), updateConfirmationLockName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lockRuntimeFileExclusive(lock, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("COSLASH_HOME"), "update-results"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeUpdateOutcome(id, "update_ready"); err == nil {
+		t.Fatal("marker write unexpectedly succeeded")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- waitForUpdateHandoff(ctx, queue, "1.2.4") }()
+	select {
+	case err := <-done:
+		t.Fatalf("live helper was ignored: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.PendingUpdate(); got == nil || !got.HandoffReady {
+		t.Fatalf("helper exit not reconciled: %+v", got)
+	}
+}
+
 func TestAutomaticUpdateRejectsStaleAndInvalidRecommendations(t *testing.T) {
 	for _, test := range []struct {
 		current, target string

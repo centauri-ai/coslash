@@ -1046,7 +1046,11 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 					return startErr
 				}
 				if started {
-					if err := r.Queue.FinishCommand(hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "update_unavailable"}); err != nil {
+					outcome := hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "update_unavailable"}
+					if errors.Is(err, ErrUpdateAlreadyCurrent) {
+						outcome.Result, outcome.Error = "done", ""
+					}
+					if err := r.Queue.FinishCommand(outcome); err != nil {
 						return err
 					}
 				}

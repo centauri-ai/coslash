@@ -151,6 +151,12 @@ The queue is private (`0700` directory and `0600` file, or current-user ACL on
 Windows) and updated by sync plus atomic rename. Check-in reports
 `queue.firstSync` as fallback for server events. A failed check-in, stale policy,
 Hub pause, device-off, local metered hint, or low battery stops new writes.
+An explicit update attempt also persists its helper handoff state. Normal sync
+starts after runtime readiness is acquired; completion is reported only after
+the replacement helper has committed to keeping the target, or has exited
+without a rollback. A missing marker or marker write failure does not leave a
+healthy replacement offline. Completion is advertised only to a Hub that
+negotiates the update-completion capability.
 On Windows, native power status supplies the battery percentage only off AC;
 below 20% pauses writes. A batteryless desktop or known AC power is exempt.
 A hidden, cancellable Windows PowerShell process queries WinRT for the preferred
