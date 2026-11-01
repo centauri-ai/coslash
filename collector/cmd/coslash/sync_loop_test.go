@@ -122,6 +122,33 @@ func TestPausedUpdateCompletionDoesNotSpinAgainstOlderHub(t *testing.T) {
 	})
 }
 
+type failedUpdateQueue struct{ syncLoopQueue }
+
+func (failedUpdateQueue) PendingUpdate() *syncv4.UpdateAttempt {
+	return &syncv4.UpdateAttempt{ID: "update", Stage: "failed", Error: "update_failed"}
+}
+func (failedUpdateQueue) Results() []hubclient.V4CommandResult {
+	return []hubclient.V4CommandResult{{CommandID: "update", Result: "failed", Error: "update_failed"}}
+}
+
+func TestPausedFailedUpdateDoesNotSpinAgainstOlderHub(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		worker := &oldHubCompletionWorker{}
+		go runV4SyncLoopForTest(ctx, worker, failedUpdateQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			<-ctx.Done()
+			return hubclient.V4Wait{}, ctx.Err()
+		})
+		synctest.Wait()
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		if worker.passes.Load() > 5 {
+			t.Fatalf("passes=%d", worker.passes.Load())
+		}
+	})
+}
+
 func (w *completionTestWorker) SyncOnce(ctx context.Context) error {
 	err := w.Runner.SyncOnce(ctx)
 	w.passDone <- err

@@ -479,7 +479,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 				}
 			}
 			for _, result := range queue.Results() {
-				if result.CommandID == updateID && result.Result == "done" {
+				if result.CommandID == updateID && (result.Result == "done" || result.Result == "failed") {
 					continue
 				}
 				if result.Result != "in_progress" {

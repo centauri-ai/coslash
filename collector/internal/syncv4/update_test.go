@@ -107,7 +107,11 @@ func TestReconcileUpdateStillClearsFailedAndNewer(t *testing.T) {
 		if err := q.SetUpdateStage(id, tc.stage, code); err != nil {
 			t.Fatal(err)
 		}
-		if err := q.ReconcileUpdate(tc.current, nil, []hubclient.V4CommandResult{{CommandID: id, Result: "in_progress"}}, false); err != nil {
+		result := "in_progress"
+		if tc.stage == "failed" {
+			result = "failed"
+		}
+		if err := q.ReconcileUpdate(tc.current, nil, []hubclient.V4CommandResult{{CommandID: id, Result: result}}, true); err != nil {
 			t.Fatal(err)
 		}
 		if q.PendingUpdate() != nil {

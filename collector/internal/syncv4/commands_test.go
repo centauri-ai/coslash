@@ -594,3 +594,68 @@ func TestUpdateReceiptSurvivesOlderHubAndReconcilesAfterUpgrade(t *testing.T) {
 		t.Fatalf("check-in generation=%d", runner.CheckInGeneration())
 	}
 }
+
+func TestFailedUpdateSurvivesOldHubAndDroppedReport(t *testing.T) {
+	now := time.Now().UTC()
+	root := t.TempDir()
+	q, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "0.0.6", "expiresAt": now.Add(time.Hour)})
+	command := hubclient.V4Command{ID: id, Type: "update", Payload: payload}
+	if err = q.AcceptUpdate(command, "0.0.5", now); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.SetUpdateStage(id, "failed", "update_failed"); err != nil {
+		t.Fatal(err)
+	}
+	phase := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v4/devices/me/update-report" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var body struct {
+			Results []hubclient.V4CommandResult `json:"results"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(body.Results) != 1 || body.Results[0].CommandID != id || body.Results[0].Result != "failed" {
+			t.Errorf("failure receipt=%+v", body.Results)
+		}
+		response := map[string]any{"configVersion": 1, "config": map[string]any{"paused": false, "autoUpdate": false, "deviceOff": false, "leaveOut": []string{}, "agentKnowledge": true}, "commands": []hubclient.V4Command{}, "minVersion": "0.0.3", "recommendedVersion": "0.0.6"}
+		if phase > 0 {
+			response["capabilities"] = []string{"update-completion/v1"}
+		}
+		if phase == 1 {
+			response["commands"] = []hubclient.V4Command{command}
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: q, Version: "0.0.5", Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}}
+	if err = runner.ReportUpdate(context.Background()); err == nil {
+		t.Fatal("old Hub unexpectedly accepted progress endpoint")
+	}
+	if err = runner.refreshConsent(context.Background()); err != nil || q.PendingUpdate() == nil || q.PendingUpdate().Stage != "failed" {
+		t.Fatalf("old Hub lost failure: %v %+v", err, q.PendingUpdate())
+	}
+	q, err = Open(root)
+	if err != nil || q.PendingUpdate() == nil || q.PendingUpdate().Stage != "failed" {
+		t.Fatalf("restart lost failure: %v", err)
+	}
+	runner.Queue = q
+	phase = 1
+	if err = runner.refreshConsent(context.Background()); err != nil || q.PendingUpdate() == nil || q.PendingUpdate().Stage != "failed" {
+		t.Fatalf("redelivery restarted failure: %v %+v", err, q.PendingUpdate())
+	}
+	phase = 2
+	if err = runner.refreshConsent(context.Background()); err != nil || q.PendingUpdate() != nil {
+		t.Fatalf("update-aware acknowledgement: %v %+v", err, q.PendingUpdate())
+	}
+}
