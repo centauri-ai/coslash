@@ -587,3 +587,38 @@ func TestRebindDropsUnsentLog(t *testing.T) {
 		t.Fatalf("rebind kept lines=%+v entry=%+v", lines, reopened.Entries()[0])
 	}
 }
+
+func TestInvalidCheckInWithDiagnosticsAndLogHasBoundedRetries(t *testing.T) {
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.diagnosticsAccount = func() hubclient.DiagnosticsAccount { return hubclient.DiagnosticsAccount{} }
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: []string{hubclient.CapabilityLocalDiagnostics}}, now); err != nil {
+		t.Fatal(err)
+	}
+	queue.appendLog(LogLine{At: now, Level: "error", Code: "server_error"})
+	client, calls := checkInServer(t, func(int, []byte) int { return http.StatusBadRequest })
+	runner := Runner{Queue: queue, Hub: client, Now: func() time.Time { return now }}
+	if err := runner.refreshConsent(t.Context()); !errors.Is(err, ErrStaleConsent) {
+		t.Fatalf("invalid base check-in = %v", err)
+	}
+	if len(*calls) != 4 {
+		t.Fatalf("requests=%d, want bounded four", len(*calls))
+	}
+	for i, call := range *calls {
+		var sent struct {
+			Diagnostics json.RawMessage `json:"localDiagnostics"`
+		}
+		if err := json.Unmarshal(call.raw["queue"], &sent); err != nil {
+			t.Fatal(err)
+		}
+		if (len(sent.Diagnostics) > 0) != (i%2 == 0) || (len(call.log) > 0) != (i < 2) {
+			t.Fatalf("attempt %d did not preserve the expected retry scope", i)
+		}
+	}
+	if lines, _ := queue.PendingLog(now); len(lines) != 1 {
+		t.Fatal("rejected log was discarded")
+	}
+}

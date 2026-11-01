@@ -182,3 +182,27 @@ func TestProgressCheckInSharesHubRateLimitWithConsent(t *testing.T) {
 		t.Fatalf("after rate limit: err=%v checks=%d", err, hub.checks)
 	}
 }
+
+func TestProgressCheckInRequestsRefreshWhenDiagnosticsCapabilityDisappears(t *testing.T) {
+	t.Setenv("COSLASH_SYNC_POLICY", "1")
+	t.Setenv("COSLASH_SCALE_IMPORT", "0")
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "3d"}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: plan}, Capabilities: []string{hubclient.CapabilitySyncPolicy, hubclient.CapabilityLocalDiagnostics}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	q.diagnosticsAccount = func() hubclient.DiagnosticsAccount { return hubclient.DiagnosticsAccount{} }
+	hub := &planHub{plan: plan, withoutScale: true, policyOnly: true}
+	r := &Runner{Queue: q, Hub: hub, Now: func() time.Time { return now }}
+	changed, _, err := r.ProgressCheckIn(t.Context())
+	if err != nil || !changed || len(hub.checkInQueue) != 1 || hub.checkInQueue[0].LocalDiagnostics == nil {
+		t.Fatalf("changed=%v err=%v checks=%d", changed, err, hub.checks)
+	}
+}

@@ -130,6 +130,7 @@ func (r *Runner) ProgressCheckIn(ctx context.Context) (changed bool, retryAfter 
 	r.resetCheckInBackoff()
 	r.lastProgressCheckIn.Store(r.now().UnixNano())
 	return response.ConfigVersion != version || len(response.Commands) > 0 || response.UpdateRequired ||
+		(progress.LocalDiagnostics != nil && !slices.Contains(response.Capabilities, hubclient.CapabilityLocalDiagnostics)) ||
 		(scale && !slices.Contains(response.Capabilities, hubclient.CapabilityScaleImport)) ||
 		(policy && (!slices.Contains(response.Capabilities, hubclient.CapabilitySyncPolicy) ||
 			config.ImportPlan != nil && (response.Config.ImportPlan == nil || *response.Config.ImportPlan != *config.ImportPlan))), 0, nil

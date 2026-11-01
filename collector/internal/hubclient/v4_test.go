@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -480,5 +481,104 @@ func TestV4CheckInSSHHostsPresence(t *testing.T) {
 		if !tc.invalid && ((result.SSHHosts != nil) != tc.present || len(result.SSHHosts) != tc.count) {
 			t.Fatalf("field %s: hosts=%+v", tc.field, result.SSHHosts)
 		}
+	}
+}
+
+func TestV4CheckInDiagnosticsFallbackIsBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		diagnostics bool
+		status      int
+		code        string
+		strict      bool
+		wantCalls   int
+		wantError   bool
+	}{
+		{"supported", true, 200, "", false, 1, false},
+		{"without diagnostics", false, 200, "", false, 1, false},
+		{"strict rollback", true, 200, "", true, 2, false},
+		{"invalid base", true, 400, "invalid_query", false, 2, true},
+		{"invalid base without diagnostics", false, 400, "invalid_query", false, 1, true},
+		{"other bad request", true, 400, "other_error", false, 1, true},
+		{"unauthorized", true, 401, "unauthorized", false, 1, true},
+		{"forbidden", true, 403, "forbidden", false, 1, true},
+		{"revoked", true, 403, "device_revoked", false, 1, true},
+		{"rate limited", true, 429, "rate_limited", false, 1, true},
+		{"server error", true, 500, "server_error", false, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			var sent []bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var input struct {
+					Queue struct {
+						LocalDiagnostics json.RawMessage `json:"localDiagnostics"`
+						Pending          int             `json:"pending"`
+					} `json:"queue"`
+					Results []V4CommandResult `json:"results"`
+					Log     []V4LogEntry      `json:"log"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Error(err)
+					w.WriteHeader(400)
+					return
+				}
+				present := len(input.Queue.LocalDiagnostics) > 0
+				sent = append(sent, present)
+				if input.Queue.Pending != 7 || len(input.Results) != 1 || input.Results[0].CommandID != "cmd" || len(input.Log) != 1 || input.Log[0].Code != "server_error" {
+					t.Errorf("retry changed base queue, results or logs")
+				}
+				status, code := tc.status, tc.code
+				if tc.strict && present {
+					status, code = 400, "invalid_query"
+				}
+				if status != 200 {
+					w.WriteHeader(status)
+					fmt.Fprintf(w, `{"code":%q}`, code)
+					return
+				}
+				io.WriteString(w, `{"configVersion":1,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":false},"commands":[],"minVersion":"0.0.0","capabilities":[]}`)
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			credentials := &memoryCredentials{}
+			client := Client{BaseURL: base, Credentials: credentials, CollectorVersion: "0.3.2"}
+			q := V4Queue{Pending: 7}
+			if tc.diagnostics {
+				q.LocalDiagnostics = &LocalDiagnostics{Version: 1}
+			}
+			results := []V4CommandResult{{CommandID: "cmd", Result: "done"}}
+			logs := []V4LogEntry{{Code: "server_error"}}
+			before, _ := json.Marshal(struct {
+				Q V4Queue
+				R []V4CommandResult
+				L []V4LogEntry
+			}{q, results, logs})
+			response, err := client.V4CheckIn(t.Context(), q, 0, results, nil, logs)
+			after, _ := json.Marshal(struct {
+				Q V4Queue
+				R []V4CommandResult
+				L []V4LogEntry
+			}{q, results, logs})
+			if calls != tc.wantCalls || (err != nil) != tc.wantError || string(before) != string(after) {
+				t.Fatalf("calls=%d err=%v inputChanged=%t", calls, err, string(before) != string(after))
+			}
+			if tc.wantError {
+				var problem V4Problem
+				if !errors.As(err, &problem) || problem.HTTPStatus != tc.status || problem.Code != tc.code {
+					t.Fatalf("unexpected propagated error: %v", err)
+				}
+			}
+			if credentials.deleted != (tc.code == "device_revoked") {
+				t.Fatal("credential revocation behavior changed")
+			}
+			if calls == 2 && (!sent[0] || sent[1]) {
+				t.Fatalf("diagnostics presence on attempts=%v", sent)
+			}
+			if tc.strict && len(response.Capabilities) != 0 {
+				t.Fatal("fallback did not return the old Hub response")
+			}
+		})
 	}
 }
