@@ -226,6 +226,8 @@ states come from the scheduled inventory walk; missing scans are unknown.
 Discovery and eligibility totals and cap reasons are unknown because the
 retained queue and resumed or filtered discovery cannot prove them. The
 payload contains no session identifiers or transcript content.
+If a previously capable Hub rejects a check-in as invalid, Local retries once
+without diagnostics; the retry still requires a valid policy response.
 
 Check-in also carries the sync log (`log`, at most 200 lines for the Tier4 Hub,
 or 500 after the Hub advertises `scale-import/v1`, oldest first)

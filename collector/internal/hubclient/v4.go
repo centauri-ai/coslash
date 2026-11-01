@@ -395,6 +395,11 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 		AgentsFound: agentsFound, Queue: queue, Results: results, Log: log,
 	}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
+	var problem V4Problem
+	if input.Queue.LocalDiagnostics != nil && errors.As(err, &problem) && problem.HTTPStatus == http.StatusBadRequest && problem.Code == "invalid_query" {
+		input.Queue.LocalDiagnostics = nil
+		err = c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
+	}
 	// Version 0 is the owner's default policy before any settings save, and
 	// UnmarshalJSON already requires every policy field.
 	if err == nil && (result.ConfigVersion < 0 || !validClientVersion(result.MinVersion)) {

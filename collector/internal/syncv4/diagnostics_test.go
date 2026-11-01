@@ -1,16 +1,24 @@
 package syncv4
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/user"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 )
@@ -270,5 +278,93 @@ func TestDiagnosticsAccountUsesEffectiveIdentity(t *testing.T) {
 	account = resolveDiagnosticsAccount(42, "", func(string) (*user.User, error) { return nil, errors.New("unknown") }, current)
 	if account.Name != nil || account.Home != nil {
 		t.Fatal("unknown identity or home was invented")
+	}
+}
+
+func TestDiagnosticsRollbackRecoversWithoutRestart(t *testing.T) {
+	t.Setenv("COSLASH_SYNC_POLICY", "1")
+	t.Setenv("COSLASH_SCALE_IMPORT", "0")
+	var old atomic.Bool
+	var rejected atomic.Int32
+	var rollbackCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v4/devices/me/check-in" {
+			t.Errorf("unexpected route %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var input struct {
+			Queue   json.RawMessage             `json:"queue"`
+			Results []hubclient.V4CommandResult `json:"results"`
+			Log     []hubclient.V4LogEntry      `json:"log"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if old.Load() && rollbackCalls.Add(1) <= 2 && (len(input.Results) != 1 || len(input.Log) != 1) {
+			t.Error("fallback changed pending results or logs")
+		}
+		if old.Load() {
+			var legacy struct {
+				Pending   int             `json:"pending"`
+				Failing   int             `json:"failing"`
+				Import    json.RawMessage `json:"import"`
+				FirstSync json.RawMessage `json:"firstSync"`
+				Inventory json.RawMessage `json:"inventory"`
+			}
+			decoder := json.NewDecoder(bytes.NewReader(input.Queue))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&legacy); err != nil {
+				rejected.Add(1)
+				w.WriteHeader(http.StatusBadRequest)
+				io.WriteString(w, `{"code":"invalid_query"}`)
+				return
+			}
+		}
+		capabilities := `"sync-policy/1"`
+		if !old.Load() {
+			capabilities += `,"local-sync-diagnostics/v1"`
+		}
+		fmt.Fprintf(w, `{"configVersion":1,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":false,"importPlan":{"version":1,"window":"3d"}},"commands":[],"minVersion":"0.0.0","capabilities":[%s]}`, capabilities)
+	}))
+	defer server.Close()
+	base, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.diagnosticsAccount = func() hubclient.DiagnosticsAccount { return hubclient.DiagnosticsAccount{} }
+	client := &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.3.2"}
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	runner := &Runner{Queue: queue, Backup: sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}), Hub: client,
+		Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }, Now: func() time.Time { return now }, RequireImportPlan: true}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatalf("initial check-in: %v", err)
+	}
+	if queue.localDiagnostics(now) == nil {
+		t.Fatal("Hub capability was not negotiated")
+	}
+	queue.appendLog(LogLine{At: now, Level: "error", Code: "server_error"})
+	if _, err := queue.StartCommand("cmd_rollback"); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.FinishCommand(hubclient.V4CommandResult{CommandID: "cmd_rollback", Result: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	old.Store(true)
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatalf("rollback check-in did not recover: %v", err)
+	}
+	lines, _ := queue.PendingLog(now)
+	if rejected.Load() != 1 || rollbackCalls.Load() != 2 || queue.localDiagnostics(now) != nil || len(lines) != 0 || len(queue.Results()) != 0 {
+		t.Fatalf("rejected=%d or capability retained", rejected.Load())
+	}
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatalf("subsequent sync: %v", err)
 	}
 }
