@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
@@ -23,6 +25,34 @@ func TestAutomaticUpdateSkipsTheRunningRelease(t *testing.T) {
 	}
 	if automaticUpdateNeeded(false, prompt, "1.2.2") || automaticUpdateNeeded(true, syncv4.UpdatePrompt{Version: prompt.Version}, "1.2.2") {
 		t.Fatal("disabled or unavailable update should not be prepared")
+	}
+}
+
+func TestUpdateHelperFailureSurvivesRestart(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	root := t.TempDir()
+	queue, err := syncv4.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": time.Now().Add(time.Hour)})
+	if err := queue.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	writeUpdateFailure(id)
+	queue, err = syncv4.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !consumeUpdateFailure(queue) {
+		t.Fatal("helper failure was not consumed")
+	}
+	if got := queue.PendingUpdate(); got == nil || got.Stage != "failed" || got.Error != "update_failed" {
+		t.Fatalf("failure = %+v", got)
+	}
+	if consumeUpdateFailure(queue) {
+		t.Fatal("helper failure was consumed twice")
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
+	"github.com/google/uuid"
 )
 
 const releaseBase = "https://github.com/centauri-ai/coslash/releases/download/"
@@ -312,7 +313,7 @@ func prepareAutomaticUpdate(ctx context.Context, prompt syncv4.UpdatePrompt) (st
 	return staged.Name(), nil
 }
 
-func launchUpdateHelper(staged string) error {
+func launchUpdateHelper(staged, attemptID string) error {
 	target, err := updateTarget()
 	if err != nil {
 		return err
@@ -352,7 +353,11 @@ func launchUpdateHelper(staged string) error {
 	}
 	readyPath := staged + ".ready"
 	_ = os.Remove(readyPath)
-	if err := startDetachedUpdateProcess(helperPath, "update-apply", target, staged, readyPath); err != nil {
+	args := []string{"update-apply", target, staged, readyPath}
+	if attemptID != "" {
+		args = append(args, attemptID)
+	}
+	if err := startDetachedUpdateProcess(helperPath, args...); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -375,10 +380,17 @@ func launchUpdateHelper(staged string) error {
 }
 
 func runUpdateApply(arguments []string) {
-	if len(arguments) != 3 {
+	if len(arguments) != 3 && len(arguments) != 4 {
 		return
 	}
 	target, staged, readyPath := arguments[0], arguments[1], arguments[2]
+	attemptID := ""
+	if len(arguments) == 4 {
+		attemptID = arguments[3]
+		if uuid.Validate(attemptID) != nil {
+			return
+		}
+	}
 	if !filepath.IsAbs(target) || !filepath.IsAbs(staged) || !filepath.IsAbs(readyPath) ||
 		filepath.Dir(target) != filepath.Dir(staged) || filepath.Dir(staged) != filepath.Dir(readyPath) ||
 		!strings.HasPrefix(filepath.Base(staged), ".coslash-update-") || filepath.Base(readyPath) != filepath.Base(staged)+".ready" {
@@ -412,10 +424,12 @@ func runUpdateApply(arguments []string) {
 	for deadline := time.Now().Add(time.Minute); runtimeOwnerActive() && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 	}
 	if runtimeOwnerActive() {
+		writeUpdateFailure(attemptID)
 		return
 	}
 	if err := verifyUpdateVersions(target, staged); err != nil {
 		log.Printf("refuse coSlash Local replacement: %v", err)
+		writeUpdateFailure(attemptID)
 		if !backgroundLoginLoaded() {
 			_ = updateLock.Close()
 			lockHeld = false
@@ -428,15 +442,23 @@ func runUpdateApply(arguments []string) {
 	backup := target + ".previous"
 	if err := replaceUpdateTarget(target, staged, backup); err != nil {
 		log.Printf("stage coSlash Local replacement: %v", err)
+		writeUpdateFailure(attemptID)
+		if !backgroundLoginLoaded() {
+			_ = updateLock.Close()
+			lockHeld = false
+			_ = startDetachedUpdateProcess(target, "--background")
+		}
 		return
 	}
 	if err := updateLock.Close(); err != nil {
 		log.Printf("release coSlash Local update handoff: %v", err)
+		writeUpdateFailure(attemptID)
 		return
 	}
 	lockHeld = false
 	if !backgroundLoginLoaded() {
 		if err := startDetachedUpdateProcess(target, "--background"); err != nil {
+			writeUpdateFailure(attemptID)
 			if restoreErr := restoreUpdateTarget(target, backup); restoreErr != nil {
 				log.Printf("restore previous coSlash Local after launch failure: %v", restoreErr)
 				return
@@ -452,9 +474,11 @@ func runUpdateApply(arguments []string) {
 		}
 	}
 	if err := restoreUpdateTarget(target, backup); err != nil {
+		writeUpdateFailure(attemptID)
 		log.Printf("restore previous coSlash Local after readiness timeout: %v", err)
 		return
 	}
+	writeUpdateFailure(attemptID)
 	if !backgroundLoginLoaded() {
 		_ = startDetachedUpdateProcess(target, "--background")
 	}
@@ -500,14 +524,66 @@ func verifyUpdateVersionsWith(target, staged string, readVersion func(string) (s
 	return nil
 }
 
-func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string) error) {
-	if _, err := updateTarget(); err != nil {
+func writeUpdateFailure(id string) {
+	if uuid.Validate(id) != nil {
 		return
 	}
-	ticker := time.NewTicker(time.Minute)
+	dir := filepath.Join(settings.Home(), "update-results")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Printf("record update failure: %v", err)
+		return
+	}
+	file, err := os.CreateTemp(dir, ".result-*")
+	if err != nil {
+		log.Printf("record update failure: %v", err)
+		return
+	}
+	tmp := file.Name()
+	defer os.Remove(tmp)
+	_, writeErr := file.WriteString("update_failed")
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		log.Printf("record update failure: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, id)); err != nil {
+		log.Printf("record update failure: %v", err)
+	}
+}
+
+func consumeUpdateFailure(queue *syncv4.Queue) bool {
+	update := queue.PendingUpdate()
+	if update == nil || uuid.Validate(update.ID) != nil {
+		return false
+	}
+	name := filepath.Join(settings.Home(), "update-results", update.ID)
+	info, err := os.Lstat(name)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	file, err := os.Open(name)
+	if err != nil {
+		return false
+	}
+	body, err := io.ReadAll(io.LimitReader(file, 64))
+	_ = file.Close()
+	if err != nil || string(body) != "update_failed" {
+		return false
+	}
+	if err := queue.SetUpdateStage(update.ID, "failed", "update_failed"); err != nil {
+		return false
+	}
+	_ = os.Remove(name)
+	return true
+}
+
+func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string, string) error, reportUpdate func()) {
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	failedVersion := ""
 	var retryAfter time.Time
+	var nextAutomatic time.Time
 	firstCheck := true
 	for {
 		explicit := false
@@ -519,6 +595,47 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 				explicit = true
 			case <-ticker.C:
 			}
+		}
+		if consumeUpdateFailure(queue) {
+			reportUpdate()
+		}
+		if update := queue.PendingUpdate(); update != nil {
+			if update.Stage == "failed" || !hubclient.NewerClientVersion(normalizedVersion(), update.TargetVersion) {
+				continue
+			}
+			if _, err := updateTarget(); err != nil {
+				_ = queue.SetUpdateStage(update.ID, "failed", "update_unavailable")
+				reportUpdate()
+				continue
+			}
+			if update.Stage == "picked_up" {
+				if err := queue.SetUpdateStage(update.ID, "preparing", ""); err != nil {
+					continue
+				}
+				reportUpdate()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			staged, err := prepareAutomaticUpdate(ctx, syncv4.UpdatePrompt{Available: true, Version: update.TargetVersion})
+			cancel()
+			if err == nil {
+				if err = queue.SetUpdateStage(update.ID, "finalizing", ""); err == nil {
+					err = onPrepared(staged, update.ID)
+				}
+				if err == nil {
+					return
+				}
+				_ = os.Remove(staged)
+			}
+			_ = queue.SetUpdateStage(update.ID, "failed", "update_failed")
+			reportUpdate()
+			continue
+		}
+		if !explicit && time.Now().Before(nextAutomatic) {
+			continue
+		}
+		nextAutomatic = time.Now().Add(time.Minute)
+		if _, err := updateTarget(); err != nil {
+			continue
 		}
 		_, config, _ := queue.Policy()
 		prompt := queue.UpdatePrompt()
@@ -532,7 +649,7 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 				_, latestConfig, _ := queue.Policy()
 				latestPrompt := queue.UpdatePrompt()
 				if (explicit || latestConfig.AutoUpdate) && latestPrompt.Available && latestPrompt.Version == prompt.Version && hubclient.NewerClientVersion(normalizedVersion(), latestPrompt.Version) {
-					if err := onPrepared(staged); err == nil {
+					if err := onPrepared(staged, ""); err == nil {
 						return
 					} else {
 						log.Printf("start coSlash Local update: %v", err)

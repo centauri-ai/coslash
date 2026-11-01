@@ -329,6 +329,7 @@ func main() {
 			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
 			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
 		}
+		go runUpdateReporter(syncContext, controller.observed(runner, client).(updateReporter), queue)
 		if fingerprints != nil {
 			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
 				return discoverLocalBatches(ctx, fingerprints, queue, visit)
@@ -364,13 +365,13 @@ func main() {
 		})
 	}
 	if queue := controller.Queue(); queue != nil {
-		go watchAutomaticUpdates(queue, updateRequests, func(staged string) error {
-			if err := launchUpdateHelper(staged); err != nil {
+		go watchAutomaticUpdates(queue, updateRequests, func(staged, attemptID string) error {
+			if err := launchUpdateHelper(staged, attemptID); err != nil {
 				return err
 			}
 			shutdown(15 * time.Second)
 			return nil
-		})
+		}, queue.SignalUpdate)
 	}
 	if startupIntent != nil {
 		switch startupIntent.Action {

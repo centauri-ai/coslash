@@ -334,3 +334,192 @@ func TestCommandSuccessSurvivesLifecycleCancellationRace(t *testing.T) {
 		t.Fatalf("successful command was replaced by lifecycle cancellation: %v", err)
 	}
 }
+
+func TestUpdateCommandSurvivesPausedPolicyAndReportsWithoutScale(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "0")
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "11111111-2222-3333-4444-555555555555"
+	expires := time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	var checks int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		checks++
+		var input struct {
+			Results []hubclient.V4CommandResult `json:"results"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			return
+		}
+		if checks == 2 && (len(input.Results) != 1 || input.Results[0].CommandID != id || input.Results[0].Result != "in_progress") {
+			t.Errorf("update progress missing: %+v", input.Results)
+		}
+		fmt.Fprintf(w, `{"configVersion":1,"config":{"paused":true,"autoUpdate":false,"deviceOff":true,"leaveOut":[],"agentKnowledge":true},"commands":[{"id":%q,"type":"update","payload":{"attemptId":%q,"targetVersion":"0.0.6","expiresAt":%q}}],"minVersion":"0.0.3"}`, id, id, expires)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: q, Version: "0.0.5", Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}}
+	for range 2 {
+		if err := runner.refreshConsent(context.Background()); !errors.Is(err, ErrPaused) {
+			t.Fatalf("paused checkin: %v", err)
+		}
+	}
+	if u := q.PendingUpdate(); u == nil || u.ID != id {
+		t.Fatalf("attempt: %+v", u)
+	}
+	_, config, _ := q.Policy()
+	if config.AutoUpdate || !config.Paused || !config.DeviceOff {
+		t.Fatalf("policy changed: %+v", config)
+	}
+}
+
+func TestUpdateReportDoesNotRunUploadsOrChangeRetryDeadlines(t *testing.T) {
+	now := time.Now().UTC()
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "retry-one", SessionID: "ses_one", Session: hubclient.V4Session{Agent: "codex"}, RetryAt: now.Add(time.Hour), BackoffAttempt: 3}
+	if err = q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{Paused: true, DeviceOff: true}}); err != nil {
+		t.Fatal(err)
+	}
+	const id = "11111111-2222-3333-4444-555555555555"
+	expires := now.Add(time.Hour)
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "0.0.6", "expiresAt": expires})
+	command := hubclient.V4Command{ID: id, Type: "update", Payload: payload}
+	if err = q.AcceptUpdate(command, "0.0.5", now); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/v4/devices/me/update-report" {
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.Error(w, "bad", 400)
+			return
+		}
+		var input hubclient.V4CommandResult
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			return
+		}
+		if input.CommandID != id || input.Result != "in_progress" {
+			t.Errorf("report %+v", input)
+		}
+		io.WriteString(w, `{"active":true}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: q, Version: "0.0.5", Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}}
+	before := q.Entries()
+	if err = runner.ReportUpdate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	after := q.Entries()
+	if calls != 1 || len(after) != 1 || !after[0].RetryAt.Equal(before[0].RetryAt) || after[0].BackoffAttempt != before[0].BackoffAttempt {
+		t.Fatalf("calls=%d before=%+v after=%+v", calls, before, after)
+	}
+	_, config, _ := q.Policy()
+	if !config.Paused || !config.DeviceOff || config.AutoUpdate {
+		t.Fatalf("policy changed: %+v", config)
+	}
+}
+
+func TestConcurrentUpdateReportPreservesNormalCheckInResponse(t *testing.T) {
+	now := time.Now().UTC()
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.Merge([]Entry{{Key: "session", SessionID: "ses_one", Session: hubclient.V4Session{Agent: "codex"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{AutoUpdate: false}}); err != nil {
+		t.Fatal(err)
+	}
+	const id = "11111111-2222-3333-4444-555555555555"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "0.0.6", "expiresAt": now.Add(time.Hour)})
+	if err = q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "0.0.5", now); err != nil {
+		t.Fatal(err)
+	}
+	arrived := make(chan struct{})
+	release := make(chan struct{})
+	launches := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/devices/me/update-report":
+			io.WriteString(w, `{"active":true}`)
+		case "/v4/devices/me/check-in":
+			close(arrived)
+			<-release
+			io.WriteString(w, `{"configVersion":2,"config":{"paused":false,"autoUpdate":true,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[{"id":"22222222-2222-3333-4444-555555555555","type":"launch","payload":{"sessionId":"ses_one","mode":"resume"}}],"minVersion":"0.0.3","recommendedVersion":"0.0.6"}`)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.Error(w, "unexpected", 400)
+		}
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: q, Version: "0.0.5", Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}, Command: func(context.Context, hubclient.V4Command) error { launches++; return nil }}
+	done := make(chan error, 1)
+	go func() { done <- runner.refreshConsent(context.Background()) }()
+	<-arrived
+	if err = runner.ReportUpdate(context.Background()); err != nil {
+		close(release)
+		t.Fatal(err)
+	}
+	close(release)
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	version, config, minimum := q.Policy()
+	if version != 2 || minimum != "0.0.3" || !config.AutoUpdate || launches != 1 || runner.CheckInGeneration() != 1 || q.PendingUpdate() == nil {
+		t.Fatalf("version=%d minimum=%s config=%+v launches=%d generation=%d update=%+v", version, minimum, config, launches, runner.CheckInGeneration(), q.PendingUpdate())
+	}
+}
+
+func TestUpdateReportRevocationAndReceiptReconciliation(t *testing.T) {
+	now := time.Now().UTC()
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "11111111-2222-3333-4444-555555555555"
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "0.0.6", "expiresAt": now.Add(time.Hour)})
+	if err = q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "0.0.5", now); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.SetUpdateStage(id, "failed", "update_failed"); err != nil {
+		t.Fatal(err)
+	}
+	rejected := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rejected {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"code":"device_revoked"}`)
+			return
+		}
+		io.WriteString(w, `{"active":false}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	runner := &Runner{Queue: q, Version: "0.0.5", Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.5"}}
+	err = runner.ReportUpdate(context.Background())
+	var problem hubclient.V4Problem
+	if !errors.As(err, &problem) || problem.Code != "device_revoked" || q.PendingUpdate() == nil {
+		t.Fatalf("revocation: %v update=%+v", err, q.PendingUpdate())
+	}
+	rejected = false
+	if err = runner.ReportUpdate(context.Background()); err != nil || q.PendingUpdate() != nil {
+		t.Fatalf("failure reconciliation: %v update=%+v", err, q.PendingUpdate())
+	}
+	if runner.CheckInGeneration() != 0 {
+		t.Fatal("receipt-only report changed check-in generation")
+	}
+}

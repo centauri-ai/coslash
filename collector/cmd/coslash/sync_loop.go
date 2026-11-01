@@ -18,6 +18,28 @@ type v4SyncWorker interface {
 	SyncOnce(context.Context) error
 }
 
+type updateReporter interface{ ReportUpdate(context.Context) error }
+
+func runUpdateReporter(ctx context.Context, reporter updateReporter, queue *syncv4.Queue) {
+	var retry <-chan time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-queue.UpdateWake():
+		case <-retry:
+		}
+		call, cancel := context.WithTimeout(ctx, 20*time.Second)
+		err := reporter.ReportUpdate(call)
+		cancel()
+		if err != nil {
+			retry = time.After(30 * time.Second)
+		} else {
+			retry = nil
+		}
+	}
+}
+
 type v4SyncState interface {
 	Policy() (int64, hubclient.V4Config, string)
 	Results() []hubclient.V4CommandResult
@@ -204,6 +226,13 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 				}
 				switch {
 				case blockedAt >= 0 && result.ConfigVersion > blockedAt:
+					select {
+					case policyWake <- struct{}{}:
+					default:
+					}
+				case blockedAt >= 0 && result.CommandsAvailable && !commandsPending:
+					commandsPending = true
+					commandsGeneration = generation
 					select {
 					case policyWake <- struct{}{}:
 					default:

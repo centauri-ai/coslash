@@ -15,6 +15,16 @@ ineligible. The install ID belongs to
 the private v4 queue, independently of the paired credential. A credential or
 Hub change clears upload and completion state while retaining the install ID.
 
+`update-v1` accepts an authenticated Hub command containing only an attempt
+ID, stable target version and admission deadline. The paired queue records
+the attempt before the updater begins, reports progress through a dedicated
+device-authenticated update receipt endpoint and
+retains it across restart or lost responses. After admission, expiry does not
+cancel the attempt. An explicit update does not change auto-update or sync
+preferences; unsupported installation channels report failure. The Hub
+verifies completion from a fresh check-in rather than a command result alone.
+Receipt reporting does not run uploads or consume policy or other commands.
+
 For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed
 content revision schedules a fresh capture even when activity time is equal.

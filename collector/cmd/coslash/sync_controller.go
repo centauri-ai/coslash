@@ -274,6 +274,37 @@ func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
 	return err
 }
 
+func (w observedSyncWorker) ReportUpdate(ctx context.Context) error {
+	reporter, ok := w.runner.(interface{ ReportUpdate(context.Context) error })
+	if !ok {
+		return errors.New("update reporter unavailable")
+	}
+	var credential string
+	var credentialErr error
+	if w.client != nil && w.client.Credentials != nil {
+		credential, credentialErr = w.client.Credentials.Load(ctx)
+	}
+	err := reporter.ReportUpdate(ctx)
+	var problem hubclient.V4Problem
+	revoked := errors.As(err, &problem) && problem.Code == "device_revoked"
+	if revoked || errors.Is(err, hubclient.ErrNotPaired) {
+		w.controller.markRevokedIfUnpaired(ctx, w.client, w.binding)
+	}
+	if revoked && credentialErr == nil && credential != "" {
+		if deleter, ok := w.client.Credentials.(hubclient.ConditionalCredentialDeleter); ok {
+			deleteContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			deleted, deleteErr := deleter.DeleteIfMatches(deleteContext, credential)
+			if deleteErr != nil {
+				log.Printf("delete revoked Hub credential: %v", deleteErr)
+			} else if deleted {
+				w.controller.markRevoked(w.client, w.binding)
+			}
+		}
+	}
+	return err
+}
+
 func (w observedSyncWorker) RequestDiscovery() {
 	if requester, ok := w.runner.(interface{ RequestDiscovery() }); ok {
 		requester.RequestDiscovery()
