@@ -26,6 +26,47 @@ func TestAutomaticUpdateSkipsTheRunningRelease(t *testing.T) {
 	}
 }
 
+func TestAutomaticUpdateRejectsStaleAndInvalidRecommendations(t *testing.T) {
+	for _, test := range []struct {
+		current, target string
+		want            bool
+	}{
+		{"1.2.3", "1.2.2", false},
+		{"1.2.3", "1.2.3+other", false},
+		{"1.2.3", "1.2.3-rc.1", false},
+		{"1.2.3-rc.1", "1.2.3", true},
+		{"1.2.9", "1.2.10", true},
+		{"1.2.3", "invalid", false},
+		{"invalid", "1.2.4", false},
+	} {
+		if got := automaticUpdateNeeded(true, syncv4.UpdatePrompt{Available: true, Version: test.target}, test.current); got != test.want {
+			t.Errorf("update %q to %q = %t, want %t", test.current, test.target, got, test.want)
+		}
+	}
+}
+
+func TestVerifyUpdateVersionsChecksInstalledExecutable(t *testing.T) {
+	versions := map[string]string{"installed": "1.2.3", "staged": "1.2.4"}
+	read := func(path string) (string, error) {
+		version, ok := versions[path]
+		if !ok {
+			return "", errors.New("missing executable")
+		}
+		return version, nil
+	}
+	if err := verifyUpdateVersionsWith("installed", "staged", read); err != nil {
+		t.Fatalf("newer staged executable rejected: %v", err)
+	}
+	versions["installed"] = "1.2.5"
+	if err := verifyUpdateVersionsWith("installed", "staged", read); err == nil {
+		t.Fatal("staged executable older than installed executable was accepted")
+	}
+	delete(versions, "installed")
+	if err := verifyUpdateVersionsWith("installed", "staged", read); err == nil {
+		t.Fatal("unverifiable installed executable was accepted")
+	}
+}
+
 func TestAutomaticUpdatesSupported(t *testing.T) {
 	for _, test := range []struct {
 		name        string

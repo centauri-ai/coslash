@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
@@ -201,7 +202,7 @@ func prepareAutomaticUpdate(ctx context.Context, prompt syncv4.UpdatePrompt) (st
 	if err != nil {
 		return "", err
 	}
-	if !prompt.Available || !checkInVersionPattern.MatchString(prompt.Version) || len(prompt.Version) > 128 {
+	if !prompt.Available || !hubclient.NewerClientVersion(normalizedVersion(), prompt.Version) {
 		return "", errors.New("invalid recommended update version")
 	}
 	release := "v" + prompt.Version
@@ -316,6 +317,9 @@ func launchUpdateHelper(staged string) error {
 	if err != nil {
 		return err
 	}
+	if err := verifyUpdateVersions(target, staged); err != nil {
+		return err
+	}
 	current, err := os.Open(target)
 	if err != nil {
 		return err
@@ -398,12 +402,27 @@ func runUpdateApply(arguments []string) {
 			_ = updateLock.Close()
 		}
 	}()
+	if err := verifyUpdateVersions(target, staged); err != nil {
+		_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+		return
+	}
 	if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
 		return
 	}
 	for deadline := time.Now().Add(time.Minute); runtimeOwnerActive() && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 	}
 	if runtimeOwnerActive() {
+		return
+	}
+	if err := verifyUpdateVersions(target, staged); err != nil {
+		log.Printf("refuse coSlash Local replacement: %v", err)
+		if !backgroundLoginLoaded() {
+			_ = updateLock.Close()
+			lockHeld = false
+			if err := startDetachedUpdateProcess(target, "--background"); err != nil {
+				log.Printf("restart coSlash Local after refused replacement: %v", err)
+			}
+		}
 		return
 	}
 	backup := target + ".previous"
@@ -442,7 +461,43 @@ func runUpdateApply(arguments []string) {
 }
 
 func automaticUpdateNeeded(enabled bool, prompt syncv4.UpdatePrompt, runningVersion string) bool {
-	return enabled && prompt.Available && prompt.Version != "" && prompt.Version != runningVersion
+	return enabled && prompt.Available && hubclient.NewerClientVersion(runningVersion, prompt.Version)
+}
+
+func verifyUpdateVersions(target, staged string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	readVersion := func(executable string) (string, error) {
+		command := exec.CommandContext(ctx, executable, "--version")
+		stdout, err := command.StdoutPipe()
+		if err != nil {
+			return "", errors.New("cannot verify executable version")
+		}
+		if err := command.Start(); err != nil {
+			return "", errors.New("cannot verify executable version")
+		}
+		output, readErr := io.ReadAll(io.LimitReader(stdout, 257))
+		if len(output) > 256 {
+			_ = command.Process.Kill()
+		}
+		if err := command.Wait(); err != nil || readErr != nil || len(output) > 256 {
+			return "", errors.New("cannot verify executable version")
+		}
+		return strings.TrimPrefix(strings.TrimSpace(string(output)), "v"), nil
+	}
+	return verifyUpdateVersionsWith(target, staged, readVersion)
+}
+
+func verifyUpdateVersionsWith(target, staged string, readVersion func(string) (string, error)) error {
+	current, err := readVersion(target)
+	if err != nil {
+		return err
+	}
+	next, err := readVersion(staged)
+	if err != nil || !hubclient.NewerClientVersion(current, next) {
+		return errors.New("update must be newer than the installed executable")
+	}
+	return nil
 }
 
 func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string) error) {
@@ -467,7 +522,7 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 		}
 		_, config, _ := queue.Policy()
 		prompt := queue.UpdatePrompt()
-		requestedVersionAvailable := explicit && prompt.Available && prompt.Version != "" && prompt.Version != normalizedVersion()
+		requestedVersionAvailable := explicit && prompt.Available && hubclient.NewerClientVersion(normalizedVersion(), prompt.Version)
 		shouldUpdate := requestedVersionAvailable || automaticUpdateNeeded(config.AutoUpdate, prompt, normalizedVersion())
 		if shouldUpdate && (explicit || prompt.Version != failedVersion || time.Now().After(retryAfter)) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -476,7 +531,7 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 			if err == nil {
 				_, latestConfig, _ := queue.Policy()
 				latestPrompt := queue.UpdatePrompt()
-				if (explicit || latestConfig.AutoUpdate) && latestPrompt.Available && latestPrompt.Version == prompt.Version {
+				if (explicit || latestConfig.AutoUpdate) && latestPrompt.Available && latestPrompt.Version == prompt.Version && hubclient.NewerClientVersion(normalizedVersion(), latestPrompt.Version) {
 					if err := onPrepared(staged); err == nil {
 						return
 					} else {
