@@ -219,6 +219,14 @@ source files belong to an excluded repository or working directory. Local
 therefore reports zero window buckets while those rules are set; aggregate
 file and byte counts remain device totals.
 
+After Hub advertises `local-sync-diagnostics/v1`, check-ins may include the
+process account name, standard home-relative Claude and Codex root states,
+and selected, deleted and quiet counts for the current frozen plan. Root
+states come from the scheduled inventory walk; missing scans are unknown.
+Discovery and eligibility totals and cap reasons are unknown because the
+retained queue and resumed or filtered discovery cannot prove them. The
+payload contains no session identifiers or transcript content.
+
 Check-in also carries the sync log (`log`, at most 200 lines for the Tier4 Hub,
 or 500 after the Hub advertises `scale-import/v1`, oldest first)
 that the Hub shows on the device page and on a failed session's card. Each

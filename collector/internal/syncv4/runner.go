@@ -974,6 +974,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 			lines[i].Attempts, lines[i].Parked = 0, false
 		}
 	}
+	progress.LocalDiagnostics = r.Queue.localDiagnostics(r.now())
 	if r.CleanupRemoteCache != nil {
 		r.CleanupRemoteCache()
 	}

@@ -113,13 +113,16 @@ type commandRecord struct {
 }
 
 type Queue struct {
-	mu                sync.Mutex
-	path              string
-	state             state
-	activeSince       time.Time
-	currentKey        string
-	currentBytesDone  int64
-	currentBytesTotal int64
+	mu                    sync.Mutex
+	path                  string
+	state                 state
+	activeSince           time.Time
+	currentKey            string
+	currentBytesDone      int64
+	currentBytesTotal     int64
+	diagnosticsRoots      map[string]string
+	diagnosticsAccount    func() hubclient.DiagnosticsAccount
+	diagnosticsAdvertised bool
 	// held names started commands that are still waiting on work, such as a
 	// retry waiting on its session's upload. It lives in memory only, so a
 	// restart reports them as execution_interrupted.
@@ -236,6 +239,9 @@ func (q *Queue) Rebind(binding string) error {
 	}
 	prior := q.state
 	prior.Entries = append([]Entry(nil), q.state.Entries...)
+	priorDiagnostics := q.diagnosticsAdvertised
+	q.diagnosticsAdvertised = false
+	q.state.HubCapabilities = nil
 	if q.state.Binding != "" {
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
@@ -262,6 +268,7 @@ func (q *Queue) Rebind(binding string) error {
 	q.state.Binding = binding
 	if err := q.save(); err != nil {
 		q.state = prior
+		q.diagnosticsAdvertised = priorDiagnostics
 		return err
 	}
 	return nil
@@ -463,6 +470,7 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 		q.state = prior
 		return err
 	}
+	q.diagnosticsAdvertised = slices.Contains(result.Capabilities, hubclient.CapabilityLocalDiagnostics)
 	return nil
 }
 
