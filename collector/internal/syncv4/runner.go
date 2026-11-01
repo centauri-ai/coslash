@@ -1022,7 +1022,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	if err := r.Queue.AcknowledgeResults(results); err != nil {
 		return err
 	}
-	if err := r.Queue.ReconcileUpdate(r.Version, result.Commands, results); err != nil {
+	if err := r.Queue.ReconcileUpdate(r.Version, result.Commands, results, slices.Contains(result.Capabilities, "update-completion/v1")); err != nil {
 		return err
 	}
 	for _, sent := range results {
@@ -1048,7 +1048,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 				if started {
 					outcome := hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "update_unavailable"}
 					if errors.Is(err, ErrUpdateAlreadyCurrent) {
-						outcome.Result, outcome.Error = "done", ""
+						outcome.Result, outcome.Error = "done", "already_current"
 					}
 					if err := r.Queue.FinishCommand(outcome); err != nil {
 						return err

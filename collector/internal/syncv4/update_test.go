@@ -40,13 +40,13 @@ func TestUpdateAttemptSurvivesRestartAndRedelivery(t *testing.T) {
 	if len(sent) != 1 || sent[0].Result != "in_progress" {
 		t.Fatalf("progress: %+v", sent)
 	}
-	if err = q.ReconcileUpdate("1.2.4", []hubclient.V4Command{c}, sent); err != nil || q.PendingUpdate() == nil {
+	if err = q.ReconcileUpdate("1.2.4", []hubclient.V4Command{c}, sent, true); err != nil || q.PendingUpdate() == nil {
 		t.Fatal("redelivery must retain attempt", err)
 	}
 	if err = q.ConfirmUpdateHandoff(id); err != nil {
 		t.Fatal(err)
 	}
-	if err = q.ReconcileUpdate("1.2.4", nil, sent); err != nil || q.PendingUpdate() != nil {
+	if err = q.ReconcileUpdate("1.2.4", nil, q.Results(), true); err != nil || q.PendingUpdate() != nil {
 		t.Fatal("acknowledged completed attempt must clear", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestReconcileUpdateRetainsUnconfirmedTargetAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	sent := []hubclient.V4CommandResult{{CommandID: id, Result: "in_progress"}}
-	if err := q.ReconcileUpdate("1.2.4", nil, sent); err != nil {
+	if err := q.ReconcileUpdate("1.2.4", nil, q.Results(), true); err != nil {
 		t.Fatal(err)
 	}
 	q, err = Open(root)
@@ -74,7 +74,13 @@ func TestReconcileUpdateRetainsUnconfirmedTargetAcrossRestart(t *testing.T) {
 	if err := q.ConfirmUpdateHandoff(id); err != nil {
 		t.Fatal(err)
 	}
-	if err := q.ReconcileUpdate("1.2.4", nil, sent); err != nil {
+	if err := q.ReconcileUpdate("1.2.4", nil, sent, true); err != nil {
+		t.Fatal(err)
+	}
+	if q.PendingUpdate() == nil {
+		t.Fatal("an earlier progress receipt cleared the confirmed attempt")
+	}
+	if err := q.ReconcileUpdate("1.2.4", nil, q.Results(), true); err != nil {
 		t.Fatal(err)
 	}
 	if q.PendingUpdate() != nil {
@@ -101,7 +107,7 @@ func TestReconcileUpdateStillClearsFailedAndNewer(t *testing.T) {
 		if err := q.SetUpdateStage(id, tc.stage, code); err != nil {
 			t.Fatal(err)
 		}
-		if err := q.ReconcileUpdate(tc.current, nil, []hubclient.V4CommandResult{{CommandID: id, Result: "in_progress"}}); err != nil {
+		if err := q.ReconcileUpdate(tc.current, nil, []hubclient.V4CommandResult{{CommandID: id, Result: "in_progress"}}, false); err != nil {
 			t.Fatal(err)
 		}
 		if q.PendingUpdate() != nil {
@@ -110,7 +116,7 @@ func TestReconcileUpdateStillClearsFailedAndNewer(t *testing.T) {
 	}
 }
 
-func TestUpdateReadinessIsAdvertisedOnlyAfterHubNegotiation(t *testing.T) {
+func TestUpdateReadinessUsesBaselineDoneReceipt(t *testing.T) {
 	q, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -121,17 +127,20 @@ func TestUpdateReadinessIsAdvertisedOnlyAfterHubNegotiation(t *testing.T) {
 	if err := q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", now); err != nil {
 		t.Fatal(err)
 	}
+	if got := q.Results(); len(got) != 1 || got[0].Result != "in_progress" {
+		t.Fatalf("unconfirmed: %+v", got)
+	}
 	if err := q.ConfirmUpdateHandoff(id); err != nil {
 		t.Fatal(err)
 	}
-	if got := q.Progress().UpdateReadyAttemptID; got != "" {
-		t.Fatalf("sent readiness before negotiation: %q", got)
+	if got := q.Results(); len(got) != 1 || got[0].Result != "done" || got[0].Progress != nil {
+		t.Fatalf("confirmed: %+v", got)
 	}
-	if err := q.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: []string{"update-completion/v1"}}); err != nil {
-		t.Fatal(err)
+	if err := q.ReconcileUpdate("1.2.4", nil, q.Results(), false); err != nil || q.PendingUpdate() == nil {
+		t.Fatalf("older Hub lost attempt: %v", err)
 	}
-	if got := q.Progress().UpdateReadyAttemptID; got != id {
-		t.Fatalf("readiness = %q", got)
+	if err := q.ReconcileUpdate("1.2.4", nil, q.Results(), true); err != nil || q.PendingUpdate() != nil {
+		t.Fatalf("update-aware Hub did not reconcile: %v", err)
 	}
 }
 

@@ -92,9 +92,8 @@ type V4Queue struct {
 		HistoryState string `json:"historyState"`
 	} `json:"firstSync"`
 	// Inventory is sent only after the Hub advertised CapabilityScaleImport.
-	Inventory            *DeviceInventory  `json:"inventory,omitempty"`
-	LocalDiagnostics     *LocalDiagnostics `json:"localDiagnostics,omitempty"`
-	UpdateReadyAttemptID string            `json:"updateReadyAttemptId,omitempty"`
+	Inventory        *DeviceInventory  `json:"inventory,omitempty"`
+	LocalDiagnostics *LocalDiagnostics `json:"localDiagnostics,omitempty"`
 }
 
 const CapabilityLocalDiagnostics = "local-sync-diagnostics/v1"
