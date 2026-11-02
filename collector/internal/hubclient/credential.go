@@ -20,6 +20,17 @@ type ConditionalCredentialDeleter interface {
 	DeleteIfMatches(context.Context, string) (bool, error)
 }
 
+// DetachWithDeadline keeps ctx's values and deadline but not its cancellation,
+// for cleanup that must outlive a cancelled request yet stay bounded by the
+// caller that is waiting on it.
+func DetachWithDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	detached := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		return context.WithDeadline(detached, deadline)
+	}
+	return detached, func() {}
+}
+
 var osKeychainMutationMu = make(chan struct{}, 1)
 
 func lockOSKeychainMutation(ctx context.Context) error {

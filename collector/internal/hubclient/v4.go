@@ -348,7 +348,8 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
 		}
 		if problem.Code == "device_revoked" {
-			deleteContext := context.WithoutCancel(ctx)
+			deleteContext, cancelDelete := DetachWithDeadline(ctx)
+			defer cancelDelete()
 			var deleteErr error
 			if deleter, ok := c.Credentials.(ConditionalCredentialDeleter); ok {
 				_, deleteErr = deleter.DeleteIfMatches(deleteContext, credential)

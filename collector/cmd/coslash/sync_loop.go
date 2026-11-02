@@ -25,6 +25,7 @@ func runUpdateReporter(ctx context.Context, reporter updateReporter, queue *sync
 	for {
 		select {
 		case <-ctx.Done():
+			flushFailedUpdate(ctx, reporter, queue)
 			return
 		case <-queue.UpdateWake():
 		case <-retry:
@@ -38,6 +39,21 @@ func runUpdateReporter(ctx context.Context, reporter updateReporter, queue *sync
 			retry = nil
 		}
 	}
+}
+
+var updateFlushTimeout = 5 * time.Second
+
+// A legacy rollback restarts into a binary that discards a failed attempt, so
+// shutdown gets one bounded, uncancelled attempt to deliver the failure. It runs
+// to completion before returning, so nothing it started can outlive the loop and
+// act on the queue after a rebind; the deadline reaches every step it takes.
+func flushFailedUpdate(ctx context.Context, reporter updateReporter, queue *syncv4.Queue) {
+	if update := queue.PendingUpdate(); update == nil || update.Stage != "failed" {
+		return
+	}
+	call, cancel := context.WithTimeout(context.WithoutCancel(ctx), updateFlushTimeout)
+	defer cancel()
+	_ = reporter.ReportUpdate(call)
 }
 
 type v4SyncState interface {

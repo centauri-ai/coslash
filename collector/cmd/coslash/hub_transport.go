@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net/url"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -157,3 +158,55 @@ func (transport currentHubTransport) recordHubContact(err error) {
 		log.Printf("record Hub contact status: %v", saveErr)
 	}
 }
+
+var errHubBindingChanged = errors.New("Hub binding changed")
+
+// bindingPinnedClient returns a client that can only authenticate as binding. The
+// check lives inside the credential read that each request performs, so a Hub,
+// account or credential change cannot slip in between a check and the send, and
+// it needs no copy of the original client's state.
+func bindingPinnedClient(client *hubclient.Client, binding string) *hubclient.Client {
+	base := *client.BaseURL
+	return &hubclient.Client{
+		BaseURL: &base, HTTP: client.HTTP,
+		Credentials: bindingPinnedCredentials{inner: client.Credentials, base: base, binding: binding},
+	}
+}
+
+type bindingPinnedCredentials struct {
+	inner   hubclient.CredentialStore
+	base    url.URL
+	binding string
+}
+
+func (s bindingPinnedCredentials) Load(ctx context.Context) (string, error) {
+	credential, err := s.inner.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	base := s.base
+	got, err := (&hubclient.Client{BaseURL: &base, Credentials: fixedCredential(credential)}).V4Binding(ctx)
+	if err != nil {
+		return "", err
+	}
+	if got != s.binding {
+		return "", errHubBindingChanged
+	}
+	return credential, nil
+}
+
+func (bindingPinnedCredentials) Save(context.Context, string) error { return errHubBindingChanged }
+func (bindingPinnedCredentials) Delete(context.Context) error       { return errHubBindingChanged }
+
+func (s bindingPinnedCredentials) DeleteIfMatches(ctx context.Context, expected string) (bool, error) {
+	if deleter, ok := s.inner.(hubclient.ConditionalCredentialDeleter); ok {
+		return deleter.DeleteIfMatches(ctx, expected)
+	}
+	return false, nil
+}
+
+type fixedCredential string
+
+func (c fixedCredential) Load(context.Context) (string, error) { return string(c), nil }
+func (fixedCredential) Save(context.Context, string) error     { return nil }
+func (fixedCredential) Delete(context.Context) error           { return nil }
