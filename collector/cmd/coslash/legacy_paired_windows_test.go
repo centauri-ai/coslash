@@ -31,15 +31,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -51,7 +46,6 @@ import (
 const (
 	pairedRunnerEnv   = "COSLASH_REAL_HELPER_PAIRED"
 	pairedRunnerValue = "ephemeral-ci-runner-credential-manager"
-	pairedAttemptID   = "33333333-3333-4333-8333-333333333333"
 )
 
 func requirePairedRunner(t *testing.T) {
@@ -61,155 +55,22 @@ func requirePairedRunner(t *testing.T) {
 	}
 }
 
-type pairedCheckIn struct {
-	version, channel string
-	results          []hubclient.V4CommandResult
-}
-
-// pairedHub is a loopback Hub that speaks only what the collector's v4 loop
-// needs: wait, check-in (delivering one legacy-settlement update command) and
-// update-report. Anything else is recorded and answered 404.
-type pairedHub struct {
-	server *httptest.Server
-	url    string
-	token  string
-
-	mu       sync.Mutex
-	withheld bool
-	state    string // "pending", "done" or "failed"
-	checkIns []pairedCheckIn
-	reports  []hubclient.V4CommandResult
-	rejected []string
-}
-
-func newPairedHub(t *testing.T, withhold bool) *pairedHub {
-	t.Helper()
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		t.Fatal(err)
-	}
-	h := &pairedHub{token: "synthetic-device-credential-" + hex.EncodeToString(raw), withheld: withhold, state: "pending"}
-	h.server = httptest.NewServer(h)
-	h.url = h.server.URL
-	t.Cleanup(h.server.Close)
-	return h
-}
-
-func (h *pairedHub) respond(w http.ResponseWriter, value any) {
-	body, _ := json.Marshal(value)
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(body)
-}
-
-func (h *pairedHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != "Device "+h.token {
-		h.mu.Lock()
-		h.rejected = append(h.rejected, "unauthorized "+r.Method+" "+r.URL.Path)
-		h.mu.Unlock()
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	switch {
-	case r.Method == http.MethodGet && r.URL.Path == "/v4/devices/me/wait":
-		select {
-		case <-time.After(300 * time.Millisecond):
-		case <-r.Context().Done():
+// pairedDiagnostics is logged when a paired subtest fails: every request the
+// Hub saw, the collector's queue file (synthetic identity only; the credential
+// is in Credential Manager and never printed) and the helper/collector logs.
+func (f *realHelperFixture) pairedDiagnostics(hub *pairedHub, run func() *realHelperRun) {
+	f.t.Cleanup(func() {
+		if !f.t.Failed() {
 			return
 		}
-		h.respond(w, map[string]any{"configVersion": 1, "changed": false, "commandsAvailable": false, "syncRequested": false})
-	case r.Method == http.MethodPost && r.URL.Path == "/v4/devices/me/check-in":
-		var body struct {
-			ClientVersion  string                      `json:"clientVersion"`
-			InstallChannel string                      `json:"installChannel"`
-			Results        []hubclient.V4CommandResult `json:"results"`
+		queue, _ := os.ReadFile(filepath.Join(f.home, "sync-v4", "queue.json"))
+		log := "(helper not started)"
+		if r := run(); r != nil {
+			log = r.log()
 		}
-		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body) != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.mu.Lock()
-		h.checkIns = append(h.checkIns, pairedCheckIn{body.ClientVersion, body.InstallChannel, body.Results})
-		for _, result := range body.Results {
-			switch {
-			case result.CommandID != pairedAttemptID:
-			case result.Result == "done" && body.ClientVersion == realHelperNewVersion:
-				h.state = "done"
-			case result.Result == "failed":
-				h.state = "failed"
-			}
-		}
-		commands := []any{}
-		if !h.withheld && h.state == "pending" {
-			payload := map[string]any{"attemptId": pairedAttemptID, "targetVersion": realHelperNewVersion, "expiresAt": time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339), "legacySettlement": true}
-			commands = append(commands, map[string]any{"id": pairedAttemptID, "type": "update", "payload": payload})
-		}
-		h.mu.Unlock()
-		h.respond(w, map[string]any{
-			"configVersion": 1,
-			"config":        map[string]any{"paused": true, "autoUpdate": false, "deviceOff": true, "leaveOut": []string{}, "agentKnowledge": false},
-			"commands":      commands, "minVersion": realHelperLegacyVersion, "recommendedVersion": realHelperNewVersion,
-			"nextCheckInSeconds": 60, "capabilities": []string{"update-completion/v1"},
-		})
-	case r.Method == http.MethodPost && r.URL.Path == "/v4/devices/me/update-report":
-		var result hubclient.V4CommandResult
-		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&result) != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		h.mu.Lock()
-		h.reports = append(h.reports, result)
-		if result.CommandID == pairedAttemptID && result.Result == "failed" {
-			h.state = "failed"
-		}
-		active := h.state == "pending"
-		h.mu.Unlock()
-		h.respond(w, map[string]any{"active": active})
-	default:
-		h.mu.Lock()
-		h.rejected = append(h.rejected, r.Method+" "+r.URL.Path)
-		h.mu.Unlock()
-		w.WriteHeader(http.StatusNotFound)
-	}
-}
-
-func (h *pairedHub) release() {
-	h.mu.Lock()
-	h.withheld = false
-	h.mu.Unlock()
-}
-
-func (h *pairedHub) snapshot() (state string, checkIns []pairedCheckIn, reports []hubclient.V4CommandResult, rejected []string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.state, append([]pairedCheckIn(nil), h.checkIns...), append([]hubclient.V4CommandResult(nil), h.reports...), append([]string(nil), h.rejected...)
-}
-
-func (h *pairedHub) checkInVersions() []string {
-	_, checkIns, _, _ := h.snapshot()
-	var versions []string
-	for _, checkIn := range checkIns {
-		versions = append(versions, checkIn.version)
-	}
-	return versions
-}
-
-// failureReported is true once the Hub has been told the attempt failed, by an
-// update-report or by a check-in result.
-func (h *pairedHub) failureReported() (string, bool) {
-	_, checkIns, reports, _ := h.snapshot()
-	for _, report := range reports {
-		if report.CommandID == pairedAttemptID && report.Result == "failed" {
-			return report.Error, true
-		}
-	}
-	for _, checkIn := range checkIns {
-		for _, result := range checkIn.results {
-			if result.CommandID == pairedAttemptID && result.Result == "failed" {
-				return result.Error, true
-			}
-		}
-	}
-	return "", false
+		background, _ := os.ReadFile(filepath.Join(f.home, "logs", backgroundLogName))
+		f.t.Logf("paired diagnostics\n%s\nqueue.json: %s\nhelper log:\n%s\ncollector background log:\n%s", hub.dump(), queue, log, background)
+	})
 }
 
 func pairedWaitFor(t *testing.T, what string, timeout time.Duration, condition func() bool) {
@@ -319,15 +180,17 @@ func TestRealLegacyHelperPaired(t *testing.T) {
 // round trip), so the loop usually verifies an already-retired backup here; the
 // contended retire-under-hold path is exercised by the in-process scenarios.
 func testPairedSuccess(t *testing.T, bins realHelperBinaries) {
-	hub := newPairedHub(t, false)
+	hub := newPairedHub(t, realHelperNewVersion, realHelperLegacyVersion, false)
 	f := newRealHelperFixture(t, bins)
 	identity := f.pair(hub)
-	run := f.startHelper(false)
+	var run *realHelperRun
+	f.pairedDiagnostics(hub, func() *realHelperRun { return run })
+	run = f.startHelper(false)
 	f.waitExit(run)
 	f.requireHelperSilent(run)
 	pairedWaitFor(t, "the new collector's own loop to report the legacy settlement done", 90*time.Second, func() bool {
 		state, _, _, _ := hub.snapshot()
-		return state == "done"
+		return state == "verified"
 	})
 	if !f.ownerActive() {
 		t.Fatalf("the new collector is not the runtime owner after settlement: %s", run.log())
@@ -356,6 +219,11 @@ func testPairedSuccess(t *testing.T, bins realHelperBinaries) {
 			t.Fatalf("the collector reported a failure in the success path: %+v", report)
 		}
 	}
+	// A failed result carried by a check-in, e.g. update_unavailable for a
+	// redelivery the collector refused, is as much a failure as a report.
+	if failures := hub.allFailures(); len(failures) != 0 {
+		t.Fatalf("the Hub recorded failed results in the success path: %+v", failures)
+	}
 	t.Logf("hub check-in versions %v; reports %+v; unexpected requests %v", hub.checkInVersions(), reports, rejected)
 	realHelperProcessesUnder([]string{f.install, f.tmp}, true)
 	f.waitNoProcesses()
@@ -376,10 +244,12 @@ func testPairedSuccess(t *testing.T, bins realHelperBinaries) {
 // done, leaves the restored bytes alone and restarts the installed 0.4.2, which
 // checks in with the preserved identity and credential.
 func testPairedRollbackReport(t *testing.T, bins realHelperBinaries) {
-	hub := newPairedHub(t, true)
+	hub := newPairedHub(t, realHelperNewVersion, realHelperLegacyVersion, true)
 	f := newRealHelperFixture(t, bins)
 	identity := f.pair(hub)
-	run := f.startHelper(false)
+	var run *realHelperRun
+	f.pairedDiagnostics(hub, func() *realHelperRun { return run })
+	run = f.startHelper(false)
 	f.waitExit(run)
 	f.requireHelperSilent(run)
 	pairedWaitFor(t, "the new collector to check in while the Hub withholds the update", 60*time.Second, func() bool {
@@ -405,14 +275,16 @@ func testPairedRollbackReport(t *testing.T, bins realHelperBinaries) {
 	f.requireInstalled(false)
 	before := len(hub.checkInVersions())
 	hub.release()
-	var failure string
 	pairedWaitFor(t, "the new collector's loop to report the rollback", 90*time.Second, func() bool {
-		var reported bool
-		failure, reported = hub.failureReported()
-		return reported
+		return len(hub.allFailures()) > 0
 	})
-	if failure != "update_failed" {
-		t.Fatalf("rollback was reported with error %q, want update_failed", failure)
+	// Every failed result must be the new collector's update_failed. A failure
+	// from a 0.4.2 collector would mean the Hub commanded it, which the real
+	// Hub never does for a client older than the target.
+	for _, failure := range hub.allFailures() {
+		if failure.code != "update_failed" || failure.version == realHelperLegacyVersion {
+			t.Fatalf("rollback was reported as %+v, want only update_failed from the new collector\n%s", failure, hub.dump())
+		}
 	}
 	pairedWaitFor(t, "the restored 0.4.2 collector to check in", 120*time.Second, func() bool {
 		versions := hub.checkInVersions()
@@ -424,8 +296,16 @@ func testPairedRollbackReport(t *testing.T, bins realHelperBinaries) {
 		return false
 	})
 	state, checkIns, _, rejected := hub.snapshot()
-	if state == "done" {
+	if state == "verified" {
 		t.Fatalf("the Hub was told the update was done although the installation was rolled back: %+v", checkIns)
+	}
+	if got := hub.deliveriesTo(realHelperLegacyVersion); len(got) != 0 {
+		t.Fatalf("the Hub commanded the restored 0.4.2 collector: %+v", got)
+	}
+	for _, failure := range hub.allFailures() {
+		if failure.code != "update_failed" || failure.version == realHelperLegacyVersion {
+			t.Fatalf("unexpected failure after the restore: %+v\n%s", failure, hub.dump())
+		}
 	}
 	f.requireInstalled(false)
 	f.requireIdentityKept(identity, hub)
