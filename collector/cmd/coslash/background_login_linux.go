@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -41,7 +42,7 @@ func startSupervisedBackground() bool {
 	if err := writeSystemdUnit(); err != nil {
 		return false
 	}
-	_, err := backgroundCommand("systemctl", "--user", "start", systemdUnitName)
+	_, err := backgroundCommand("systemctl", "--user", "start", backgroundUnitName())
 	return err == nil
 }
 
@@ -59,7 +60,7 @@ func ensureBackgroundPersistence() (string, error) {
 		if err := writeSystemdUnit(); err != nil {
 			return "", err
 		}
-		if output, err := backgroundCommand("systemctl", "--user", "enable", systemdUnitName); err != nil {
+		if output, err := backgroundCommand("systemctl", "--user", "enable", backgroundUnitName()); err != nil {
 			return "", fmt.Errorf("systemctl --user enable: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 		return "systemd", nil
@@ -82,20 +83,25 @@ func reportBackgroundPersistence(stdout io.Writer) {
 	}
 	switch mode {
 	case "systemd":
-		fmt.Fprintln(stdout, "✓ coSlash Local runs as a systemd user service (coslash.service) and starts at boot.")
+		fmt.Fprintf(stdout, "✓ coSlash Local runs as a systemd user service (%s) and starts at boot.\n", backgroundUnitName())
 	case "cron":
 		fmt.Fprintln(stdout, "✓ coSlash Local starts at boot from your crontab (@reboot).")
 	default:
-		fmt.Fprintln(stdout, "coSlash Local is running now but will not start after a reboot: no systemd user manager or crontab was found.")
+		fmt.Fprintln(stdout, "coSlash Local is running now but automatic startup could not be configured.")
 		fmt.Fprintln(stdout, "Start it from your init system or container entrypoint with: coslash --background")
 	}
 }
 
 func backgroundLoginLoaded() bool {
+	executable, _ := backgroundExecutable()
+	return backgroundLoginLoadedForTarget(executable)
+}
+
+func backgroundLoginLoadedForTarget(executable string) bool {
 	if !systemdUserAvailable() {
 		return false
 	}
-	output, err := backgroundCommand("systemctl", "--user", "show", systemdUnitName, "--property=ActiveState", "--value")
+	output, err := backgroundCommand("systemctl", "--user", "show", backgroundUnitNameFor(executable), "--property=ActiveState", "--value")
 	if err != nil {
 		return false
 	}
@@ -141,9 +147,23 @@ func writeSystemdUnit() error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, systemdUnitName)
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, contents) {
-		return nil
+	path := filepath.Join(dir, backgroundUnitName())
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("existing coSlash user service is not a regular file")
+		}
+		existing, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(existing, contents) {
+			return nil
+		}
+		if !ownedSystemdUnit(existing, executable, os.Getenv("COSLASH_HOME")) {
+			return errors.New("existing coSlash user service belongs to another installation")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	if err := writePrivateFile(dir, path, contents); err != nil {
 		return err
@@ -155,8 +175,21 @@ func writeSystemdUnit() error {
 }
 
 func systemdUserUnitDir() (string, error) {
-	if config := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(config) {
-		return filepath.Join(config, "systemd", "user"), nil
+	output, err := backgroundCommand("systemctl", "--user", "show-environment")
+	if err != nil {
+		return "", fmt.Errorf("read systemd user environment: %w", err)
+	}
+	managerHome := ""
+	for _, line := range strings.Split(string(output), "\n") {
+		if config, ok := strings.CutPrefix(line, "XDG_CONFIG_HOME="); ok && filepath.IsAbs(config) {
+			return filepath.Join(config, "systemd", "user"), nil
+		}
+		if home, ok := strings.CutPrefix(line, "HOME="); ok && filepath.IsAbs(home) {
+			managerHome = home
+		}
+	}
+	if managerHome != "" {
+		return filepath.Join(managerHome, ".config", "systemd", "user"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -165,10 +198,97 @@ func systemdUserUnitDir() (string, error) {
 	return filepath.Join(home, ".config", "systemd", "user"), nil
 }
 
+func backgroundProfileSuffix(home string) string {
+	if home == "" {
+		return ""
+	}
+	if absolute, err := filepath.Abs(home); err == nil {
+		home = absolute
+	}
+	if userHome, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == filepath.Join(userHome, ".coslash") {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(home)))
+	return fmt.Sprintf("%x", sum[:8])
+}
+
+func backgroundUnitName() string {
+	executable, _ := backgroundExecutable()
+	return backgroundUnitNameFor(executable)
+}
+
+func backgroundUnitNameFor(executable string) string {
+	if suffix := backgroundProfileSuffix(os.Getenv("COSLASH_HOME")); suffix != "" {
+		// Keep an older profile-specific installation on its existing service.
+		// Renaming a running service would race its automatic restart with the
+		// update helper and could launch a second copy.
+		if executable != "" {
+			if dir, err := systemdUserUnitDir(); err == nil {
+				legacy := filepath.Join(dir, systemdUnitName)
+				if info, err := os.Lstat(legacy); err == nil && info.Mode().IsRegular() {
+					if contents, err := os.ReadFile(legacy); err == nil && ownedSystemdUnit(contents, executable, os.Getenv("COSLASH_HOME")) {
+						return systemdUnitName
+					}
+				}
+			}
+		}
+		return "coslash-" + suffix + ".service"
+	}
+	return systemdUnitName
+}
+
+func ownedSystemdUnit(existing []byte, executable, coslashHome string) bool {
+	quoted, err := systemdQuote(executable)
+	if err != nil {
+		return false
+	}
+	wantExec := "ExecStart=" + quoted + " --background"
+	wantHome := ""
+	if coslashHome != "" {
+		quoted, err := systemdQuote("COSLASH_HOME=" + coslashHome)
+		if err != nil {
+			return false
+		}
+		wantHome = "Environment=" + quoted
+	}
+	seenExec, seenHome := false, false
+	allowed := make(map[string]bool, len(systemdUnitEnvironment))
+	for _, name := range systemdUnitEnvironment {
+		allowed[name] = true
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(existing)), "\n") {
+		switch line {
+		case "", "[Unit]", "Description=coSlash Local", "[Service]", "Restart=always", "RestartSec=5", "KillMode=process", "[Install]", "WantedBy=default.target":
+			continue
+		case wantExec:
+			if seenExec {
+				return false
+			}
+			seenExec = true
+		default:
+			if !strings.HasPrefix(line, `Environment="`) || !strings.HasSuffix(line, `"`) {
+				return false
+			}
+			name, _, ok := strings.Cut(strings.TrimPrefix(line, `Environment="`), "=")
+			if !ok || !allowed[name] {
+				return false
+			}
+			delete(allowed, name)
+			if name == "COSLASH_HOME" {
+				if line != wantHome {
+					return false
+				}
+				seenHome = true
+			}
+		}
+	}
+	return seenExec && (wantHome == "" && !seenHome || wantHome != "" && seenHome)
+}
+
 // The systemd user manager does not read shell profiles, so the unit carries
 // the variables that change where Local or the agents keep their data.
 var systemdUnitEnvironment = []string{
-	"COSLASH_HOME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+	"COSLASH_HOME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "COSLASH_INSTALL_DIR",
 	"GROK_HOME", "OPENCODE_DB", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "COSLASH_PI_SESSION_ROOTS",
 }
 
@@ -236,7 +356,11 @@ var writeCrontab = func(contents string) error {
 }
 
 func crontabWithEntry(current, executable, coslashHome string) (string, bool, error) {
-	entry := "@reboot " + shellQuote(executable) + " --background >/dev/null 2>&1 " + cronMarker
+	marker := cronMarker
+	if suffix := backgroundProfileSuffix(coslashHome); suffix != "" {
+		marker += " " + suffix
+	}
+	entry := "@reboot " + shellQuote(executable) + " --background >/dev/null 2>&1 " + marker
 	if coslashHome != "" {
 		entry = "@reboot COSLASH_HOME=" + shellQuote(coslashHome) + " " + strings.TrimPrefix(entry, "@reboot ")
 	}
@@ -248,7 +372,12 @@ func crontabWithEntry(current, executable, coslashHome string) (string, bool, er
 		if line == entry {
 			return current, false, nil
 		}
-		if line != "" && !strings.HasSuffix(line, cronMarker) {
+		legacyEntry := strings.TrimSuffix(entry, marker) + cronMarker
+		matchesMarker := strings.HasSuffix(line, marker)
+		if marker == cronMarker && strings.HasPrefix(line, "@reboot COSLASH_HOME=") && (coslashHome == "" || !strings.HasPrefix(line, "@reboot COSLASH_HOME="+shellQuote(coslashHome)+" ")) {
+			matchesMarker = false
+		}
+		if line != "" && !matchesMarker && (marker == cronMarker || line != legacyEntry) {
 			lines = append(lines, line)
 		}
 	}

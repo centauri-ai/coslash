@@ -66,6 +66,26 @@ func TestInstallChannelEmbeddedMetadata(t *testing.T) {
 	}
 }
 
+func TestInstallChannelProvenanceKeepsReleaseAndPackageBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name, os, channel, release, branch, want string
+		trusted                                  bool
+	}{
+		{"registered Linux release", "linux", "unknown", "true", "false", "script", true},
+		{"unregistered", "linux", "unknown", "true", "false", "unknown", false},
+		{"source build", "linux", "unknown", "false", "false", "unknown", true},
+		{"branch build", "linux", "unknown", "true", "true", "unknown", true},
+		{"Homebrew", "linux", "brew", "true", "false", "brew", true},
+		{"Windows custom", "windows", "unknown", "true", "false", "unknown", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := installChannelWithProvenance(tc.os, tc.channel, "", tc.release, tc.branch, tc.trusted); got != tc.want {
+				t.Fatalf("install channel=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalizedVersion(t *testing.T) {
 	original := version
 	t.Cleanup(func() { version = original })

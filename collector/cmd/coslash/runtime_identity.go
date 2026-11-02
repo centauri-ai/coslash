@@ -43,7 +43,15 @@ func detectedInstallChannel() string {
 	}
 	home, _ := os.UserHomeDir()
 	channel := installChannelForPaths(executable, resolved, home, os.Getenv("LOCALAPPDATA"), runtime.GOOS)
-	return installChannelWithBuildMetadata(runtime.GOOS, channel, installChannelMetadata)
+	trusted := channel == "unknown" && runtime.GOOS == "linux" && releaseBuildMetadata == "true" && branchBuildMetadata != "true" && trustedCustomScriptInstall(executable, home)
+	return installChannelWithProvenance(runtime.GOOS, channel, installChannelMetadata, releaseBuildMetadata, branchBuildMetadata, trusted)
+}
+
+func installChannelWithProvenance(goos, channel, metadata, release, branch string, trusted bool) string {
+	if channel == "unknown" && goos == "linux" && release == "true" && branch != "true" && trusted {
+		return "script"
+	}
+	return installChannelWithBuildMetadata(goos, channel, metadata)
 }
 
 func installChannelWithBuildMetadata(goos, detected, metadata string) string {

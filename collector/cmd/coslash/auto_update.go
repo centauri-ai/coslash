@@ -444,7 +444,7 @@ func runUpdateApply(arguments []string) {
 	if err := verifyUpdateVersions(target, staged); err != nil {
 		log.Printf("refuse coSlash Local replacement: %v", err)
 		writeUpdateFailure(attemptID)
-		if !backgroundLoginLoaded() {
+		if !backgroundLoginLoadedForTarget(target) {
 			_ = updateLock.Close()
 			lockHeld = false
 			if err := startDetachedUpdateProcess(target, "--background"); err != nil {
@@ -457,7 +457,7 @@ func runUpdateApply(arguments []string) {
 	if err := replaceUpdateTarget(target, staged, backup); err != nil {
 		log.Printf("stage coSlash Local replacement: %v", err)
 		writeUpdateFailure(attemptID)
-		if !backgroundLoginLoaded() {
+		if !backgroundLoginLoadedForTarget(target) {
 			_ = updateLock.Close()
 			lockHeld = false
 			_ = startDetachedUpdateProcess(target, "--background")
@@ -470,7 +470,7 @@ func runUpdateApply(arguments []string) {
 		return
 	}
 	lockHeld = false
-	if !backgroundLoginLoaded() {
+	if !backgroundLoginLoadedForTarget(target) {
 		if err := startDetachedUpdateProcess(target, "--background"); err != nil {
 			writeUpdateFailure(attemptID)
 			if restoreErr := restoreUpdateTarget(target, backup); restoreErr != nil {
@@ -509,7 +509,7 @@ func runUpdateApply(arguments []string) {
 		return
 	}
 	writeUpdateFailure(attemptID)
-	if !backgroundLoginLoaded() {
+	if !backgroundLoginLoadedForTarget(target) {
 		_ = startDetachedUpdateProcess(target, "--background")
 	}
 }
