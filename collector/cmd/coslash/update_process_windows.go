@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -70,16 +71,45 @@ func copyUpdateBackup(source, backup string) error {
 	return nil
 }
 
+// Renaming the backup itself would let a concurrent DeleteFile of the backup
+// doom the file that becomes the installed executable. Holding the backup open
+// without FILE_SHARE_DELETE makes a concurrent legacy settlement fail instead,
+// and the renamed file is a private copy nobody else can delete.
 func restoreUpdateTarget(target, backup string) error {
-	from, err := windows.UTF16PtrFromString(backup)
+	source, err := os.Open(backup)
 	if err != nil {
+		return err
+	}
+	defer source.Close()
+	staged, err := os.CreateTemp(filepath.Dir(target), ".coslash-restore-*")
+	if err != nil {
+		return err
+	}
+	stagedPath := staged.Name()
+	_, copyErr := io.Copy(staged, source)
+	syncErr := staged.Sync()
+	closeErr := staged.Close()
+	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+		_ = os.Remove(stagedPath)
+		return err
+	}
+	from, err := windows.UTF16PtrFromString(stagedPath)
+	if err != nil {
+		_ = os.Remove(stagedPath)
 		return err
 	}
 	to, err := windows.UTF16PtrFromString(target)
 	if err != nil {
+		_ = os.Remove(stagedPath)
 		return err
 	}
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+	if err := windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH); err != nil {
+		_ = os.Remove(stagedPath)
+		return err
+	}
+	_ = source.Close()
+	_ = os.Remove(backup)
+	return nil
 }
 
 func scheduleUpdateHelperCleanup(helper string) error {
