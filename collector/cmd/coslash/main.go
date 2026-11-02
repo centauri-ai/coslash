@@ -451,7 +451,7 @@ func main() {
 		cancelReady()
 		if err := errors.Join(runtimeReady.Close(), runtimeLock.Close()); err != nil {
 			log.Printf("release runtime before installed-version restart: %v", err)
-		} else if !backgroundLoginLoaded() {
+		} else if !backgroundLoginLoadedForTarget(target) {
 			if err := startDetachedUpdateProcess(target, "--background"); err != nil {
 				log.Printf("restart installed coSlash Local: %v", err)
 			}

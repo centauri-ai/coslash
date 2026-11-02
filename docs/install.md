@@ -106,6 +106,12 @@ active queue work, restart, and roll back if the new Local fails to become ready
 Local only installs a version newer than the installed executable; an old saved
 recommendation cannot downgrade it.
 Homebrew and portable installs use the device's manual update action.
+For a Linux install in a custom directory, the script registers the location
+for automatic updates. The directory must be inside the current user's home,
+owned by that user, free of symlink components, and not group- or world-writable;
+the executable and registration file must also be owned and not group- or
+world-writable. Existing unregistered or unsupported installs need a separate
+on-device update before they can use this recognition.
 When a paired device is behind the recommended release, Hub offers **Update
 now** on the computer being updated. On supported script installs, Local
 verifies and stages the release, then restarts. The action is bound to that
@@ -152,7 +158,9 @@ The script picks the `linux_amd64` or `linux_arm64` release archive from
 
 After `coslash connect`, Local keeps running after you log out and starts at
 boot. When your account lingers (or can turn lingering on), Local runs as the
-systemd user service `coslash.service` (`systemctl --user status coslash`).
+systemd user service `coslash.service` (`systemctl --user status coslash`). A
+custom `COSLASH_HOME` uses a profile-specific service name, printed during
+connection; a matching older service keeps its existing name.
 If the system does not let an SSH session enable lingering without `sudo`,
 Local keeps running as a detached process and adds a `crontab` `@reboot`
 entry. To use the systemd service instead, run `sudo loginctl enable-linger

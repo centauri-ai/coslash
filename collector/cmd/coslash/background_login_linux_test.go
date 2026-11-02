@@ -92,7 +92,7 @@ func TestCrontabEntryIsIdempotentAndPreservesOtherJobs(t *testing.T) {
 		t.Fatalf("second crontabWithEntry changed the crontab: %v, %v", changed, err)
 	}
 	withHome, _, err := crontabWithEntry("", "/opt/it's/coslash", "/data/coslash")
-	if err != nil || withHome != "@reboot COSLASH_HOME='/data/coslash' '/opt/it'\\''s/coslash' --background >/dev/null 2>&1 # coSlash Local\n" {
+	if err != nil || withHome != "@reboot COSLASH_HOME='/data/coslash' '/opt/it'\\''s/coslash' --background >/dev/null 2>&1 # coSlash Local "+backgroundProfileSuffix("/data/coslash")+"\n" {
 		t.Fatalf("crontab with COSLASH_HOME = %q, %v", withHome, err)
 	}
 	if _, _, err := crontabWithEntry("", "/opt/100%/coslash", ""); err == nil {
@@ -128,7 +128,9 @@ func TestBackgroundPersistenceNeedsLingerForSystemd(t *testing.T) {
 	t.Cleanup(func() {
 		backgroundCommand, backgroundLookPath, writeCrontab = previousCommand, previousLookPath, previousWrite
 	})
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("COSLASH_HOME", "")
 	backgroundLookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	for _, allowLinger := range []bool{false, true} {
 		linger, calls, crontab := "no", []string{}, ""
@@ -138,6 +140,8 @@ func TestBackgroundPersistenceNeedsLingerForSystemd(t *testing.T) {
 			switch {
 			case call == "systemctl --user is-system-running":
 				return []byte("running\n"), nil
+			case call == "systemctl --user show-environment":
+				return []byte("XDG_CONFIG_HOME=" + config + "\n"), nil
 			case strings.HasPrefix(call, "loginctl show-user"):
 				return []byte(linger + "\n"), nil
 			case call == "loginctl enable-linger":
@@ -162,5 +166,148 @@ func TestBackgroundPersistenceNeedsLingerForSystemd(t *testing.T) {
 		if !allowLinger && startSupervisedBackground() {
 			t.Error("started a user unit that would stop at logout without lingering")
 		}
+	}
+}
+
+func TestBackgroundProfilesHaveIndependentStartup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("COSLASH_HOME", "")
+	if got := backgroundUnitName(); got != systemdUnitName {
+		t.Fatalf("default unit=%q", got)
+	}
+	t.Setenv("COSLASH_HOME", filepath.Join(home, "one"))
+	one := backgroundUnitName()
+	t.Setenv("COSLASH_HOME", filepath.Join(home, "two"))
+	two := backgroundUnitName()
+	if one == two || one == systemdUnitName || two == systemdUnitName {
+		t.Fatalf("profiles share a service name: %q %q", one, two)
+	}
+	first, _, err := crontabWithEntry("", "/one/coslash", filepath.Join(home, "one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, _, err := crontabWithEntry(first, "/two/coslash", filepath.Join(home, "two"))
+	if err != nil || !strings.Contains(both, "/one/coslash") || !strings.Contains(both, "/two/coslash") {
+		t.Fatalf("second profile removed the first: %q, %v", both, err)
+	}
+	legacy := "@reboot COSLASH_HOME='/other/profile' '/other/coslash' --background >/dev/null 2>&1 # coSlash Local\n"
+	defaultEntry, _, err := crontabWithEntry(legacy, "/default/coslash", "")
+	if err != nil || !strings.Contains(defaultEntry, legacy) {
+		t.Fatalf("default profile removed another profile's legacy entry: %q, %v", defaultEntry, err)
+	}
+}
+
+func TestLegacyCustomProfileServiceIsReusedForUpdate(t *testing.T) {
+	previous, previousLookPath := backgroundCommand, backgroundLookPath
+	t.Cleanup(func() { backgroundCommand, backgroundLookPath = previous, previousLookPath })
+	backgroundLookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	config := t.TempDir()
+	home := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("COSLASH_HOME", home)
+	executable := "/home/user/bin/coslash"
+	unit, err := systemdUnit(executable, func(name string) string {
+		if name == "COSLASH_HOME" {
+			return home
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(config, "systemd", "user")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, systemdUnitName), unit, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backgroundCommand = func(_ string, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--user show-environment":
+			return []byte("XDG_CONFIG_HOME=" + config + "\n"), nil
+		case "--user is-system-running":
+			return []byte("running\n"), nil
+		case "--user show coslash.service --property=ActiveState --value":
+			return []byte("activating\n"), nil
+		default:
+			return nil, errors.New("unexpected command")
+		}
+	}
+	if !backgroundLoginLoadedForTarget(executable) {
+		t.Fatal("legacy service restart was not recognized")
+	}
+	if got := backgroundUnitNameFor("/another/coslash"); got == systemdUnitName {
+		t.Fatal("reused a service for a different executable")
+	}
+	t.Setenv("COSLASH_HOME", filepath.Join(t.TempDir(), "other"))
+	if got := backgroundUnitNameFor(executable); got == systemdUnitName {
+		t.Fatal("reused a service for a different profile")
+	}
+}
+
+func TestSystemdUnitOwnership(t *testing.T) {
+	executable := "/home/user/bin/coslash"
+	env := map[string]string{"COSLASH_HOME": "/home/user/profile", "PATH": "/bin"}
+	unit, err := systemdUnit(executable, func(name string) string { return env[name] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownedSystemdUnit(unit, executable, env["COSLASH_HOME"]) {
+		t.Fatal("rejected an owned unit")
+	}
+	if ownedSystemdUnit(unit, "/another/coslash", env["COSLASH_HOME"]) || ownedSystemdUnit(unit, executable, "/another/profile") {
+		t.Fatal("accepted a different executable or profile")
+	}
+	modified := append(append([]byte(nil), unit...), []byte("ExecStartPost=/other\n")...)
+	if ownedSystemdUnit(modified, executable, env["COSLASH_HOME"]) {
+		t.Fatal("accepted a unit with unrelated settings")
+	}
+}
+
+func TestSystemdUnitUsesManagerConfig(t *testing.T) {
+	previous := backgroundCommand
+	t.Cleanup(func() { backgroundCommand = previous })
+	managerConfig := filepath.Join(t.TempDir(), "manager config")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "profile config"))
+	backgroundCommand = func(name string, args ...string) ([]byte, error) {
+		if name != "systemctl" || strings.Join(args, " ") != "--user show-environment" {
+			t.Fatal("unexpected command")
+		}
+		return []byte("XDG_CONFIG_HOME=" + managerConfig + "\n"), nil
+	}
+	dir, err := systemdUserUnitDir()
+	if err != nil || dir != filepath.Join(managerConfig, "systemd", "user") {
+		t.Fatalf("unit directory=%q err=%v", dir, err)
+	}
+}
+
+func TestWriteSystemdUnitPreservesUnrelatedService(t *testing.T) {
+	previous := backgroundCommand
+	t.Cleanup(func() { backgroundCommand = previous })
+	config := t.TempDir()
+	t.Setenv("COSLASH_HOME", "")
+	backgroundCommand = func(_ string, args ...string) ([]byte, error) {
+		if strings.Join(args, " ") == "--user show-environment" {
+			return []byte("XDG_CONFIG_HOME=" + config + "\n"), nil
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil, nil
+	}
+	dir := filepath.Join(config, "systemd", "user")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, systemdUnitName)
+	original := []byte("[Service]\nExecStart=/another/application\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSystemdUnit(); err == nil {
+		t.Fatal("overwrote another installation")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("existing service changed: %q %v", got, err)
 	}
 }
