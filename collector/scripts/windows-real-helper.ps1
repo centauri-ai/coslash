@@ -12,7 +12,8 @@ param(
 #      (collector/cmd/coslash/testdata/legacy-helper-0.4.2-windows-amd64.sha256) and
 #      the release's own checksums-windows.txt,
 #   3. build the new target from this checkout with version 0.4.3.
-# Then run the opt-in `realhelper` tests, which launch the real helper with owned
+# Then run the opt-in `realhelper` tests, which launch the real helper (three
+# arguments: target, staged, ready) and every `--version` check with owned
 # HOME/USERPROFILE/COSLASH_HOME/LOCALAPPDATA/TEMP and no credentials, Hub or
 # network model calls. Safe to run by hand on a disposable Windows machine.
 
@@ -61,7 +62,7 @@ try {
         $env:COSLASH_REAL_HELPER_NEW = $next
         # Native stderr from go must not become a terminating error.
         $ErrorActionPreference = "Continue"
-        & go test -tags realhelper -count=1 -timeout 10m -v -run '^TestRealLegacyHelper$' ./cmd/coslash
+        & go test -tags realhelper -count=1 -timeout 10m -parallel 6 -v -run '^TestRealLegacyHelper$' ./cmd/coslash
         $exitCode = $LASTEXITCODE
         $ErrorActionPreference = "Stop"
     }
