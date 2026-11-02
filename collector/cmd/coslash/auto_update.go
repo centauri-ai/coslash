@@ -602,7 +602,7 @@ func settleLegacyTarget(target, running string, readVersion func(string) (string
 		if !info.Mode().IsRegular() {
 			return errors.New("legacy update backup is not a regular file")
 		}
-		if err := os.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := retireLegacyBackup(backup, check); err != nil {
 			return err
 		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
