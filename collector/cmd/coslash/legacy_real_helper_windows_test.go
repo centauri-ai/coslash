@@ -220,7 +220,7 @@ type realHelperFixture struct {
 	bins                          realHelperBinaries
 	target, backup, staged, ready string
 	helperPath                    string
-	runtimeLock                   *os.File
+	runtimeLock, readyLock        *os.File
 }
 
 func newRealHelperFixture(t *testing.T, bins realHelperBinaries) *realHelperFixture {
@@ -267,9 +267,8 @@ func (f *realHelperFixture) copyFile(src, dst string) {
 }
 
 func (f *realHelperFixture) cleanup() {
-	if f.runtimeLock != nil {
-		_ = f.runtimeLock.Close()
-	}
+	f.releaseOwnerReadiness()
+	f.releaseRuntimeLock()
 	if f.root == "" {
 		return
 	}
@@ -311,22 +310,34 @@ func (f *realHelperFixture) ownerActive() bool {
 	return f.lockHeld("runtime.lock") && f.lockHeld(readinessFilename)
 }
 
-// holdRuntimeLock keeps runtime.lock exclusively locked for the whole test, so
-// a collector started by the helper exits at once (acquireRuntimeLock fails)
-// and the helper never sees a ready runtime owner (it needs runtime.ready too).
-// That is the supported way to make the helper reach its readiness timeout and
-// roll back, with no helper modification.
-func (f *realHelperFixture) holdRuntimeLock() {
+// lockHome takes name exclusively in the owned home, as the product does
+// (non-blocking byte-range lock on its own handle), and fails the test if
+// anyone else already holds it.
+func (f *realHelperFixture) lockHome(name string) *os.File {
 	f.t.Helper()
-	file, err := os.OpenFile(filepath.Join(f.home, "runtime.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	file, err := os.OpenFile(filepath.Join(f.home, name), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	if err := windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &windows.Overlapped{}); err != nil {
 		file.Close()
-		f.t.Fatalf("lock runtime.lock: %v", err)
+		f.t.Fatalf("lock %s: %v", name, err)
 	}
-	f.runtimeLock = file
+	return file
+}
+
+func (f *realHelperFixture) releaseRuntimeLock() {
+	if f.runtimeLock != nil {
+		_ = f.runtimeLock.Close()
+		f.runtimeLock = nil
+	}
+}
+
+func (f *realHelperFixture) releaseOwnerReadiness() {
+	if f.readyLock != nil {
+		_ = f.readyLock.Close()
+		f.readyLock = nil
+	}
 }
 
 type realHelperRun struct {
@@ -383,22 +394,55 @@ func (f *realHelperFixture) launchHelper(args ...string) *realHelperRun {
 }
 
 // startHelper launches the helper with the three arguments the 0.4.2
-// collector passes and performs the same ready-file handshake. It also checks
-// what the old helper promises before it writes "ready": update.lock is held.
-func (f *realHelperFixture) startHelper() *realHelperRun {
+// collector passes and performs the same ready-file handshake.
+//
+// The helper writes "ready" and, if no runtime owner is active, swaps and
+// releases update.lock at once, so "ready is visible and update.lock is held"
+// is only observable if the helper has a reason to wait. The fixture therefore
+// plays the old runtime owner the real helper waits for: it holds runtime.lock
+// and runtime.ready exclusively (the two conditions of runtimeOwnerActive)
+// before the helper starts and keeps both until the test has read "ready" and
+// checked the helper's promises. While the owner is active the helper cannot
+// have swapped, so those checks are deterministic. Then the owner goes away,
+// as an exiting old collector would: runtime.ready is released, and so is
+// runtime.lock unless keepRuntimeLock is set. Keeping runtime.lock makes every
+// collector the helper starts exit at once and leaves the helper without a
+// ready owner, which is how the rollback scenarios reach the helper's timeout.
+func (f *realHelperFixture) startHelper(keepRuntimeLock bool) *realHelperRun {
 	f.t.Helper()
+	f.runtimeLock, f.readyLock = f.lockHome("runtime.lock"), f.lockHome(readinessFilename)
+	if !f.ownerActive() {
+		f.t.Fatal("fixture runtime owner is not visible to the product's owner probe")
+	}
 	run := f.launchHelper(f.target, f.staged, f.ready)
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		state, err := os.ReadFile(f.ready)
-		if err == nil && strings.TrimSpace(string(state)) != "" {
-			if strings.TrimSpace(string(state)) != "ready" {
+		text := strings.TrimSpace(string(state))
+		if err == nil && text != "" && text != "ready" && text != "error" && (strings.HasPrefix("ready", text) || strings.HasPrefix("error", text)) {
+			text = "" // a partially visible write; read again
+		}
+		if err == nil && text != "" {
+			if text != "ready" {
 				f.t.Fatalf("real helper could not claim the handoff (%q): %s", state, run.log())
 			}
 			if !f.lockHeld("update.lock") {
 				f.t.Fatalf("real helper reported ready without holding update.lock: %s", run.log())
 			}
+			if _, err := os.Lstat(f.staged); err != nil {
+				f.t.Fatalf("staged file vanished while the runtime owner was still active: %v", err)
+			}
+			if _, err := os.Lstat(f.backup); !errors.Is(err, os.ErrNotExist) {
+				f.t.Fatalf("real helper made its backup while the runtime owner was still active: %v", err)
+			}
+			if !f.ownerActive() {
+				f.t.Fatal("fixture runtime owner stopped being visible before it was released")
+			}
 			_ = os.Remove(f.ready)
+			f.releaseOwnerReadiness()
+			if !keepRuntimeLock {
+				f.releaseRuntimeLock()
+			}
 			return run
 		}
 		select {
@@ -610,7 +654,7 @@ func testRealHelperFourArguments(t *testing.T, bins realHelperBinaries) {
 // retires its backup. Settlement afterwards must be a clean no-op.
 func testRealHelperReady(t *testing.T, bins realHelperBinaries) {
 	f := newRealHelperFixture(t, bins)
-	run := f.startHelper()
+	run := f.startHelper(false)
 	f.waitExit(run)
 	f.requireHelperSilent(run)
 	if !f.ownerActive() {
@@ -643,8 +687,7 @@ func testRealHelperReady(t *testing.T, bins realHelperBinaries) {
 // changed installation and leave the restored 0.4.2 intact.
 func testRealHelperRollbackWins(t *testing.T, bins realHelperBinaries) {
 	f := newRealHelperFixture(t, bins)
-	f.holdRuntimeLock()
-	run := f.startHelper()
+	run := f.startHelper(true)
 	f.waitSwap(run)
 	f.waitExit(run)
 	f.waitNoProcesses()
@@ -665,11 +708,12 @@ func testRealHelperRollbackWins(t *testing.T, bins realHelperBinaries) {
 // backup (it logs that), not on a sharing violation, and leave the new target.
 func testRealHelperSettlementWins(t *testing.T, bins realHelperBinaries) {
 	f := newRealHelperFixture(t, bins)
-	f.holdRuntimeLock()
-	run := f.startHelper()
-	f.waitSwap(run)
+	run := f.startHelper(true)
+	swapped := f.waitSwap(run)
 	if err := f.settle(f.version); err != nil {
-		t.Fatalf("settlement after swap: %v", err)
+		// This scenario relies on settlement finishing inside the helper's 30 s
+		// readiness window, which only a run on a slow host could break.
+		t.Fatalf("settlement after swap failed %s after the swap (the helper rolls back about %s after it starts the new collector): %v", time.Since(swapped).Round(time.Millisecond), realHelperRestoreDelay, err)
 	}
 	f.waitExit(run)
 	f.waitNoProcesses()
@@ -692,8 +736,7 @@ func testRealHelperSettlementWins(t *testing.T, bins realHelperBinaries) {
 // at the new version.
 func testRealHelperHoldAcrossRestore(t *testing.T, bins realHelperBinaries) {
 	f := newRealHelperFixture(t, bins)
-	f.holdRuntimeLock()
-	run := f.startHelper()
+	run := f.startHelper(true)
 	f.waitSwap(run)
 	calls := 0
 	read := func(name string) (string, error) {
@@ -737,8 +780,7 @@ func testRealHelperHoldAcrossRestore(t *testing.T, bins realHelperBinaries) {
 // interleaving, and the log lines record which one actually happened.
 func testRealHelperCollision(t *testing.T, bins realHelperBinaries, offset time.Duration) {
 	f := newRealHelperFixture(t, bins)
-	f.holdRuntimeLock()
-	run := f.startHelper()
+	run := f.startHelper(true)
 	swapped := f.waitSwap(run)
 	select {
 	case <-time.After(time.Until(swapped.Add(realHelperRestoreDelay + offset))):
