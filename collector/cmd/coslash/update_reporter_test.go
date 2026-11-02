@@ -217,6 +217,7 @@ func TestRebindWaitsForTheShutdownFlushBeforeAnythingIsRebound(t *testing.T) {
 	updateFlushTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { updateFlushTimeout = previous })
 	var calls, afterRebind atomic.Int32
+	finished := make(chan struct{}, 1)
 	controller, err := newSyncController(func(ctx context.Context, queue *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
 		runUpdateReporter(ctx, reporterFunc(func(context.Context) error {
 			calls.Add(1)
@@ -224,6 +225,7 @@ func TestRebindWaitsForTheShutdownFlushBeforeAnythingIsRebound(t *testing.T) {
 			if queue.PendingUpdate() == nil {
 				afterRebind.Add(1)
 			}
+			finished <- struct{}{}
 			return nil
 		}), queue)
 	}, nil)
@@ -242,7 +244,11 @@ func TestRebindWaitsForTheShutdownFlushBeforeAnythingIsRebound(t *testing.T) {
 	if controller.Queue().PendingUpdate() != nil {
 		t.Fatal("the old binding's attempt survived the rebind")
 	}
-	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the shutdown flush never finished")
+	}
 	if afterRebind.Load() != 0 || calls.Load() != 1 {
 		t.Fatalf("stale reporter work outlived the rebind: calls=%d afterRebind=%d", calls.Load(), afterRebind.Load())
 	}

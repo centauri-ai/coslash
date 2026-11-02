@@ -20,12 +20,23 @@ type ConditionalCredentialDeleter interface {
 	DeleteIfMatches(context.Context, string) (bool, error)
 }
 
-// DetachWithDeadline keeps ctx's values and deadline but not its cancellation,
-// for cleanup that must outlive a cancelled request yet stay bounded by the
-// caller that is waiting on it.
-func DetachWithDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+type boundedCleanupKey struct{}
+
+// WithBoundedCleanup marks a context whose deadline must also bound the revoked
+// credential cleanup that outlives its cancellation, because its caller waits on
+// that cleanup. Every other request keeps cleanup independent of its deadline.
+func WithBoundedCleanup(ctx context.Context) context.Context {
+	return context.WithValue(ctx, boundedCleanupKey{}, true)
+}
+
+// BoundedCleanup reports whether ctx was marked by WithBoundedCleanup.
+func BoundedCleanup(ctx context.Context) bool { return ctx.Value(boundedCleanupKey{}) != nil }
+
+// CleanupContext detaches cleanup from ctx's cancellation. It keeps ctx's
+// deadline only when ctx is marked by WithBoundedCleanup.
+func CleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	detached := context.WithoutCancel(ctx)
-	if deadline, ok := ctx.Deadline(); ok {
+	if deadline, ok := ctx.Deadline(); ok && BoundedCleanup(ctx) {
 		return context.WithDeadline(detached, deadline)
 	}
 	return detached, func() {}
