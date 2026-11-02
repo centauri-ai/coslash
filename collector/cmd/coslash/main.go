@@ -335,7 +335,12 @@ func main() {
 			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
 			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
 		}
-		go runUpdateReporter(syncContext, controller.observed(runner, client).(updateReporter), queue)
+		reporterDone := make(chan struct{})
+		defer func() { <-reporterDone }()
+		go func() {
+			defer close(reporterDone)
+			runUpdateReporter(syncContext, controller.updateReporter(collectorVersion, queue, client), queue)
+		}()
 		if fingerprints != nil {
 			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
 				return discoverLocalBatches(ctx, fingerprints, queue, visit)

@@ -261,7 +261,7 @@ func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
 	}
 	if revoked && credentialErr == nil && credential != "" {
 		if deleter, ok := w.client.Credentials.(hubclient.ConditionalCredentialDeleter); ok {
-			deleteContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			deleteContext, cancel := revokedDeleteContext(ctx)
 			defer cancel()
 			deleted, deleteErr := deleter.DeleteIfMatches(deleteContext, credential)
 			if deleteErr != nil {
@@ -292,7 +292,7 @@ func (w observedSyncWorker) ReportUpdate(ctx context.Context) error {
 	}
 	if revoked && credentialErr == nil && credential != "" {
 		if deleter, ok := w.client.Credentials.(hubclient.ConditionalCredentialDeleter); ok {
-			deleteContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			deleteContext, cancel := revokedDeleteContext(ctx)
 			defer cancel()
 			deleted, deleteErr := deleter.DeleteIfMatches(deleteContext, credential)
 			if deleteErr != nil {
@@ -346,7 +346,9 @@ func (c *syncController) observedWait(wait func(context.Context, int64) (hubclie
 
 func (c *syncController) markRevokedIfUnpaired(ctx context.Context, client *hubclient.Client, binding string) {
 	if client != nil && client.Credentials != nil {
-		if _, err := client.Credentials.Load(context.WithoutCancel(ctx)); errors.Is(err, hubclient.ErrNotPaired) {
+		loadContext, cancel := hubclient.DetachWithDeadline(ctx)
+		defer cancel()
+		if _, err := client.Credentials.Load(loadContext); errors.Is(err, hubclient.ErrNotPaired) {
 			c.markRevoked(client, binding)
 		}
 	}
@@ -364,4 +366,24 @@ func (c *syncController) markRevoked(client *hubclient.Client, binding string) {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// revokedDeleteContext lets a revoked credential be deleted after its request was
+// cancelled, within the caller's deadline or, without one, five seconds.
+func revokedDeleteContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return hubclient.DetachWithDeadline(ctx)
+	}
+	return context.WithTimeout(context.Background(), 5*time.Second)
+}
+
+// updateReporter sends update receipts only as the binding this loop was started
+// for, whatever client or credential is current by the time a request is made.
+func (c *syncController) updateReporter(version string, queue *syncv4.Queue, client *hubclient.Client) updateReporter {
+	c.mu.RLock()
+	binding := c.binding
+	c.mu.RUnlock()
+	pinned := bindingPinnedClient(client, binding)
+	runner := &syncv4.Runner{Version: version, Queue: queue, Hub: currentHubTransport{current: func() *hubclient.Client { return pinned }, queue: queue}}
+	return observedSyncWorker{runner: runner, controller: c, client: client, binding: binding}
 }
