@@ -22,14 +22,16 @@ type updateReporter interface{ ReportUpdate(context.Context) error }
 
 func runUpdateReporter(ctx context.Context, reporter updateReporter, queue *syncv4.Queue) {
 	var retry <-chan time.Time
+	var acknowledged updateFailure
 	for {
 		select {
 		case <-ctx.Done():
-			flushFailedUpdate(ctx, reporter, queue)
+			flushFailedUpdate(ctx, reporter, queue, acknowledged)
 			return
 		case <-queue.UpdateWake():
 		case <-retry:
 		}
+		before := failureOf(queue.PendingUpdate())
 		call, cancel := context.WithTimeout(ctx, 20*time.Second)
 		err := reporter.ReportUpdate(call)
 		cancel()
@@ -37,8 +39,22 @@ func runUpdateReporter(ctx context.Context, reporter updateReporter, queue *sync
 			retry = time.After(30 * time.Second)
 		} else {
 			retry = nil
+			if before != (updateFailure{}) && failureOf(queue.PendingUpdate()) == before {
+				acknowledged = before
+			}
 		}
 	}
+}
+
+// updateFailure names a failed update attempt and its cause; the zero value is
+// no failure.
+type updateFailure struct{ id, code string }
+
+func failureOf(update *syncv4.UpdateAttempt) updateFailure {
+	if update == nil || update.Stage != "failed" {
+		return updateFailure{}
+	}
+	return updateFailure{id: update.ID, code: update.Error}
 }
 
 var updateFlushTimeout = 5 * time.Second
@@ -46,12 +62,14 @@ var updateFlushTimeout = 5 * time.Second
 // A legacy rollback restarts into a binary that discards a failed attempt, so
 // shutdown gets one bounded, uncancelled attempt to deliver the failure. It runs
 // to completion before returning, so nothing it started can outlive the loop and
-// act on the queue after a rebind; the deadline reaches every step it takes.
-func flushFailedUpdate(ctx context.Context, reporter updateReporter, queue *syncv4.Queue) {
-	if update := queue.PendingUpdate(); update == nil || update.Stage != "failed" {
+// act on the queue after a rebind; the deadline reaches every step it takes,
+// including the revoked-credential cleanup. A failure the Hub already accepted
+// from this reporter is not sent again, which also spares a slow Hub the wait.
+func flushFailedUpdate(ctx context.Context, reporter updateReporter, queue *syncv4.Queue, acknowledged updateFailure) {
+	if pending := failureOf(queue.PendingUpdate()); pending == (updateFailure{}) || pending == acknowledged {
 		return
 	}
-	call, cancel := context.WithTimeout(context.WithoutCancel(ctx), updateFlushTimeout)
+	call, cancel := context.WithTimeout(hubclient.WithBoundedCleanup(context.WithoutCancel(ctx)), updateFlushTimeout)
 	defer cancel()
 	_ = reporter.ReportUpdate(call)
 }

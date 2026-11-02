@@ -335,12 +335,6 @@ func main() {
 			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
 			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
 		}
-		reporterDone := make(chan struct{})
-		defer func() { <-reporterDone }()
-		go func() {
-			defer close(reporterDone)
-			runUpdateReporter(syncContext, controller.updateReporter(collectorVersion, queue, client), queue)
-		}()
 		if fingerprints != nil {
 			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
 				return discoverLocalBatches(ctx, fingerprints, queue, visit)
@@ -351,7 +345,9 @@ func main() {
 			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
 		})
 		go runActivePoller(syncContext, "", loopControl)
-		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, controller.observedWait(syncHub.V4Wait, client), loopControl, wake, retryWake, inventoryRequest)
+		controller.runWithUpdateReporter(syncContext, collectorVersion, queue, client, func() {
+			runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, controller.observedWait(syncHub.V4Wait, client), loopControl, wake, retryWake, inventoryRequest)
+		})
 	}, func() bool { return settingsStore.State().Config.SyncPaused })
 	if err != nil {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)

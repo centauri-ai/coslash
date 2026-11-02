@@ -346,7 +346,7 @@ func (c *syncController) observedWait(wait func(context.Context, int64) (hubclie
 
 func (c *syncController) markRevokedIfUnpaired(ctx context.Context, client *hubclient.Client, binding string) {
 	if client != nil && client.Credentials != nil {
-		loadContext, cancel := hubclient.DetachWithDeadline(ctx)
+		loadContext, cancel := hubclient.CleanupContext(ctx)
 		defer cancel()
 		if _, err := client.Credentials.Load(loadContext); errors.Is(err, hubclient.ErrNotPaired) {
 			c.markRevoked(client, binding)
@@ -369,10 +369,11 @@ func (c *syncController) markRevoked(client *hubclient.Client, binding string) {
 }
 
 // revokedDeleteContext lets a revoked credential be deleted after its request was
-// cancelled, within the caller's deadline or, without one, five seconds.
+// cancelled: within the deadline of a caller that waits on the cleanup, otherwise
+// within five seconds.
 func revokedDeleteContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); ok {
-		return hubclient.DetachWithDeadline(ctx)
+	if _, ok := ctx.Deadline(); ok && hubclient.BoundedCleanup(ctx) {
+		return hubclient.CleanupContext(ctx)
 	}
 	return context.WithTimeout(context.Background(), 5*time.Second)
 }
@@ -386,4 +387,18 @@ func (c *syncController) updateReporter(version string, queue *syncv4.Queue, cli
 	pinned := bindingPinnedClient(client, binding)
 	runner := &syncv4.Runner{Version: version, Queue: queue, Hub: currentHubTransport{current: func() *hubclient.Client { return pinned }, queue: queue}}
 	return observedSyncWorker{runner: runner, controller: c, client: client, binding: binding}
+}
+
+// runWithUpdateReporter runs loop beside the update reporter and returns only once
+// the reporter, including its shutdown flush, is over, so that nothing it started
+// can act on the queue after the controller rebinds it.
+func (c *syncController) runWithUpdateReporter(ctx context.Context, version string, queue *syncv4.Queue, client *hubclient.Client, loop func()) {
+	reporter := c.updateReporter(version, queue, client)
+	done := make(chan struct{})
+	defer func() { <-done }()
+	go func() {
+		defer close(done)
+		runUpdateReporter(ctx, reporter, queue)
+	}()
+	loop()
 }
