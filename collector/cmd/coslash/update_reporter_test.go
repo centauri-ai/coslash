@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -298,4 +299,39 @@ func TestShutdownFlushStaysBoundedWhenARevokedReplyHitsAHungKeychain(t *testing.
 	case <-time.After(3 * time.Second):
 		t.Fatal("shutdown flush outlived its bound")
 	}
+}
+
+// The Hub accepts the failure it was sent, but the attempt's cause changes while
+// that report is in flight. The new cause was never sent, so shutdown must still
+// send it; remembering the post-call state as accepted would drop it. The barrier
+// is synctest.Wait, which returns once the loop has recorded the first report's
+// outcome and is idle, so cancelling cannot come before that bookkeeping.
+func TestShutdownStillFlushesAFailureThatChangedWhileItsReportWasInFlight(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		queue := failedLegacyQueue(t)
+		var calls atomic.Int32
+		var sent []string
+		reporter := reporterFunc(func(context.Context) error {
+			sent = append(sent, queue.PendingUpdate().Error)
+			if calls.Add(1) == 1 {
+				if err := queue.SetUpdateStage(fixtureUpdateID, "failed", "update_unavailable"); err != nil {
+					t.Error(err)
+				}
+			}
+			return nil
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); runUpdateReporter(ctx, reporter, queue) }()
+		queue.SignalUpdate()
+		synctest.Wait()
+		if calls.Load() != 1 {
+			t.Fatalf("expected the wake-driven report only, got %d calls", calls.Load())
+		}
+		cancel()
+		<-done
+		if len(sent) != 2 || sent[0] != "update_failed" || sent[1] != "update_unavailable" {
+			t.Fatalf("the changed cause was not sent at shutdown: %v", sent)
+		}
+	})
 }
