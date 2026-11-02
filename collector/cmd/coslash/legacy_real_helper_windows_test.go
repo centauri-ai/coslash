@@ -100,6 +100,9 @@ func realHelperFileSHA(t *testing.T, name string) string {
 // written, and every child process sees only it.
 type realHelperLayout struct {
 	root, home, profile, appData, localAppData, install, tmp, logs string
+	// hubURL is set only by the paired tests (legacy_paired_windows_test.go): a
+	// loopback fake Hub the children may reach. Empty for every scenario here.
+	hubURL string
 }
 
 func newRealHelperLayout(root string) (realHelperLayout, error) {
@@ -134,7 +137,6 @@ func (l realHelperLayout) env() []string {
 	system := os.Getenv("SystemRoot")
 	env := []string{
 		"COSLASH_HOME=" + l.home,
-		"COSLASH_SYNC_PAUSED=1",
 		"HOME=" + l.profile,
 		"USERPROFILE=" + l.profile,
 		"APPDATA=" + l.appData,
@@ -142,6 +144,12 @@ func (l realHelperLayout) env() []string {
 		"TEMP=" + l.tmp,
 		"TMP=" + l.tmp,
 		"PATH=" + filepath.Join(system, "System32") + ";" + system + ";" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0"),
+	}
+	if l.hubURL == "" {
+		env = append(env, "COSLASH_SYNC_PAUSED=1")
+	} else {
+		// Loopback Hub only; any other HTTP(S) request goes to a closed port.
+		env = append(env, "COSLASH_HUB_URL="+l.hubURL, "HTTP_PROXY=http://127.0.0.1:9", "HTTPS_PROXY=http://127.0.0.1:9", "ALL_PROXY=http://127.0.0.1:9")
 	}
 	for _, name := range []string{"SystemRoot", "windir", "SystemDrive", "ComSpec", "PATHEXT", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ALLUSERSPROFILE", "PUBLIC", "COMPUTERNAME", "OS", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS", "USERNAME", "USERDOMAIN"} {
 		if value := os.Getenv(name); value != "" {

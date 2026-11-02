@@ -1,7 +1,11 @@
 [CmdletBinding()]
 param(
     # Verified copy of the official v0.4.2 asset to reuse instead of downloading.
-    [string]$LegacyBinaryPath = ""
+    [string]$LegacyBinaryPath = "",
+    # Also run the paired proof (real helper + real new collector + loopback fake
+    # Hub). It writes one synthetic credential to Windows Credential Manager, so it
+    # is accepted only on an ephemeral CI runner (GITHUB_ACTIONS=true).
+    [switch]$Paired
 )
 
 # Native Windows proof against the real published v0.4.2 update helper.
@@ -16,11 +20,16 @@ param(
 # arguments: target, staged, ready) and every `--version` check with owned
 # HOME/USERPROFILE/COSLASH_HOME/LOCALAPPDATA/TEMP and no credentials, Hub or
 # network model calls. Safe to run by hand on a disposable Windows machine.
+# With -Paired (CI only) it then runs TestRealLegacyHelperPaired, which adds a
+# loopback fake Hub and one synthetic Credential Manager entry (see that test).
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+if ($Paired -and $env:GITHUB_ACTIONS -ne "true") {
+    throw "-Paired writes a synthetic credential to Windows Credential Manager and runs only on an ephemeral CI runner"
+}
 $collector = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $pinFile = Join-Path $collector "cmd\coslash\testdata\legacy-helper-0.4.2-windows-amd64.sha256"
 $pin = (Get-Content -LiteralPath $pinFile -Raw).Trim().Split(" ", [StringSplitOptions]::RemoveEmptyEntries)
@@ -64,11 +73,17 @@ try {
         $ErrorActionPreference = "Continue"
         & go test -tags realhelper -count=1 -timeout 10m -parallel 6 -v -run '^TestRealLegacyHelper$' ./cmd/coslash
         $exitCode = $LASTEXITCODE
+        if ($Paired) {
+            $env:COSLASH_REAL_HELPER_PAIRED = "ephemeral-ci-runner-credential-manager"
+            & go test -tags realhelper -count=1 -timeout 10m -v -run '^TestRealLegacyHelperPaired$' ./cmd/coslash
+            if ($LASTEXITCODE -ne 0 -and $exitCode -eq 0) { $exitCode = $LASTEXITCODE }
+        }
         $ErrorActionPreference = "Stop"
     }
     finally {
         Remove-Item Env:COSLASH_REAL_HELPER_V042 -ErrorAction SilentlyContinue
         Remove-Item Env:COSLASH_REAL_HELPER_NEW -ErrorAction SilentlyContinue
+        Remove-Item Env:COSLASH_REAL_HELPER_PAIRED -ErrorAction SilentlyContinue
         Pop-Location
     }
 }
