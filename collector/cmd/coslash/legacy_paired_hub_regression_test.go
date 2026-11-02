@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,23 +14,55 @@ import (
 // pairedHubProbe drives the fake with the product's own hubclient and
 // syncv4.Queue, as the paired Windows test's collector does.
 type pairedHubProbe struct {
-	t     *testing.T
-	hub   *pairedHub
-	queue *syncv4.Queue
+	t           *testing.T
+	hub         *pairedHub
+	queue       *syncv4.Queue
+	credentials *syntheticCredentials
+}
+
+// syntheticCredentials is an in-memory CredentialStore. The platform stores
+// (keychain, Credential Manager) must not be read by these tests, and a file
+// store named after "host:port" is not a valid filename on Windows.
+type syntheticCredentials struct {
+	mu    sync.Mutex
+	value string
+}
+
+func (s *syntheticCredentials) Load(context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.value == "" {
+		return "", hubclient.ErrNotPaired
+	}
+	return s.value, nil
+}
+
+func (s *syntheticCredentials) Save(_ context.Context, credential string) error {
+	s.mu.Lock()
+	s.value = credential
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *syntheticCredentials) Delete(context.Context) error {
+	s.mu.Lock()
+	s.value = ""
+	s.mu.Unlock()
+	return nil
 }
 
 func newPairedHubProbe(t *testing.T, hub *pairedHub) *pairedHubProbe {
 	t.Helper()
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	store := deviceCredentialStore("linux", hub.url)
-	if err := store.Save(context.Background(), hub.token); err != nil {
+	credentials := &syntheticCredentials{}
+	if err := credentials.Save(context.Background(), hub.token); err != nil {
 		t.Fatal(err)
 	}
 	queue, err := syncv4.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &pairedHubProbe{t, hub, queue}
+	return &pairedHubProbe{t: t, hub: hub, queue: queue, credentials: credentials}
 }
 
 // checkIn performs one check-in as the given collector version and returns the
@@ -40,6 +73,7 @@ func (p *pairedHubProbe) checkIn(version string, results ...hubclient.V4CommandR
 	if err != nil {
 		p.t.Fatal(err)
 	}
+	client.Credentials = p.credentials
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	out, err := client.V4CheckIn(ctx, hubclient.V4Queue{}, 0, results, nil, nil)
