@@ -147,6 +147,26 @@ jobs:
         shell: powershell
         run: go vet ./...
 
+  # Opt-in native proof against the real published v0.4.2 Windows helper. It is
+  # deliberately not part of the `Windows` aggregate below until it has passed
+  # on a pushed head; the Windows update gate stays off until then.
+  windows-real-helper:
+    name: Windows real legacy helper
+    runs-on: blacksmith-4vcpu-windows-2025
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: collector/go.mod
+          cache: true
+          cache-dependency-path: collector/go.sum
+      - name: Prove settlement against the real v0.4.2 helper
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-real-helper.ps1
+
   windows-release-smoke:
     name: Windows release smoke
     needs: release
