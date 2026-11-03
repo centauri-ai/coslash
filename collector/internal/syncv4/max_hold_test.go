@@ -2,15 +2,23 @@ package syncv4
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
+	backup "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 type maxHoldHub struct {
@@ -134,6 +142,165 @@ func TestFrozenReservationDuringPreparation(t *testing.T) {
 	}
 }
 
+func TestFrozenRealPreparationAndRestart(t *testing.T) {
+	start := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	now := start.Add(10 * time.Minute)
+	home := t.TempDir()
+	root := filepath.Join(claude.ProjectsRoot(home), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, fixtureRootID+".jsonl")
+	first := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:00:00Z","cwd":%q,"message":{"content":"first"}}`, fixtureRootID, home) + "\n"
+	if err := os.WriteFile(file, []byte(first), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	queueRoot := t.TempDir()
+	q, err := Open(queueRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := sessionbackupproducer.Selection{SourceKind: backup.SourceLocal, SourceID: "local", Agent: vendors.AgentClaude, SessionID: fixtureRootID}
+	item := Entry{Key: "live", Selection: selection, Live: true, Activity: start.UnixMilli(), SourceRevision: "before", Session: hubclient.V4Session{Agent: vendors.AgentClaude}}
+	if err := q.Merge([]Entry{item}, start); err != nil {
+		t.Fatal(err)
+	}
+	item.Activity = now.Add(-20 * time.Second).UnixMilli()
+	if err := q.Merge([]Entry{item}, now.Add(-20*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+		return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}, AfterRename: func() {
+		later := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:01:00Z","cwd":%q,"message":{"content":"later-change"}}`, fixtureRootID, home) + "\n"
+		if err := os.WriteFile(file, []byte(first+later), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		item.Activity, item.SourceRevision = now.UnixMilli(), "after"
+		if err := q.Merge([]Entry{item}, now); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	hub := &maxHoldHub{planHub: &planHub{}, confirmed: map[string]bool{}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now}
+	entry := q.Entries()[0]
+	if err := runner.prepareEntry(t.Context(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	stored := q.Entries()[0]
+	if stored.Frozen == nil || stored.SourceRevision != "after" || stored.BundleID == "" || len(q.Discards()) != 0 {
+		t.Fatalf("prepared state: %+v", stored)
+	}
+	prepared, err := manager.Open(stored.BundleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := manager.Reader(stored.BundleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range curatedArtifacts(prepared) {
+		body, err := readChunk(reader, artifact.LogicalName, 0, artifact.ByteLength)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), "later-change") {
+			t.Fatal("prepared bundle included the later source change")
+		}
+	}
+	q, err = Open(queueRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.Queue = q
+	entry = uploadEntry(q.Entries()[0])
+	if err := runner.createUpload(t.Context(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.transfer(t.Context(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	stored = q.Entries()[0]
+	if hub.finalized != 1 || stored.RevisionID == "" || stored.SyncedSourceRevision != "before" || stored.SourceRevision != "after" || !pending(stored) {
+		t.Fatalf("completed state: %+v", stored)
+	}
+}
+
+func TestFrozenUnpreparedRestartUsesVerifiedNewerSource(t *testing.T) {
+	_, file, data := piQueueSource(t)
+	revision := func() string {
+		t.Helper()
+		plan, err := pi.PlanSourcesContext(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		inputs, err := plan.SessionInputsContext(t.Context(), "pi.custom_01")
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := sessionbackupproducer.PiSourceRevision(t.Context(), inputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	start := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	now := start.Add(10 * time.Minute)
+	root := t.TempDir()
+	q, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := sessionbackupproducer.Selection{SourceKind: backup.SourceLocal, SourceID: "local", Agent: vendors.AgentPi, SessionID: "pi.custom_01"}
+	item := Entry{Key: "live", Selection: selection, Live: true, Activity: start.UnixMilli(), SourceRevision: revision(), Session: hubclient.V4Session{Agent: vendors.AgentPi}}
+	if err := q.Merge([]Entry{item}, start); err != nil {
+		t.Fatal(err)
+	}
+	item.Activity = now.Add(-time.Second).UnixMilli()
+	if err := q.Merge([]Entry{item}, now.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	entry := q.Entries()[0]
+	if err := q.freeze(&entry); err != nil {
+		t.Fatal(err)
+	}
+	updated := append(data, []byte(`{"type":"message","id":"new","parentId":"b","timestamp":"2026-10-01T12:00:04Z","message":{"role":"user","content":"later"}}`+"\n")...)
+	if err := os.WriteFile(file, updated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item.Activity, item.SourceRevision = now.UnixMilli(), revision()
+	if err := q.Merge([]Entry{item}, now); err != nil {
+		t.Fatal(err)
+	}
+	q, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()})
+	hub := &maxHoldHub{planHub: &planHub{}, confirmed: map[string]bool{}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now}
+	entry = uploadEntry(q.Entries()[0])
+	if err := runner.prepareEntry(t.Context(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := manager.Open(entry.BundleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Frozen == nil || entry.SourceRevision != item.SourceRevision || prepared.Manifest.Source.SourceRevision != item.SourceRevision {
+		t.Fatalf("reprepared entry: %+v", entry)
+	}
+	if err := runner.createUpload(t.Context(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.transfer(t.Context(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.Entries()[0]; hub.finalized != 1 || got.SyncedSourceRevision != item.SourceRevision || pending(got) {
+		t.Fatalf("reprepared completion: %+v", got)
+	}
+}
+
 func TestFrozenSourceVerificationFailureRetainsCapture(t *testing.T) {
 	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 	q, err := Open(t.TempDir())
@@ -215,6 +382,24 @@ func TestFrozenBundleSurvivesSourceChange(t *testing.T) {
 	}
 	if err := q.Update(entry); err != nil {
 		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "queue.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy struct {
+		Entries []struct {
+			Activity       int64  `json:"activity"`
+			SourceRevision string `json:"sourceRevision"`
+			BundleID       string `json:"bundleId"`
+			UploadID       string `json:"uploadId"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Entries) != 1 || legacy.Entries[0].Activity != entry.Activity || legacy.Entries[0].SourceRevision != "one" || legacy.Entries[0].BundleID != entry.BundleID || legacy.Entries[0].UploadID != entry.UploadID {
+		t.Fatalf("older reader sees mismatched bundle identity: %+v", legacy.Entries)
 	}
 	q, err = Open(root)
 	if err != nil {

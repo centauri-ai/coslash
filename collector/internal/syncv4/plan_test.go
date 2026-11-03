@@ -1148,16 +1148,22 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 				t.Fatal(err)
 			}
 			queue.SetActiveSince(now)
+			firstObservation := now.Add(time.Minute)
 			creates, reports := 0, 0
 			quiet, reporting := false, false
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
 				case "/v4/sessions:list-batch":
-					io.WriteString(w, `{"results":[{"localKeyHash":"new","sessionId":"ses_new","state":"listed"}]}`)
+					state := "listed"
+					if creates > 0 {
+						state = "existing"
+					}
+					fmt.Fprintf(w, `{"results":[{"localKeyHash":"new","sessionId":"ses_new","state":%q}]}`, state)
 				case "/v4/uploads":
 					creates++
-					if !quiet {
+					// C9/L-1 allows a live upload at the ten-minute maximum hold.
+					if !quiet && (!live || now.Sub(firstObservation) < 10*time.Minute) {
 						t.Error("uploaded before quiet period or retry elapsed")
 					}
 					io.WriteString(w, `{"sessionId":"ses_new","state":"completed","revisionId":"accepted"}`)
@@ -1173,7 +1179,8 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 					reports++
 					wantPhase, wantDone := "complete", 0
 					wantHistory := "off"
-					if quiet {
+					// C9/L-1 makes the first live revision count as caught up at the cap.
+					if quiet || live && creates > 0 {
 						wantDone = 1
 					}
 					if !live && !quiet {
@@ -1216,9 +1223,29 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+				if live && pass == 10 {
+					// C9/L-1 sends this continuously changing session at ten minutes.
+					manager, prepared, _ := fixtureBundle(t)
+					runner.Backup = manager
+					waiting := queue.Entries()[0]
+					waiting.BundleID = prepared.BundleID
+					if err := queue.Update(waiting); err != nil {
+						t.Fatal(err)
+					}
+				}
 				runner.checkedAt = now
 				if err := runner.runPlanned(t.Context()); err != nil {
 					t.Fatal(err)
+				}
+				if live {
+					// C9/L-1 sends exactly once at the cap during this continuous run.
+					want := 0
+					if pass >= 10 {
+						want = 1
+					}
+					if creates != want {
+						t.Fatalf("pass %d creates=%d want=%d", pass, creates, want)
+					}
 				}
 				reporting = true
 				if err := runner.refreshConsent(t.Context()); err != nil {
@@ -1228,7 +1255,8 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 			}
 			if live {
 				for _, elapsed := range []time.Duration{2*time.Minute - time.Millisecond, 2 * time.Minute} {
-					if progress := queue.progressAt(now.Add(elapsed)); progress.FirstSync.RecentDone != 0 || progress.Pending != 1 {
+					// C9/L-1 has completed one revision; newer activity remains pending.
+					if progress := queue.progressAt(now.Add(elapsed)); progress.FirstSync.RecentDone != 1 || progress.Pending != 1 {
 						t.Fatalf("progress at quiet boundary %s = %+v", elapsed, progress)
 					}
 				}
@@ -1250,7 +1278,12 @@ func TestNewSessionAfterCompleteHTTP(t *testing.T) {
 			if err := runner.refreshConsent(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if progress := queue.progressAt(now); creates != 1 || reports != 14 || progress.Pending != 0 ||
+			wantCreates := 1
+			// C9/L-1 sent the earlier capped revision for a live session.
+			if live {
+				wantCreates = 2
+			}
+			if progress := queue.progressAt(now); creates != wantCreates || reports != 14 || progress.Pending != 0 ||
 				progress.FirstSync.RecentDone != progress.FirstSync.RecentTotal {
 				t.Fatalf("creates=%d reports=%d progress=%+v", creates, reports, progress)
 			}

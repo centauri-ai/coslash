@@ -209,6 +209,12 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 }
 
 func (r *Runner) estimateContentBytes(ctx context.Context, entry *Entry) error {
+	if err := r.recoverUnprepared(entry); err != nil {
+		return err
+	}
+	if err := r.freezeIfDue(entry); err != nil {
+		return err
+	}
 	if entry.BundleID == "" {
 		prepared, err := r.Backup.Prepare(ctx, entry.Selection)
 		if err != nil {
