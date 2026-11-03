@@ -139,7 +139,10 @@ import, consent refreshes before a batch once it is four minutes old.
 
 The queue's outer `version` remains 1 so the previous Local can still read
 its old fields and ignore new fields. `scaleVersion: 1` identifies the additive
-plan and listing state.
+plan and listing state. During a capped upload the old fields retain the
+bundle's source identity, while the newer observed state is stored separately;
+an older Local can therefore resume or abandon that bundle without marking
+newer source content as sent.
 
 Each upload carries only the family's parsed-session-record artifacts, one per
 member; raw source, exact-change-body, enrichment, and synthesis artifacts stay

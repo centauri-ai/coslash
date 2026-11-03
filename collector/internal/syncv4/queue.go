@@ -71,6 +71,13 @@ type frozenCapture struct {
 	Activity       int64               `json:"activity"`
 	SourceRevision string              `json:"sourceRevision,omitempty"`
 	Session        hubclient.V4Session `json:"session"`
+	Current        *frozenCurrent      `json:"current,omitempty"`
+}
+
+type frozenCurrent struct {
+	Activity       int64               `json:"activity"`
+	SourceRevision string              `json:"sourceRevision,omitempty"`
+	Session        hubclient.V4Session `json:"session"`
 }
 
 func uploadEntry(entry Entry) Entry {
@@ -182,8 +189,12 @@ func Open(root string) (*Queue, error) {
 		}
 		// Reconcile post-start non-catch-up selections; frozen catch-up membership has its own marker.
 		for i := range q.state.Entries {
+			entry := &q.state.Entries[i]
+			if f := entry.Frozen; f != nil && f.Current != nil {
+				entry.Activity, entry.SourceRevision, entry.Session = f.Current.Activity, f.Current.SourceRevision, f.Current.Session
+				f.Current = nil
+			}
 			if plan := q.state.Config.ImportPlan; plan != nil {
-				entry := &q.state.Entries[i]
 				if entry.Listed && !isCatchUpEntry(*entry, *plan) && q.state.PlanStartedAt > 0 && entry.Activity >= q.state.PlanStartedAt {
 					entry.ChangedPlanVersion = plan.Version
 				}
@@ -1218,7 +1229,17 @@ func settledForCatchUp(entry Entry, now time.Time) bool {
 }
 
 func (q *Queue) save() error {
-	data, err := json.Marshal(q.state)
+	serialized := q.state
+	serialized.Entries = slices.Clone(q.state.Entries)
+	for i := range serialized.Entries {
+		entry := &serialized.Entries[i]
+		if entry.Frozen != nil {
+			frozen := *entry.Frozen
+			frozen.Current = &frozenCurrent{Activity: entry.Activity, SourceRevision: entry.SourceRevision, Session: entry.Session}
+			entry.Activity, entry.SourceRevision, entry.Session, entry.Frozen = frozen.Activity, frozen.SourceRevision, frozen.Session, &frozen
+		}
+	}
+	data, err := json.Marshal(serialized)
 	if err != nil {
 		return err
 	}

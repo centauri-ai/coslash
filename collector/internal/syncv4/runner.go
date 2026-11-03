@@ -1406,6 +1406,9 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 }
 
 func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
+	if err := r.recoverUnprepared(entry); err != nil {
+		return err
+	}
 	if err := r.startPending(entry); err != nil {
 		return err
 	}
@@ -1463,6 +1466,21 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 		}
 	}
 	entry.ContentSHA256 = manifest.ContentSHA256
+	return nil
+}
+
+func (r *Runner) recoverUnprepared(entry *Entry) error {
+	if entry.Frozen == nil || entry.BundleID != "" {
+		return nil
+	}
+	for _, current := range r.Queue.Entries() {
+		if current.Key == entry.Key && (current.Activity != entry.Activity || current.SourceRevision != entry.SourceRevision) {
+			if err := r.Queue.unfreeze(entry); err != nil {
+				return err
+			}
+			return r.entryAllowed(*entry)
+		}
+	}
 	return nil
 }
 
