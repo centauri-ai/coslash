@@ -69,7 +69,7 @@ async def test_repeat_question_does_not_suppress_unrelated_answer(monkeypatch, c
     question = "Assistant, repeat the plan for the API rollout."
     ask_task["task"]["ask"]["question"] = question
     cases["public"]["text"] = question
-    text = "The API rollout is on Monday."
+    text = "The rollout begins on Monday."
     fake, _ = setup(monkeypatch, cases, [final(text, [REF])])
     await execute(fake, ask_task)
     assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
@@ -181,3 +181,30 @@ async def test_override_followup_is_not_part_of_repeat_payload(monkeypatch, case
             if text == "violet badger"
             else {"text": text, "citations": [REF]}
         )
+
+
+@pytest.mark.parametrize("repeated_in_thread", [False, True])
+@pytest.mark.parametrize("answer", ["badger golden falcon", "violet badger golden falcon"])
+async def test_question_retains_full_repeat_payload(
+    monkeypatch, cases, ask_task, repeated_in_thread, answer
+):
+    question = "Assistant, repeat violet badger golden falcon."
+    ask_task["task"]["ask"]["question"] = question
+    if repeated_in_thread:
+        cases["public"]["text"] = question
+    fake, _ = setup(monkeypatch, cases, [final(answer, [REF])])
+    await execute(fake, ask_task)
+    assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
+        "text": FAILED,
+        "citations": [],
+    }
+
+
+async def test_distinctive_question_payload_fragment_is_rejected(monkeypatch, cases, ask_task):
+    ask_task["task"]["ask"]["question"] = "Assistant, repeat the plan for the API rollout."
+    fake, _ = setup(monkeypatch, cases, [final("The API rollout is on Monday.", [REF])])
+    await execute(fake, ask_task)
+    assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
+        "text": FAILED,
+        "citations": [],
+    }
