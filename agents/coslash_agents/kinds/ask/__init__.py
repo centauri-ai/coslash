@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import re
 import time
@@ -10,6 +11,7 @@ import structlog
 from jsonschema import Draft202012Validator
 
 from coslash_agents.kinds.ask.copy import FAILED, NOT_FOUND, TIMEOUT
+from coslash_agents.kinds.ask.injection import remember_instructions, unsafe_answer
 from coslash_agents.llm.client import ModelClient, Usage
 from coslash_agents.mcp.client import TOOLS, TaskExpired, TaskForbidden, ToolError
 from coslash_agents.safety import quote_untrusted, strip_slack_controls, validate_refs
@@ -117,7 +119,10 @@ def seen_in(name, data):
 
 
 def clean_text(text):
+    for _ in range(3):
+        text = html.unescape(text)
     text = strip_slack_controls(text)
+    text = re.sub(r"(?<![\w@])@[\w.-]+", "", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"https?://\S+|www\.\S+|<[^>]*>|[\x00-\x1f\x7f]|[*_~`]", "", text)
     text = " ".join(text.split())
@@ -126,7 +131,7 @@ def clean_text(text):
     return text.strip()
 
 
-async def ask_model(task, mcp, deadline, started, seen, context):
+async def ask_model(task, mcp, deadline, started, seen, context, passages):
     details = task["task"]
     question = details["ask"]
     messages = [
@@ -250,6 +255,7 @@ async def ask_model(task, mcp, deadline, started, seen, context):
                                     ]
                             except (ToolError, TimeoutError):
                                 result = {"error": "tool unavailable"}
+                remember_instructions(result, passages)
                 messages.append(
                     {
                         "type": "function_call_output",
@@ -265,6 +271,8 @@ async def run(task, mcp, deadline):
     ask = details["ask"]
     seen = []
     context = []
+    passages = set()
+    remember_instructions(ask["question"], passages)
     received = 0
     outcome = "failed"
     count = 0
@@ -286,12 +294,16 @@ async def run(task, mcp, deadline):
                 cursors.add(cursor)
                 args["cursor"] = cursor
                 args["limit"] = 200 - received
-            result, count = await ask_model(task, mcp, deadline, started, seen, context)
+            remember_instructions(context, passages)
+            result, count = await ask_model(task, mcp, deadline, started, seen, context, passages)
             citations = validate_refs(result["citations"], seen)
             text = clean_text(result["text"])
             if result["found"] and citations and text:
-                answer = {"text": text, "citations": citations}
-                outcome = "answered"
+                if unsafe_answer(result["text"], passages):
+                    answer = {"text": FAILED, "citations": []}
+                else:
+                    answer = {"text": text, "citations": citations}
+                    outcome = "answered"
             else:
                 answer = {"text": NOT_FOUND, "citations": []}
                 outcome = "not_found"

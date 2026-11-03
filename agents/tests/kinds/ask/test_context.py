@@ -21,7 +21,7 @@ async def test_thread_paging_is_bounded_and_not_counted(monkeypatch, ask_task, c
         async def coslash_reply_in_thread(self, answer):
             captured["answer"] = answer
 
-    async def model(task, mcp, deadline, started, seen, context):
+    async def model(task, mcp, deadline, started, seen, context, passages):
         captured["context"] = context
         captured["seen"] = seen
         return {"found": False, "text": "", "citations": []}, 0
