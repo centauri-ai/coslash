@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = ["httpx>=0.27,<1", "pydantic>=2,<3", "openai>=1,<3", "google-auth[requests]>=2,<3", "structlog>=24,<26", "jsonschema>=4,<5", "starlette>=0.40,<1", "uvicorn>=0.30,<1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9", "cryptography>=42", "pytest-asyncio>=0.24,<2", "ruff==0.12.12", "datamodel-code-generator==0.35.0"]
+dev = ["pytest>=8,<9", "cryptography>=42", "pytest-asyncio>=0.24,<2", "ruff==0.12.12", "datamodel-code-generator==0.35.0", "setuptools>=69", "wheel"]
 
 [tool.setuptools]
 include-package-data = true
@@ -20,6 +20,9 @@ packages = ["coslash_agents", "coslash_agents.runtime", "coslash_agents.mcp", "c
 "coslash_agents.contracts" = "contracts"
 
 [tool.setuptools.package-data]
+"coslash_agents.kinds.ask" = ["prompt.md"]
+"coslash_agents.kinds.board" = ["prompt.md"]
+"coslash_agents.kinds.day_report" = ["prompt.md"]
 "coslash_agents.contracts" = ["ctb/*.json", "ctb/SOURCE", "ctb/examples/*.json"]
 "coslash_agents.tests.fakes" = ["fixtures/ctb-agents-1/*.json"]
 

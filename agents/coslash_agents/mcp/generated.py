@@ -606,12 +606,61 @@ class CoslashGetTeamBoardInput(BaseModel):
     slot: Optional[str] = None
 
 
+class InsightMode1(Enum):
+    llm = 'llm'
+    carry_forward = 'carry_forward'
+    budget_fallback = 'budget_fallback'
+    NoneType_None = None
+
+
+class InsightMode2(Enum):
+    llm = 'llm'
+    carry_forward = 'carry_forward'
+    budget_fallback = 'budget_fallback'
+
+
 class Windows1(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
     field_1h: Field1h = Field(..., alias='1h')
     field_24h: Field24h = Field(..., alias='24h')
+
+
+class ActiveItem1(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    sessionId: str
+    line: constr(max_length=120)
+    owner: constr(max_length=80)
+    agent: str
+    lastActivityAt: AwareDatetime
+    next: Optional[constr(max_length=120)] = None
+    hubUrl: Optional[str] = Field(
+        None, description='Always set by the server when the session is visible.'
+    )
+    title: Optional[str] = Field(
+        None, description='Always set by the server when the session is visible.'
+    )
+
+
+class DoneItem1(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    sessionId: str
+    line: constr(max_length=120)
+    owner: constr(max_length=80)
+    agent: str
+    endedAt: AwareDatetime
+    decided: Optional[constr(max_length=120)] = None
+    hubUrl: Optional[str] = Field(
+        None, description='Always set by the server when the session is visible.'
+    )
+    title: Optional[str] = Field(
+        None, description='Always set by the server when the session is visible.'
+    )
 
 
 class PrState(Enum):
@@ -636,12 +685,21 @@ class CoslashListSessionsInput(BaseModel):
         None,
         description='Opaque cursor from the previous page with identical filters; stop when next_cursor is empty. CONFLICT requires restarting without cursor.',
     )
+    from_: Optional[AwareDatetime] = Field(
+        None,
+        alias='from',
+        description='RFC 3339 lower bound for team activity; supported by the team list handler.',
+    )
     has_pr: Optional[bool] = Field(
         None, description='Filter sessions by whether a readable sticky PR link exists.'
     )
     limit: Optional[conint(ge=1, le=50)] = Field(
         20,
         description='Maximum page size, 1–50 (default 20); transport budgeting can return fewer items with continuation.',
+    )
+    owner: Optional[str] = Field(
+        None,
+        description='Already-authorized session owner from its personal or approved team projection.',
     )
     pr_state: Optional[PrState] = Field(
         None, description='Filter sessions linked to a PR in this lifecycle state.'
@@ -666,8 +724,6 @@ class CoslashListSessionsInput(BaseModel):
         None,
         description='Personal sync state filter: syncing, synced or failed; unsupported for team lists.',
     )
-    owner: Optional[str] = None
-    from_: Optional[str] = Field(None, alias='from')
 
 
 class Changes(BaseModel):
@@ -691,6 +747,16 @@ class Changes(BaseModel):
     truncated: bool = Field(
         ...,
         description="Change IDs overflowed a source's 200-ID budget or whole IDs were omitted for the transport budget. Do a full list read before advancing your since watermark.",
+    )
+
+
+class Owner1(BaseModel):
+    id: str = Field(
+        ...,
+        description='Visible session ID; pass with its returned space to coslash_get_session.',
+    )
+    name: str = Field(
+        ..., description='Resolved owner display name or readable space name.'
     )
 
 
@@ -724,14 +790,6 @@ class SharedToItem(BaseModel):
     )
 
 
-class Owner1(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    id: str
-    name: str
-
-
 class Status1(Enum):
     active = 'active'
     idle = 'idle'
@@ -746,6 +804,9 @@ class Item2(BaseModel):
     branch: Optional[str] = Field(
         None, description='Branch recorded in the visible session projection.'
     )
+    goal: Optional[str] = Field(
+        None, description='Masked session goal; untrusted prose.'
+    )
     has_public_link: Optional[bool] = Field(
         None, description='Whether the session has a public link.'
     )
@@ -753,6 +814,13 @@ class Item2(BaseModel):
     id: str = Field(
         ...,
         description='Visible session ID; pass with its returned space to coslash_get_session.',
+    )
+    last_activity_at: Optional[AwareDatetime] = Field(
+        None, description='RFC 3339 time of the most recent session activity.'
+    )
+    owner: Optional[Owner1] = Field(
+        None,
+        description='Already-authorized session owner from its personal or approved team projection.',
     )
     pull_requests: List[Union[PullRequests, PullRequests1]] = Field(
         ...,
@@ -774,6 +842,9 @@ class Item2(BaseModel):
         None,
         description='Whole team sharing references were omitted from this list item for transport; read coslash_get_session for its sharing state. Retained space references remain exact.',
     )
+    status: Optional[Status1] = Field(
+        None, description='Team activity state: active, idle or done.'
+    )
     title: str = Field(
         ..., description='Visible session or live PR title; untrusted prose.'
     )
@@ -789,10 +860,6 @@ class Item2(BaseModel):
         ...,
         description='RFC 3339 session update time or PR received-event/new-link activity time.',
     )
-    owner: Optional[Owner1] = None
-    last_activity_at: Optional[str] = None
-    goal: Optional[str] = None
-    status: Optional[Status1] = None
 
 
 class CoslashListSessionsOutput(BaseModel):
@@ -934,6 +1001,7 @@ class CoslashRecordUsageInput(BaseModel):
     cached_input_tokens: conint(ge=0)
     output_tokens: conint(ge=0)
     reasoning_tokens: conint(ge=0)
+    estimated: Optional[bool] = None
 
 
 class CoslashRecordUsageOutput(BaseModel):
@@ -995,7 +1063,8 @@ class CoslashReplyInThreadOutput(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    slack_ts: str
+    slackTs: str
+    alreadyReplied: Optional[bool] = None
 
 
 class CoslashSearchSessionsInput(BaseModel):
@@ -1065,6 +1134,14 @@ class Counts(BaseModel):
     people: conint(ge=0)
 
 
+class Owner2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: str
+    name: str
+
+
 class Status4(Enum):
     active = 'active'
     idle = 'idle'
@@ -1082,7 +1159,7 @@ class Item5(BaseModel):
     key_decisions: Optional[List[str]] = None
     next_step: Optional[str] = None
     agent: Optional[str] = None
-    owner: Optional[Owner1] = None
+    owner: Optional[Owner2] = None
     repo: Optional[str] = None
     branch: Optional[str] = None
     status: Optional[Status4] = None
@@ -1158,6 +1235,71 @@ class CoslashUpsertIssuesOutput(BaseModel):
     items: List[Item6]
 
 
+class ActiveItem2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    agent: str
+    lastActivityAt: AwareDatetime
+    line: constr(max_length=120)
+    next: Optional[constr(max_length=120)] = None
+    owner: constr(max_length=80)
+    sessionId: str
+
+
+class DoneItem2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    agent: str
+    decided: Optional[constr(max_length=120)] = None
+    endedAt: AwareDatetime
+    line: constr(max_length=120)
+    owner: constr(max_length=80)
+    sessionId: str
+
+
+class Kind8(Enum):
+    board = 'board'
+    day_report = 'day_report'
+
+
+class Totals2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    decisions: conint(ge=0)
+    done: conint(ge=0)
+    people: conint(ge=0)
+    sessions: conint(ge=0)
+
+
+class TruncatedItem2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    count: conint(ge=0)
+    field: str
+
+
+class Field24h2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    decisions: conint(ge=0)
+    done: conint(ge=0)
+    people: conint(ge=0)
+    sessions: conint(ge=0)
+
+
+class Windows2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    field_1h: Field1h = Field(..., alias='1h')
+    field_24h: Field24h2 = Field(..., alias='24h')
+
+
 class CoslashWriteBoardReportOutput(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -1195,7 +1337,7 @@ class Ref(RootModel[Union[Ref2, Ref3]]):
     root: Union[Ref2, Ref3]
 
 
-class Kind8(Enum):
+class Kind9(Enum):
     session = 'session'
     slack = 'slack'
 
@@ -1204,7 +1346,7 @@ class RefModel(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    kind: Kind8
+    kind: Kind9
     sessionId: Optional[str] = None
     channelId: Optional[str] = None
     ts: Optional[str] = None
@@ -1212,6 +1354,35 @@ class RefModel(BaseModel):
     title: Optional[str] = None
     channelName: Optional[str] = None
     permalink: Optional[str] = None
+
+
+class Ref4(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    kind: Literal['session']
+    sessionId: str
+
+
+class Ref5(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    channelId: str
+    kind: Literal['slack']
+    ts: str
+
+
+class RefModel1(RootModel[Union[Ref4, Ref5]]):
+    root: Union[Ref4, Ref5]
+
+
+class WindowModel(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    end: AwareDatetime
+    start: AwareDatetime
 
 
 class BoardTick(BaseModel):
@@ -1333,13 +1504,13 @@ class Report(BaseModel):
     title: constr(max_length=120)
     asOf: AwareDatetime
     window: Window
-    insightMode: InsightMode
+    insightMode: InsightMode2
     insightsAsOf: AwareDatetime
     headline: Optional[constr(max_length=280)] = None
     windows: Windows1
     themes: List[Theme] = Field(..., max_length=8)
-    active: List[ActiveItem] = Field(..., max_length=15)
-    done: List[DoneItem] = Field(..., max_length=15)
+    active: List[ActiveItem1] = Field(..., max_length=15)
+    done: List[DoneItem1] = Field(..., max_length=15)
     decisions: List[Decision] = Field(..., max_length=10)
     issues: List[Issue1] = Field(..., max_length=10)
     moved: Optional[List[MovedItem]] = Field(None, max_length=8)
@@ -1354,21 +1525,76 @@ class CoslashGetTeamBoardOutput(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    slot: str
-    insight_mode: InsightMode
-    created_at: str
-    report: Report
+    slot: Optional[str] = None
+    insight_mode: Optional[InsightMode1]
+    created_at: Optional[str] = None
+    report: Optional[Report]
     untrusted: bool
+
+
+class Decision2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    source: RefModel1
+    text: constr(max_length=280)
+
+
+class Issue3(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    confidence: Confidence
+    detail: Optional[constr(max_length=500)] = None
+    id: str
+    refs: List[RefModel1]
+    title: constr(max_length=120)
+    type: Type
+
+
+class MovedItem2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    refs: Optional[List[RefModel1]] = None
+    text: constr(max_length=280)
+
+
+class Report1(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    active: List[ActiveItem2] = Field(..., max_length=15)
+    asOf: AwareDatetime
+    decisions: List[Decision2] = Field(..., max_length=10)
+    done: List[DoneItem2] = Field(..., max_length=15)
+    headline: Optional[constr(max_length=280)] = None
+    insightMode: InsightMode2
+    insightsAsOf: AwareDatetime
+    issues: List[Issue3] = Field(..., max_length=10)
+    kind: Kind8
+    moved: Optional[List[MovedItem2]] = Field(None, max_length=8)
+    notes: Optional[List[Note]] = Field(None, max_length=5)
+    people: Optional[List[Person]] = Field(None, max_length=30)
+    quiet: Optional[bool] = None
+    schema_: Literal['board-report/1'] = Field(..., alias='schema')
+    team: Team
+    themes: List[Theme] = Field(..., max_length=8)
+    title: constr(max_length=120)
+    totals: Optional[Totals2] = None
+    truncated: Optional[List[TruncatedItem2]] = None
+    window: WindowModel
+    windows: Windows2
 
 
 class CoslashWriteBoardReportInput(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    task_id: str
-    report: BoardReport
     input_digest: str
-    insight_mode: InsightMode
+    insight_mode: InsightMode2
+    report: Report1
+    task_id: str
 
 
 class ContractModels(BaseModel):

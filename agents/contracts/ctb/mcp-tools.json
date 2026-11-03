@@ -201,6 +201,9 @@
       ]
     },
     {
+      "name": "coslash_get_session",
+      "scope": "hub:read",
+      "risk": "read",
       "inputSchema": {
         "properties": {
           "id": {
@@ -209,7 +212,7 @@
           },
           "space": {
             "default": "me",
-            "description": "Readable space: me for personal sessions or org:<uuid> from coslash_list_spaces; linked sessions carry their own readable space.",
+            "description": "Readable space: me for personal sessions or org:\u003cuuid\u003e from coslash_list_spaces; linked sessions carry their own readable space.",
             "type": "string"
           }
         },
@@ -218,7 +221,6 @@
         ],
         "type": "object"
       },
-      "name": "coslash_get_session",
       "outputSchema": {
         "properties": {
           "agent": {
@@ -520,7 +522,7 @@
                         "type": "string"
                       },
                       "space": {
-                        "description": "Readable space: me for personal sessions or org:<uuid> from coslash_list_spaces; linked sessions carry their own readable space.",
+                        "description": "Readable space: me for personal sessions or org:\u003cuuid\u003e from coslash_list_spaces; linked sessions carry their own readable space.",
                         "type": "string"
                       },
                       "title": {
@@ -628,8 +630,6 @@
         ],
         "type": "object"
       },
-      "risk": "read",
-      "scope": "hub:read",
       "taskKinds": [
         "ask",
         "board_tick",
@@ -637,6 +637,9 @@
       ]
     },
     {
+      "name": "coslash_get_session_section",
+      "scope": "hub:read",
+      "risk": "read",
       "inputSchema": {
         "properties": {
           "cursor": {
@@ -675,7 +678,6 @@
         ],
         "type": "object"
       },
-      "name": "coslash_get_session_section",
       "outputSchema": {
         "properties": {
           "items": {
@@ -703,8 +705,6 @@
         ],
         "type": "object"
       },
-      "risk": "read",
-      "scope": "hub:read",
       "taskKinds": [
         "ask",
         "board_tick",
@@ -712,10 +712,13 @@
       ]
     },
     {
+      "name": "coslash_get_team",
+      "scope": "hub:read",
+      "risk": "read",
       "inputSchema": {
         "properties": {
           "space": {
-            "description": "Team space in the form org:<uuid>.",
+            "description": "Team space in the form org:\u003cuuid\u003e.",
             "type": "string"
           }
         },
@@ -724,7 +727,6 @@
         ],
         "type": "object"
       },
-      "name": "coslash_get_team",
       "outputSchema": {
         "properties": {
           "id": {
@@ -774,8 +776,6 @@
         ],
         "type": "object"
       },
-      "risk": "read",
-      "scope": "hub:read",
       "taskKinds": [
         "ask",
         "board_tick",
@@ -812,21 +812,34 @@
         "type": "object",
         "properties": {
           "slot": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "insight_mode": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "llm",
               "carry_forward",
-              "budget_fallback"
+              "budget_fallback",
+              null
             ]
           },
           "created_at": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "report": {
-            "type": "object",
+            "type": [
+              "object",
+              "null"
+            ],
             "properties": {
               "schema": {
                 "const": "board-report/1"
@@ -995,6 +1008,14 @@
                     "next": {
                       "type": "string",
                       "maxLength": 120
+                    },
+                    "hubUrl": {
+                      "type": "string",
+                      "description": "Always set by the server when the session is visible."
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "Always set by the server when the session is visible."
                     }
                   },
                   "required": [
@@ -1034,6 +1055,14 @@
                     "decided": {
                       "type": "string",
                       "maxLength": 120
+                    },
+                    "hubUrl": {
+                      "type": "string",
+                      "description": "Always set by the server when the session is visible."
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "Always set by the server when the session is visible."
                     }
                   },
                   "required": [
@@ -1418,6 +1447,9 @@
       ]
     },
     {
+      "name": "coslash_list_sessions",
+      "scope": "hub:read",
+      "risk": "read",
       "inputSchema": {
         "properties": {
           "agent": {
@@ -1428,16 +1460,25 @@
             "description": "Opaque cursor from the previous page with identical filters; stop when next_cursor is empty. CONFLICT requires restarting without cursor.",
             "type": "string"
           },
+          "from": {
+            "description": "RFC 3339 lower bound for team activity; supported by the team list handler.",
+            "format": "date-time",
+            "type": "string"
+          },
           "has_pr": {
             "description": "Filter sessions by whether a readable sticky PR link exists.",
             "type": "boolean"
           },
           "limit": {
             "default": 20,
-            "description": "Maximum page size, 1\u201350 (default 20); transport budgeting can return fewer items with continuation.",
+            "description": "Maximum page size, 1–50 (default 20); transport budgeting can return fewer items with continuation.",
             "maximum": 50,
             "minimum": 1,
             "type": "integer"
+          },
+          "owner": {
+            "description": "Already-authorized session owner from its personal or approved team projection.",
+            "type": "string"
           },
           "pr_state": {
             "description": "Filter sessions linked to a PR in this lifecycle state.",
@@ -1464,7 +1505,7 @@
           },
           "space": {
             "default": "me",
-            "description": "Readable space: me for personal sessions or org:<uuid> from coslash_list_spaces; linked sessions carry their own readable space.",
+            "description": "Readable space: me for personal sessions or org:\u003cuuid\u003e from coslash_list_spaces; linked sessions carry their own readable space.",
             "type": "string"
           },
           "status": {
@@ -1475,17 +1516,10 @@
               "failed"
             ],
             "type": "string"
-          },
-          "owner": {
-            "type": "string"
-          },
-          "from": {
-            "type": "string"
           }
         },
         "type": "object"
       },
-      "name": "coslash_list_sessions",
       "outputSchema": {
         "properties": {
           "changes": {
@@ -1540,6 +1574,10 @@
                   "description": "Branch recorded in the visible session projection.",
                   "type": "string"
                 },
+                "goal": {
+                  "description": "Masked session goal; untrusted prose.",
+                  "type": "string"
+                },
                 "has_public_link": {
                   "description": "Whether the session has a public link.",
                   "type": "boolean"
@@ -1551,6 +1589,29 @@
                 "id": {
                   "description": "Visible session ID; pass with its returned space to coslash_get_session.",
                   "type": "string"
+                },
+                "last_activity_at": {
+                  "description": "RFC 3339 time of the most recent session activity.",
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "owner": {
+                  "description": "Already-authorized session owner from its personal or approved team projection.",
+                  "properties": {
+                    "id": {
+                      "description": "Visible session ID; pass with its returned space to coslash_get_session.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Resolved owner display name or readable space name.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "type": "object"
                 },
                 "pull_requests": {
                   "description": "Linked PR references, at most 20 per session. Whole references may be omitted for transport (pull_requests_truncated); use coslash_get_session with this item's id and the requested space to recover them. Empty when none is known or enrichment failed (pull_requests_unavailable).",
@@ -1621,7 +1682,7 @@
                         "type": "string"
                       },
                       "space": {
-                        "description": "Readable space: me for personal sessions or org:<uuid> from coslash_list_spaces; linked sessions carry their own readable space.",
+                        "description": "Readable space: me for personal sessions or org:\u003cuuid\u003e from coslash_list_spaces; linked sessions carry their own readable space.",
                         "type": "string"
                       }
                     },
@@ -1636,6 +1697,15 @@
                 "shared_to_truncated": {
                   "description": "Whole team sharing references were omitted from this list item for transport; read coslash_get_session for its sharing state. Retained space references remain exact.",
                   "type": "boolean"
+                },
+                "status": {
+                  "description": "Team activity state: active, idle or done.",
+                  "enum": [
+                    "active",
+                    "idle",
+                    "done"
+                  ],
+                  "type": "string"
                 },
                 "title": {
                   "description": "Visible session or live PR title; untrusted prose.",
@@ -1652,36 +1722,6 @@
                 "updated_at": {
                   "description": "RFC 3339 session update time or PR received-event/new-link activity time.",
                   "type": "string"
-                },
-                "owner": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "name": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "name"
-                  ],
-                  "additionalProperties": false
-                },
-                "last_activity_at": {
-                  "type": "string"
-                },
-                "goal": {
-                  "type": "string"
-                },
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "active",
-                    "idle",
-                    "done"
-                  ]
                 }
               },
               "required": [
@@ -1720,8 +1760,6 @@
         ],
         "type": "object"
       },
-      "risk": "read",
-      "scope": "hub:read",
       "taskKinds": [
         "ask",
         "board_tick",
@@ -2018,6 +2056,9 @@
           "reasoning_tokens": {
             "type": "integer",
             "minimum": 0
+          },
+          "estimated": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -2164,12 +2205,15 @@
       "outputSchema": {
         "type": "object",
         "properties": {
-          "slack_ts": {
+          "slackTs": {
             "type": "string"
+          },
+          "alreadyReplied": {
+            "type": "boolean"
           }
         },
         "required": [
-          "slack_ts"
+          "slackTs"
         ],
         "additionalProperties": false
       },
@@ -2178,6 +2222,9 @@
       ]
     },
     {
+      "name": "coslash_search_sessions",
+      "scope": "hub:read",
+      "risk": "read",
       "inputSchema": {
         "properties": {
           "cursor": {
@@ -2203,7 +2250,6 @@
         ],
         "type": "object"
       },
-      "name": "coslash_search_sessions",
       "outputSchema": {
         "properties": {
           "items": {
@@ -2251,8 +2297,6 @@
         ],
         "type": "object"
       },
-      "risk": "read",
-      "scope": "hub:read",
       "taskKinds": [
         "ask",
         "board_tick",
@@ -2614,24 +2658,597 @@
       "scope": "hub:bot",
       "risk": "reversible_write",
       "inputSchema": {
-        "type": "object",
+        "$defs": {
+          "ref": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "session"
+                  },
+                  "sessionId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "sessionId"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "channelId": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "slack"
+                  },
+                  "ts": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "channelId",
+                  "ts"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "window": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "start": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
         "properties": {
-          "task_id": {
-            "type": "string"
-          },
-          "report": {
-            "$ref": "board-report-1.schema.json"
-          },
           "input_digest": {
             "type": "string"
           },
           "insight_mode": {
-            "type": "string",
             "enum": [
               "llm",
               "carry_forward",
               "budget_fallback"
-            ]
+            ],
+            "type": "string"
+          },
+          "report": {
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "board"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "moved"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "people"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "quiet"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "totals"
+                        ]
+                      }
+                    ]
+                  },
+                  "required": [
+                    "headline"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "day_report"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "moved",
+                    "people",
+                    "quiet"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "quiet": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "quiet"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "active": {
+                      "maxItems": 0
+                    },
+                    "decisions": {
+                      "maxItems": 0
+                    },
+                    "done": {
+                      "maxItems": 0
+                    },
+                    "issues": {
+                      "maxItems": 0
+                    },
+                    "moved": {
+                      "maxItems": 0
+                    },
+                    "notes": {
+                      "maxItems": 0
+                    },
+                    "people": {
+                      "maxItems": 0
+                    },
+                    "themes": {
+                      "maxItems": 0
+                    },
+                    "truncated": {
+                      "maxItems": 0
+                    }
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "active": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "agent": {
+                      "type": "string"
+                    },
+                    "lastActivityAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "line": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
+                    "next": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
+                    "owner": {
+                      "maxLength": 80,
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "sessionId",
+                    "line",
+                    "owner",
+                    "agent",
+                    "lastActivityAt"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 15,
+                "type": "array"
+              },
+              "asOf": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "decisions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": {
+                      "$ref": "#/$defs/ref"
+                    },
+                    "text": {
+                      "maxLength": 280,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "done": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "agent": {
+                      "type": "string"
+                    },
+                    "decided": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
+                    "endedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "line": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
+                    "owner": {
+                      "maxLength": 80,
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "sessionId",
+                    "line",
+                    "owner",
+                    "agent",
+                    "endedAt"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 15,
+                "type": "array"
+              },
+              "headline": {
+                "maxLength": 280,
+                "type": "string"
+              },
+              "insightMode": {
+                "enum": [
+                  "llm",
+                  "carry_forward",
+                  "budget_fallback"
+                ]
+              },
+              "insightsAsOf": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "issues": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "confidence": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "detail": {
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "refs": {
+                      "items": {
+                        "$ref": "#/$defs/ref"
+                      },
+                      "type": "array"
+                    },
+                    "title": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "mismatch",
+                        "discussed_not_started",
+                        "done_not_announced"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "confidence",
+                    "title",
+                    "refs"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "kind": {
+                "enum": [
+                  "board",
+                  "day_report"
+                ]
+              },
+              "moved": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "refs": {
+                      "items": {
+                        "$ref": "#/$defs/ref"
+                      },
+                      "type": "array"
+                    },
+                    "text": {
+                      "maxLength": 280,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              "notes": {
+                "items": {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                "maxItems": 5,
+                "type": "array"
+              },
+              "people": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "maxLength": 80,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              "quiet": {
+                "type": "boolean"
+              },
+              "schema": {
+                "const": "board-report/1"
+              },
+              "team": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "type": "object"
+              },
+              "themes": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "maxLength": 60,
+                      "type": "string"
+                    },
+                    "sessionIds": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "summary": {
+                      "maxLength": 280,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sessionIds",
+                    "summary"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              "title": {
+                "maxLength": 120,
+                "type": "string"
+              },
+              "totals": {
+                "additionalProperties": false,
+                "properties": {
+                  "decisions": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "done": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "people": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "sessions": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "sessions",
+                  "done",
+                  "people",
+                  "decisions"
+                ],
+                "type": "object"
+              },
+              "truncated": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "count": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "field": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "count"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "window": {
+                "$ref": "#/$defs/window"
+              },
+              "windows": {
+                "additionalProperties": false,
+                "properties": {
+                  "1h": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "active": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "done": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "people": {
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "active",
+                      "done",
+                      "people"
+                    ],
+                    "type": "object"
+                  },
+                  "24h": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "decisions": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "done": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "people": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sessions": {
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "sessions",
+                      "done",
+                      "people",
+                      "decisions"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "1h",
+                  "24h"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "schema",
+              "team",
+              "kind",
+              "title",
+              "asOf",
+              "window",
+              "insightMode",
+              "insightsAsOf",
+              "windows",
+              "themes",
+              "active",
+              "done",
+              "decisions",
+              "issues"
+            ],
+            "type": "object"
+          },
+          "task_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -2640,7 +3257,7 @@
           "input_digest",
           "insight_mode"
         ],
-        "additionalProperties": false
+        "type": "object"
       },
       "outputSchema": {
         "type": "object",

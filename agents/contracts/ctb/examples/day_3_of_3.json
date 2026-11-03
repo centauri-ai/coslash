@@ -5,14 +5,14 @@
     "name": "Example"
   },
   "kind": "day_report",
-  "title": "coslash board",
-  "asOf": "2026-11-02T12:00:00Z",
+  "title": "Day report 3/3 · Nov 2 · 13:00–18:00",
+  "asOf": "2026-11-02T18:00:00Z",
   "window": {
-    "start": "2026-11-01T12:00:00Z",
-    "end": "2026-11-02T12:00:00Z"
+    "start": "2026-11-02T13:00:00Z",
+    "end": "2026-11-02T18:00:00Z"
   },
   "insightMode": "llm",
-  "insightsAsOf": "2026-11-02T12:00:00Z",
+  "insightsAsOf": "2026-11-02T18:00:00Z",
   "windows": {
     "1h": {
       "active": 1,
