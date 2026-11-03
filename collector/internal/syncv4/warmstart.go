@@ -115,6 +115,19 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 				continue
 			}
 			if entry.ContentBytes <= 0 && !attemptedUnknown[entry.Key] {
+				entry = uploadEntry(entry)
+				if err := r.ensureConsent(ctx); err != nil {
+					return err
+				}
+				if err := r.entryAllowed(entry); err != nil {
+					return err
+				}
+				if err := r.startPending(&entry); err != nil {
+					return err
+				}
+				if err := r.freezeIfDue(&entry); err != nil {
+					return err
+				}
 				attemptedUnknown[entry.Key] = true
 				estimateCtx, cancel := r.withTimeout(ctx, budget-r.now().Sub(started))
 				err := r.estimateContentBytes(estimateCtx, &entry)
@@ -137,6 +150,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 				}
 			}
 			if warmFits(entry, budget-r.now().Sub(started), rate, first) {
+				entry = uploadEntry(entry)
 				pick = &entry
 				break
 			}
@@ -213,7 +227,11 @@ func (r *Runner) estimateContentBytes(ctx context.Context, entry *Entry) error {
 }
 
 func readyLive(entry Entry, now time.Time) bool {
-	return !entry.Live || now.Sub(time.UnixMilli(entry.ChangedAt)) >= 2*time.Minute
+	return entry.Frozen != nil || !entry.Live || now.Sub(time.UnixMilli(entry.ChangedAt)) >= 2*time.Minute || capDue(entry, now)
+}
+
+func capDue(entry Entry, now time.Time) bool {
+	return entry.LastSentAt != 0 && now.Sub(time.UnixMilli(entry.LastSentAt)) >= 10*time.Minute
 }
 
 // listBatchIsolating sends one listing batch with the retry policy for
@@ -351,6 +369,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if entry.UploadID == "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) {
 			continue
 		}
+		entry = uploadEntry(entry)
 		if err := r.transfer(workCtx, &entry); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -384,6 +403,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, activeSince) && plan.HistoryPaused {
 			continue
 		}
+		entry = uploadEntry(entry)
 		if !caughtUp(entry) {
 			phase := "recent"
 			if !planRecent(entry, plan, activeSince) {
@@ -397,7 +417,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if err == nil {
 			err = r.entryAllowed(entry)
 		}
-		if err == nil && entry.UploadID == "" && entry.RevisionID == "" {
+		if err == nil && entry.UploadID == "" {
 			prepareCtx, stopPrepare := r.withTimeout(workCtx, sourcePreparationBudget)
 			err = r.prepareEntry(prepareCtx, &entry)
 			sourceTimedOut := prepareCtx.Err() == context.DeadlineExceeded
@@ -420,12 +440,6 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		}
 		if err == nil && entry.UploadID != "" {
 			err = r.transfer(workCtx, &entry)
-			if err == nil && entry.RevisionID != "" {
-				entry.Priority = false
-				if err = r.Queue.Update(entry); err != nil {
-					return err
-				}
-			}
 		} else if err == nil {
 			continue
 		}

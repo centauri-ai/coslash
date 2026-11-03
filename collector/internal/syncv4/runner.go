@@ -717,6 +717,15 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 }
 
 func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure bool) error {
+	if !sourceFailure && entry.Frozen != nil && (entry.BundleID == "" || errors.Is(failure, sessionbackupproducer.ErrNotPrepared)) {
+		activity, revision := entry.Activity, entry.SourceRevision
+		if err := r.Queue.unfreeze(entry); err != nil {
+			return err
+		}
+		if entry.Activity != activity || entry.SourceRevision != revision {
+			return nil
+		}
+	}
 	previous := *entry
 	if errors.Is(failure, sessionbackupproducer.ErrNotPrepared) {
 		entry.BundleID, entry.ContentSHA256, entry.UploadID = "", "", ""
@@ -1387,7 +1396,7 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 	if err := r.entryAllowed(*entry); err != nil {
 		return err
 	}
-	if entry.UploadID != "" || entry.RevisionID != "" {
+	if entry.UploadID != "" || !pending(*entry) {
 		return nil
 	}
 	if err := r.prepareEntry(ctx, entry); err != nil {
@@ -1397,6 +1406,12 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 }
 
 func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
+	if err := r.startPending(entry); err != nil {
+		return err
+	}
+	if err := r.freezeIfDue(entry); err != nil {
+		return err
+	}
 	if entry.BundleID == "" {
 		prepared, err := r.Backup.Prepare(ctx, entry.Selection)
 		if err != nil {
@@ -1413,9 +1428,15 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 	}
 	if entry.Selection.Agent == vendors.AgentPi && prepared.Manifest.Source.SourceRevision != entry.SourceRevision {
 		bundleID := entry.BundleID
-		entry.BundleID, entry.ContentSHA256, entry.ContentBytes, entry.Manifest = "", "", 0, nil
-		if err := r.Queue.Update(*entry); err != nil {
-			return err
+		if entry.Frozen != nil {
+			if err := r.Queue.unfreeze(entry); err != nil {
+				return err
+			}
+		} else {
+			entry.BundleID, entry.ContentSHA256, entry.ContentBytes, entry.Manifest = "", "", 0, nil
+			if err := r.Queue.Update(*entry); err != nil {
+				return err
+			}
 		}
 		r.RequestDiscovery()
 		if err := r.Backup.Discard(bundleID); err != nil && !errors.Is(err, sessionbackupproducer.ErrNotPrepared) {
@@ -1442,6 +1463,21 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 		}
 	}
 	entry.ContentSHA256 = manifest.ContentSHA256
+	return nil
+}
+
+func (r *Runner) startPending(entry *Entry) error {
+	if entry.RevisionID != "" && pending(*entry) {
+		entry.RevisionID, entry.BundleID, entry.ContentSHA256, entry.Manifest = "", "", "", nil
+		return r.Queue.Update(*entry)
+	}
+	return nil
+}
+
+func (r *Runner) freezeIfDue(entry *Entry) error {
+	if entry.Frozen == nil && entry.Live && r.now().Sub(time.UnixMilli(entry.ChangedAt)) < 2*time.Minute && capDue(*entry, r.now()) {
+		return r.Queue.freeze(entry)
+	}
 	return nil
 }
 
@@ -1778,10 +1814,21 @@ func (r *Runner) complete(entry *Entry, status hubclient.V4Status) error {
 		return ErrPaused
 	}
 	entry.SyncedActivity, entry.SyncedSourceRevision, entry.RevisionID = entry.Activity, entry.SourceRevision, status.RevisionID
+	entry.LastSentAt = r.now().UnixMilli()
+	entry.Priority = false
 	entry.UploadID, entry.FailureCode, entry.LoggedFailure = "", "", ""
 	entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 	if err := r.Queue.Update(*entry); err != nil {
 		return err
 	}
-	return r.Backup.Discard(entry.BundleID)
+	bundleID := entry.BundleID
+	if entry.Frozen != nil {
+		for _, current := range r.Queue.Entries() {
+			if current.Key == entry.Key {
+				*entry = current
+				break
+			}
+		}
+	}
+	return r.Backup.Discard(bundleID)
 }

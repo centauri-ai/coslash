@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -36,6 +37,8 @@ type Entry struct {
 	ContentBytes         int64                           `json:"contentBytes,omitempty"`
 	Live                 bool                            `json:"live,omitempty"`
 	ChangedAt            int64                           `json:"changedAt,omitempty"`
+	LastSentAt           int64                           `json:"lastSentAt,omitempty"`
+	Frozen               *frozenCapture                  `json:"frozen,omitempty"`
 	Listed               bool                            `json:"listed,omitempty"`
 	ListRejected         bool                            `json:"listRejected,omitempty"`
 	Priority             bool                            `json:"priority,omitempty"`
@@ -60,7 +63,21 @@ type Entry struct {
 	// change is logged once. A completed sync or a Hub retry clears it.
 	LoggedFailure string `json:"loggedFailure,omitempty"`
 	// SourceBlocked retains a verified capture until discovery can hash its source again.
-	SourceBlocked bool `json:"sourceBlocked,omitempty"`
+	SourceBlocked bool   `json:"sourceBlocked,omitempty"`
+	SourceEpoch   uint64 `json:"sourceEpoch,omitempty"`
+}
+
+type frozenCapture struct {
+	Activity       int64               `json:"activity"`
+	SourceRevision string              `json:"sourceRevision,omitempty"`
+	Session        hubclient.V4Session `json:"session"`
+}
+
+func uploadEntry(entry Entry) Entry {
+	if f := entry.Frozen; f != nil {
+		entry.Activity, entry.SourceRevision, entry.Session = f.Activity, f.SourceRevision, f.Session
+	}
+	return entry
 }
 
 type state struct {
@@ -255,6 +272,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
 			entry.Listed, entry.ListRejected, entry.ServerLeftOut = false, false, false
 			entry.Manifest, entry.Attempt = nil, 0
+			entry.Frozen, entry.LastSentAt = nil, 0
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
 		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
@@ -644,12 +662,20 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 			continue
 		}
 		prior := *entry
+		priorDiscards := slices.Clone(q.state.DiscardBundles)
 		if entry.SourceBlocked {
+			if entry.Frozen != nil {
+				q.abandon(entry.BundleID)
+				entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.Manifest = "", "", "", nil
+				entry.Frozen = nil
+				entry.Attempt++
+			}
 			entry.Priority = true
 			entry.FailureCode, entry.LoggedFailure = "", ""
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 			if err := q.save(); err != nil {
 				*entry = prior
+				q.state.DiscardBundles = priorDiscards
 				return false, err
 			}
 			return true, nil
@@ -664,10 +690,12 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 		entry.FailureCode = ""
 		entry.BundleID, entry.ContentSHA256, entry.UploadID = "", "", ""
 		entry.Manifest = nil
+		entry.Frozen = nil
 		entry.Attempt++
 		entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		if err := q.save(); err != nil {
 			*entry = prior
+			q.state.DiscardBundles = priorDiscards
 			return false, err
 		}
 		return true, nil
@@ -744,11 +772,66 @@ func (q *Queue) Matches(entry Entry) bool {
 	defer q.mu.Unlock()
 	for _, stored := range q.state.Entries {
 		if stored.Key == entry.Key {
-			return !stored.Excluded && !stored.SourceBlocked && stored.Activity == entry.Activity && stored.SourceRevision == entry.SourceRevision &&
+			if (stored.Frozen == nil) != (entry.Frozen == nil) {
+				return false
+			}
+			sameSource := stored.Activity == entry.Activity && stored.SourceRevision == entry.SourceRevision
+			if f := stored.Frozen; f != nil && entry.Frozen != nil {
+				sameSource = f.Activity == entry.Activity && f.SourceRevision == entry.SourceRevision && reflect.DeepEqual(f, entry.Frozen)
+			}
+			return !stored.Excluded && !stored.SourceBlocked && !leftOut(stored.Session, q.state.Config.LeaveOut) && sameSource &&
 				stored.Attempt == entry.Attempt && stored.BundleID == entry.BundleID && stored.UploadID == entry.UploadID
 		}
 	}
 	return false
+}
+
+func (q *Queue) unfreeze(entry *Entry) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for i := range q.state.Entries {
+		stored := &q.state.Entries[i]
+		if stored.Key != entry.Key {
+			continue
+		}
+		if stored.Frozen == nil || entry.Frozen == nil || !reflect.DeepEqual(stored.Frozen, entry.Frozen) || stored.Attempt != entry.Attempt || stored.BundleID != entry.BundleID || stored.UploadID != entry.UploadID || stored.Excluded {
+			return errors.New("stale v4 queue entry")
+		}
+		prior, discards := *stored, slices.Clone(q.state.DiscardBundles)
+		q.abandon(stored.BundleID)
+		stored.Frozen = nil
+		stored.BundleID, stored.ContentSHA256, stored.UploadID, stored.Manifest = "", "", "", nil
+		stored.Attempt++
+		if err := q.save(); err != nil {
+			*stored, q.state.DiscardBundles = prior, discards
+			return err
+		}
+		*entry = *stored
+		return nil
+	}
+	return errors.New("v4 queue entry missing")
+}
+
+func (q *Queue) freeze(entry *Entry) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for i := range q.state.Entries {
+		stored := &q.state.Entries[i]
+		if stored.Key != entry.Key {
+			continue
+		}
+		if stored.Frozen != nil || stored.Excluded || stored.SourceBlocked || leftOut(stored.Session, q.state.Config.LeaveOut) || stored.Activity != entry.Activity || stored.SourceRevision != entry.SourceRevision || stored.Attempt != entry.Attempt || stored.BundleID != entry.BundleID || stored.UploadID != entry.UploadID {
+			return errors.New("stale v4 queue entry")
+		}
+		stored.Frozen = &frozenCapture{Activity: entry.Activity, SourceRevision: entry.SourceRevision, Session: entry.Session}
+		if err := q.save(); err != nil {
+			stored.Frozen = nil
+			return err
+		}
+		*entry = uploadEntry(*stored)
+		return nil
+	}
+	return errors.New("v4 queue entry missing")
 }
 
 func (q *Queue) Merge(found []Entry, now time.Time) error {
@@ -779,6 +862,9 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 		}
 		if i, ok := index[item.Key]; ok {
 			entry := &q.state.Entries[i]
+			if entry.LastSentAt == 0 {
+				entry.LastSentAt = now.UnixMilli()
+			}
 			sourceChanged := item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision
 			entry.Recent = entry.Recent || item.Activity >= now.Add(-recentWindow).UnixMilli()
 			wasLive := entry.Live
@@ -802,14 +888,19 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 				entry.ListRejected = false
 				entry.Activity = max(entry.Activity, item.Activity)
 				entry.SourceRevision = item.SourceRevision
+				if entry.SourceBlocked {
+					entry.SourceEpoch++
+				}
 				entry.SourceBlocked = false
 				entry.Session = item.Session
-				q.abandon(entry.BundleID)
-				entry.ParkedVersion = ""
-				entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.FailureCode = "", "", "", ""
-				entry.Manifest, entry.RevisionID = nil, ""
-				entry.Attempt = 0
-				entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+				if entry.Frozen == nil {
+					q.abandon(entry.BundleID)
+					entry.ParkedVersion = ""
+					entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.FailureCode = "", "", "", ""
+					entry.Manifest, entry.RevisionID = nil, ""
+					entry.Attempt = 0
+					entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+				}
 			}
 			if q.planChangeIsEligible(*entry, now, changePlan, activeSince, sourceChanged) {
 				entry.ChangedPlanVersion = changePlan.Version
@@ -817,6 +908,9 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 		} else {
 			item.Recent = item.Activity >= now.Add(-recentWindow).UnixMilli()
 			item.ChangedAt = now.UnixMilli()
+			if item.LastSentAt == 0 {
+				item.LastSentAt = now.UnixMilli()
+			}
 			if q.planChangeIsEligible(item, now, changePlan, activeSince, false) {
 				item.ChangedPlanVersion = changePlan.Version
 			}
@@ -877,8 +971,25 @@ func (q *Queue) update(entry Entry, line *LogLine) error {
 	defer q.mu.Unlock()
 	for i := range q.state.Entries {
 		if q.state.Entries[i].Key == entry.Key {
-			if entry.Activity < q.state.Entries[i].Activity || entry.SourceRevision != q.state.Entries[i].SourceRevision {
+			stored := q.state.Entries[i]
+			frozen := stored.Frozen != nil && entry.Frozen != nil && reflect.DeepEqual(stored.Frozen, entry.Frozen) && entry.Activity == stored.Frozen.Activity && entry.SourceRevision == stored.Frozen.SourceRevision && !stored.Excluded && !stored.SourceBlocked && !leftOut(stored.Session, q.state.Config.LeaveOut) && (entry.Attempt == stored.Attempt || entry.Attempt == stored.Attempt+1) && (stored.BundleID == "" || entry.BundleID == "" || entry.BundleID == stored.BundleID) && (stored.UploadID == "" || entry.UploadID == "" || entry.UploadID == stored.UploadID)
+			latest := stored.Frozen != nil && entry.Frozen != nil && reflect.DeepEqual(stored.Frozen, entry.Frozen) && entry.SourceEpoch == stored.SourceEpoch && entry.Activity == stored.Activity && entry.SourceRevision == stored.SourceRevision && entry.Attempt == stored.Attempt && entry.BundleID == stored.BundleID && entry.UploadID == stored.UploadID && entry.RevisionID == stored.RevisionID && entry.SyncedActivity == stored.SyncedActivity && entry.SyncedSourceRevision == stored.SyncedSourceRevision && entry.LastSentAt == stored.LastSentAt && entry.ContentSHA256 == stored.ContentSHA256 && reflect.DeepEqual(entry.Manifest, stored.Manifest)
+			if !frozen && !latest && (entry.Activity < stored.Activity || entry.SourceRevision != stored.SourceRevision || stored.Frozen != nil || entry.Frozen != nil) {
 				return errors.New("stale v4 queue entry")
+			}
+			if frozen {
+				entry.Activity, entry.SourceRevision, entry.Session = stored.Activity, stored.SourceRevision, stored.Session
+				entry.ChangedAt, entry.Live, entry.Listed, entry.ListRejected, entry.Recent = stored.ChangedAt, stored.Live, stored.Listed, stored.ListRejected, stored.Recent
+				entry.Selection, entry.CatchUpPlanVersion, entry.ChangedPlanVersion = stored.Selection, stored.CatchUpPlanVersion, stored.ChangedPlanVersion
+				entry.ServerLeftOut = stored.ServerLeftOut
+				entry.SourceEpoch = stored.SourceEpoch
+				entry.Priority = stored.Priority && pending(entry)
+				if entry.RevisionID != "" {
+					entry.Frozen = nil
+				}
+			}
+			if entry.SourceBlocked != stored.SourceBlocked {
+				entry.SourceEpoch = stored.SourceEpoch + 1
 			}
 			priorEntry := q.state.Entries[i]
 			priorDiscards := slices.Clone(q.state.DiscardBundles)
@@ -924,6 +1035,7 @@ func (q *Queue) abandon(bundleID string) {
 func (q *Queue) exclude(entry *Entry) {
 	q.abandon(entry.BundleID)
 	entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.Manifest = "", "", "", nil
+	entry.Frozen = nil
 	entry.Priority = false
 }
 

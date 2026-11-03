@@ -117,8 +117,10 @@ within that ordering; history content transfers newest first. Cursor source
 preparation has a bounded attempt and retries with backoff after a timeout. A
 `prioritize` command moves a
 listed session to the front, including a history session while history is
-paused. Live sources wait for two minutes without a change or for the session
-to end before a changed revision is sent. After a one-time backfill completes,
+paused. Live sources send a changed revision after two minutes without a change,
+when the session ends, or after a maximum ten-minute hold. A capture made at the
+hold limit finishes even if the source changes; newer changes remain pending.
+After a one-time backfill completes,
 Hub restores the default recent plan. Local does not start another catch-up; it
 syncs activity observed since the current Local process started, so sessions
 created while Local was offline are not uploaded by the default live plan. The
