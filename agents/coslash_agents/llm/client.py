@@ -45,7 +45,10 @@ class Usage:
     estimated: bool = False
 
     def add(self, value, input_data, max_output):
-        if not value:
+        if not isinstance(value, dict) or any(
+            type(value.get(key)) is not int or value[key] < 0
+            for key in ("input_tokens", "output_tokens")
+        ):
             self.estimated = True
             self.input_tokens += math.ceil(len(json.dumps(input_data, ensure_ascii=False)) / 4)
             self.output_tokens += max_output
