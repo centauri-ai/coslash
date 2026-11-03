@@ -1,15 +1,12 @@
 import structlog
 
-from coslash_agents.mcp.client import TOOLS
+from coslash_agents.mcp.client import TaskExpired, TaskForbidden
 
 
 async def record_usage(mcp, model, effort, service_tier, usage):
     try:
-        extra = {}
-        if "estimated" in TOOLS["coslash_record_usage"]["inputSchema"]["properties"]:
-            extra["estimated"] = usage.estimated
         result = await mcp.coslash_record_usage(
-            feature="board",
+            feature="board" if mcp.kind == "board_tick" else mcp.kind,
             model=model,
             effort=effort,
             service_tier=service_tier,
@@ -17,9 +14,11 @@ async def record_usage(mcp, model, effort, service_tier, usage):
             cached_input_tokens=usage.cached_input_tokens,
             output_tokens=usage.output_tokens,
             reasoning_tokens=usage.reasoning_tokens,
-            **extra,
+            estimated=usage.estimated,
         )
         return result.soft_limit_pct
+    except (TaskForbidden, TaskExpired):
+        raise
     except Exception:
         structlog.get_logger().info("usage_failed", task_id=mcp.task_id, kind=mcp.kind)
         return None

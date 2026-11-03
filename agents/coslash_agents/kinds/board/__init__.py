@@ -158,12 +158,16 @@ async def previous_report(mcp, space, kind, slot=None):
     if slot:
         args["slot"] = slot
     try:
-        result = await mcp.call("coslash_get_team_board", args)
+        result = await mcp.coslash_get_team_board(**args)
     except ToolError as error:
         if error.code != "NOT_FOUND":
             raise
         return None
-    return result.get("report")
+    return (
+        result.report.model_dump(mode="json", by_alias=True, exclude_unset=True)
+        if result.report
+        else None
+    )
 
 
 async def run(payload, mcp, deadline):

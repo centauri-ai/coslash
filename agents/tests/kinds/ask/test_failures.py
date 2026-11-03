@@ -10,7 +10,9 @@ async def test_model_error_replies_and_records(monkeypatch, cases, ask_task):
     fake, _ = setup(monkeypatch, cases, mode="error")
     await execute(fake, ask_task)
     assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {"text": FAILED, "citations": []}
-    assert len(called(fake, "coslash_record_usage")) == 1
+    usage = called(fake, "coslash_record_usage")
+    assert len(usage) == 1
+    assert usage[0]["feature"] == "ask" and usage[0]["estimated"] is True
 
 
 async def test_budget_timeout(monkeypatch, cases, ask_task):

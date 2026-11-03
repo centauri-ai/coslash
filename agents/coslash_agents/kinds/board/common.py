@@ -6,8 +6,9 @@ from datetime import UTC, datetime
 import structlog
 
 from coslash_agents.llm.client import ModelClient, ModelError
-from coslash_agents.mcp.client import Retryable, TaskExpired, TaskForbidden
+from coslash_agents.mcp.client import Retryable
 from coslash_agents.safety import enforce_caps, quote_untrusted, strip_slack_controls, validate_refs
+from coslash_agents.usage import record_usage
 
 log = structlog.get_logger()
 
@@ -272,33 +273,11 @@ async def invoke_model(task, mcp, deadline, sessions, msgs, prompt, schema):
                     error.usage.reasoning_tokens,
                 )
             ):
-                await usage(mcp, model, error.usage, error.service_tier, task["kind"])
+                await record_usage(
+                    mcp, model.config.model, model.config.effort, error.service_tier, error.usage
+                )
             return None
-        await usage(mcp, model, result.usage, result.service_tier, task["kind"])
-        return result.output
-
-
-async def usage(mcp, model, value, tier, kind):
-    from coslash_agents.mcp.client import TOOLS
-
-    extra = (
-        {"estimated": value.estimated}
-        if "estimated" in TOOLS["coslash_record_usage"]["inputSchema"]["properties"]
-        else {}
-    )
-    try:
-        await mcp.coslash_record_usage(
-            feature="board" if kind == "board_tick" else "day_report",
-            model=model.config.model,
-            effort=model.config.effort,
-            service_tier=tier,
-            input_tokens=value.input_tokens,
-            cached_input_tokens=value.cached_input_tokens,
-            output_tokens=value.output_tokens,
-            reasoning_tokens=value.reasoning_tokens,
-            **extra,
+        await record_usage(
+            mcp, model.config.model, model.config.effort, result.service_tier, result.usage
         )
-    except (TaskForbidden, TaskExpired):
-        raise
-    except Exception:
-        log.info("usage_failed", task_id=mcp.task_id, kind=kind)
+        return result.output

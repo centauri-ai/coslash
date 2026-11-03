@@ -9,10 +9,11 @@ from .conftest import called, final, setup
 @pytest.mark.integration
 def test_ask_redelivery_and_forbidden(monkeypatch, cases, ask_task):
     fake, _ = setup(monkeypatch, cases, [final(found=False), final(found=False)])
-    fake.outputs["coslash_reply_in_thread"] = {"slack_ts": "ack"}
+    fake.outputs["coslash_reply_in_thread"] = {"slackTs": "ack"}
     with TestClient(app_for(monkeypatch, fake)) as client:
         headers = {"X-Coslash-Dev-Secret": "secret"}
         assert client.post("/v1/tasks", json=ask_task, headers=headers).status_code == 200
+        fake.outputs["coslash_reply_in_thread"] = {"slackTs": "ack", "alreadyReplied": True}
         assert client.post("/v1/tasks", json=ask_task, headers=headers).status_code == 200
         fake.disabled = True
         assert client.post("/v1/tasks", json=ask_task, headers=headers).status_code == 409
