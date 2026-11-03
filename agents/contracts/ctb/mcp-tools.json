@@ -1267,6 +1267,7 @@
             "allOf": [
               {
                 "if": {
+                  "type": "object",
                   "properties": {
                     "kind": {
                       "const": "board"
@@ -1308,6 +1309,7 @@
               },
               {
                 "if": {
+                  "type": "object",
                   "properties": {
                     "kind": {
                       "const": "day_report"
@@ -1327,6 +1329,7 @@
               },
               {
                 "if": {
+                  "type": "object",
                   "properties": {
                     "quiet": {
                       "const": true

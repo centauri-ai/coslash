@@ -5,23 +5,16 @@ from tests.kinds.board.support import calls, dispatch, payload, setup, written
 
 def test_nullable_empty_board_and_missing_previous_content(monkeypatch):
     fake, model, app = setup(monkeypatch)
-    parent = app_module.MCPClient
-
-    class EmptyBoard(parent):
-        async def call(self, name, arguments=None):
-            if name == "coslash_get_team_board":
-                return {
-                    "slot": None,
-                    "insight_mode": None,
-                    "created_at": None,
-                    "report": None,
-                    "untrusted": True,
-                }
-            return await super().call(name, arguments)
-
-    monkeypatch.setattr(app_module, "MCPClient", EmptyBoard)
+    fake.outputs["coslash_get_team_board"] = {
+        "slot": None,
+        "insight_mode": None,
+        "created_at": None,
+        "report": None,
+        "untrusted": True,
+    }
     task = payload()
     assert dispatch(app, task).status_code == 200
+    assert len(calls(fake, "coslash_get_team_board")) == 1
     assert written(fake)["report"]["insightMode"] == "llm"
     fake.calls.clear()
     model.calls.clear()
@@ -31,6 +24,20 @@ def test_nullable_empty_board_and_missing_previous_content(monkeypatch):
         "insightsAsOf": "2026-11-02T11:00:00Z",
     }
     assert dispatch(app, task).status_code == 503
+    assert not calls(fake, "coslash_write_board_report") and not model.calls
+
+
+def test_fake_rejects_invalid_board_report(monkeypatch):
+    fake, model, app = setup(monkeypatch)
+    fake.outputs["coslash_get_team_board"] = {
+        "slot": None,
+        "insight_mode": None,
+        "created_at": None,
+        "report": {},
+        "untrusted": True,
+    }
+    assert dispatch(app, payload()).status_code == 503
+    assert calls(fake, "coslash_get_team_board")
     assert not calls(fake, "coslash_write_board_report") and not model.calls
 
 
