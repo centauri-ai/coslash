@@ -174,10 +174,13 @@ account connects its own Local; if another account's Local already uses port
 
 The service does not read shell profiles. It keeps the `PATH`, `COSLASH_HOME`,
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `GROK_HOME`, `OPENCODE_DB`, and Pi path
-variables set when you connected; reconnect after changing them. To uninstall,
-run `systemctl --user disable --now coslash.service`, delete
-`~/.config/systemd/user/coslash.service` and the `coslash` binary, and remove
-`~/.coslash` if you no longer want its data.
+variables set when you connected; reconnect after changing them. To uninstall a
+systemd service, use the service name printed during connection (the default
+is `coslash.service`), run `systemctl --user disable --now` with that name,
+and remove its unit file and the `coslash` binary. `systemctl --user cat` with
+the same service name shows the unit file's location. For cron startup, remove
+the corresponding coSlash `@reboot` entry. Remove the data home only if you no
+longer want its data.
 
 ### Windows
 

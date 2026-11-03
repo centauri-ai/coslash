@@ -368,21 +368,52 @@ func crontabWithEntry(current, executable, coslashHome string) (string, bool, er
 		return "", false, errors.New("path cannot be written to a crontab")
 	}
 	var lines []string
+	found, changed := false, false
 	for _, line := range strings.Split(strings.TrimRight(current, "\n"), "\n") {
 		if line == entry {
-			return current, false, nil
+			if found {
+				changed = true
+			} else {
+				lines = append(lines, line)
+				found = true
+			}
+			continue
 		}
-		legacyEntry := strings.TrimSuffix(entry, marker) + cronMarker
 		matchesMarker := strings.HasSuffix(line, marker)
 		if marker == cronMarker && strings.HasPrefix(line, "@reboot COSLASH_HOME=") && (coslashHome == "" || !strings.HasPrefix(line, "@reboot COSLASH_HOME="+shellQuote(coslashHome)+" ")) {
 			matchesMarker = false
 		}
-		if line != "" && !matchesMarker && (marker == cronMarker || line != legacyEntry) {
+		if matchesMarker || marker != cronMarker && legacyCronEntryForHome(line, coslashHome) {
+			changed = true
+		} else if line != "" {
 			lines = append(lines, line)
 		}
 	}
-	lines = append(lines, entry)
+	if !found {
+		lines = append(lines, entry)
+		changed = true
+	}
+	if !changed {
+		return current, false, nil
+	}
 	return strings.Join(lines, "\n") + "\n", true, nil
+}
+
+func legacyCronEntryForHome(line, home string) bool {
+	if home == "" {
+		return false
+	}
+	prefix := "@reboot COSLASH_HOME=" + shellQuote(home) + " "
+	suffix := " --background >/dev/null 2>&1 " + cronMarker
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, suffix) {
+		return false
+	}
+	quoted := strings.TrimSuffix(strings.TrimPrefix(line, prefix), suffix)
+	if len(quoted) < 2 || quoted[0] != '\'' || quoted[len(quoted)-1] != '\'' {
+		return false
+	}
+	path := strings.ReplaceAll(quoted[1:len(quoted)-1], `'\''`, "'")
+	return filepath.IsAbs(path) && filepath.Base(path) == "coslash" && shellQuote(path) == quoted
 }
 
 func shellQuote(value string) string {
