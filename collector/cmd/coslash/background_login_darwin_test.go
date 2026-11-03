@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestBackgroundLoginPlistEscapesTheExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(contents)
-	if !strings.Contains(text, `/Applications/coSlash &amp; &lt;Local&gt;`) || !strings.Contains(text, "--background") {
+	if !strings.Contains(text, `/Applications/coSlash &amp; &lt;Local&gt;`) || !strings.Contains(text, "--background") || !strings.Contains(text, backgroundLoginMarker) {
 		t.Fatalf("launch agent plist does not safely encode its program: %s", text)
 	}
 }
@@ -160,7 +161,7 @@ func TestLoginRegistrationReleaseAndBranchPaths(t *testing.T) {
 			backgroundLoginExecutable = func() (string, error) { return executable, nil }
 			fake := filepath.Join(home, "launchctl")
 			// The job stays loaded; an upgrade may boot it out before it loads it again.
-			if err := os.WriteFile(fake, []byte("#!/bin/sh\ncase \"$1\" in print|bootout) exit 0 ;; esac\nexit 99\n"), 0700); err != nil {
+			if err := os.WriteFile(fake, []byte("#!/bin/sh\ncase \"$1\" in print) echo 'pid = 0' ;; bootout) exit 0 ;; esac\nexit 99\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("PATH", home)
@@ -213,7 +214,7 @@ func TestLoginRegistrationReleaseAndBranchPaths(t *testing.T) {
 				case "executable":
 					contents, err = backgroundLoginPlist(filepath.Join(home, "other", "coslash"))
 				default:
-					contents = bytes.Replace(contents, []byte("</dict>"), []byte("<key>EnvironmentVariables</key><dict><key>"+conflict+"</key><string>/other/home</string></dict></dict>"), 1)
+					contents = bytes.Replace(contents, []byte("<key>EnvironmentVariables</key><dict>"), []byte("<key>EnvironmentVariables</key><dict><key>"+conflict+"</key><string>/other/home</string>"), 1)
 				}
 				if err != nil {
 					t.Fatal(err)
@@ -251,19 +252,40 @@ func TestLoginRegistrationReleaseAndBranchPaths(t *testing.T) {
 	}
 }
 
-// An upgrade must leave exactly the stable executable and --background as
-// arguments. plutil -replace on ProgramArguments.0 inserts instead of
-// replacing, which left launchd running "coslash /opt/homebrew/bin/coslash --no-open".
+// An upgrade must normalize the executable and background mode while
+// preserving custom arguments. plutil -replace on ProgramArguments.0 inserts
+// instead of replacing, which left launchd running "coslash /opt/homebrew/bin/coslash --no-open".
 func TestBackgroundLoginUpgradeRepairsProgramArguments(t *testing.T) {
 	originalRelease, originalExecutable := releaseBuildMetadata, backgroundLoginExecutable
 	t.Cleanup(func() { releaseBuildMetadata, backgroundLoginExecutable = originalRelease, originalExecutable })
 	releaseBuildMetadata = "true"
 	for _, test := range []struct {
-		name string
-		old  func(link, stable string) []string
+		name       string
+		old        func(link, stable string) []string
+		want       func(stable string) []string
+		runningJob bool
 	}{
-		{name: "0.4.0 login item", old: func(link, _ string) []string { return []string{link, "--no-open"} }},
-		{name: "broken by an earlier upgrade", old: func(link, stable string) []string { return []string{stable, link, "--no-open"} }},
+		{
+			name: "0.4.0 login item",
+			old:  func(link, _ string) []string { return []string{link, "--no-open"} },
+			want: func(stable string) []string { return []string{stable, "--background", "--no-open"} },
+		},
+		{
+			name: "broken by repeated upgrades",
+			old:  func(link, stable string) []string { return []string{stable, link, stable, "--no-open"} },
+			want: func(stable string) []string { return []string{stable, "--background", "--no-open"} },
+		},
+		{
+			name: "custom launch arguments",
+			old:  func(link, _ string) []string { return []string{link, "--background", "--port", "8123"} },
+			want: func(stable string) []string { return []string{stable, "--background", "--port", "8123"} },
+		},
+		{
+			name:       "running launch agent",
+			old:        func(link, _ string) []string { return []string{link, "--no-open"} },
+			want:       func(stable string) []string { return []string{stable, "--background", "--no-open"} },
+			runningJob: true,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := setProtocolHandlerTestHome(t)
@@ -290,7 +312,11 @@ func TestBackgroundLoginUpgradeRepairsProgramArguments(t *testing.T) {
 			stable := backgroundLoginInstallPath(executable)
 
 			calls, loaded := filepath.Join(home, "launchctl.calls"), filepath.Join(home, "launchctl.loaded")
-			script := "#!/bin/sh\necho \"$1\" >> '" + calls + "'\ncase \"$1\" in\nprint) [ -f '" + loaded + "' ] ;;\nbootout) /bin/rm -f '" + loaded + "' ;;\nbootstrap) /usr/bin/touch '" + loaded + "' ;;\n*) exit 99 ;;\nesac\n"
+			pid := "0"
+			if test.runningJob {
+				pid = strconv.Itoa(os.Getpid())
+			}
+			script := "#!/bin/sh\necho \"$1\" >> '" + calls + "'\ncase \"$1\" in\nprint) [ -f '" + loaded + "' ] && echo 'pid = " + pid + "' ;;\nbootout) /bin/rm -f '" + loaded + "' ;;\nbootstrap) /usr/bin/touch '" + loaded + "' ;;\n*) exit 99 ;;\nesac\n"
 			if err := os.WriteFile(filepath.Join(home, "launchctl"), []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -312,6 +338,7 @@ func TestBackgroundLoginUpgradeRepairsProgramArguments(t *testing.T) {
 			if err := os.WriteFile(agent, []byte(legacy), 0600); err != nil {
 				t.Fatal(err)
 			}
+			t.Setenv(backgroundLoginMarker, "")
 
 			if err := registerBackgroundLogin(); err != nil {
 				t.Fatal(err)
@@ -325,15 +352,19 @@ func TestBackgroundLoginUpgradeRepairsProgramArguments(t *testing.T) {
 			if err := json.Unmarshal(output, &got); err != nil {
 				t.Fatal(err)
 			}
-			if want := []string{stable, "--background"}; !slices.Equal(got, want) {
+			if want := test.want(stable); !slices.Equal(got, want) {
 				t.Fatalf("ProgramArguments = %q, want %q", got, want)
 			}
 			if contents, _ := os.ReadFile(agent); !bytes.Contains(contents, []byte("/custom/log")) {
 				t.Fatalf("upgrade dropped other keys: %s", contents)
 			}
-			// launchd keeps the definition it loaded, so a changed job must be reloaded.
+			// External changes reload the job; a process in the job must leave it loaded.
 			history, _ := os.ReadFile(calls)
-			if !strings.Contains(string(history), "bootout\n") || !strings.Contains(string(history), "bootstrap\n") {
+			if test.runningJob {
+				if strings.Contains(string(history), "bootout\n") || strings.Contains(string(history), "bootstrap\n") {
+					t.Fatalf("running launch agent was booted out; launchctl calls:\n%s", history)
+				}
+			} else if !strings.Contains(string(history), "bootout\n") || !strings.Contains(string(history), "bootstrap\n") {
 				t.Fatalf("changed job was not reloaded; launchctl calls:\n%s", history)
 			}
 
