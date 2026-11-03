@@ -26,19 +26,39 @@ func retryBackoff(attempt int) time.Duration {
 }
 
 func retryDue(entry Entry, now time.Time) bool {
-	return entry.FailureCode != "session_deleted" && (entry.RetryAt.IsZero() || !now.Before(entry.RetryAt))
+	return entry.FailureCode != "session_deleted" && (entry.RetryAt.IsZero() || !now.Before(entry.RetryAt)) &&
+		(entry.CapRetryAt == 0 || !entry.Live || now.Sub(time.UnixMilli(entry.ChangedAt)) >= 2*time.Minute || now.UnixMilli() >= entry.CapRetryAt)
 }
 
 func (q *Queue) NextRetryDelay() time.Duration {
+	return q.nextRetryDelayAt(time.Now())
+}
+
+func (q *Queue) nextRetryDelayAt(now time.Time) time.Duration {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	now := time.Now()
 	var earliest time.Duration
 	for _, entry := range q.state.Entries {
-		if entry.RetryAt.IsZero() || entry.ParkedVersion != "" {
+		if entry.ParkedVersion != "" {
 			continue
 		}
-		delay := entry.RetryAt.Sub(now)
+		retryAt := entry.RetryAt
+		if entry.CapQuiet && entry.Live && pending(entry) && !entry.Excluded && !entry.SourceBlocked {
+			quietAt := time.UnixMilli(entry.ChangedAt).Add(2 * time.Minute)
+			if retryAt.IsZero() || quietAt.After(retryAt) {
+				retryAt = quietAt
+			}
+		}
+		if entry.CapRetryAt != 0 && entry.Live && !entry.Excluded && !entry.SourceBlocked && now.Sub(time.UnixMilli(entry.ChangedAt)) < 2*time.Minute {
+			capRetryAt := time.UnixMilli(entry.CapRetryAt)
+			if retryAt.IsZero() || capRetryAt.After(retryAt) {
+				retryAt = capRetryAt
+			}
+		}
+		if retryAt.IsZero() {
+			continue
+		}
+		delay := retryAt.Sub(now)
 		if delay <= 0 {
 			return 0
 		}

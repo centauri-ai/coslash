@@ -233,7 +233,7 @@ func (r *Runner) estimateContentBytes(ctx context.Context, entry *Entry) error {
 }
 
 func readyLive(entry Entry, now time.Time) bool {
-	return entry.Frozen != nil || !entry.Live || now.Sub(time.UnixMilli(entry.ChangedAt)) >= 2*time.Minute || capDue(entry, now)
+	return entry.Frozen != nil || !entry.Live || now.Sub(time.UnixMilli(entry.ChangedAt)) >= 2*time.Minute || !entry.CapQuiet && capDue(entry, now)
 }
 
 func capDue(entry Entry, now time.Time) bool {
@@ -465,6 +465,12 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			remoteTimeout := errors.Is(err, context.DeadlineExceeded) && workCtx.Err() == nil && ctx.Err() == nil
 			if (stopSync(err) && !remoteTimeout) || Busy(err) {
 				return r.persistPolicyStop(&entry, err)
+			}
+			if capPreparationUnstable(entry, err) {
+				if updateErr := r.recordFailure(&entry, err); updateErr != nil {
+					return updateErr
+				}
+				continue
 			}
 			if firstErr == nil {
 				firstErr = err

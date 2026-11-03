@@ -120,6 +120,10 @@ listed session to the front, including a history session while history is
 paused. Live sources send a changed revision after two minutes without a change,
 when the session ends, or after a maximum ten-minute hold. A capture made at the
 hold limit finishes even if the source changes; newer changes remain pending.
+If a capped preparation finds unstable source data, Local retries up to three
+attempts at least 20 seconds apart. After three failures it waits for two
+minutes of quiet and records a local `cap_unstable` diagnostic count; it never
+publishes an unverified family.
 After a one-time backfill completes,
 Hub restores the default recent plan. Local does not start another catch-up; it
 syncs activity observed since the current Local process started, so sessions

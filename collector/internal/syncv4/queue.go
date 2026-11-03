@@ -21,7 +21,11 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
-const recentWindow = 72 * time.Hour
+const (
+	recentWindow     = 72 * time.Hour
+	capRetryInterval = 20 * time.Second
+	capMaxAttempts   = 3
+)
 
 type Entry struct {
 	Key                  string                          `json:"key"`
@@ -39,6 +43,9 @@ type Entry struct {
 	ChangedAt            int64                           `json:"changedAt,omitempty"`
 	LastSentAt           int64                           `json:"lastSentAt,omitempty"`
 	Frozen               *frozenCapture                  `json:"frozen,omitempty"`
+	CapAttempts          int                             `json:"capAttempts,omitempty"`
+	CapRetryAt           int64                           `json:"capRetryAt,omitempty"`
+	CapQuiet             bool                            `json:"capQuiet,omitempty"`
 	Listed               bool                            `json:"listed,omitempty"`
 	ListRejected         bool                            `json:"listRejected,omitempty"`
 	Priority             bool                            `json:"priority,omitempty"`
@@ -91,6 +98,7 @@ type state struct {
 	Version              int                `json:"version"`
 	ScaleVersion         int                `json:"scaleVersion,omitempty"`
 	InstallID            string             `json:"installId"`
+	CapUnstable          int64              `json:"cap_unstable,omitempty"`
 	Binding              string             `json:"binding,omitempty"`
 	Entries              []Entry            `json:"entries"`
 	ConfigVersion        int64              `json:"configVersion,omitempty"`
@@ -284,6 +292,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.Listed, entry.ListRejected, entry.ServerLeftOut = false, false, false
 			entry.Manifest, entry.Attempt = nil, 0
 			entry.Frozen, entry.LastSentAt = nil, 0
+			entry.CapAttempts, entry.CapRetryAt, entry.CapQuiet = 0, 0, false
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
 		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
@@ -821,6 +830,56 @@ func (q *Queue) unfreeze(entry *Entry) error {
 		return nil
 	}
 	return errors.New("v4 queue entry missing")
+}
+
+func (q *Queue) capUnstable(entry *Entry, now time.Time) error {
+	q.mu.Lock()
+	var exhausted bool
+	var diagnosticCount int64
+	defer func() {
+		q.mu.Unlock()
+		if exhausted {
+			log.Printf("live capture fallback: cap_unstable=%d", diagnosticCount)
+		}
+	}()
+	for i := range q.state.Entries {
+		stored := &q.state.Entries[i]
+		if stored.Key != entry.Key {
+			continue
+		}
+		if stored.Frozen == nil || entry.Frozen == nil || !reflect.DeepEqual(stored.Frozen, entry.Frozen) || stored.Attempt != entry.Attempt || stored.BundleID != entry.BundleID || stored.UploadID != entry.UploadID || stored.Excluded || stored.SourceBlocked || leftOut(stored.Session, q.state.Config.LeaveOut) {
+			return errors.New("stale v4 queue entry")
+		}
+		prior, discards, count := *stored, slices.Clone(q.state.DiscardBundles), q.state.CapUnstable
+		q.abandon(stored.BundleID)
+		stored.Frozen = nil
+		stored.BundleID, stored.ContentSHA256, stored.UploadID, stored.Manifest = "", "", "", nil
+		stored.Attempt++
+		if stored.CapAttempts < capMaxAttempts {
+			stored.CapAttempts++
+		}
+		stored.CapRetryAt = now.Add(capRetryInterval).UnixMilli()
+		if stored.CapAttempts >= capMaxAttempts {
+			stored.CapRetryAt, stored.CapQuiet = 0, true
+			if q.state.CapUnstable < int64(^uint64(0)>>1) {
+				q.state.CapUnstable++
+			}
+		}
+		if err := q.save(); err != nil {
+			*stored, q.state.DiscardBundles, q.state.CapUnstable = prior, discards, count
+			return err
+		}
+		*entry = *stored
+		exhausted, diagnosticCount = stored.CapQuiet, q.state.CapUnstable
+		return nil
+	}
+	return errors.New("v4 queue entry missing")
+}
+
+func (q *Queue) CapUnstableCount() int64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.state.CapUnstable
 }
 
 func (q *Queue) freeze(entry *Entry) error {
