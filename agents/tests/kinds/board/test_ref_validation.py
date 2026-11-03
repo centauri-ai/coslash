@@ -38,6 +38,8 @@ def test_refs_canaries_and_bot_evidence_are_rejected(monkeypatch, caplog):
             ],
         },
     ]
+    for issue in output["issues"]:
+        issue["evidence"] = []
     caplog.set_level("INFO")
     fake, model, app = setup(monkeypatch, content=output)
     fake.outputs["coslash_team_activity"]["items"][0]["goal"] = (
@@ -60,7 +62,7 @@ def test_refs_canaries_and_bot_evidence_are_rejected(monkeypatch, caplog):
     assert input_text.startswith("<untrusted>") and "&lt;!channel&gt;" in input_text
 
 
-def test_grounded_medium_issue_is_written_but_high_is_not(monkeypatch):
+def test_grounded_medium_and_unverified_high_are_written_as_medium(monkeypatch):
     output = copy.deepcopy(BOARD)
     issue = {
         "type": "mismatch",
@@ -73,13 +75,17 @@ def test_grounded_medium_issue_is_written_but_high_is_not(monkeypatch):
         ],
     }
     output["issues"] = [
-        issue,
-        {**issue, "confidence": "high"},
-        {**issue, "refs": issue["refs"] + [{"kind": "session", "sessionId": "invented"}]},
+        {**issue, "evidence": []},
+        {**issue, "confidence": "high", "evidence": []},
+        {
+            **issue,
+            "evidence": [],
+            "refs": issue["refs"] + [{"kind": "session", "sessionId": "invented"}],
+        },
     ]
     fake, _, app = setup(monkeypatch, content=output)
     assert dispatch(app, payload()).status_code == 200
-    assert calls(fake, "coslash_upsert_issues")[0]["issues"] == [issue]
+    assert calls(fake, "coslash_upsert_issues")[0]["issues"] == [issue, issue]
 
 
 def test_model_input_budget_and_truncation(monkeypatch):

@@ -9,8 +9,21 @@ PROMPT = (
     "Use only provided session and non-bot Slack references. Do not invent facts. "
     "Never include people metrics such as time, tokens, or cost. "
     "Only report an issue when its evidence supports it; mismatch requires both sources. "
-    "Use high confidence only when both sides are explicit."
+    "For each issue include evidence as an array of {ref, quote} objects, using an empty "
+    "array when there is no evidence. Use high confidence only for a mismatch with verbatim "
+    "quotes from a cited session's key_decisions or outcome and a cited non-bot Slack message."
 )
+
+ISSUE_FIELDS = {
+    "type": {
+        "type": "string",
+        "enum": ["mismatch", "discussed_not_started", "done_not_announced"],
+    },
+    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    "title": c.string(120),
+    "detail": c.string(500),
+    "refs": c.arr(c.REF),
+}
 
 SCHEMA = c.obj(
     {
@@ -24,18 +37,17 @@ SCHEMA = c.obj(
         "headline": c.string(280),
         "decisions": c.arr(c.DECISION, 10),
         "issues": c.arr(
-            c.obj(
-                {
-                    "type": {
-                        "type": "string",
-                        "enum": ["mismatch", "discussed_not_started", "done_not_announced"],
-                    },
-                    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-                    "title": c.string(120),
-                    "detail": c.string(500),
-                    "refs": c.arr(c.REF),
-                }
-            )
+            {
+                "anyOf": [
+                    c.obj(
+                        {
+                            **ISSUE_FIELDS,
+                            "evidence": c.arr(c.obj({"ref": c.REF, "quote": {"type": "string"}})),
+                        }
+                    ),
+                    c.obj(ISSUE_FIELDS),
+                ]
+            }
         ),
     }
 )
@@ -70,7 +82,46 @@ def carry(report, previous, sessions, seen, last, tick):
     report["insightsAsOf"] = last.get("insightsAsOf", tick) if last else tick
 
 
-def valid_issues(items, seen):
+def ref_key(ref):
+    if ref["kind"] == "session":
+        return ("session", ref["sessionId"])
+    return ("slack", ref["channelId"], ref["ts"])
+
+
+def verified_evidence(evidence, refs, sources):
+    cited = {ref_key(ref) for ref in refs}
+    kinds = set()
+    for item in evidence:
+        key = ref_key(item["ref"])
+        quote = item["quote"]
+        if (
+            not quote.strip()
+            or key not in cited
+            or not any(quote in text for text in sources.get(key, ()))
+        ):
+            return False
+        kinds.add(key[0])
+    return kinds == {"session", "slack"}
+
+
+def valid_issues(items, seen, sessions, messages):
+    sources = {}
+    for session in sessions:
+        if session.get("session_id"):
+            texts = [session.get("outcome"), *(session.get("key_decisions") or [])]
+            sources.setdefault(("session", session["session_id"]), []).extend(
+                text for text in texts if isinstance(text, str)
+            )
+    for message in messages:
+        if (
+            message.get("is_bot") is False
+            and message.get("channel_id")
+            and message.get("ts")
+            and isinstance(message.get("text"), str)
+        ):
+            sources.setdefault(("slack", message["channel_id"], message["ts"]), []).append(
+                message["text"]
+            )
     out = []
     for issue in items:
         refs = c.validate_refs(issue["refs"], seen)
@@ -84,11 +135,21 @@ def valid_issues(items, seen):
             or (issue["type"] == "mismatch" and kinds != {"session", "slack"})
         ):
             continue
-        # A reference proves existence, not that both sides explicitly support a mismatch.
-        # Until there is a verifiable evidence contract, do not write high-confidence issues.
-        if issue["confidence"] == "high":
-            continue
-        out.append({**issue, "title": title, "detail": detail, "refs": refs})
+        confidence = issue["confidence"]
+        if confidence == "high" and (
+            issue["type"] != "mismatch"
+            or not verified_evidence(issue.get("evidence", []), refs, sources)
+        ):
+            confidence = "medium"
+        out.append(
+            {
+                "type": issue["type"],
+                "confidence": confidence,
+                "title": title,
+                "detail": detail,
+                "refs": refs,
+            }
+        )
     return out
 
 
@@ -185,7 +246,7 @@ async def run(payload, mcp, deadline):
             report["decisions"] = c.decisions(result["decisions"], seen)
             report["insightsAsOf"] = as_of
             await mcp.call(
-                "coslash_upsert_issues", {"issues": valid_issues(result["issues"], seen)}
+                "coslash_upsert_issues", {"issues": valid_issues(result["issues"], seen, day, msgs)}
             )
             report["issues"] = c.report_issues(await c.issues(mcp, space))
     report["insightMode"] = mode
