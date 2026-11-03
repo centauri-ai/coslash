@@ -936,7 +936,7 @@ function SessionListView({
   handoffs: ReadonlyMap<string, DirectedHandoff>;
 }) {
   return (
-    <table className="max-compact:table-auto w-full table-fixed border-separate border-spacing-0">
+    <table className="w-full table-fixed border-separate border-spacing-0">
       <thead>
         <tr>
           <SortHeader label="Session" sortKey="title" sort={sort} onSort={onSort} className="w-[300px]" />
