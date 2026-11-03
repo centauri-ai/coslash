@@ -264,6 +264,7 @@ func TestBackgroundLoginUpgradeRepairsProgramArguments(t *testing.T) {
 		old        func(link, stable string) []string
 		want       func(stable string) []string
 		runningJob bool
+		waitingJob bool
 	}{
 		{
 			name: "0.4.0 login item",
@@ -285,6 +286,12 @@ func TestBackgroundLoginUpgradeRepairsProgramArguments(t *testing.T) {
 			old:        func(link, _ string) []string { return []string{link, "--no-open"} },
 			want:       func(stable string) []string { return []string{stable, "--background", "--no-open"} },
 			runningJob: true,
+		},
+		{
+			name:       "waiting launch agent",
+			old:        func(link, _ string) []string { return []string{link, "--no-open"} },
+			want:       func(stable string) []string { return []string{stable, "--background", "--no-open"} },
+			waitingJob: true,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -316,7 +323,11 @@ func TestBackgroundLoginUpgradeRepairsProgramArguments(t *testing.T) {
 			if test.runningJob {
 				pid = strconv.Itoa(os.Getpid())
 			}
-			script := "#!/bin/sh\necho \"$1\" >> '" + calls + "'\ncase \"$1\" in\nprint) [ -f '" + loaded + "' ] && echo 'pid = " + pid + "' ;;\nbootout) /bin/rm -f '" + loaded + "' ;;\nbootstrap) /usr/bin/touch '" + loaded + "' ;;\n*) exit 99 ;;\nesac\n"
+			printOutput := "pid = " + pid
+			if test.waitingJob {
+				printOutput = "state = waiting"
+			}
+			script := "#!/bin/sh\necho \"$1\" >> '" + calls + "'\ncase \"$1\" in\nprint) [ -f '" + loaded + "' ] && echo '" + printOutput + "' ;;\nbootout) /bin/rm -f '" + loaded + "' ;;\nbootstrap) /usr/bin/touch '" + loaded + "' ;;\n*) exit 99 ;;\nesac\n"
 			if err := os.WriteFile(filepath.Join(home, "launchctl"), []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
