@@ -19,6 +19,16 @@ def app_for(monkeypatch, fake):
 
 
 def test_dev_task_dispatches_to_stub(monkeypatch, task):
+    from dataclasses import replace
+
+    async def stub(*_args):
+        raise NotImplementedError
+
+    monkeypatch.setitem(
+        app_module.REGISTRY,
+        "board_tick",
+        replace(app_module.REGISTRY["board_tick"], handler=stub),
+    )
     fake = FakeMCP()
     with TestClient(app_for(monkeypatch, fake)) as client:
         response = client.post("/v1/tasks", json=task, headers={"X-Coslash-Dev-Secret": "secret"})

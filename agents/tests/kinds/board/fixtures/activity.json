@@ -1,0 +1,11 @@
+{
+  "sessions": [
+    {"session_id":"s1","title":"API work","goal":"Build API","key_decisions":["Use REST"],"next_step":"Review","status":"active","agent":"codex","owner":{"id":"u1","name":"Ana"},"last_activity_at":"2026-11-02T11:50:00Z"},
+    {"session_id":"s2","title":"Completed","status":"done","agent":"codex","owner":{"id":"u2","name":"Bo"},"last_activity_at":"2026-11-02T11:40:00Z","ended_at":"2026-11-02T11:45:00Z"},
+    {"session_id":"s3","title":"Old activity","status":"idle","agent":"codex","owner":{"id":"u1","name":"Ana"},"last_activity_at":"2026-11-02T10:00:00Z"}
+  ],
+  "messages": [
+    {"channel_id":"C1","channel_name":"team","ts":"100.1","is_bot":false,"text":"Team update"},
+    {"channel_id":"C1","channel_name":"team","ts":"100.2","is_bot":true,"text":"Bot update"}
+  ]
+}
