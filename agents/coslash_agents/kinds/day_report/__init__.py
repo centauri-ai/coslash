@@ -30,11 +30,11 @@ def title(spec):
     return f"Day report {slot} · {month} {date.day} · {start:%H:%M}–{end:%H:%M}"
 
 
-def moved(values, seen):
+def moved(values, seen, passages=()):
     result = []
     for item in values:
         refs = c.validate_refs(item["refs"], seen)
-        text = c.clean(item["text"], 280)
+        text = c.clean(item["text"], 280, passages)
         if text and (not item["refs"] or len(refs) == len(item["refs"])):
             entry = {"text": text}
             if refs:
@@ -54,15 +54,18 @@ async def run(payload, mcp, deadline):
     open_issues = await c.issues(mcp, space)
     day_start = end - timedelta(hours=24)
     day = await c.activity(mcp, space, {"from": c.iso(day_start), "to": window["end"]})
+    passages = c.safety_context(sessions, day, msgs, open_issues)
+    sessions = c.window_sessions(sessions, end)
+    day = c.window_sessions(day, end)
+    model_sessions = [s for s in sessions if not s.get("_after_window")]
     as_of = c.iso(datetime.now(UTC))
-    report = c.base(task, "day_report", window, as_of)
+    report = c.base(task, "day_report", window, as_of, passages)
     report.update({"title": title(spec), "moved": [], "people": [], "quiet": False})
     active = sorted(
         (
             s
             for s in sessions
-            if s.get("last_activity_at")
-            and c.timestamp(s["last_activity_at"]) >= end - timedelta(hours=2)
+            if recent(s, "last_activity_at", end - timedelta(hours=2), end)
             and (not s.get("ended_at") or c.timestamp(s["ended_at"]) > end)
         ),
         key=lambda s: c.timestamp(s["last_activity_at"]),
@@ -74,7 +77,7 @@ async def run(payload, mcp, deadline):
         reverse=True,
     )
     recent_active = [
-        s for s in active if c.timestamp(s["last_activity_at"]) >= end - timedelta(hours=1)
+        s for s in active if recent(s, "last_activity_at", end - timedelta(hours=1), end)
     ]
     recent_done = [s for s in done if recent(s, "ended_at", end - timedelta(hours=1), end)]
     report["windows"]["1h"] = {
@@ -91,20 +94,21 @@ async def run(payload, mcp, deadline):
     quiet = not sessions and not any(m.get("is_bot") is False for m in msgs)
     report["quiet"] = quiet
     if not quiet:
-        report["active"], report["done"] = c.entries(active), c.entries(done, True)
+        report["active"] = c.entries(active, passages=passages)
+        report["done"] = c.entries(done, True, passages)
         names = {}
         for s in sessions:
             person = c.owner(s)
             if person.get("id"):
-                names[person["id"]] = c.clean(person.get("name"), 1000000)
+                names[person["id"]] = c.clean(person.get("name"), 1000000, passages)
         report["people"] = [{"name": names[key]} for key in sorted(names)]
-        report["issues"] = c.report_issues(open_issues)
-        seen = c.seen_refs(sessions, msgs)
-        result = await c.invoke_model(task, mcp, deadline, sessions, msgs, PROMPT, SCHEMA)
+        report["issues"] = c.report_issues(open_issues, passages)
+        seen = c.seen_refs(model_sessions, msgs)
+        result = await c.invoke_model(task, mcp, deadline, model_sessions, msgs, PROMPT, SCHEMA)
         if result is not None:
             report["insightMode"] = "llm"
-            report["moved"] = moved(result["moved"], seen)
-            report["decisions"] = c.decisions(result["decisions"], seen)
+            report["moved"] = moved(result["moved"], seen, passages)
+            report["decisions"] = c.decisions(result["decisions"], seen, passages)
         for field, limit in (
             ("active", 15),
             ("done", 15),
@@ -114,7 +118,8 @@ async def run(payload, mcp, deadline):
             ("decisions", 10),
         ):
             c.cap(report, field, limit)
-        report["windows"]["24h"]["decisions"] = c.count_decisions(report)
+    report = c.finalize(report, passages)
+    report["windows"]["24h"]["decisions"] = c.count_decisions(report)
     if spec["slot"].endswith("#3/3"):
         prior_decisions = 0
         date = spec["slot"].split("#")[0]
@@ -128,7 +133,6 @@ async def run(payload, mcp, deadline):
             "done": sum(recent(s, "ended_at", day_start, end) for s in day),
             "decisions": prior_decisions + c.count_decisions(report),
         }
-    report = c.finalize(report)
     await mcp.call(
         "coslash_write_board_report",
         {

@@ -60,25 +60,27 @@ def recent(item, key, start, end):
         return False
 
 
-def carry(report, previous, sessions, seen, last, tick):
+def carry(report, previous, sessions, seen, last, tick, passages):
     ids = {s.get("session_id") for s in sessions}
     for theme in previous.get("themes", []):
         retained = [sid for sid in theme.get("sessionIds", []) if sid in ids]
-        if retained:
+        name = c.clean(theme["name"], 60, passages)
+        summary = c.clean(theme["summary"], 280, passages)
+        if retained and name and summary:
             report["themes"].append(
                 {
-                    "name": c.clean(theme["name"], 60),
-                    "summary": c.clean(theme["summary"], 280),
+                    "name": name,
+                    "summary": summary,
                     "sessionIds": retained,
                 }
             )
-    report["decisions"] = c.decisions(previous.get("decisions", []), seen)
+    report["decisions"] = c.decisions(previous.get("decisions", []), seen, passages)
     truncated = sum(
         item["count"] for item in previous.get("truncated", []) if item.get("field") == "decisions"
     )
     if truncated:
         report.setdefault("truncated", []).append({"field": "decisions", "count": truncated})
-    report["headline"] = c.clean(previous.get("headline"), 280)
+    report["headline"] = c.clean(previous.get("headline"), 280, passages)
     report["insightsAsOf"] = last.get("insightsAsOf", tick) if last else tick
 
 
@@ -104,7 +106,7 @@ def verified_evidence(evidence, refs, sources):
     return kinds == {"session", "slack"}
 
 
-def valid_issues(items, seen, sessions, messages):
+def valid_issues(items, seen, sessions, messages, passages=()):
     sources = {}
     for session in sessions:
         if session.get("session_id"):
@@ -126,7 +128,8 @@ def valid_issues(items, seen, sessions, messages):
     for issue in items:
         refs = c.validate_refs(issue["refs"], seen)
         kinds = {ref["kind"] for ref in refs}
-        title, detail = c.clean(issue["title"], 120), c.clean(issue["detail"], 500)
+        title = c.clean(issue["title"], 120, passages)
+        detail = c.clean(issue["detail"], 500, passages)
         if (
             not refs
             or len(refs) != len(issue["refs"])
@@ -188,19 +191,22 @@ async def run(payload, mcp, deadline):
     msgs = await c.messages(mcp, window)
     open_issues = await c.issues(mcp, space)
     previous = await previous_report(mcp, space, "board")
+    passages = c.safety_context(hour, day, msgs, open_issues, previous)
+    hour = c.window_sessions(hour, end)
+    day = c.window_sessions(day, end)
+    model_sessions = [s for s in day if not s.get("_after_window")]
     last = spec.get("lastReport")
     if last and not previous:
         raise Retryable()
     previous = previous if last else {}
     as_of = c.iso(datetime.now(UTC))
-    report = c.base(task, "board", spec["window"], as_of)
+    report = c.base(task, "board", spec["window"], as_of, passages)
     report["title"] = "coslash board"
     active = sorted(
         (
             s
             for s in hour
-            if s.get("last_activity_at")
-            and c.timestamp(s["last_activity_at"]) >= hour_start
+            if recent(s, "last_activity_at", hour_start, end)
             and (not s.get("ended_at") or c.timestamp(s["ended_at"]) > end)
         ),
         key=lambda s: c.timestamp(s["last_activity_at"]),
@@ -211,8 +217,9 @@ async def run(payload, mcp, deadline):
         key=lambda s: c.timestamp(s["ended_at"]),
         reverse=True,
     )
-    report["active"], report["done"] = c.entries(active), c.entries(done, True)
-    report["issues"] = c.report_issues(open_issues)
+    report["active"] = c.entries(active, passages=passages)
+    report["done"] = c.entries(done, True, passages)
+    report["issues"] = c.report_issues(open_issues, passages)
     report["windows"]["1h"] = {
         "active": len(active),
         "done": len(done),
@@ -224,8 +231,8 @@ async def run(payload, mcp, deadline):
         "people": len(c.people(day)),
         "decisions": 0,
     }
-    seen = c.seen_refs(day, msgs)
-    carry(report, previous, day, seen, last, spec["tick"])
+    seen = c.seen_refs(model_sessions, msgs)
+    carry(report, previous, day, seen, last, spec["tick"], passages)
     new_digest = c.digest(day, msgs, window["end"])
     old_digest = last.get("inputDigest", "") if last else ""
     mode = "carry_forward"
@@ -234,33 +241,35 @@ async def run(payload, mcp, deadline):
     elif new_digest != old_digest and (
         not last or tick - c.timestamp(last["insightsAsOf"]) >= timedelta(minutes=30)
     ):
-        result = await c.invoke_model(task, mcp, deadline, day, msgs, PROMPT, SCHEMA)
+        result = await c.invoke_model(task, mcp, deadline, model_sessions, msgs, PROMPT, SCHEMA)
         if result is not None:
             mode = "llm"
             if "truncated" in report:
                 report["truncated"] = [x for x in report["truncated"] if x["field"] != "decisions"]
-            ids = {s.get("session_id") for s in day}
+            ids = {s.get("session_id") for s in model_sessions}
             themes = []
             for theme in result["themes"]:
                 if not theme["sessionIds"] or any(sid not in ids for sid in theme["sessionIds"]):
                     continue
-                name, summary = c.clean(theme["name"], 60), c.clean(theme["summary"], 280)
+                name = c.clean(theme["name"], 60, passages)
+                summary = c.clean(theme["summary"], 280, passages)
                 if name and summary:
                     themes.append(
                         {"name": name, "summary": summary, "sessionIds": theme["sessionIds"]}
                     )
             report["themes"] = themes
-            lines = {x["sessionId"]: c.clean(x["line"], 120) for x in result["lines"]}
+            lines = {x["sessionId"]: c.clean(x["line"], 120, passages) for x in result["lines"]}
             for row in report["active"] + report["done"]:
                 if lines.get(row["sessionId"]):
                     row["line"] = lines[row["sessionId"]]
-            report["headline"] = c.clean(result["headline"], 280) or report["headline"]
-            report["decisions"] = c.decisions(result["decisions"], seen)
+            report["headline"] = c.clean(result["headline"], 280, passages) or report["headline"]
+            report["decisions"] = c.decisions(result["decisions"], seen, passages)
             report["insightsAsOf"] = as_of
             await mcp.call(
-                "coslash_upsert_issues", {"issues": valid_issues(result["issues"], seen, day, msgs)}
+                "coslash_upsert_issues",
+                {"issues": valid_issues(result["issues"], seen, model_sessions, msgs, passages)},
             )
-            report["issues"] = c.report_issues(await c.issues(mcp, space))
+            report["issues"] = c.report_issues(await c.issues(mcp, space), passages)
     report["insightMode"] = mode
     for field, limit in (
         ("active", 15),
@@ -270,8 +279,8 @@ async def run(payload, mcp, deadline):
         ("decisions", 10),
     ):
         c.cap(report, field, limit)
+    report = c.finalize(report, passages)
     report["windows"]["24h"]["decisions"] = c.count_decisions(report)
-    report = c.finalize(report)
     await mcp.call(
         "coslash_write_board_report",
         {

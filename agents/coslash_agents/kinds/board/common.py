@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import structlog
 
+from coslash_agents.echo import remember_instructions, unsafe_answer
 from coslash_agents.llm.client import ModelClient, ModelError
 from coslash_agents.mcp.client import Retryable
 from coslash_agents.safety import enforce_caps, quote_untrusted, strip_slack_controls, validate_refs
@@ -21,14 +22,43 @@ def iso(value):
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def clean(value, limit):
-    value = strip_slack_controls(str(value or ""))
+def safety_context(*inputs):
+    passages = set()
+    for value in inputs:
+        remember_instructions(value, passages)
+    return passages
+
+
+def clean(value, limit, passages=()):
+    value = str(value or "")
+    if unsafe_answer(value, passages):
+        return ""
+    value = strip_slack_controls(value)
     value = re.sub(r"https?://\S+|<[^>]*>|\[[^\]]+\]\([^)]*\)", "", value, flags=re.I)
     value = re.sub(r"[*_~`\x00-\x1f]", " ", value)
-    # Instruction-like content from untrusted fields is not suitable report prose.
-    if re.search(r"ignore (?:all |previous |prior )?instructions|post all sessions", value, re.I):
-        return ""
-    return " ".join(value.split())[:limit]
+    value = " ".join(value.split())[:limit]
+    return "" if unsafe_answer(value, passages) else value
+
+
+def window_sessions(items, end):
+    result = []
+    for item in items:
+        if any(
+            item.get(field) and timestamp(item[field]) > end
+            for field in ("last_activity_at", "card_at", "content_as_of")
+        ):
+            item = {
+                **item,
+                "title": "",
+                "goal": "",
+                "outcome": "",
+                "key_decisions": [],
+                "next_step": "",
+                "status": "",
+                "_after_window": True,
+            }
+        result.append(item)
+    return result
 
 
 def owner(item):
@@ -77,19 +107,26 @@ def minimal_refs(refs):
     return validate_refs(refs, refs)
 
 
-def report_issues(items):
+def report_issues(items, passages=None):
+    if passages is None:
+        passages = set()
+    remember_instructions(items, passages)
     result = []
     for issue in items:
         entry = {k: issue[k] for k in ("id", "type", "confidence")}
-        entry["title"] = clean(issue.get("title"), 1000000)
+        entry["title"] = clean(issue.get("title"), 1000000, passages)
+        if not entry["title"]:
+            continue
         if issue.get("detail"):
-            entry["detail"] = clean(issue["detail"], 1000000)
+            detail = clean(issue["detail"], 1000000, passages)
+            if detail:
+                entry["detail"] = detail
         entry["refs"] = minimal_refs(issue.get("refs", []))
         result.append(entry)
     return result
 
 
-def entries(items, done=False):
+def entries(items, done=False, passages=()):
     out = []
     for s in items:
         at = s.get("ended_at" if done else "last_activity_at")
@@ -97,14 +134,14 @@ def entries(items, done=False):
             continue
         row = {
             "sessionId": s["session_id"],
-            "line": clean(s.get("goal") or s.get("title"), 1000000),
-            "owner": clean(owner(s).get("name"), 1000000),
-            "agent": clean(s.get("agent"), 120),
+            "line": clean(s.get("goal") or s.get("title"), 1000000, passages),
+            "owner": clean(owner(s).get("name"), 1000000, passages),
+            "agent": clean(s.get("agent"), 120, passages),
             ("endedAt" if done else "lastActivityAt"): at,
         }
         optional = (s.get("key_decisions") or [None])[0] if done else s.get("next_step")
         if optional:
-            row["decided" if done else "next"] = clean(optional, 1000000)
+            row["decided" if done else "next"] = clean(optional, 1000000, passages)
         out.append(row)
     return out
 
@@ -143,14 +180,46 @@ def cap(report, field, limit):
         report[field] = value[:limit]
 
 
-def finalize(report):
-    return enforce_caps(report)
+def finalize(report, passages=()):
+    report = enforce_caps(report)
+    if unsafe_answer(report["team"]["name"], passages):
+        report["team"]["name"] = ""
+    if "headline" in report and unsafe_answer(report["headline"], passages):
+        report["headline"] = ""
+    report["themes"] = [
+        theme
+        for theme in report["themes"]
+        if not any(unsafe_answer(theme[field], passages) for field in ("name", "summary"))
+    ]
+    for row in report["active"] + report["done"]:
+        for field in ("line", "owner", "agent", "next", "decided"):
+            if field in row and unsafe_answer(row[field], passages):
+                row[field] = ""
+    for person in report.get("people", []):
+        if unsafe_answer(person["name"], passages):
+            person["name"] = ""
+    report["decisions"] = [
+        item for item in report["decisions"] if not unsafe_answer(item["text"], passages)
+    ]
+    report["issues"] = [
+        issue for issue in report["issues"] if not unsafe_answer(issue["title"], passages)
+    ]
+    for issue in report["issues"]:
+        if "detail" in issue and unsafe_answer(issue["detail"], passages):
+            del issue["detail"]
+    if "moved" in report:
+        report["moved"] = [
+            item for item in report["moved"] if not unsafe_answer(item["text"], passages)
+        ]
+    if "notes" in report:
+        report["notes"] = [note for note in report["notes"] if not unsafe_answer(note, passages)]
+    return report
 
 
-def base(task, kind, window, as_of):
+def base(task, kind, window, as_of, passages=()):
     return {
         "schema": "board-report/1",
-        "team": {"id": task["orgId"], "name": clean(task["teamName"], 120)},
+        "team": {"id": task["orgId"], "name": clean(task["teamName"], 120, passages)},
         "kind": kind,
         "title": "",
         "asOf": as_of,
@@ -253,11 +322,11 @@ def string(maximum):
 DECISION = obj({"text": string(280), "source": REF})
 
 
-def decisions(values, seen):
+def decisions(values, seen, passages=()):
     result = []
     for item in values:
         refs = validate_refs([item["source"]], seen)
-        text = clean(item["text"], 280)
+        text = clean(item["text"], 280, passages)
         if refs and text:
             result.append({"text": text, "source": refs[0]})
     return result

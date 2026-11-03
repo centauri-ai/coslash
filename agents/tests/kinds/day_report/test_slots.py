@@ -36,6 +36,9 @@ def test_slots_use_supplied_windows_and_dst(monkeypatch, slot):
     fake, model, app = setup(monkeypatch, kind="day_report")
     task = payload("day_report")
     if slot["slot"].endswith("#3/3"):
+        fake.outputs["coslash_team_activity"]["items"][0]["last_activity_at"] = (
+            "2026-11-02T01:30:00Z"
+        )
         fake.outputs["coslash_team_activity"]["items"][1]["ended_at"] = "2026-11-02T01:45:00Z"
     task["task"]["day_report"] = {k: slot[k] for k in ("slot", "window", "timezone")}
     task["budget"]["state"] = "soft_limit"
@@ -155,8 +158,9 @@ def test_late_day_uses_task_window_and_overlapping_activity(monkeypatch):
     ]
     report = written(fake)["report"]
     assert not report["quiet"]
-    assert [row["sessionId"] for row in report["active"]] == ["s1"]
+    # D-82 replaces the earlier assumption that overlap proves last-hour activity.
+    assert report["active"] == []
     assert [row["sessionId"] for row in report["done"]] == ["s2"]
-    assert report["windows"]["1h"] == {"active": 1, "done": 1, "people": 2}
+    assert report["windows"]["1h"] == {"active": 0, "done": 1, "people": 1}
     assert report["windows"]["24h"]["sessions"] == 3
     assert len(report["people"]) == 3
