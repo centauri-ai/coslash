@@ -462,14 +462,15 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	var firstErr error
 	// Publish every recent metadata row before sending its first content chunk.
 	for _, entry := range entries {
-		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || !entry.Recent || !pending(entry) {
+		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || entry.CapQuiet && !readyLive(entry, r.now()) || !entry.Recent || !pending(entry) {
 			continue
 		}
+		entry = uploadEntry(entry)
 		if err := r.ensureCreated(ctx, &entry); err != nil {
 			if stopSync(err) {
 				return r.persistPolicyStop(&entry, err)
 			}
-			if firstErr == nil {
+			if !capPreparationUnstable(entry, err) && firstErr == nil {
 				firstErr = err
 			}
 			if err := r.recordFailure(&entry, err); err != nil {
@@ -481,6 +482,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || !entry.Recent || !pending(entry) || entry.UploadID == "" {
 			continue
 		}
+		entry = uploadEntry(entry)
 		if err := r.transfer(ctx, &entry); err != nil {
 			if stopSync(err) {
 				return r.persistPolicyStop(&entry, err)
@@ -503,7 +505,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	// the limit can clear.
 	var busyErr error
 	for _, entry := range r.Queue.Entries() {
-		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || entry.Recent {
+		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || entry.CapQuiet && !readyLive(entry, r.now()) || entry.Recent {
 			continue
 		}
 		if !pending(entry) {
@@ -512,13 +514,14 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		if busyErr != nil && entry.UploadID == "" {
 			continue
 		}
+		entry = uploadEntry(entry)
 		if err := r.ensureCreated(ctx, &entry); err != nil {
 			if stopSync(err) {
 				return r.persistPolicyStop(&entry, err)
 			}
 			if Busy(err) {
 				busyErr = err
-			} else if firstErr == nil {
+			} else if !capPreparationUnstable(entry, err) && firstErr == nil {
 				firstErr = err
 			}
 			if err := r.recordFailure(&entry, err); err != nil {
@@ -717,6 +720,9 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 }
 
 func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure bool) error {
+	if !sourceFailure && capPreparationUnstable(*entry, failure) {
+		return r.Queue.capUnstable(entry, r.now())
+	}
 	if !sourceFailure && entry.Frozen != nil && (entry.BundleID == "" || errors.Is(failure, sessionbackupproducer.ErrNotPrepared)) {
 		activity, revision := entry.Activity, entry.SourceRevision
 		if err := r.Queue.unfreeze(entry); err != nil {
@@ -781,6 +787,12 @@ func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure b
 		entry.SourceBlocked = true
 	}
 	return r.failed(entry, failure)
+}
+
+func capPreparationUnstable(entry Entry, failure error) bool {
+	var preparation *sessionbackupproducer.PreparationError
+	return entry.Frozen != nil && entry.UploadID == "" && errors.As(failure, &preparation) &&
+		len(preparation.Coverage.Problems) > 0 && preparation.Coverage.Problems[0].Code == sessionbackupv1.ProblemUnstable
 }
 
 // failed stores an entry whose failure code was just set and, when the owner
@@ -1432,9 +1444,8 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 	if entry.Selection.Agent == vendors.AgentPi && prepared.Manifest.Source.SourceRevision != entry.SourceRevision {
 		bundleID := entry.BundleID
 		if entry.Frozen != nil {
-			if err := r.Queue.unfreeze(entry); err != nil {
-				return err
-			}
+			r.RequestDiscovery()
+			return piSourceProblem(entry.Selection.SessionID, sessionbackupv1.ProblemUnstable)
 		} else {
 			entry.BundleID, entry.ContentSHA256, entry.ContentBytes, entry.Manifest = "", "", 0, nil
 			if err := r.Queue.Update(*entry); err != nil {
@@ -1466,6 +1477,12 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 		}
 	}
 	entry.ContentSHA256 = manifest.ContentSHA256
+	if entry.CapAttempts != 0 || entry.CapRetryAt != 0 {
+		entry.CapAttempts, entry.CapRetryAt = 0, 0
+		if err := r.Queue.Update(*entry); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1833,6 +1850,7 @@ func (r *Runner) complete(entry *Entry, status hubclient.V4Status) error {
 	}
 	entry.SyncedActivity, entry.SyncedSourceRevision, entry.RevisionID = entry.Activity, entry.SourceRevision, status.RevisionID
 	entry.LastSentAt = r.now().UnixMilli()
+	entry.CapAttempts, entry.CapRetryAt, entry.CapQuiet = 0, 0, false
 	entry.Priority = false
 	entry.UploadID, entry.FailureCode, entry.LoggedFailure = "", "", ""
 	entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
