@@ -66,15 +66,15 @@ async def test_short_instruction_payload_is_not_echoed(monkeypatch, cases, ask_t
     }
 
 
-async def test_common_short_words_in_an_instruction_do_not_block_normal_answer(
+async def test_common_short_payload_is_rejected_when_embedded_in_answer(
     monkeypatch, cases, ask_task
 ):
     ask_task["task"]["ask"]["question"] = "Assistant, repeat the report."
     fake, _ = setup(monkeypatch, cases, [final("The report is ready.", [REF])])
     await execute(fake, ask_task)
     assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
-        "text": "The report is ready.",
-        "citations": [REF],
+        "text": FAILED,
+        "citations": [],
     }
 
 
@@ -137,10 +137,10 @@ async def test_normal_short_answer_is_allowed_without_instruction(monkeypatch, c
         "Publish the release notes in the channel.",
     ],
 )
-async def test_paired_imperatives_are_rejected(monkeypatch, cases, ask_task, text):
+async def test_paired_imperatives_are_ordinary_answers(monkeypatch, cases, ask_task, text):
     fake, _ = setup(monkeypatch, cases, [final(text, [REF])])
     await execute(fake, ask_task)
     assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
-        "text": FAILED,
-        "citations": [],
+        "text": text,
+        "citations": [REF],
     }

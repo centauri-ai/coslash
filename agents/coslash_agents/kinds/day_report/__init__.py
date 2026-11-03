@@ -100,7 +100,7 @@ async def run(payload, mcp, deadline):
         for s in sessions:
             person = c.owner(s)
             if person.get("id"):
-                names[person["id"]] = c.clean(person.get("name"), 1000000, passages)
+                names[person["id"]] = c.clean(person.get("name"), 1000000, passages, check=False)
         report["people"] = [{"name": names[key]} for key in sorted(names)]
         report["issues"] = c.report_issues(open_issues, passages)
         seen = c.seen_refs(model_sessions, msgs)

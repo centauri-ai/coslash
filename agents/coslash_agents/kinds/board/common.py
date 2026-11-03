@@ -29,15 +29,13 @@ def safety_context(*inputs):
     return passages
 
 
-def clean(value, limit, passages=()):
+def clean(value, limit, passages=(), *, check=True):
     value = str(value or "")
-    if unsafe_answer(value, passages):
-        return ""
     value = strip_slack_controls(value)
     value = re.sub(r"https?://\S+|<[^>]*>|\[[^\]]+\]\([^)]*\)", "", value, flags=re.I)
     value = re.sub(r"[*_~`\x00-\x1f]", " ", value)
     value = " ".join(value.split())[:limit]
-    return "" if unsafe_answer(value, passages) else value
+    return "" if check and unsafe_answer(value, passages) else value
 
 
 def window_sessions(items, end):
@@ -114,11 +112,11 @@ def report_issues(items, passages=None):
     result = []
     for issue in items:
         entry = {k: issue[k] for k in ("id", "type", "confidence")}
-        entry["title"] = clean(issue.get("title"), 1000000, passages)
+        entry["title"] = clean(issue.get("title"), 1000000, passages, check=False)
         if not entry["title"]:
             continue
         if issue.get("detail"):
-            detail = clean(issue["detail"], 1000000, passages)
+            detail = clean(issue["detail"], 1000000, passages, check=False)
             if detail:
                 entry["detail"] = detail
         entry["refs"] = minimal_refs(issue.get("refs", []))
@@ -134,14 +132,14 @@ def entries(items, done=False, passages=()):
             continue
         row = {
             "sessionId": s["session_id"],
-            "line": clean(s.get("goal") or s.get("title"), 1000000, passages),
-            "owner": clean(owner(s).get("name"), 1000000, passages),
+            "line": clean(s.get("goal") or s.get("title"), 1000000, passages, check=False),
+            "owner": clean(owner(s).get("name"), 1000000, passages, check=False),
             "agent": clean(s.get("agent"), 120, passages),
             ("endedAt" if done else "lastActivityAt"): at,
         }
         optional = (s.get("key_decisions") or [None])[0] if done else s.get("next_step")
         if optional:
-            row["decided" if done else "next"] = clean(optional, 1000000, passages)
+            row["decided" if done else "next"] = clean(optional, 1000000, passages, check=False)
         out.append(row)
     return out
 

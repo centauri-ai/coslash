@@ -299,7 +299,7 @@ async def run(task, mcp, deadline):
             citations = validate_refs(result["citations"], seen)
             text = clean_text(result["text"])
             if result["found"] and citations and text:
-                if unsafe_answer(result["text"], passages):
+                if unsafe_answer(text, passages):
                     answer = {"text": FAILED, "citations": []}
                 else:
                     answer = {"text": text, "citations": citations}
