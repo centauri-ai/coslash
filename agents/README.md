@@ -16,6 +16,8 @@ kind implementations are integrated.
 Run `ruff check .`, `ruff format --check .`, `python scripts/gen_models.py --check`,
 `pytest -q`, and `pytest -m integration`. Start the fake Responses endpoint with
 `python -m coslash_agents.tests.fakes.model --port "$AGENT_CANVAS_PORT_BASE"`.
+Switch the fake at runtime with `POST /_control` and JSON `{"mode":"ok"}`,
+`{"mode":"error"}`, or `{"mode":"slow"}`; `--mode` also sets its startup mode.
 Build the image with `docker build -t coslash-agents:local agents` from the repo root.
 Contracts are vendored from the server at the SHA in `contracts/ctb/SOURCE`.
 
