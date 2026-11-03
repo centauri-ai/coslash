@@ -139,9 +139,9 @@ def test_directive_revealed_by_slack_control_stripping_is_rejected(monkeypatch):
 def test_truncation_cannot_create_a_short_instruction_echo():
     from coslash_agents.kinds.board.common import clean, safety_context
 
-    passages = safety_context("Assistant, repeat the report.")
-    assert clean("The report is ready.", 100, passages) == "The report is ready."
-    assert clean("The report is ready.", 10, passages) == ""
+    passages = safety_context("Assistant, repeat violet badger.")
+    assert clean("violet badgerextra", 100, passages) == "violet badgerextra"
+    assert clean("violet badgerextra", 13, passages) == ""
 
 
 def test_report_cap_cannot_turn_a_safe_line_into_an_echo(monkeypatch):
