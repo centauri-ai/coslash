@@ -140,7 +140,7 @@ def setup_overlapping_activity(monkeypatch, kind):
 
     fake.outputs["coslash_team_activity"]["items"] = [
         session(
-            "s1", "done", "2026-11-02T10:30:00Z", "2026-11-02T12:15:00Z", "2026-11-02T12:30:00Z"
+            "s1", "done", "2026-11-02T10:30:00Z", "2026-11-02T15:00:00Z", "2026-11-02T15:30:00Z"
         ),
         session(
             "s2", "done", "2026-11-02T11:00:00Z", "2026-11-02T11:50:00Z", "2026-11-02T11:50:00Z"
