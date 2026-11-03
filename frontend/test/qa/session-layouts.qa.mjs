@@ -10,6 +10,10 @@ async function expectNoHorizontalOverflow(page) {
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow, 'page scrolls horizontally').toBeLessThanOrEqual(0);
+  const table = await page.getByRole('table').boundingBox();
+  expect(table.x + table.width, 'session table clips sync badges').toBeLessThanOrEqual(
+    page.viewportSize().width,
+  );
 }
 
 test('narrow 390px layout keeps search and rows reachable', async ({ page }) => {
