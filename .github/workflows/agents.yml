@@ -1,0 +1,52 @@
+name: Agents
+on:
+  pull_request:
+    paths: ['agents/**', '.github/workflows/agents.yml']
+  push:
+    paths: ['agents/**', '.github/workflows/agents.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    defaults:
+      run:
+        working-directory: agents
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check . && ruff format --check .
+      - run: python scripts/gen_models.py --check
+      - run: pytest -q
+      - run: pytest -q -m integration
+  docker:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: docker build -t coslash-agents:ci agents
+  push:
+    needs: [check, docker]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.AGENTS_WIF_PROVIDER != '' && vars.AGENTS_PUSH_SA != '' && vars.AGENTS_IMAGE != ''
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed
+        with:
+          workload_identity_provider: ${{ vars.AGENTS_WIF_PROVIDER }}
+          service_account: ${{ vars.AGENTS_PUSH_SA }}
+      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+      - name: Build and push
+        env:
+          IMAGE: ${{ vars.AGENTS_IMAGE }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          gcloud auth configure-docker "${IMAGE%%/*}" --quiet
+          docker build -t "$IMAGE:$COMMIT" agents
+          docker push "$IMAGE:$COMMIT"

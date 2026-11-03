@@ -1,0 +1,19 @@
+{
+  "schema": "agent-task/1",
+  "task": {
+    "id": "task-1",
+    "kind": "board_tick",
+    "orgId": "team-1",
+    "teamName": "Example",
+    "expiresAt": "2026-11-02T12:00:00Z"
+  },
+  "mcp": {
+    "url": "https://example.invalid/mcp",
+    "token": "synthetic-token",
+    "expiresAt": "2026-11-02T12:00:00Z"
+  },
+  "budget": {
+    "state": "ok",
+    "usedPct": 42
+  }
+}

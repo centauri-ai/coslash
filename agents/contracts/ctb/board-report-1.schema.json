@@ -1,0 +1,577 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "board-report/1"
+    },
+    "team": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "kind": {
+      "enum": [
+        "board",
+        "day_report"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "asOf": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "window": {
+      "$ref": "#/$defs/window"
+    },
+    "insightMode": {
+      "enum": [
+        "llm",
+        "carry_forward",
+        "budget_fallback"
+      ]
+    },
+    "insightsAsOf": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "headline": {
+      "type": "string",
+      "maxLength": 280
+    },
+    "windows": {
+      "type": "object",
+      "properties": {
+        "1h": {
+          "type": "object",
+          "properties": {
+            "active": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "done": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "people": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "active",
+            "done",
+            "people"
+          ],
+          "additionalProperties": false
+        },
+        "24h": {
+          "type": "object",
+          "properties": {
+            "sessions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "done": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "people": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "decisions": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "sessions",
+            "done",
+            "people",
+            "decisions"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "1h",
+        "24h"
+      ],
+      "additionalProperties": false
+    },
+    "themes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "sessionIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 280
+          }
+        },
+        "required": [
+          "name",
+          "sessionIds",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 8
+    },
+    "active": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "line": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "agent": {
+            "type": "string"
+          },
+          "lastActivityAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "next": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "sessionId",
+          "line",
+          "owner",
+          "agent",
+          "lastActivityAt"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 15
+    },
+    "done": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "line": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "agent": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decided": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "sessionId",
+          "line",
+          "owner",
+          "agent",
+          "endedAt"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 15
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "source": {
+            "$ref": "#/$defs/ref"
+          }
+        },
+        "required": [
+          "text",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 10
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "mismatch",
+              "discussed_not_started",
+              "done_not_announced"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ref"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "confidence",
+          "title",
+          "refs"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 10
+    },
+    "moved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ref"
+            }
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 8
+    },
+    "people": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 30
+    },
+    "quiet": {
+      "type": "boolean"
+    },
+    "totals": {
+      "type": "object",
+      "properties": {
+        "sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "done": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "people": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "decisions": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "sessions",
+        "done",
+        "people",
+        "decisions"
+      ],
+      "additionalProperties": false
+    },
+    "truncated": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "field",
+          "count"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "maxItems": 5
+    }
+  },
+  "required": [
+    "schema",
+    "team",
+    "kind",
+    "title",
+    "asOf",
+    "window",
+    "insightMode",
+    "insightsAsOf",
+    "windows",
+    "themes",
+    "active",
+    "done",
+    "decisions",
+    "issues"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "window": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "end": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "additionalProperties": false
+    },
+    "ref": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "session"
+            },
+            "sessionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "sessionId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "slack"
+            },
+            "channelId": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "channelId",
+            "ts"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "board"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "headline"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "moved"
+              ]
+            },
+            {
+              "required": [
+                "people"
+              ]
+            },
+            {
+              "required": [
+                "quiet"
+              ]
+            },
+            {
+              "required": [
+                "totals"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "day_report"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "moved",
+          "people",
+          "quiet"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "quiet": {
+            "const": true
+          }
+        },
+        "required": [
+          "quiet"
+        ]
+      },
+      "then": {
+        "properties": {
+          "themes": {
+            "maxItems": 0
+          },
+          "active": {
+            "maxItems": 0
+          },
+          "done": {
+            "maxItems": 0
+          },
+          "decisions": {
+            "maxItems": 0
+          },
+          "issues": {
+            "maxItems": 0
+          },
+          "moved": {
+            "maxItems": 0
+          },
+          "people": {
+            "maxItems": 0
+          },
+          "notes": {
+            "maxItems": 0
+          },
+          "truncated": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "sessions": [
+    {"session_id":"s1","title":"API work","status":"active","owner":{"id":"u1","name":"Ana"}},
+    {"session_id":"s2","title":"Review work","status":"active","owner":{"id":"u2","name":"Bo"}},
+    {"session_id":"s3","title":"Waiting","status":"idle","owner":{"id":"u1","name":"Ana"}},
+    {"session_id":"s4","title":"Done one","status":"done","owner":{"id":"u2","name":"Bo"}},
+    {"session_id":"s5","title":"Done two","status":"done","owner":{"id":"u1","name":"Ana"}},
+    {"session_id":"s6","title":"Done three","status":"done","owner":{"id":"u2","name":"Bo"}}
+  ],
+  "messages": [
+    {"channel_id":"C_PUBLIC","channel_name":"team","ts":"10.000001","thread_ts":"10.000001","author":"Ana","is_bot":false,"text":"Edited project update","reply_count":0,"permalink":"https://example.invalid/10","edited":true},
+    {"channel_id":"C_PRIVATE","channel_name":"private","ts":"11.000001","thread_ts":"11.000001","author":"Bo","is_bot":false,"text":"canary-private-content","reply_count":0,"permalink":"https://example.invalid/11","edited":false},
+    {"channel_id":"C_PUBLIC","channel_name":"team","ts":"12.000001","thread_ts":"12.000001","author":"bot","is_bot":true,"text":"Automated update","reply_count":0,"permalink":"https://example.invalid/12","edited":false}
+  ],
+  "issues": [{"id":"issue-1","type":"mismatch","status":"open","confidence":"high","title":"Open issue","detail":"Needs review","refs":[],"first_seen":"2026-11-02T12:00:00Z","last_seen":"2026-11-02T12:00:00Z","can_close":true}]
+}

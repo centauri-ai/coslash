@@ -1,0 +1,27 @@
+{
+  "schema": "agent-task/1",
+  "task": {
+    "id": "task-1",
+    "kind": "day_report",
+    "orgId": "team-1",
+    "teamName": "Example",
+    "expiresAt": "2026-11-02T12:00:00Z",
+    "day_report": {
+      "slot": "2026-11-02#2/3",
+      "window": {
+        "start": "2026-11-01T12:00:00Z",
+        "end": "2026-11-02T12:00:00Z"
+      },
+      "timezone": "UTC"
+    }
+  },
+  "mcp": {
+    "url": "https://example.invalid/mcp",
+    "token": "synthetic-token",
+    "expiresAt": "2026-11-02T12:00:00Z"
+  },
+  "budget": {
+    "state": "ok",
+    "usedPct": 42
+  }
+}
