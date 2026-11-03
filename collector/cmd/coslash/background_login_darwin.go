@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -76,7 +77,9 @@ func installBackgroundLogin() error {
 	if err != nil {
 		return err
 	}
+	replaced := false
 	if _, err := os.Lstat(path); err == nil {
+		replaced = true
 		output, err := exec.Command("/usr/bin/plutil", "-convert", "json", "-o", "-", "--", path).Output()
 		if err != nil {
 			return fmt.Errorf("read existing login item: %w", err)
@@ -100,10 +103,23 @@ func installBackgroundLogin() error {
 			(env["COSLASH_HOME"] != "" && (!filepath.IsAbs(env["COSLASH_HOME"]) || !sameProtocolHandlerPath(env["COSLASH_HOME"], filepath.Join(home, ".coslash")))) {
 			return fmt.Errorf("existing login item belongs to another installation or home")
 		}
-		if previous == executable {
+		// Replace the whole array: plutil -replace ProgramArguments.0 inserts
+		// a new first item and keeps the old one, which breaks the job.
+		value, valueType := executable, "-string"
+		if key == "ProgramArguments.0" {
+			arguments := []string{executable, "--background"}
+			if slices.Equal(existing.ProgramArguments, arguments) {
+				return loadBackgroundLogin(path)
+			}
+			encoded, err := json.Marshal(arguments)
+			if err != nil {
+				return err
+			}
+			key, value, valueType = "ProgramArguments", string(encoded), "-json"
+		} else if previous == executable {
 			return loadBackgroundLogin(path)
 		}
-		contents, err = exec.Command("/usr/bin/plutil", "-replace", key, "-string", executable, "-o", "-", "--", path).Output()
+		contents, err = exec.Command("/usr/bin/plutil", "-replace", key, valueType, value, "-o", "-", "--", path).Output()
 		if err != nil {
 			return fmt.Errorf("update login executable: %w", err)
 		}
@@ -128,6 +144,21 @@ func installBackgroundLogin() error {
 	}
 	if err := os.Rename(temporary.Name(), path); err != nil {
 		return err
+	}
+	if replaced {
+		return reloadBackgroundLogin(path)
+	}
+	return loadBackgroundLogin(path)
+}
+
+// launchd keeps the definition it loaded, so a replaced file needs a reload.
+// The job itself skips the reload: booting it out would stop this process,
+// and the new file applies at the next load.
+func reloadBackgroundLogin(path string) error {
+	if backgroundLoginLoaded() && os.Getenv("XPC_SERVICE_NAME") != "io.coslash.local" {
+		if output, err := exec.Command("launchctl", "bootout", backgroundLoginTarget()).CombinedOutput(); err != nil && backgroundLoginLoaded() {
+			return fmt.Errorf("launchctl bootout: %w: %s", err, strings.TrimSpace(string(output)))
+		}
 	}
 	return loadBackgroundLogin(path)
 }
