@@ -61,11 +61,10 @@ def remember_instructions(value, passages, *, question=None):
                 matches.append(question_request)
             for match in matches:
                 words = NEXT_COMMAND.split(sentence[match.end() :], maxsplit=1)[0].split()
-                if is_question and question_request and match.start() == 0:
-                    # An Ask repeat question treats its leading two words as the requested payload.
-                    words = words[:2]
                 if len(words) < 2:
                     continue
+                if is_question and question_request and match.start() == 0:
+                    passages.add(tuple(words[:2]))
                 passages.add(tuple(words))
                 passages.update(
                     tuple(words[i : i + 3])
