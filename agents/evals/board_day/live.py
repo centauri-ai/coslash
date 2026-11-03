@@ -78,11 +78,15 @@ async def main():
         ):
             print(f"{kind}: invalid decision reference; stopping")
             return 1
-        if kind == "board_tick" and len(valid_issues(result.output["issues"], seen)) != len(
-            result.output["issues"]
-        ):
-            print(f"{kind}: unsupported issue evidence; stopping")
-            return 1
+        if kind == "board_tick":
+            issues = result.output["issues"]
+            validated = valid_issues(issues, seen, DATA["sessions"], DATA["messages"])
+            if len(validated) != len(issues) or any(
+                source["confidence"] == "high" and checked["confidence"] != "high"
+                for source, checked in zip(issues, validated, strict=True)
+            ):
+                print(f"{kind}: unsupported issue evidence; stopping")
+                return 1
         session_ids = {s["session_id"] for s in DATA["sessions"]}
         if kind == "board_tick" and (
             any(set(theme["sessionIds"]) - session_ids for theme in result.output["themes"])
