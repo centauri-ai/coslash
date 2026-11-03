@@ -10,8 +10,8 @@ import httpx
 import structlog
 from jsonschema import Draft202012Validator
 
+from coslash_agents.echo import remember_instructions, unsafe_answer
 from coslash_agents.kinds.ask.copy import FAILED, NOT_FOUND, TIMEOUT
-from coslash_agents.kinds.ask.injection import remember_instructions, unsafe_answer
 from coslash_agents.llm.client import ModelClient, Usage
 from coslash_agents.mcp.client import TOOLS, TaskExpired, TaskForbidden, ToolError
 from coslash_agents.safety import quote_untrusted, strip_slack_controls, validate_refs
