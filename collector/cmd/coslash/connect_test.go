@@ -548,7 +548,7 @@ func TestConnectCLIWaitsForApprovalAndHandlesInterrupt(t *testing.T) {
 			statusPolls.Load() < 2 || stderr.Len() != 0 {
 			t.Fatalf("exit=%d polls=%d stdout=%q stderr=%q", code, statusPolls.Load(), stdout.String(), stderr.String())
 		}
-		if runtime.GOOS == "linux" && !strings.Contains(stdout.String(), "no systemd user manager or crontab was found") {
+		if runtime.GOOS == "linux" && !strings.Contains(stdout.String(), "automatic startup could not be configured") {
 			t.Fatal("connect test did not use the isolated background persistence guard")
 		}
 	})

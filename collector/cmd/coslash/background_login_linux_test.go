@@ -198,6 +198,27 @@ func TestBackgroundProfilesHaveIndependentStartup(t *testing.T) {
 	}
 }
 
+func TestCrontabMigratesOnlyMatchingLegacyProfile(t *testing.T) {
+	home := "/home/user/profile with 'quote'"
+	other := "/home/user/other"
+	legacy := "@reboot COSLASH_HOME=" + shellQuote(home) + " " + shellQuote("/old/it's/coslash") + " --background >/dev/null 2>&1 " + cronMarker
+	otherLegacy := "@reboot COSLASH_HOME=" + shellQuote(other) + " " + shellQuote("/other/coslash") + " --background >/dev/null 2>&1 " + cronMarker
+	unrelated := "@reboot COSLASH_HOME=" + shellQuote(home) + " " + shellQuote("/usr/bin/backup") + " --background >/dev/null 2>&1 " + cronMarker
+	entry, _, err := crontabWithEntry("", "/new/coslash", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Even when the new entry already exists, the stale old executable must go.
+	current := entry + legacy + "\n" + otherLegacy + "\n" + unrelated + "\n"
+	updated, changed, err := crontabWithEntry(current, "/new/coslash", home)
+	if err != nil || !changed || strings.Contains(updated, legacy+"\n") || !strings.Contains(updated, otherLegacy+"\n") || !strings.Contains(updated, unrelated+"\n") || strings.Count(updated, entry) != 1 {
+		t.Fatalf("migration lost or retained the wrong entry: %q, changed=%t, error=%v", updated, changed, err)
+	}
+	if again, changed, err := crontabWithEntry(updated, "/new/coslash", home); err != nil || changed || again != updated {
+		t.Fatalf("migration was not idempotent: %q, changed=%t, error=%v", again, changed, err)
+	}
+}
+
 func TestLegacyCustomProfileServiceIsReusedForUpdate(t *testing.T) {
 	previous, previousLookPath := backgroundCommand, backgroundLookPath
 	t.Cleanup(func() { backgroundCommand, backgroundLookPath = previous, previousLookPath })
