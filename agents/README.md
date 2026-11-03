@@ -4,7 +4,8 @@ Install Python 3.12 and run `pip install -e '.[dev]'` from this directory. Set
 `COSLASH_AGENTS_AUTH=dev`, `COSLASH_CTB_DEV_SECRET` and
 `COSLASH_AGENTS_MCP_ORIGIN`, then run `uvicorn coslash_agents.app:app --port 8080`.
 Cloud Run instead uses OIDC with `COSLASH_AGENTS_AUDIENCE` and
-`COSLASH_AGENTS_INVOKER_SA`. Dev authentication cannot run on Cloud Run.
+`COSLASH_AGENTS_INVOKER_SA`. Dev authentication cannot run on Cloud Run or
+when `COSLASH_ENV` is `prod` or `production`.
 `COSLASH_AGENTS_STORE` must be `false` outside dev; model requests always use
 `store: false`. `OPENAI_API_KEY` supplies the model key, and
 `COSLASH_AGENTS_MODEL_BASE_URL` overrides the provider URL for tests.

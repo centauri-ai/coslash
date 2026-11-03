@@ -66,6 +66,7 @@ def test_oidc_signed_tokens(monkeypatch, credentials):
     assert auth(token()) == 200
     assert auth(token(exp=now - 10)) == 401
     assert auth(token(aud="wrong")) == 401
+    assert auth(token(iss="https://wrong.example")) == 401
     assert auth(token(email="other@example.com")) == 403
     assert auth(token(email_verified=False)) == 403
     other = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
@@ -88,8 +89,41 @@ def test_oidc_signed_tokens(monkeypatch, credentials):
     assert authenticate({}, config) == 401
 
 
-def test_dev_refused_on_cloud_run(monkeypatch):
+@pytest.fixture
+def dev_env(monkeypatch):
     monkeypatch.setenv("COSLASH_AGENTS_AUTH", "dev")
-    monkeypatch.setenv("K_SERVICE", "agents")
-    with pytest.raises(ValueError):
+    monkeypatch.setenv("COSLASH_CTB_DEV_SECRET", "local-secret")
+    monkeypatch.setenv("COSLASH_AGENTS_MCP_ORIGIN", "https://mcp")
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.delenv("COSLASH_ENV", raising=False)
+
+
+@pytest.mark.parametrize("service", ["agents", ""])
+def test_dev_refused_on_cloud_run(monkeypatch, dev_env, service):
+    monkeypatch.setenv("K_SERVICE", service)
+    with pytest.raises(ValueError, match="Cloud Run"):
         Config.from_env()
+
+
+@pytest.mark.parametrize("environment", ["prod", "production", "PROD", " Production "])
+def test_dev_refused_in_production(monkeypatch, dev_env, environment):
+    monkeypatch.setenv("COSLASH_ENV", environment)
+    with pytest.raises(ValueError, match="production"):
+        Config.from_env()
+
+
+@pytest.mark.parametrize("environment", ["nonprod", "staging", ""])
+def test_dev_allowed_outside_production(monkeypatch, dev_env, environment):
+    monkeypatch.setenv("COSLASH_ENV", environment)
+    config = Config.from_env()
+    assert authenticate({"x-coslash-dev-secret": "local-secret"}, config) == 200
+    assert authenticate({"x-coslash-dev-secret": "wrong"}, config) == 401
+
+
+def test_oidc_allowed_in_production(monkeypatch, dev_env):
+    monkeypatch.setenv("COSLASH_ENV", "prod")
+    monkeypatch.setenv("COSLASH_AGENTS_AUTH", "oidc")
+    monkeypatch.setenv("COSLASH_AGENTS_AUDIENCE", "https://agents")
+    monkeypatch.setenv("COSLASH_AGENTS_INVOKER_SA", "worker@example.com")
+    monkeypatch.setenv("COSLASH_AGENTS_STORE", "false")
+    assert Config.from_env().auth == "oidc"
