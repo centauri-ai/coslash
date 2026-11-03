@@ -1,11 +1,33 @@
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.kinds.board.support import calls, dispatch, payload, setup, written
+from tests.kinds.board.support import (
+    calls,
+    dispatch,
+    payload,
+    setup,
+    setup_overlapping_activity,
+    written,
+)
 
 SLOTS = json.loads((Path(__file__).parent / "fixtures/slots.json").read_text())
+
+
+def server_accepts_title(report, spec):
+    # Matches the task-aware title check in P3's agentreports/validate.go.
+    date, slot = spec["slot"].split("#")
+    date = datetime.fromisoformat(date)
+    month = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")[
+        date.month - 1
+    ]
+    zone = ZoneInfo(spec["timezone"])
+    start = datetime.fromisoformat(spec["window"]["start"].replace("Z", "+00:00")).astimezone(zone)
+    end = datetime.fromisoformat(spec["window"]["end"].replace("Z", "+00:00")).astimezone(zone)
+    return report["title"] == f"Day report {slot} · {month} {date.day} · {start:%H:%M}–{end:%H:%M}"
 
 
 @pytest.mark.parametrize("slot", SLOTS)
@@ -20,6 +42,10 @@ def test_slots_use_supplied_windows_and_dst(monkeypatch, slot):
     assert dispatch(app, task).status_code == 200
     report = written(fake)["report"]
     assert report["title"] == slot["title"]
+    assert server_accepts_title(report, task["task"]["day_report"])
+    assert not server_accepts_title(
+        {**report, "title": report["title"] + "!"}, task["task"]["day_report"]
+    )
     assert report["window"] == slot["window"]
     assert report["insightMode"] == "llm" and len(model.calls) == 1
     activity = calls(fake, "coslash_team_activity")
@@ -47,6 +73,7 @@ def test_quiet_bot_messages_do_not_trigger_model(monkeypatch):
     assert dispatch(app, task).status_code == 200
     report = written(fake)["report"]
     assert report["quiet"] is True and report["insightMode"] == "carry_forward"
+    assert server_accepts_title(report, task["task"]["day_report"])
     assert all(
         report[field] == []
         for field in ("themes", "active", "done", "decisions", "moved", "issues", "people")
@@ -86,3 +113,50 @@ def test_active_is_evaluated_at_the_window_end(monkeypatch):
     report = written(fake)["report"]
     assert [row["sessionId"] for row in report["active"]] == ["s1"]
     assert [row["sessionId"] for row in report["done"]] == ["s2"]
+
+
+@pytest.mark.parametrize(
+    ("slot", "example"),
+    [("1/3", "day_quiet.json"), ("2/3", "day_2_of_3.json"), ("3/3", "day_3_of_3.json")],
+)
+def test_produced_title_matches_vendored_examples(monkeypatch, slot, example):
+    path = Path(__file__).resolve().parents[3] / "contracts/ctb/examples" / example
+    expected = json.loads(path.read_text())
+    fake, _, app = setup(monkeypatch, kind="day_report")
+    task = payload("day_report")
+    task["task"]["day_report"] = {
+        "slot": f"2026-11-02#{slot}",
+        "timezone": "UTC",
+        "window": expected["window"],
+    }
+    if expected.get("quiet"):
+        fake.outputs["coslash_team_activity"]["items"] = []
+        fake.outputs["coslash_conversation_window"]["items"] = []
+    assert dispatch(app, task).status_code == 200
+    report = written(fake)["report"]
+    assert report["title"] == expected["title"]
+    assert server_accepts_title(report, task["task"]["day_report"])
+
+
+@pytest.mark.integration
+def test_late_day_uses_task_window_and_overlapping_activity(monkeypatch):
+    fake, _, app = setup_overlapping_activity(monkeypatch, "day_report")
+    fake.outputs["coslash_conversation_window"]["items"] = []
+    task = payload("day_report")
+    task["task"]["day_report"]["window"] = {
+        "start": "2026-11-02T08:00:00Z",
+        "end": "2026-11-02T12:00:00Z",
+    }
+    assert dispatch(app, task).status_code == 200
+    activity = calls(fake, "coslash_team_activity")
+    assert [read["window"] for read in activity] == [
+        {"from": "2026-11-02T08:00:00Z", "to": "2026-11-02T12:00:00Z"},
+        {"from": "2026-11-01T12:00:00Z", "to": "2026-11-02T12:00:00Z"},
+    ]
+    report = written(fake)["report"]
+    assert not report["quiet"]
+    assert [row["sessionId"] for row in report["active"]] == ["s1"]
+    assert [row["sessionId"] for row in report["done"]] == ["s2"]
+    assert report["windows"]["1h"] == {"active": 1, "done": 1, "people": 2}
+    assert report["windows"]["24h"]["sessions"] == 3
+    assert len(report["people"]) == 3

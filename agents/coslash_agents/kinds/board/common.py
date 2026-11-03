@@ -109,10 +109,15 @@ def entries(items, done=False):
     return out
 
 
-def digest(sessions, messages):
+def digest(sessions, messages, end):
+    end = timestamp(end)
     obj = {
         "sessions": sorted(s.get("session_id", "") for s in sessions),
-        "ended": sorted(s.get("session_id", "") for s in sessions if s.get("ended_at")),
+        "ended": sorted(
+            s.get("session_id", "")
+            for s in sessions
+            if s.get("ended_at") and timestamp(s["ended_at"]) <= end
+        ),
         "decisions": sorted(
             (s.get("session_id", ""), sorted(s.get("key_decisions") or [])) for s in sessions
         ),

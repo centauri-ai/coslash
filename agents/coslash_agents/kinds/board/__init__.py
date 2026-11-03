@@ -175,9 +175,12 @@ async def run(payload, mcp, deadline):
     spec = task["board_tick"]
     space = "org:" + task["orgId"]
     tick = c.timestamp(spec["tick"])
-    hour = await c.activity(mcp, space, "1h")
-    day = await c.activity(mcp, space, "24h")
-    msgs = await c.messages(mcp, spec["window"])
+    window = spec["window"]
+    end = c.timestamp(window["end"])
+    hour_start = end - timedelta(hours=1)
+    hour = await c.activity(mcp, space, {"from": c.iso(hour_start), "to": window["end"]})
+    day = await c.activity(mcp, space, {"from": window["start"], "to": window["end"]})
+    msgs = await c.messages(mcp, window)
     open_issues = await c.issues(mcp, space)
     previous = await previous_report(mcp, space, "board")
     last = spec.get("lastReport")
@@ -191,15 +194,15 @@ async def run(payload, mcp, deadline):
         (
             s
             for s in hour
-            if s.get("status") in ("active", "idle")
-            and not recent(s, "ended_at", tick - timedelta(hours=1), tick)
-            and recent(s, "last_activity_at", tick - timedelta(hours=1), tick)
+            if s.get("last_activity_at")
+            and c.timestamp(s["last_activity_at"]) >= hour_start
+            and (not s.get("ended_at") or c.timestamp(s["ended_at"]) > end)
         ),
         key=lambda s: c.timestamp(s["last_activity_at"]),
         reverse=True,
     )
     done = sorted(
-        (s for s in hour if recent(s, "ended_at", tick - timedelta(hours=1), tick)),
+        (s for s in hour if recent(s, "ended_at", hour_start, end)),
         key=lambda s: c.timestamp(s["ended_at"]),
         reverse=True,
     )
@@ -212,13 +215,13 @@ async def run(payload, mcp, deadline):
     }
     report["windows"]["24h"] = {
         "sessions": len(day),
-        "done": sum(bool(s.get("ended_at")) for s in day),
+        "done": sum(recent(s, "ended_at", c.timestamp(window["start"]), end) for s in day),
         "people": len(c.people(day)),
         "decisions": 0,
     }
     seen = c.seen_refs(day, msgs)
     carry(report, previous, day, seen, last, spec["tick"])
-    new_digest = c.digest(day, msgs)
+    new_digest = c.digest(day, msgs, window["end"])
     old_digest = last.get("inputDigest", "") if last else ""
     mode = "carry_forward"
     if payload["budget"]["state"] == "soft_limit":

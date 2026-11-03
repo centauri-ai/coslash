@@ -118,3 +118,56 @@ def last(fake, report, input_digest):
         "untrusted": True,
     }
     return {"id": "report-1", "inputDigest": input_digest, "insightsAsOf": report["insightsAsOf"]}
+
+
+def setup_overlapping_activity(monkeypatch, kind):
+    fake, model, app = setup(monkeypatch, kind=kind)
+    fake.outputs["coslash_team_activity"]["as_of"] = "2026-11-03T12:00:00Z"
+
+    def session(session_id, status, started_at, last_activity_at, ended_at=None):
+        item = {
+            "session_id": session_id,
+            "title": session_id,
+            "status": status,
+            "agent": "codex",
+            "owner": {"id": session_id, "name": session_id},
+            "started_at": started_at,
+            "last_activity_at": last_activity_at,
+        }
+        if ended_at:
+            item["ended_at"] = ended_at
+        return item
+
+    fake.outputs["coslash_team_activity"]["items"] = [
+        session(
+            "s1", "done", "2026-11-02T10:30:00Z", "2026-11-02T12:15:00Z", "2026-11-02T12:30:00Z"
+        ),
+        session(
+            "s2", "done", "2026-11-02T11:00:00Z", "2026-11-02T11:50:00Z", "2026-11-02T11:50:00Z"
+        ),
+        session("s3", "idle", "2026-11-01T18:00:00Z", "2026-11-02T09:00:00Z"),
+        session("before", "done", "2026-11-01T08:00:00Z", "2026-11-01T11:59:00Z"),
+        session("after", "active", "2026-11-02T12:01:00Z", "2026-11-02T12:05:00Z"),
+    ]
+    parent = app_module.MCPClient
+
+    class OverlapMCP(parent):
+        async def call(self, name, arguments=None):
+            result = await super().call(name, arguments)
+            if name == "coslash_team_activity":
+                window = arguments["window"]
+                if isinstance(window, str):
+                    end = common.timestamp("2026-11-03T12:00:00Z")
+                    start = end - timedelta(hours={"1h": 1, "24h": 24}[window])
+                else:
+                    start, end = common.timestamp(window["from"]), common.timestamp(window["to"])
+                result["items"] = [
+                    item
+                    for item in result["items"]
+                    if common.timestamp(item["started_at"]) <= end
+                    and common.timestamp(item["last_activity_at"]) >= start
+                ]
+            return result
+
+    monkeypatch.setattr(app_module, "MCPClient", OverlapMCP)
+    return fake, model, app
