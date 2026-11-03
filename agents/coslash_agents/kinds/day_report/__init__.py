@@ -24,11 +24,10 @@ def title(spec):
     zone = ZoneInfo(spec["timezone"])
     start = c.timestamp(spec["window"]["start"]).astimezone(zone)
     end = c.timestamp(spec["window"]["end"]).astimezone(zone)
-    weekday = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[date.weekday()]
     month = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")[
         date.month - 1
     ]
-    return f"Day report {slot} · {weekday} {month} {date.day} · {start:%H:%M}–{end:%H:%M}"
+    return f"Day report {slot} · {month} {date.day} · {start:%H:%M}–{end:%H:%M}"
 
 
 def moved(values, seen):
@@ -62,7 +61,8 @@ async def run(payload, mcp, deadline):
         (
             s
             for s in sessions
-            if recent(s, "last_activity_at", end - timedelta(hours=2), end)
+            if s.get("last_activity_at")
+            and c.timestamp(s["last_activity_at"]) >= end - timedelta(hours=2)
             and (not s.get("ended_at") or c.timestamp(s["ended_at"]) > end)
         ),
         key=lambda s: c.timestamp(s["last_activity_at"]),
@@ -74,7 +74,7 @@ async def run(payload, mcp, deadline):
         reverse=True,
     )
     recent_active = [
-        s for s in active if recent(s, "last_activity_at", end - timedelta(hours=1), end)
+        s for s in active if c.timestamp(s["last_activity_at"]) >= end - timedelta(hours=1)
     ]
     recent_done = [s for s in done if recent(s, "ended_at", end - timedelta(hours=1), end)]
     report["windows"]["1h"] = {
@@ -133,7 +133,7 @@ async def run(payload, mcp, deadline):
         "coslash_write_board_report",
         {
             "report": report,
-            "input_digest": c.digest(sessions, msgs),
+            "input_digest": c.digest(sessions, msgs, window["end"]),
             "insight_mode": report["insightMode"],
         },
     )
