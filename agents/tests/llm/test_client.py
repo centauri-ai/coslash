@@ -89,12 +89,15 @@ async def test_function_loop_sends_context_and_store_false():
     assert result.usage.input_tokens == 11
 
 
-async def test_missing_usage_is_estimated():
+@pytest.mark.parametrize("usage", [None, {"input_tokens": 1}])
+async def test_missing_usage_is_estimated(usage):
     reply = {
         "output": [
             {"type": "message", "content": [{"type": "output_text", "text": '{"text":"ok"}'}]}
         ]
     }
+    if usage is not None:
+        reply["usage"] = usage
     result = await run(FakeModel(replies=[reply]))
     assert result.usage.estimated
     assert result.usage.input_tokens > 0
