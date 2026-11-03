@@ -150,8 +150,12 @@ func TestFrozenRealPreparationAndRestart(t *testing.T) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	homeJSON, err := json.Marshal(home)
+	if err != nil {
+		t.Fatal(err)
+	}
 	file := filepath.Join(root, fixtureRootID+".jsonl")
-	first := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:00:00Z","cwd":%q,"message":{"content":"first"}}`, fixtureRootID, home) + "\n"
+	first := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:00:00Z","cwd":%s,"message":{"content":"first"}}`, fixtureRootID, homeJSON) + "\n"
 	if err := os.WriteFile(file, []byte(first), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +176,7 @@ func TestFrozenRealPreparationAndRestart(t *testing.T) {
 	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir(), OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
 		return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
 	}, AfterRename: func() {
-		later := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:01:00Z","cwd":%q,"message":{"content":"later-change"}}`, fixtureRootID, home) + "\n"
+		later := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:01:00Z","cwd":%s,"message":{"content":"later-change"}}`, fixtureRootID, homeJSON) + "\n"
 		if err := os.WriteFile(file, []byte(first+later), 0o600); err != nil {
 			t.Fatal(err)
 		}

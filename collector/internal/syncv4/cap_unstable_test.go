@@ -2,6 +2,7 @@ package syncv4
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,9 +35,13 @@ func newUnstableCapFixture(t *testing.T, failures int) *unstableCapFixture {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	homeJSON, err := json.Marshal(home)
+	if err != nil {
+		t.Fatal(err)
+	}
 	file := filepath.Join(dir, fixtureRootID+".jsonl")
 	row := func(content string) string {
-		return fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:00:00Z","cwd":%q,"message":{"content":%q}}`, fixtureRootID, home, content) + "\n"
+		return fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:00:00Z","cwd":%s,"message":{"content":%q}}`, fixtureRootID, homeJSON, content) + "\n"
 	}
 	if err := os.WriteFile(file, []byte(row("first")), 0o600); err != nil {
 		t.Fatal(err)
