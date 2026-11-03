@@ -15,8 +15,11 @@ class Config:
         auth = os.getenv("COSLASH_AGENTS_AUTH", "oidc")
         if auth not in {"oidc", "dev"}:
             raise ValueError("invalid authentication mode")
-        if auth == "dev" and os.getenv("K_SERVICE"):
-            raise ValueError("dev authentication is unavailable on Cloud Run")
+        if auth == "dev":
+            if "K_SERVICE" in os.environ:
+                raise ValueError("dev authentication is unavailable on Cloud Run")
+            if os.getenv("COSLASH_ENV", "").strip().lower() in {"prod", "production"}:
+                raise ValueError("dev authentication is unavailable in production")
         if auth != "dev" and os.getenv("COSLASH_AGENTS_STORE", "false") != "false":
             raise ValueError("COSLASH_AGENTS_STORE must be false")
         config = cls(
