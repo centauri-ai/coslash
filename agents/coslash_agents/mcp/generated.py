@@ -1342,7 +1342,7 @@ class Kind9(Enum):
     slack = 'slack'
 
 
-class RefModel(BaseModel):
+class EnrichedRef(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -1373,7 +1373,7 @@ class Ref5(BaseModel):
     ts: str
 
 
-class RefModel1(RootModel[Union[Ref4, Ref5]]):
+class RefModel(RootModel[Union[Ref4, Ref5]]):
     root: Union[Ref4, Ref5]
 
 
@@ -1482,6 +1482,14 @@ class BoardReport(BaseModel):
     notes: Optional[List[Note]] = Field(None, max_length=5)
 
 
+class Decision1(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    text: constr(max_length=280)
+    source: EnrichedRef
+
+
 class Issue1(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -1491,7 +1499,15 @@ class Issue1(BaseModel):
     confidence: Confidence
     title: constr(max_length=120)
     detail: Optional[constr(max_length=500)] = None
-    refs: List[RefModel]
+    refs: List[EnrichedRef]
+
+
+class MovedItem1(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    text: constr(max_length=280)
+    refs: Optional[List[EnrichedRef]] = None
 
 
 class Report(BaseModel):
@@ -1511,9 +1527,9 @@ class Report(BaseModel):
     themes: List[Theme] = Field(..., max_length=8)
     active: List[ActiveItem1] = Field(..., max_length=15)
     done: List[DoneItem1] = Field(..., max_length=15)
-    decisions: List[Decision] = Field(..., max_length=10)
+    decisions: List[Decision1] = Field(..., max_length=10)
     issues: List[Issue1] = Field(..., max_length=10)
-    moved: Optional[List[MovedItem]] = Field(None, max_length=8)
+    moved: Optional[List[MovedItem1]] = Field(None, max_length=8)
     people: Optional[List[Person]] = Field(None, max_length=30)
     quiet: Optional[bool] = None
     totals: Optional[Totals] = None
@@ -1536,7 +1552,7 @@ class Decision2(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    source: RefModel1
+    source: RefModel
     text: constr(max_length=280)
 
 
@@ -1547,7 +1563,7 @@ class Issue3(BaseModel):
     confidence: Confidence
     detail: Optional[constr(max_length=500)] = None
     id: str
-    refs: List[RefModel1]
+    refs: List[RefModel]
     title: constr(max_length=120)
     type: Type
 
@@ -1556,7 +1572,7 @@ class MovedItem2(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    refs: Optional[List[RefModel1]] = None
+    refs: Optional[List[RefModel]] = None
     text: constr(max_length=280)
 
 

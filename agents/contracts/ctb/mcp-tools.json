@@ -1086,7 +1086,7 @@
                       "maxLength": 280
                     },
                     "source": {
-                      "$ref": "#/$defs/ref"
+                      "$ref": "#/$defs/enrichedRef"
                     }
                   },
                   "required": [
@@ -1132,7 +1132,7 @@
                     "refs": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/$defs/ref"
+                        "$ref": "#/$defs/enrichedRef"
                       }
                     }
                   },
@@ -1159,7 +1159,7 @@
                     "refs": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/$defs/ref"
+                        "$ref": "#/$defs/enrichedRef"
                       }
                     }
                   },
@@ -1404,7 +1404,7 @@
             ],
             "additionalProperties": false
           },
-          "ref": {
+          "enrichedRef": {
             "type": "object",
             "properties": {
               "kind": {

@@ -163,11 +163,16 @@ async def previous_report(mcp, space, kind, slot=None):
         if error.code != "NOT_FOUND":
             raise
         return None
-    return (
-        result.report.model_dump(mode="json", by_alias=True, exclude_unset=True)
-        if result.report
-        else None
-    )
+    if result.report is None:
+        return None
+    report = result.report.model_dump(mode="json", by_alias=True, exclude_unset=True)
+    refs = [item["source"] for item in report.get("decisions", [])]
+    for field in ("issues", "moved"):
+        refs.extend(ref for item in report.get(field, []) for ref in item.get("refs", []))
+    for row in (*report.get("active", []), *report.get("done", []), *refs):
+        for field in ("hubUrl", "title", "channelName", "permalink"):
+            row.pop(field, None)
+    return report
 
 
 async def run(payload, mcp, deadline):
