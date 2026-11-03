@@ -1,0 +1,85 @@
+{
+  "schema": "board-report/1",
+  "team": {
+    "id": "team-1",
+    "name": "Example"
+  },
+  "kind": "board",
+  "title": "coslash board",
+  "asOf": "2026-11-02T12:00:00Z",
+  "window": {
+    "start": "2026-11-01T12:00:00Z",
+    "end": "2026-11-02T12:00:00Z"
+  },
+  "insightMode": "llm",
+  "insightsAsOf": "2026-11-02T12:00:00Z",
+  "headline": "Progress continues.",
+  "windows": {
+    "1h": {
+      "active": 1,
+      "done": 0,
+      "people": 1
+    },
+    "24h": {
+      "sessions": 1,
+      "done": 0,
+      "people": 1,
+      "decisions": 1
+    }
+  },
+  "themes": [
+    {
+      "name": "Work",
+      "sessionIds": [
+        "session-1"
+      ],
+      "summary": "Progress"
+    }
+  ],
+  "active": [
+    {
+      "sessionId": "session-1",
+      "line": "Working",
+      "owner": "Example",
+      "agent": "agent",
+      "lastActivityAt": "2026-11-02T12:00:00Z",
+      "next": "Review"
+    }
+  ],
+  "done": [
+    {
+      "sessionId": "session-2",
+      "line": "Done",
+      "owner": "Example",
+      "agent": "agent",
+      "endedAt": "2026-11-02T12:00:00Z",
+      "decided": "Continue"
+    }
+  ],
+  "decisions": [
+    {
+      "text": "Proceed",
+      "source": {
+        "kind": "session",
+        "sessionId": "session-1"
+      }
+    }
+  ],
+  "issues": [
+    {
+      "id": "issue-1",
+      "type": "mismatch",
+      "confidence": "high",
+      "title": "Review",
+      "detail": "Check",
+      "refs": [
+        {
+          "kind": "slack",
+          "channelId": "channel-1",
+          "ts": "1.2"
+        }
+      ]
+    }
+  ],
+  "moved": []
+}

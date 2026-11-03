@@ -1,0 +1,37 @@
+{
+  "schema": "board-report/1",
+  "team": {
+    "id": "team-1",
+    "name": "Example"
+  },
+  "kind": "day_report",
+  "title": "coslash board",
+  "asOf": "2026-11-02T12:00:00Z",
+  "window": {
+    "start": "2026-11-01T12:00:00Z",
+    "end": "2026-11-02T12:00:00Z"
+  },
+  "insightMode": "llm",
+  "insightsAsOf": "2026-11-02T12:00:00Z",
+  "windows": {
+    "1h": {
+      "active": 1,
+      "done": 0,
+      "people": 1
+    },
+    "24h": {
+      "sessions": 1,
+      "done": 0,
+      "people": 1,
+      "decisions": 1
+    }
+  },
+  "themes": [],
+  "active": [],
+  "done": [],
+  "decisions": [],
+  "issues": [],
+  "moved": [],
+  "people": [],
+  "quiet": true
+}
