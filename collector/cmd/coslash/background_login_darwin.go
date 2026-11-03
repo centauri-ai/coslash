@@ -190,6 +190,7 @@ func reloadBackgroundLogin(path string) error {
 }
 
 var backgroundLoginPID = regexp.MustCompile(`(?m)^\s*pid = ([0-9]+)\s*$`)
+var backgroundLoginWaiting = regexp.MustCompile(`(?m)^\s*state = waiting\s*$`)
 
 func backgroundLoginIsCurrentProcess(output []byte) (bool, error) {
 	if os.Getenv(backgroundLoginMarker) == "io.coslash.local" {
@@ -197,6 +198,9 @@ func backgroundLoginIsCurrentProcess(output []byte) (bool, error) {
 	}
 	match := backgroundLoginPID.FindSubmatch(output)
 	if len(match) != 2 {
+		if backgroundLoginWaiting.Match(output) {
+			return false, nil
+		}
 		return false, fmt.Errorf("cannot safely reload login item: launchctl did not report its process id")
 	}
 	pid, err := strconv.Atoi(string(match[1]))
