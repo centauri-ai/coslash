@@ -7,7 +7,18 @@ test.beforeEach(async ({ request }) => {
 
 test('search and agent filter change the list', async ({ page }) => {
   await openLocal(page);
-  await page.getByRole('button', { name: 'All time' }).click();
+  await Promise.all([
+    page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === '/api/sessions' &&
+        !url.searchParams.has('since') &&
+        !url.searchParams.has('remoteSince')
+      );
+    }),
+    page.getByRole('button', { name: 'All time' }).click(),
+  ]);
+  await expect(page.getByText('Refreshing sessions', { exact: true })).toBeHidden();
   const total = page.getByRole('strong').filter({ hasText: /^\d+ sessions?$/ });
   const count = async () => Number.parseInt((await total.textContent()) ?? '', 10);
   await expect(total).toBeVisible();
