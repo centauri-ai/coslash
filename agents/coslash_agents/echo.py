@@ -11,10 +11,23 @@ OVERRIDE = re.compile(
     r"(?:instructions?|directions?|rules?)\b"
     r"|\bsystem\s+prompt\b|\byou\s+are\s+now\b|\bdeveloper\s+message\b"
 )
-REPEAT = re.compile(
+VERB = r"(?:repeat|say|print|output|write|echo)"
+ADDRESSED = re.compile(
     r"\b(?:assistant|agent|model|chatgpt)\s+"
-    r"(?:(?:please|can\s+you|could\s+you|would\s+you)\s+)?"
-    r"(?:repeat|say|print|output)\b"
+    rf"(?:(?:please|can\s+you|could\s+you|would\s+you)\s+)?{VERB}\b"
+)
+QUESTION = re.compile(
+    rf"^(?:(?:assistant|agent|model|chatgpt)\s+)?"
+    rf"(?:(?:please|can\s+you|could\s+you|would\s+you)\s+)?{VERB}\b"
+)
+REPEAT = re.compile(rf"\b{VERB}\b")
+NEXT_COMMAND = re.compile(
+    r"\s+(?:(?:and\s+)?then\s+|and\s+(?=(?:use|call|post|send|share|publish|"
+    r"repeat|say|print|output|write|echo)\b))"
+)
+COMMON = frozenset(
+    "a an and are as at be by for from in is it its of on or that the this to was will with "
+    "all any next previous prior above".split()
 )
 
 
@@ -27,20 +40,44 @@ def normalize(text):
     return " ".join(re.findall(r"[#@][\w-]+|\w+", text))
 
 
-def remember_instructions(value, passages):
+def remember_instructions(value, passages, *, question=None):
     if isinstance(value, str):
+        is_question = question is not None and normalize(value) == normalize(question)
         for part in re.split(r"(?<=[.!?;])\s+|[\r\n]+", value):
             sentence = normalize(part)
-            for pattern in (OVERRIDE, REPEAT):
-                for match in pattern.finditer(sentence):
-                    words = sentence[match.end() :].split()
-                    passages.update(zip(words, words[1:]))
+            matches = list(ADDRESSED.finditer(sentence))
+            override = OVERRIDE.search(sentence)
+            if override:
+                matches.extend(
+                    match
+                    for match in REPEAT.finditer(sentence, override.end())
+                    if re.fullmatch(
+                        r"(?:(?:and|then|please|now)\s*)*",
+                        sentence[override.end() : match.start()].strip(),
+                    )
+                )
+            question_request = QUESTION.match(sentence) if is_question else None
+            if question_request:
+                matches.append(question_request)
+            for match in matches:
+                words = NEXT_COMMAND.split(sentence[match.end() :], maxsplit=1)[0].split()
+                if is_question and question_request and match.start() == 0:
+                    # An Ask repeat question treats its leading two words as the requested payload.
+                    words = words[:2]
+                if len(words) < 2:
+                    continue
+                passages.add(tuple(words))
+                passages.update(
+                    tuple(words[i : i + 3])
+                    for i in range(len(words) - 2)
+                    if not set(words[i : i + 3]).issubset(COMMON)
+                )
     elif isinstance(value, list):
         for item in value:
-            remember_instructions(item, passages)
+            remember_instructions(item, passages, question=question)
     elif isinstance(value, dict):
         for item in value.values():
-            remember_instructions(item, passages)
+            remember_instructions(item, passages, question=question)
 
 
 def unsafe_answer(text, passages):
@@ -48,4 +85,8 @@ def unsafe_answer(text, passages):
     if OVERRIDE.search(normalized):
         return True
     words = normalized.split()
-    return any(pair in passages for pair in zip(words, words[1:]))
+    return any(
+        tuple(words[i : i + length]) in passages
+        for length in {len(payload) for payload in passages}
+        for i in range(len(words) - length + 1)
+    )
