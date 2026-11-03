@@ -255,7 +255,7 @@ async def ask_model(task, mcp, deadline, started, seen, context, passages):
                                     ]
                             except (ToolError, TimeoutError):
                                 result = {"error": "tool unavailable"}
-                remember_instructions(result, passages)
+                remember_instructions(result, passages, question=question["question"])
                 messages.append(
                     {
                         "type": "function_call_output",
@@ -272,7 +272,7 @@ async def run(task, mcp, deadline):
     seen = []
     context = []
     passages = set()
-    remember_instructions(ask["question"], passages)
+    remember_instructions(ask["question"], passages, question=ask["question"])
     received = 0
     outcome = "failed"
     count = 0
@@ -294,7 +294,7 @@ async def run(task, mcp, deadline):
                 cursors.add(cursor)
                 args["cursor"] = cursor
                 args["limit"] = 200 - received
-            remember_instructions(context, passages)
+            remember_instructions(context, passages, question=ask["question"])
             result, count = await ask_model(task, mcp, deadline, started, seen, context, passages)
             citations = validate_refs(result["citations"], seen)
             text = clean_text(result["text"])
