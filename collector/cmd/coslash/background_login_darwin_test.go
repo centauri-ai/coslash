@@ -161,7 +161,7 @@ func TestLoginRegistrationReleaseAndBranchPaths(t *testing.T) {
 			backgroundLoginExecutable = func() (string, error) { return executable, nil }
 			fake := filepath.Join(home, "launchctl")
 			// The job stays loaded; an upgrade may boot it out before it loads it again.
-			if err := os.WriteFile(fake, []byte("#!/bin/sh\ncase \"$1\" in print) echo 'pid = 0' ;; bootout) exit 0 ;; esac\nexit 99\n"), 0700); err != nil {
+			if err := os.WriteFile(fake, []byte("#!/bin/sh\ncase \"$1\" in print) echo 'pid = 0'; exit 0 ;; bootout) exit 0 ;; esac\nexit 99\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("PATH", home)
