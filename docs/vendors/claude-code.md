@@ -15,6 +15,7 @@ Code: `collector/internal/vendors/claude/`. This package reads Claude Code CLI, 
 
 ## Format quirks
 
+- Claude Desktop worktree opening prompts can be content arrays with an image, an injected `<system-reminder>` text block, then the user's text. The first text block is therefore not necessarily the user's prompt; later prompts can still be plain strings. Evidence supplied for this parser change: vendor version unknown, 2026-11-04 (`TestWorktreeOpeningPromptStartsTimeline`). Prompt recovery changes parsed content, so `ParserVersion` moved to `claude-7`.
 - Background re-home: Claude Code copies a terminal session to a new file with a new session UUID 30 s to 3 min after start. The copy keeps every row `uuid`, `message.id`, and `timestamp`, and adds `sessionKind: "bg"`. Without a fix, one conversation shows as two cards. Observed: 2.1.233 to 2.1.234, 2026-08-18, c2e572d5.
 - `sessionKind: "bg"` alone does not identify a copy. Some sessions are background from birth and share no rows with other files. The real signal is row-uuid containment plus the `bg` tag on the successor. Observed: 2.1.234, 2026-08-18, c2e572d5.
 - Containment must use only rows that carry `message`. The predecessor can keep a trailing `system`/`informational` row that the copy never takes, so all-row containment fails. Observed: unknown, 2026-08-28, c2e572d5.

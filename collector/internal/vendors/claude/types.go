@@ -145,6 +145,10 @@ func (message *claudeMessage) contentBlocks() ([]contentBlock, error) {
 }
 
 func (message *claudeMessage) textContent() string {
+	return message.firstTextContent(false)
+}
+
+func (message *claudeMessage) firstTextContent(skipHarness bool) string {
 	trimmed := bytes.TrimSpace(message.Content)
 	if len(trimmed) == 0 {
 		return ""
@@ -162,6 +166,9 @@ func (message *claudeMessage) textContent() string {
 	}
 	for _, block := range blocks {
 		if block.Type == "text" {
+			if skipHarness && (block.Text == "" || session.IsHarnessWrapped(block.Text)) {
+				continue
+			}
 			return block.Text
 		}
 	}
@@ -211,7 +218,7 @@ func (row *claudeSessionRecord) promptText() string {
 	if row.IsMeta || row.IsCompactSummary || row.Message == nil {
 		return ""
 	}
-	text := row.Message.textContent()
+	text := row.Message.firstTextContent(true)
 	if text == "" {
 		text = row.Message.userToolFeedback()
 	}
