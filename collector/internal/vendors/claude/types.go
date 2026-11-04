@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 
@@ -114,12 +115,21 @@ func (answer claudeAnswer) String() string {
 type claudeResultType string
 
 func (kind *claudeResultType) UnmarshalJSON(data []byte) error {
-	var value string
-	if json.Unmarshal(data, &value) != nil {
-		value = ""
+	trimmed := bytes.TrimSpace(data)
+	switch {
+	case len(trimmed) > 0 && trimmed[0] == '{':
+		*kind = ""
+		return nil
+	case len(trimmed) > 0 && trimmed[0] == '"':
+		var value string
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		*kind = claudeResultType(value)
+		return nil
+	default:
+		return errors.New("tool result type must be a string or object")
 	}
-	*kind = claudeResultType(value)
-	return nil
 }
 
 type claudeToolUseResult struct {
