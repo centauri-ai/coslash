@@ -9,6 +9,7 @@ import { LocalUpdateBanner } from '@/pages/coslash/components/LocalUpdateBanner'
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
 import { retrySyncNow } from '@/pages/coslash/features/sync/api';
+import { HubSwitchDialog } from '@/pages/coslash/features/sync/HubSwitchDialog';
 import { chipOf, syncMode } from '@/pages/coslash/features/sync/model';
 import { SyncHeader } from '@/pages/coslash/features/sync/SyncHeader';
 import { useSyncStatus } from '@/pages/coslash/features/sync/use-sync-status';
@@ -372,6 +373,7 @@ export function CoslashPage() {
         }
         headerActions={
           <>
+            <HubSwitchDialog request={syncStatus.hubSwitch} />
             <SyncHeader
               status={syncStatus}
               loaded={syncStatusState.hasStatus}
