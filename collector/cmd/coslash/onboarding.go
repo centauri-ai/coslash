@@ -23,6 +23,8 @@ type onboardingManager struct {
 	cancel  context.CancelFunc
 	version string
 
+	// hubBindingMu serializes the saved Hub, client, and sync binding.
+	hubBindingMu       sync.Mutex
 	mu                 sync.Mutex
 	active             map[string]context.CancelFunc
 	connectJobs        map[string]connectJob
@@ -99,10 +101,13 @@ func (m *onboardingManager) startPairing(origin, attemptID, launchIntent string)
 	if err != nil {
 		return errors.New("Hub activation is unavailable")
 	}
+	m.hubBindingMu.Lock()
 	if err := writeStoredHubURL(hubURL.String()); err != nil {
+		m.hubBindingMu.Unlock()
 		return errors.New("Hub address could not be saved")
 	}
 	m.setHubClient(client)
+	m.hubBindingMu.Unlock()
 	key := hubURL.Host + "/" + attemptID
 	m.mu.Lock()
 	if _, exists := m.active[key]; exists {
@@ -151,6 +156,7 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 }
 
 func (m *onboardingManager) StartCheckIns(client *hubclient.Client) {
+	m.hubBindingMu.Lock()
 	m.mu.Lock()
 	hooks := m.syncHooks
 	m.mu.Unlock()
@@ -159,6 +165,7 @@ func (m *onboardingManager) StartCheckIns(client *hubclient.Client) {
 			log.Printf("start Hub sync: %v", err)
 		}
 	}
+	m.hubBindingMu.Unlock()
 	m.startLegacyCheckIns(client)
 }
 
@@ -304,18 +311,26 @@ func (m *onboardingManager) checkIn(origin string) error {
 	if err != nil {
 		return errors.New("Hub address is unavailable")
 	}
-	if err := writeStoredHubURL(hubURL.String()); err != nil {
-		return errors.New("Hub address could not be saved")
-	}
-	m.setHubClient(client)
-	m.mu.Lock()
-	hooks := m.syncHooks
-	v4SyncActive := m.v4SyncActive
-	m.mu.Unlock()
-	if hooks != nil {
-		if err := hooks.Ensure(client); err != nil {
-			return errors.New("Local could not check in with Hub")
+	var v4SyncActive bool
+	if err := func() error {
+		m.hubBindingMu.Lock()
+		defer m.hubBindingMu.Unlock()
+		if err := writeStoredHubURL(hubURL.String()); err != nil {
+			return errors.New("Hub address could not be saved")
 		}
+		m.setHubClient(client)
+		m.mu.Lock()
+		hooks := m.syncHooks
+		v4SyncActive = m.v4SyncActive
+		m.mu.Unlock()
+		if hooks != nil {
+			if err := hooks.Ensure(client); err != nil {
+				return errors.New("Local could not check in with Hub")
+			}
+		}
+		return nil
+	}(); err != nil {
+		return err
 	}
 	if v4SyncActive {
 		return nil

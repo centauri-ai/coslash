@@ -127,6 +127,8 @@ func (m *onboardingManager) ResolveSwitch(rawHubURL string, confirm bool) error 
 }
 
 func (m *onboardingManager) restoreSwitch(request hubSwitch) error {
+	m.hubBindingMu.Lock()
+	defer m.hubBindingMu.Unlock()
 	stored, err := readStoredHubURL()
 	if err != nil {
 		return err
