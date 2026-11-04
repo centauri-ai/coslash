@@ -39,19 +39,32 @@ type hubSwitch struct {
 
 // boundElsewhere returns the saved Hub when it differs from origin and this
 // computer holds a credential for it.
-func (m *onboardingManager) boundElsewhere(origin string) (string, bool) {
+func (m *onboardingManager) boundElsewhere(origin string) (string, bool, error) {
 	stored, err := readStoredHubURL()
-	if err != nil || stored == "" || stored == origin {
-		return "", false
+	if err != nil {
+		return "", false, err
 	}
-	return stored, m.hasCredential(stored)
+	if stored == "" || stored == origin {
+		return "", false, nil
+	}
+	paired, err := m.hasCredential(stored)
+	if err != nil {
+		return "", false, err
+	}
+	return stored, paired, nil
 }
 
-func (m *onboardingManager) hasCredential(origin string) bool {
+func (m *onboardingManager) hasCredential(origin string) (bool, error) {
 	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
 	defer cancel()
 	credential, err := hubCredentialStore(origin).Load(ctx)
-	return err == nil && credential != ""
+	if errors.Is(err, hubclient.ErrNotPaired) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return credential != "", nil
 }
 
 func (m *onboardingManager) askSwitch(request hubSwitch) {
@@ -77,26 +90,37 @@ func (m *onboardingManager) PendingSwitch() *hubSwitch {
 	return &request
 }
 
-// ResolveSwitch consumes the pending request for rawHubURL. With confirm it
-// performs the step that the Hub asked for; otherwise it drops the request.
+// ResolveSwitch performs the pending request for rawHubURL. It drops a declined
+// request and consumes a confirmed request only after the requested step succeeds.
 func (m *onboardingManager) ResolveSwitch(rawHubURL string, confirm bool) error {
 	origin, err := hubOrigin(rawHubURL)
 	if err != nil {
 		return errNoHubSwitch
 	}
 	m.mu.Lock()
-	request := m.pendingSwitch
-	if request == nil || request.To != origin || time.Since(request.RequestedAt) > hubSwitchTTL {
+	if m.pendingSwitch == nil || m.pendingSwitch.To != origin || time.Since(m.pendingSwitch.RequestedAt) > hubSwitchTTL {
 		m.mu.Unlock()
 		return errNoHubSwitch
 	}
+	request := *m.pendingSwitch
 	m.pendingSwitch = nil
 	m.mu.Unlock()
 	if !confirm || !request.CanSwitch {
 		return nil
 	}
+	var operationErr error
 	if request.action == "pair" {
-		return m.startPairing(request.To, request.attemptID, request.launchToken)
+		operationErr = m.startPairing(request.To, request.attemptID, request.launchToken)
+	} else {
+		operationErr = m.checkIn(request.To)
 	}
-	return m.checkIn(request.To)
+	if operationErr == nil {
+		return nil
+	}
+	m.mu.Lock()
+	if m.pendingSwitch == nil && time.Since(request.RequestedAt) <= hubSwitchTTL {
+		m.pendingSwitch = &request
+	}
+	m.mu.Unlock()
+	return operationErr
 }

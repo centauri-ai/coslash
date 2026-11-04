@@ -82,7 +82,11 @@ func (m *onboardingManager) StartPairing(rawHubURL, attemptID, launchIntent stri
 	if err != nil || launchIntent == "" {
 		return errors.New("invalid Hub activation")
 	}
-	if from, bound := m.boundElsewhere(origin); bound {
+	from, bound, err := m.boundElsewhere(origin)
+	if err != nil {
+		return err
+	}
+	if bound {
 		m.askSwitch(hubSwitch{From: from, To: origin, CanSwitch: true, action: "pair", attemptID: attemptID, launchToken: launchIntent})
 		return errHubSwitchPending
 	}
@@ -279,8 +283,16 @@ func (m *onboardingManager) RetryCheckIn(rawHubURL string) error {
 	if err != nil {
 		return errors.New("invalid Hub address")
 	}
-	if from, bound := m.boundElsewhere(origin); bound {
-		m.askSwitch(hubSwitch{From: from, To: origin, CanSwitch: m.hasCredential(origin), action: "check-in"})
+	from, bound, err := m.boundElsewhere(origin)
+	if err != nil {
+		return err
+	}
+	if bound {
+		canSwitch, err := m.hasCredential(origin)
+		if err != nil {
+			return err
+		}
+		m.askSwitch(hubSwitch{From: from, To: origin, CanSwitch: canSwitch, action: "check-in"})
 		return errHubSwitchPending
 	}
 	return m.checkIn(origin)

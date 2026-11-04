@@ -1,9 +1,8 @@
 package main
 
 import (
+	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -12,14 +11,17 @@ import (
 
 const switchAttemptID = "10000000-0000-4000-8000-000000000301"
 
-// switchFixture saves Hub A, gives this computer the listed credentials, and
-// returns Hub B as a loopback server that answers every request with 404.
+type credentialLoadErrorStore struct{ err error }
+
+func (s credentialLoadErrorStore) Load(context.Context) (string, error) { return "", s.err }
+func (credentialLoadErrorStore) Save(context.Context, string) error     { return nil }
+func (credentialLoadErrorStore) Delete(context.Context) error           { return nil }
+
+// switchFixture saves Hub A and gives this computer the listed credentials.
 func switchFixture(t *testing.T, credentials map[string]string) (manager *onboardingManager, hubA, hubB string, shown *int) {
 	t.Helper()
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	server := httptest.NewServer(http.NotFoundHandler())
-	t.Cleanup(server.Close)
-	hubA, hubB = "https://hub-a.coslash.io", server.URL
+	hubA, hubB = "https://hub-a.coslash.io", "https://hub-b.coslash.io"
 	if err := writeStoredHubURL(hubA); err != nil {
 		t.Fatal(err)
 	}
@@ -56,6 +58,7 @@ func TestPairingFromAnotherHubWaitsForConfirmation(t *testing.T) {
 		t.Fatalf("stored=%q pending=%+v shown=%d", storedHub(t), pending, *shown)
 	}
 
+	manager.cancel()
 	if err := manager.ResolveSwitch(hubB, true); err != nil {
 		t.Fatal(err)
 	}
@@ -85,11 +88,72 @@ func TestDeclinedHubSwitchKeepsTheSavedHub(t *testing.T) {
 
 func TestPairingWithoutASavedCredentialStartsAtOnce(t *testing.T) {
 	manager, _, hubB, shown := switchFixture(t, nil)
+	manager.cancel()
 	if err := manager.StartPairing(hubB, switchAttemptID, strings.Repeat("A", 43)); err != nil {
 		t.Fatal(err)
 	}
 	if storedHub(t) != hubB || manager.PendingSwitch() != nil || *shown != 0 {
 		t.Fatalf("stored=%q pending=%+v shown=%d", storedHub(t), manager.PendingSwitch(), *shown)
+	}
+}
+
+func TestPairingRefusesToSwitchWhenSavedCredentialCannotBeRead(t *testing.T) {
+	manager, hubA, hubB, shown := switchFixture(t, nil)
+	storeErr := errors.New("credential store unavailable")
+	previous := hubCredentialStore
+	hubCredentialStore = func(origin string) hubclient.CredentialStore {
+		if origin == hubA {
+			return credentialLoadErrorStore{err: storeErr}
+		}
+		return &testCredentialStore{}
+	}
+	t.Cleanup(func() { hubCredentialStore = previous })
+
+	err := manager.StartPairing(hubB, switchAttemptID, strings.Repeat("A", 43))
+	if !errors.Is(err, storeErr) {
+		t.Fatalf("StartPairing error=%v, want saved credential store error", err)
+	}
+	if storedHub(t) != hubA || manager.PendingSwitch() != nil || *shown != 0 {
+		t.Fatalf("stored=%q pending=%+v shown=%d", storedHub(t), manager.PendingSwitch(), *shown)
+	}
+}
+
+func TestNotPairedSavedCredentialAllowsDirectPairing(t *testing.T) {
+	manager, hubA, hubB, shown := switchFixture(t, nil)
+	manager.cancel()
+	previous := hubCredentialStore
+	hubCredentialStore = func(origin string) hubclient.CredentialStore {
+		if origin == hubA {
+			return credentialLoadErrorStore{err: hubclient.ErrNotPaired}
+		}
+		return &testCredentialStore{}
+	}
+	t.Cleanup(func() { hubCredentialStore = previous })
+
+	if err := manager.StartPairing(hubB, switchAttemptID, strings.Repeat("A", 43)); err != nil {
+		t.Fatal(err)
+	}
+	if storedHub(t) != hubB || manager.PendingSwitch() != nil || *shown != 0 {
+		t.Fatalf("stored=%q pending=%+v shown=%d", storedHub(t), manager.PendingSwitch(), *shown)
+	}
+}
+
+func TestFailedHubSwitchKeepsRequestForRetry(t *testing.T) {
+	manager, hubA, hubB, _ := switchFixture(t, nil)
+	manager.setSyncHooks(syncHookFuncs{ensure: func(*hubclient.Client) error {
+		return errors.New("temporary Hub check-in failure")
+	}})
+	manager.askSwitch(hubSwitch{From: hubA, To: hubB, CanSwitch: true, action: "check-in"})
+
+	for attempt := 0; attempt < 2; attempt++ {
+		err := manager.ResolveSwitch(hubB, true)
+		if err == nil || errors.Is(err, errNoHubSwitch) {
+			t.Fatalf("ResolveSwitch attempt %d error=%v, want operation failure with pending request", attempt+1, err)
+		}
+		pending := manager.PendingSwitch()
+		if pending == nil || pending.To != hubB || pending.From != hubA {
+			t.Fatalf("ResolveSwitch attempt %d pending=%+v, want original request retained", attempt+1, pending)
+		}
 	}
 }
 
