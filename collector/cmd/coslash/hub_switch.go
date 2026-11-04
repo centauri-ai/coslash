@@ -90,8 +90,9 @@ func (m *onboardingManager) PendingSwitch() *hubSwitch {
 	return &request
 }
 
-// ResolveSwitch performs the pending request for rawHubURL. It drops a declined
-// request and consumes a confirmed request only after the requested step succeeds.
+// ResolveSwitch performs the pending request for rawHubURL. It restores the
+// saved Hub before dropping a declined request and consumes a confirmed request
+// only after the requested step succeeds.
 func (m *onboardingManager) ResolveSwitch(rawHubURL string, confirm bool) error {
 	origin, err := hubOrigin(rawHubURL)
 	if err != nil {
@@ -106,6 +107,10 @@ func (m *onboardingManager) ResolveSwitch(rawHubURL string, confirm bool) error 
 	m.pendingSwitch = nil
 	m.mu.Unlock()
 	if !confirm || !request.CanSwitch {
+		if err := m.restoreSwitch(request); err != nil {
+			m.retainSwitch(request)
+			return err
+		}
 		return nil
 	}
 	var operationErr error
@@ -117,10 +122,48 @@ func (m *onboardingManager) ResolveSwitch(rawHubURL string, confirm bool) error 
 	if operationErr == nil {
 		return nil
 	}
+	m.retainSwitch(request)
+	return operationErr
+}
+
+func (m *onboardingManager) restoreSwitch(request hubSwitch) error {
+	stored, err := readStoredHubURL()
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	current := m.hubClient
+	m.mu.Unlock()
+	currentOrigin := ""
+	if current != nil && current.BaseURL != nil {
+		currentOrigin = current.BaseURL.Scheme + "://" + current.BaseURL.Host
+	}
+	if stored != request.To && currentOrigin != request.To {
+		return nil
+	}
+	client, err := hubClientForURL(m.version, request.From)
+	if err != nil {
+		return errors.New("Hub address is unavailable")
+	}
+	m.mu.Lock()
+	hooks := m.syncHooks
+	m.mu.Unlock()
+	if hooks != nil {
+		if err := hooks.Ensure(client); err != nil {
+			return errors.New("Local could not restore the previous Hub")
+		}
+	}
+	if err := writeStoredHubURL(request.From); err != nil {
+		return errors.New("Hub address could not be saved")
+	}
+	m.setHubClient(client)
+	return nil
+}
+
+func (m *onboardingManager) retainSwitch(request hubSwitch) {
 	m.mu.Lock()
 	if m.pendingSwitch == nil && time.Since(request.RequestedAt) <= hubSwitchTTL {
 		m.pendingSwitch = &request
 	}
 	m.mu.Unlock()
-	return operationErr
 }
