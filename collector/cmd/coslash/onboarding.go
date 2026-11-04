@@ -32,6 +32,8 @@ type onboardingManager struct {
 	registerBackground func() error
 	v4SyncActive       bool
 	lastWake           time.Time
+	pendingSwitch      *hubSwitch
+	showLocal          func()
 	lastUpdate         time.Time
 	wait               sync.WaitGroup
 }
@@ -80,6 +82,14 @@ func (m *onboardingManager) StartPairing(rawHubURL, attemptID, launchIntent stri
 	if err != nil || launchIntent == "" {
 		return errors.New("invalid Hub activation")
 	}
+	if from, bound := m.boundElsewhere(origin); bound {
+		m.askSwitch(hubSwitch{From: from, To: origin, CanSwitch: true, action: "pair", attemptID: attemptID, launchToken: launchIntent})
+		return errHubSwitchPending
+	}
+	return m.startPairing(origin, attemptID, launchIntent)
+}
+
+func (m *onboardingManager) startPairing(origin, attemptID, launchIntent string) error {
 	hubURL, _ := url.Parse(origin)
 	client, err := hubClientForURL(m.version, hubURL.String())
 	if err != nil {
@@ -269,6 +279,14 @@ func (m *onboardingManager) RetryCheckIn(rawHubURL string) error {
 	if err != nil {
 		return errors.New("invalid Hub address")
 	}
+	if from, bound := m.boundElsewhere(origin); bound {
+		m.askSwitch(hubSwitch{From: from, To: origin, CanSwitch: m.hasCredential(origin), action: "check-in"})
+		return errHubSwitchPending
+	}
+	return m.checkIn(origin)
+}
+
+func (m *onboardingManager) checkIn(origin string) error {
 	hubURL, _ := url.Parse(origin)
 	client, err := hubClientForURL(m.version, hubURL.String())
 	if err != nil {
