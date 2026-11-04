@@ -13,6 +13,7 @@
 - A one-time backfill covers the selected window. Completion returns the device to live activity without another automatic history import.
 - Local pause, Hub pause, device-off policy, leave-out rules, and network or battery conditions restrict uploads. Failed check-ins or stale consent stop uploads.
 - Device revocation removes the stored credential and stops sync. Pairing or changing the Hub resets upload state for the new binding.
+- A pairing, check-in, or wake link from a Hub other than the paired one never switches Hubs on its own. Local keeps the current Hub and asks in its UI first.
 - V4 transfers only parsed session-record artifacts for supported local Codex, Claude, OpenCode, Cursor, Grok, and Pi families. Other artifact kinds remain in the private local spool. Pi forks sync as independent roots; their ancestors are private evidence, not uploaded family members.
 - Parsed records can contain prompts, commands, source snippets, working directories, and derived synthesis. File-edit path sanitization does not redact secrets from record contents.
 - Personal sync does not authorize workspace sharing or create a workspace share link. Workspace sharing requires separate authorization for its destination audience.
@@ -44,5 +45,6 @@ have separate authorization boundaries.
 - `TestDefaultPlanDoesNotUploadOlderHistory` and `TestCompletedBackfillReturnsToLiveOnlyActivity` enforce the import boundary.
 - `TestScaleHubWithoutPlanCreatesOrListsNothing`, `TestLocalPauseWinsOverFreshServerPolicy`, and `TestPausedOrOfflineCheckInSendsNoUpload` enforce upload gates.
 - `TestCuratedArtifactsSelectsOnlyParsedRecordsForSupportedAgents` enforces artifact selection. `TestSanitizeRecordFilePathsForSupportedReaders` covers file-edit path sanitization.
+- `TestPairingFromAnotherHubWaitsForConfirmation` and `TestDeclinedHubSwitchKeepsTheSavedHub` enforce the Hub switch confirmation.
 - `TestRevokedCredentialIsDeletedAndCallsStop` covers revocation. Queue binding and startup behavior live in `collector/internal/syncv4` and `collector/cmd/coslash`.
 - Hub V3 routes and stored data remain a server compatibility dependency until a separate migration or sunset decision.

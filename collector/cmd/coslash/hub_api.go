@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
@@ -50,7 +49,7 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 	}
 	return &hubclient.Client{
 		BaseURL:          baseURL,
-		Credentials:      deviceCredentialStore(runtime.GOOS, baseURL.Scheme+"://"+baseURL.Host),
+		Credentials:      hubCredentialStore(baseURL.Scheme + "://" + baseURL.Host),
 		DeviceName:       deviceName,
 		CollectorVersion: collectorVersion,
 		InstallChannel:   detectedInstallChannel(),
@@ -183,7 +182,13 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			http.Error(w, "invalid Hub onboarding activation", http.StatusBadRequest)
 			return
 		}
-		if err := onboardings.StartPairing(input.HubURL, input.AttemptID, input.LaunchIntent); err != nil {
+		err := onboardings.StartPairing(input.HubURL, input.AttemptID, input.LaunchIntent)
+		if errors.Is(err, errHubSwitchPending) {
+			w.WriteHeader(http.StatusAccepted)
+			writeJSON(w, map[string]string{"state": "confirm_switch"})
+			return
+		}
+		if err != nil {
 			http.Error(w, "could not start Hub pairing", http.StatusBadRequest)
 			return
 		}
@@ -310,8 +315,37 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			http.Error(w, "invalid Hub check-in request", http.StatusBadRequest)
 			return
 		}
-		if err := onboardings.RetryCheckIn(input.HubURL); err != nil {
+		err := onboardings.RetryCheckIn(input.HubURL)
+		if errors.Is(err, errHubSwitchPending) {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if err != nil {
 			http.Error(w, "Local could not check in with Hub", http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	api.HandleFunc("POST /api/hub/switch", func(w http.ResponseWriter, request *http.Request) {
+		if onboardings == nil {
+			http.Error(w, "Hub switch is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			HubURL  string `json:"hubUrl"`
+			Confirm bool   `json:"confirm"`
+		}
+		if err := decodeHubJSON(request.Body, &input); err != nil {
+			http.Error(w, "invalid Hub switch request", http.StatusBadRequest)
+			return
+		}
+		err := onboardings.ResolveSwitch(input.HubURL, input.Confirm)
+		if errors.Is(err, errNoHubSwitch) {
+			http.Error(w, "the Hub switch request expired", http.StatusConflict)
+			return
+		}
+		if err != nil {
+			http.Error(w, "Local could not switch Hubs", http.StatusBadGateway)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
