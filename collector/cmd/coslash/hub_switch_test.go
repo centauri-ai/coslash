@@ -72,6 +72,10 @@ func TestPairingFromAnotherHubWaitsForConfirmation(t *testing.T) {
 
 func TestDeclinedHubSwitchKeepsTheSavedHub(t *testing.T) {
 	manager, hubA, hubB, _ := switchFixture(t, map[string]string{"https://hub-a.coslash.io": "credential-a"})
+	manager.setSyncHooks(syncHookFuncs{ensure: func(*hubclient.Client) error {
+		t.Fatal("declining an unchanged switch unexpectedly reset sync")
+		return nil
+	}})
 	if err := manager.StartPairing(hubB, switchAttemptID, strings.Repeat("A", 43)); !errors.Is(err, errHubSwitchPending) {
 		t.Fatal(err)
 	}
@@ -154,6 +158,49 @@ func TestFailedHubSwitchKeepsRequestForRetry(t *testing.T) {
 		if pending == nil || pending.To != hubB || pending.From != hubA {
 			t.Fatalf("ResolveSwitch attempt %d pending=%+v, want original request retained", attempt+1, pending)
 		}
+	}
+}
+
+func TestDecliningFailedHubSwitchRestoresTheSavedHub(t *testing.T) {
+	manager, hubA, hubB, _ := switchFixture(t, nil)
+	var ensured []string
+	restoreFails := true
+	manager.setSyncHooks(syncHookFuncs{ensure: func(client *hubclient.Client) error {
+		origin := client.BaseURL.Scheme + "://" + client.BaseURL.Host
+		ensured = append(ensured, origin)
+		if origin == hubB {
+			return errors.New("temporary Hub check-in failure")
+		}
+		if restoreFails {
+			return errors.New("temporary saved Hub restore failure")
+		}
+		return nil
+	}})
+	manager.askSwitch(hubSwitch{From: hubA, To: hubB, CanSwitch: true, action: "check-in"})
+
+	if err := manager.ResolveSwitch(hubB, true); err == nil {
+		t.Fatal("ResolveSwitch confirmation succeeded, want Hub check-in failure")
+	}
+	if storedHub(t) != hubB || manager.PendingSwitch() == nil {
+		t.Fatalf("failed switch stored=%q pending=%+v, want target binding and retry request", storedHub(t), manager.PendingSwitch())
+	}
+
+	if err := manager.ResolveSwitch(hubB, false); err == nil {
+		t.Fatal("ResolveSwitch decline succeeded, want restore failure")
+	}
+	if storedHub(t) != hubB || manager.PendingSwitch() == nil {
+		t.Fatalf("failed restore stored=%q pending=%+v, want target binding and request retained", storedHub(t), manager.PendingSwitch())
+	}
+	restoreFails = false
+	if err := manager.ResolveSwitch(hubB, false); err != nil {
+		t.Fatal(err)
+	}
+	client := manager.currentHubClient()
+	if storedHub(t) != hubA || manager.PendingSwitch() != nil || client == nil || client.BaseURL.String() != hubA {
+		t.Fatalf("declined switch stored=%q pending=%+v client=%v, want saved Hub restored", storedHub(t), manager.PendingSwitch(), client)
+	}
+	if len(ensured) != 3 || ensured[0] != hubB || ensured[1] != hubA || ensured[2] != hubA {
+		t.Fatalf("sync bindings ensured=%v, want target failure and retryable saved Hub restore", ensured)
 	}
 }
 
