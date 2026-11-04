@@ -22,6 +22,13 @@ export type HubFailureStatus = {
   rawError: string;
 };
 
+export type HubSwitch = {
+  from: string;
+  to: string;
+  canSwitch: boolean;
+  requestedAt: string;
+};
+
 export type SyncStatus = {
   state: SyncState;
   hubOrigin: string;
@@ -29,6 +36,7 @@ export type SyncStatus = {
   lastFailure?: HubFailureStatus;
   hubFailureActive?: boolean;
   sessionFailures?: Record<string, string>;
+  hubSwitch?: HubSwitch;
 };
 
 export type SyncStatusLoad = 'loading' | 'ready' | 'error';
@@ -137,6 +145,25 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
   if (value.hubFailureActive !== undefined && typeof value.hubFailureActive !== 'boolean') {
     throw new Error('Invalid sync status');
   }
+  let hubSwitch: HubSwitch | undefined;
+  if (value.hubSwitch != null) {
+    const request = value.hubSwitch;
+    if (
+      !isRecord(request) ||
+      !canonicalHubOrigin(request.from) ||
+      !canonicalHubOrigin(request.to) ||
+      typeof request.canSwitch !== 'boolean' ||
+      typeof request.requestedAt !== 'string'
+    ) {
+      throw new Error('Invalid sync status');
+    }
+    hubSwitch = {
+      from: canonicalHubOrigin(request.from)!,
+      to: canonicalHubOrigin(request.to)!,
+      canSwitch: request.canSwitch,
+      requestedAt: request.requestedAt,
+    };
+  }
   return {
     state: value.state as SyncState,
     hubOrigin,
@@ -144,6 +171,7 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
     sessionFailures,
     ...(lastFailure ? { lastFailure } : {}),
     ...(typeof value.hubFailureActive === 'boolean' ? { hubFailureActive: value.hubFailureActive } : {}),
+    ...(hubSwitch ? { hubSwitch } : {}),
   };
 }
 
@@ -151,6 +179,16 @@ export async function loadSyncStatus(signal?: AbortSignal): Promise<SyncStatus> 
   const response = await apiFetch('/api/sync/status', { signal });
   if (!response.ok) throw new Error('Sync status is unavailable');
   return decodeSyncStatus((await response.json()) as unknown);
+}
+
+export async function resolveHubSwitch(hubUrl: string, confirm: boolean): Promise<void> {
+  const response = await apiFetch('/api/hub/switch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hubUrl, confirm }),
+  });
+  if (response.status === 409) throw new Error('This request expired. Start again from the other Hub.');
+  if (!response.ok) throw new Error('coSlash Local could not switch Hubs. Try again.');
 }
 
 export async function retrySyncNow(): Promise<void> {

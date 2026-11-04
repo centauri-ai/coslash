@@ -2,6 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { decodeSyncStatus } from './api';
 
 describe('decodeSyncStatus', () => {
+  it('decodes a pending Hub switch and rejects a malformed one', () => {
+    const base = { state: 'connected_idle', hubOrigin: 'https://hub-a.example.test', sessions: {} };
+    const hubSwitch = {
+      from: 'https://hub-a.example.test',
+      to: 'https://Hub-B.example.test:443',
+      canSwitch: true,
+      requestedAt: '2026-11-04T12:00:00Z',
+    };
+    expect(decodeSyncStatus({ ...base, hubSwitch }).hubSwitch).toEqual({
+      ...hubSwitch,
+      to: 'https://hub-b.example.test',
+    });
+    expect(() => decodeSyncStatus({ ...base, hubSwitch: { ...hubSwitch, to: '' } })).toThrow();
+  });
+
   it('accepts and canonicalizes Hub origins with a default port', () => {
     expect(
       decodeSyncStatus({

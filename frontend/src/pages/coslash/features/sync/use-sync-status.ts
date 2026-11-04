@@ -26,6 +26,7 @@ export function sameStatus(left: SyncStatus, right: SyncStatus): boolean {
     left.state === right.state &&
     left.hubOrigin === right.hubOrigin &&
     left.hubFailureActive === right.hubFailureActive &&
+    left.hubSwitch?.requestedAt === right.hubSwitch?.requestedAt &&
     sameFailure &&
     sameRecord(left.sessions, right.sessions) &&
     sameRecord(left.sessionFailures ?? {}, right.sessionFailures ?? {})
