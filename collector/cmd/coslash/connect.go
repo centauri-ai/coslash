@@ -312,6 +312,8 @@ func (m *onboardingManager) StartConnectCode(rawHubURL, code string) (string, er
 	if err != nil {
 		return "", errors.New("could not prepare connect request")
 	}
+	m.hubBindingMu.Lock()
+	defer m.hubBindingMu.Unlock()
 	if err := writeStoredHubURL(origin); err != nil {
 		return "", errors.New("Hub address could not be saved")
 	}
