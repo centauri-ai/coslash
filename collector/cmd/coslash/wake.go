@@ -44,9 +44,20 @@ func (m *onboardingManager) RequestWake(rawHubURL string) error {
 		return errForeignWakeHub
 	}
 	stored, err := readStoredHubURL()
-	if err != nil || stored == "" || stored != origin {
-		if from, bound := m.boundElsewhere(origin); bound {
-			m.askSwitch(hubSwitch{From: from, To: origin, CanSwitch: m.hasCredential(origin), action: "wake"})
+	if err != nil {
+		return err
+	}
+	if stored == "" || stored != origin {
+		from, bound, err := m.boundElsewhere(origin)
+		if err != nil {
+			return err
+		}
+		if bound {
+			canSwitch, err := m.hasCredential(origin)
+			if err != nil {
+				return err
+			}
+			m.askSwitch(hubSwitch{From: from, To: origin, CanSwitch: canSwitch, action: "wake"})
 		}
 		return errForeignWakeHub
 	}
