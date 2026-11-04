@@ -109,11 +109,24 @@ func (answer claudeAnswer) String() string {
 	return strings.Join(answer, ", ")
 }
 
+// claudeResultType is the Write tool's "create" or "update". Other tools put
+// other JSON under "type" (Artifact writes an object); that is not a write.
+type claudeResultType string
+
+func (kind *claudeResultType) UnmarshalJSON(data []byte) error {
+	var value string
+	if json.Unmarshal(data, &value) != nil {
+		value = ""
+	}
+	*kind = claudeResultType(value)
+	return nil
+}
+
 type claudeToolUseResult struct {
-	FilePath        string          `json:"filePath"`
-	Plan            string          `json:"plan"` // approved ExitPlanMode
-	Type            string          `json:"type"`
-	Content         json.RawMessage `json:"content"`
+	FilePath        string           `json:"filePath"`
+	Plan            string           `json:"plan"` // approved ExitPlanMode
+	Type            claudeResultType `json:"type"`
+	Content         json.RawMessage  `json:"content"`
 	StructuredPatch []struct {
 		OldStart int      `json:"oldStart"`
 		OldLines int      `json:"oldLines"`
