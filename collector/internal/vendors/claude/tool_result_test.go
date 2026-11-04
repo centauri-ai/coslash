@@ -47,3 +47,14 @@ func TestMistypedToolResultFieldStillInvalid(t *testing.T) {
 		t.Fatalf("validate = %v, want ErrInvalidData", err)
 	}
 }
+
+func TestUnsupportedToolResultTypeShapesAreInvalid(t *testing.T) {
+	for _, kind := range []string{`1`, `true`, `[]`, `null`} {
+		t.Run(kind, func(t *testing.T) {
+			path := writeToolResultTranscript(t, `{"type":`+kind+`,"filePath":"/repo/notes.md","content":"ignored"}`)
+			if err := ValidateCompleteTranscriptSourceContext(t.Context(), vendors.LocalReadSource, path); !errors.Is(err, vendors.ErrInvalidData) {
+				t.Fatalf("validate = %v, want ErrInvalidData", err)
+			}
+		})
+	}
+}
