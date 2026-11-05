@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -56,13 +57,15 @@ type hubAgentCLI struct {
 	now         func() time.Time
 	sleep       func(context.Context, time.Duration) error
 	pollEvery   time.Duration
+	lockPath    string
 }
 
 func newHubAgentCLI(output io.Writer) *hubAgentCLI {
+	lockPath, _ := hubAgentLockPath(runtime.GOOS)
 	return &hubAgentCLI{
 		output: output, credentials: hubAgentCredentialStore(runtime.GOOS),
 		http: &http.Client{Timeout: hubAgentRequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-		now:  time.Now, sleep: sleepHubContext, pollEvery: hubAgentDefaultPollInterval,
+		now:  time.Now, sleep: sleepHubContext, pollEvery: hubAgentDefaultPollInterval, lockPath: lockPath,
 	}
 }
 
@@ -289,6 +292,14 @@ func (c *hubAgentCLI) login(ctx context.Context, hubURL, scope string) error {
 	if _, err := validateHubURL(hubURL); err != nil {
 		return err
 	}
+	var revision uint64
+	if err := c.withCredentialLock(ctx, func(_ context.Context, lock *os.File) error {
+		var err error
+		revision, err = advanceHubAgentRevision(lock)
+		return err
+	}); err != nil {
+		return err
+	}
 	endpoints, err := c.discover(ctx, hubURL)
 	if err != nil {
 		return err
@@ -347,12 +358,27 @@ func (c *hubAgentCLI) login(ctx context.Context, hubURL, scope string) error {
 		AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken,
 		ExpiresAt: c.now().Add(time.Duration(tokens.ExpiresIn) * time.Second),
 	}
-	if err := c.saveCredential(ctx, credential); err != nil {
-		return fmt.Errorf("save Hub credentials: %w", err)
-	}
-	stored, err := c.loadCredential(ctx)
-	if err != nil || stored.AccessToken != credential.AccessToken || stored.RefreshToken != credential.RefreshToken || stored.HubURL != credential.HubURL {
-		return errors.New("Hub credentials were not retained; disconnect this CLI in Hub and try again")
+	err = c.withCredentialLock(ctx, func(ctx context.Context, lock *os.File) error {
+		current, err := readHubAgentRevision(lock)
+		if err != nil {
+			return err
+		}
+		if current != revision {
+			return errHubLoginSuperseded
+		}
+		if err := c.saveCredentialInTransaction(ctx, credential); err != nil {
+			return fmt.Errorf("save Hub credentials: %w", err)
+		}
+		stored, err := c.loadCredentialInTransaction(ctx)
+		if err != nil || stored.AccessToken != credential.AccessToken || stored.RefreshToken != credential.RefreshToken || stored.HubURL != credential.HubURL {
+			return errors.New("Hub credentials were not retained; disconnect this CLI in Hub and try again")
+		}
+		return nil
+	})
+	if err != nil {
+		// Consent was granted but these tokens will not be used.
+		c.revokeBestEffort(ctx, endpoints, credential)
+		return err
 	}
 	fmt.Fprintln(c.output, "Connected to coSlash Hub.")
 	if credential.RefreshToken == "" {
@@ -439,7 +465,16 @@ func (c *hubAgentCLI) pollDeviceToken(ctx context.Context, endpoints hubOAuthEnd
 }
 
 func (c *hubAgentCLI) logout(ctx context.Context) error {
-	credential, err := c.loadCredential(ctx)
+	return c.withCredentialLock(ctx, func(ctx context.Context, lock *os.File) error {
+		if _, err := advanceHubAgentRevision(lock); err != nil {
+			return err
+		}
+		return c.logoutInTransaction(ctx)
+	})
+}
+
+func (c *hubAgentCLI) logoutInTransaction(ctx context.Context) error {
+	credential, err := c.loadCredentialInTransaction(ctx)
 	if err != nil && !errors.Is(err, hubclient.ErrNotPaired) {
 		if deleteErr := c.credentials.Delete(ctx); deleteErr != nil {
 			return fmt.Errorf("delete unreadable Hub credentials: %w", deleteErr)
@@ -663,6 +698,10 @@ type hubRPCError struct {
 
 func (c *hubAgentCLI) mcpRequest(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	credential, err := c.loadCredential(ctx)
+	var lockErr *hubCredentialLockError
+	if errors.As(err, &lockErr) {
+		return nil, err
+	}
 	if err != nil {
 		return nil, errors.New("Hub is not logged in; run coslash hub login")
 	}
@@ -729,10 +768,50 @@ func (c *hubAgentCLI) sendMCP(ctx context.Context, credential hubAgentCredential
 	return body, response.StatusCode, nil
 }
 
-func (c *hubAgentCLI) refreshIfNeeded(ctx context.Context, credential hubAgentCredential, force bool) (hubAgentCredential, error) {
-	if !force && credential.ExpiresAt.After(c.now().Add(hubAgentRefreshLeeway)) {
-		return credential, nil
+// refreshIfNeeded returns a usable credential for the connection in snapshot.
+// It reloads the stored credential under the Hub credential lock so that only
+// one process rotates a refresh token; replaying a rotated token revokes the
+// whole token family on the Hub. force refreshes after the Hub rejected
+// snapshot's access token, unless another process already replaced it.
+func (c *hubAgentCLI) refreshIfNeeded(ctx context.Context, snapshot hubAgentCredential, force bool) (hubAgentCredential, error) {
+	if !force && c.credentialFresh(snapshot) {
+		return snapshot, nil
 	}
+	var refreshed hubAgentCredential
+	err := c.withCredentialLock(ctx, func(ctx context.Context, _ *os.File) error {
+		current, err := c.loadCredentialInTransaction(ctx)
+		if errors.Is(err, hubclient.ErrNotPaired) {
+			return errHubConnectionChanged
+		}
+		if err != nil {
+			return err
+		}
+		if !sameHubConnection(current, snapshot) {
+			return errHubConnectionChanged
+		}
+		if current.AccessToken != snapshot.AccessToken && c.credentialFresh(current) {
+			refreshed = current
+			return nil
+		}
+		refreshed, err = c.rotateCredentialInTransaction(ctx, current)
+		return err
+	})
+	return refreshed, err
+}
+
+func (c *hubAgentCLI) credentialFresh(credential hubAgentCredential) bool {
+	return credential.ExpiresAt.After(c.now().Add(hubAgentRefreshLeeway))
+}
+
+// sameHubConnection reports whether two credentials belong to one login. A
+// refresh keeps the client; every login registers a new one.
+func sameHubConnection(left, right hubAgentCredential) bool {
+	return left.HubURL == right.HubURL && left.Issuer == right.Issuer && left.ClientID == right.ClientID
+}
+
+// rotateCredentialInTransaction exchanges credential's refresh token and saves
+// the result. The caller must hold the Hub credential lock.
+func (c *hubAgentCLI) rotateCredentialInTransaction(ctx context.Context, credential hubAgentCredential) (hubAgentCredential, error) {
 	if credential.RefreshToken == "" {
 		return hubAgentCredential{}, errors.New("Hub access token expired and no refresh token is available; run coslash hub login")
 	}
@@ -754,13 +833,26 @@ func (c *hubAgentCLI) refreshIfNeeded(ctx context.Context, credential hubAgentCr
 	credential.AccessToken = tokens.AccessToken
 	credential.RefreshToken = tokens.RefreshToken
 	credential.ExpiresAt = c.now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
-	if err := c.saveCredential(ctx, credential); err != nil {
+	if err := c.saveCredentialInTransaction(ctx, credential); err != nil {
 		return hubAgentCredential{}, fmt.Errorf("save refreshed Hub credentials: %w", err)
 	}
 	return credential, nil
 }
 
+// loadCredential reads a snapshot of the stored credential under the Hub
+// credential lock, so a concurrent save or legacy migration cannot interleave.
 func (c *hubAgentCLI) loadCredential(ctx context.Context) (hubAgentCredential, error) {
+	var credential hubAgentCredential
+	err := c.withCredentialLock(ctx, func(ctx context.Context, _ *os.File) error {
+		var err error
+		credential, err = c.loadCredentialInTransaction(ctx)
+		return err
+	})
+	return credential, err
+}
+
+// loadCredentialInTransaction requires the caller to hold the Hub credential lock.
+func (c *hubAgentCLI) loadCredentialInTransaction(ctx context.Context) (hubAgentCredential, error) {
 	value, err := c.credentials.Load(ctx)
 	if err != nil {
 		return hubAgentCredential{}, err
@@ -775,7 +867,8 @@ func (c *hubAgentCLI) loadCredential(ctx context.Context) (hubAgentCredential, e
 	return credential, nil
 }
 
-func (c *hubAgentCLI) saveCredential(ctx context.Context, credential hubAgentCredential) error {
+// saveCredentialInTransaction requires the caller to hold the Hub credential lock.
+func (c *hubAgentCLI) saveCredentialInTransaction(ctx context.Context, credential hubAgentCredential) error {
 	encoded, err := json.Marshal(credential)
 	if err != nil {
 		return errors.New("encode Hub credentials")
