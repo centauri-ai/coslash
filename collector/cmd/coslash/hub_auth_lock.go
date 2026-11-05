@@ -46,11 +46,10 @@ func (e *hubCredentialLockError) Unwrap() error { return e.err }
 // under the user's home regardless of COSLASH_HOME.
 func hubAgentLockPath(goos string) (string, error) {
 	root := ""
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		root = filepath.Join(home, ".coslash")
-	}
-	if goos == "linux" && os.Getenv("COSLASH_HOME") != "" {
+	if goos == "linux" {
 		root = settings.Home()
+	} else if home, err := os.UserHomeDir(); err == nil && home != "" {
+		root = filepath.Join(home, ".coslash")
 	}
 	if root == "" {
 		return "", errHubCredentialLockMissing

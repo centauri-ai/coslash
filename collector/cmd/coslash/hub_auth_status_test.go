@@ -228,6 +228,35 @@ func TestHubAuthStatus(t *testing.T) {
 			t.Fatalf("refreshed result scopes = %v, refreshes = %d", result.Scopes, env.hub.count("/oauth/token"))
 		}
 	})
+	t.Run("account request refresh updates status", func(t *testing.T) {
+		env := newStatusEnv(t, nil, time.Hour)
+		start := time.Date(2040, time.January, 2, 3, 4, 5, 0, time.UTC)
+		saveTestHubCredential(t, env.store, hubAgentCredential{HubURL: env.hub.endpoint, Issuer: env.hub.server.URL, ClientID: "client_test", AccessToken: "access_old", RefreshToken: "refresh_old", ExpiresAt: start.Add(31 * time.Second)})
+		var clockMu sync.Mutex
+		current := start
+		env.cli.now = func() time.Time {
+			clockMu.Lock()
+			defer clockMu.Unlock()
+			return current
+		}
+		env.hub.grant = ptr("hub:read hub:share")
+		env.hub.onPing = func() {
+			clockMu.Lock()
+			current = start.Add(2 * time.Second)
+			clockMu.Unlock()
+		}
+		result := check(t, env, want{"authenticated", "available", "", 0})
+		if result.Scopes == nil || strings.Join(*result.Scopes, " ") != "hub:read hub:share" || result.ExpiresAt == nil || *result.ExpiresAt != start.Add(2*time.Second+time.Hour).Format(time.RFC3339) || env.hub.count("/oauth/token") != 1 {
+			t.Fatalf("status after account request refresh = %+v, refreshes = %d", result, env.hub.count("/oauth/token"))
+		}
+	})
+	t.Run("scope authorization uses raw tokens", func(t *testing.T) {
+		env := newStatusEnv(t, ptr("hub:re\u200b"+"ad"), time.Hour)
+		result := check(t, env, want{"authenticated", "insufficient_scope", "", 0})
+		if result.Scopes == nil || !slices.Equal(*result.Scopes, []string{"hub:read"}) || env.hub.count("mcp:tools/callcoslash_get_account") != 0 {
+			t.Fatalf("invisible scope token status = %+v, account reads = %d", result, env.hub.count("mcp:tools/callcoslash_get_account"))
+		}
+	})
 	t.Run("not logged in", func(t *testing.T) {
 		env := newStatusEnv(t, nil, time.Hour)
 		_ = env.store.Delete(context.Background())

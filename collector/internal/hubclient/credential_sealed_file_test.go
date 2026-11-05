@@ -93,6 +93,30 @@ func TestSealedFileCredentialStoreReplacesOldTruncatedKeychainValue(t *testing.T
 	}
 }
 
+func TestSealedFileCredentialStoreReplacesMalformedKeyForNewLogin(t *testing.T) {
+	ctx := context.Background()
+	keychain := &shortCredentialKeychain{}
+	store := SealedFileCredentialStore{
+		Path: filepath.Join(t.TempDir(), "agent-access.enc"), Keychain: keychain,
+	}
+	if err := store.Save(ctx, "old credential"); err != nil {
+		t.Fatal(err)
+	}
+	keychain.value = "malformed-key"
+	if _, err := store.Load(ctx); !errors.Is(err, ErrCredentialCorrupt) {
+		t.Fatalf("load with malformed key = %v", err)
+	}
+	if err := store.Save(ctx, "new login credential"); err != nil {
+		t.Fatalf("save new login after malformed key: %v", err)
+	}
+	if len(keychain.value) != 64 {
+		t.Fatalf("replacement key length = %d, want 64", len(keychain.value))
+	}
+	if got, err := store.Load(ctx); err != nil || got != "new login credential" {
+		t.Fatalf("load replacement credential = %q, %v", got, err)
+	}
+}
+
 func TestSealedFileCredentialStoreReadsAndMigratesLegacyKeychainCredential(t *testing.T) {
 	ctx := context.Background()
 	legacy := `{"hub_url":"https://hub.example.test/mcp","access_token":"old"}`

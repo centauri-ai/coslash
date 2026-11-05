@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 const hubLockChildEnv = "COSLASH_TEST_HUB_LOCK_CHILD"
@@ -623,6 +624,17 @@ func TestHubAgentLockPath(t *testing.T) {
 	t.Setenv("COSLASH_HOME", "relative-home")
 	if got, err := hubAgentLockPath("linux"); err != nil || !filepath.IsAbs(got) || filepath.Base(filepath.Dir(filepath.Dir(got))) != "relative-home" {
 		t.Errorf("relative Linux lock path = %q, %v", got, err)
+	}
+	t.Setenv("COSLASH_HOME", "")
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	home, err := filepath.Abs(settings.Home())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, "hub-credentials", "agent-access.lock")
+	if got, err := hubAgentLockPath("linux"); err != nil || got != want {
+		t.Errorf("Linux lock path without home environment = %q, %v; want %q", got, err, want)
 	}
 }
 

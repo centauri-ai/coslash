@@ -14,6 +14,8 @@ import (
 
 const sealedCredentialVersion = "v1:"
 
+var errSealedCredentialKeyInvalid = errors.New("stored Hub credential key is invalid")
+
 // SealedFileCredentialStore keeps a long credential in a private, encrypted
 // file. Its encryption key lives in the OS keychain, where the macOS security
 // command can safely save the short key through stdin. The security command's
@@ -71,10 +73,12 @@ func (s SealedFileCredentialStore) Save(ctx context.Context, credential string) 
 	if errors.Is(err, ErrNotPaired) {
 		key = nil
 	} else if err != nil {
-		// A previous CLI could have put a truncated OAuth JSON value in this
-		// keychain item. An explicit new login replaces that unusable value.
-		if _, fileErr := (FileCredentialStore{Path: s.Path}).Load(ctx); !errors.Is(fileErr, ErrNotPaired) {
-			return err
+		// An explicit login can replace a malformed key because its existing
+		// sealed credential is already unreadable.
+		if !errors.Is(err, errSealedCredentialKeyInvalid) {
+			if _, fileErr := (FileCredentialStore{Path: s.Path}).Load(ctx); !errors.Is(fileErr, ErrNotPaired) {
+				return err
+			}
 		}
 		key = nil
 	}
@@ -121,7 +125,7 @@ func (s SealedFileCredentialStore) loadKey(ctx context.Context) ([]byte, error) 
 	}
 	key, err := hex.DecodeString(encoded)
 	if err != nil || len(key) != 32 {
-		return nil, corruptCredential(errors.New("stored Hub credential key is invalid"))
+		return nil, corruptCredential(errSealedCredentialKeyInvalid)
 	}
 	return key, nil
 }
