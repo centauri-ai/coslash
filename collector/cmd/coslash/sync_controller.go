@@ -22,6 +22,7 @@ type syncStatus struct {
 	SessionFailures  map[string]string       `json:"sessionFailures"`
 	LastFailure      *diagnostics.HubFailure `json:"lastFailure,omitempty"`
 	HubFailureActive bool                    `json:"hubFailureActive"`
+	HubSwitch        *hubSwitch              `json:"hubSwitch,omitempty"`
 }
 
 type syncController struct {

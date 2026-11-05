@@ -1,0 +1,20 @@
+name: CI cache
+
+# The merge queue already tested each main commit. Pull requests restore only
+# caches that main runs save, so main reruns CI when a cache key input changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - collector/go.mod
+      - collector/go.sum
+      - frontend/package-lock.json
+      - .github/workflows/ci.yml
+      - .github/workflows/ci-cache.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml

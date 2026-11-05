@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 
@@ -109,11 +110,33 @@ func (answer claudeAnswer) String() string {
 	return strings.Join(answer, ", ")
 }
 
+// claudeResultType is the Write tool's "create" or "update". Other tools put
+// other JSON under "type" (Artifact writes an object); that is not a write.
+type claudeResultType string
+
+func (kind *claudeResultType) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	switch {
+	case len(trimmed) > 0 && trimmed[0] == '{':
+		*kind = ""
+		return nil
+	case len(trimmed) > 0 && trimmed[0] == '"':
+		var value string
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		*kind = claudeResultType(value)
+		return nil
+	default:
+		return errors.New("tool result type must be a string or object")
+	}
+}
+
 type claudeToolUseResult struct {
-	FilePath        string          `json:"filePath"`
-	Plan            string          `json:"plan"` // approved ExitPlanMode
-	Type            string          `json:"type"`
-	Content         json.RawMessage `json:"content"`
+	FilePath        string           `json:"filePath"`
+	Plan            string           `json:"plan"` // approved ExitPlanMode
+	Type            claudeResultType `json:"type"`
+	Content         json.RawMessage  `json:"content"`
 	StructuredPatch []struct {
 		OldStart int      `json:"oldStart"`
 		OldLines int      `json:"oldLines"`
@@ -145,6 +168,10 @@ func (message *claudeMessage) contentBlocks() ([]contentBlock, error) {
 }
 
 func (message *claudeMessage) textContent() string {
+	return message.firstTextContent(false)
+}
+
+func (message *claudeMessage) firstTextContent(skipHarness bool) string {
 	trimmed := bytes.TrimSpace(message.Content)
 	if len(trimmed) == 0 {
 		return ""
@@ -162,6 +189,9 @@ func (message *claudeMessage) textContent() string {
 	}
 	for _, block := range blocks {
 		if block.Type == "text" {
+			if skipHarness && (block.Text == "" || session.IsHarnessWrapped(block.Text)) {
+				continue
+			}
 			return block.Text
 		}
 	}
@@ -211,7 +241,7 @@ func (row *claudeSessionRecord) promptText() string {
 	if row.IsMeta || row.IsCompactSummary || row.Message == nil {
 		return ""
 	}
-	text := row.Message.textContent()
+	text := row.Message.firstTextContent(true)
 	if text == "" {
 		text = row.Message.userToolFeedback()
 	}

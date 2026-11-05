@@ -15,8 +15,8 @@ import (
 func handleProtocolActivation(raw string) (*hubclient.LaunchIntent, bool) {
 	wake, wakeErr := parseWakeIntentURL(raw)
 	if wakeErr == nil {
-		stored, err := readStoredHubURL()
-		if err != nil || stored == "" || stored != wake.HubURL.String() {
+		// A wake from another Hub still reaches Local, which asks before it switches.
+		if stored, err := readStoredHubURL(); err != nil || stored == "" {
 			return nil, true
 		}
 		intent := hubclient.LaunchIntent{Action: "wake", HubURL: wake.HubURL}
@@ -41,10 +41,6 @@ func handleProtocolActivation(raw string) (*hubclient.LaunchIntent, bool) {
 		return &intent, false
 	}
 	if forwardWhenReady(&intent) {
-		return nil, true
-	}
-	if err := writeStoredHubURL(intent.HubURL.String()); err != nil {
-		fmt.Fprintln(os.Stderr, "coSlash could not save the Hub address; return to Hub and retry.")
 		return nil, true
 	}
 	return &intent, false

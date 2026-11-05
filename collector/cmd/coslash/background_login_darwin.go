@@ -10,8 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
+
+const backgroundLoginMarker = "COSLASH_LAUNCH_AGENT"
 
 func backgroundLoginPlist(executable string) ([]byte, error) {
 	var escaped bytes.Buffer
@@ -23,6 +28,7 @@ func backgroundLoginPlist(executable string) ([]byte, error) {
 <plist version="1.0"><dict>
 <key>Label</key><string>io.coslash.local</string>
 <key>ProgramArguments</key><array><string>` + escaped.String() + `</string><string>--background</string></array>
+<key>EnvironmentVariables</key><dict><key>` + backgroundLoginMarker + `</key><string>io.coslash.local</string></dict>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><true/>
 <key>ThrottleInterval</key><integer>15</integer>
@@ -76,7 +82,9 @@ func installBackgroundLogin() error {
 	if err != nil {
 		return err
 	}
+	replaced := false
 	if _, err := os.Lstat(path); err == nil {
+		replaced = true
 		output, err := exec.Command("/usr/bin/plutil", "-convert", "json", "-o", "-", "--", path).Output()
 		if err != nil {
 			return fmt.Errorf("read existing login item: %w", err)
@@ -100,10 +108,23 @@ func installBackgroundLogin() error {
 			(env["COSLASH_HOME"] != "" && (!filepath.IsAbs(env["COSLASH_HOME"]) || !sameProtocolHandlerPath(env["COSLASH_HOME"], filepath.Join(home, ".coslash")))) {
 			return fmt.Errorf("existing login item belongs to another installation or home")
 		}
-		if previous == executable {
+		// Replace the whole array: plutil -replace ProgramArguments.0 inserts
+		// a new first item and keeps the old one, which breaks the job.
+		value, valueType := executable, "-string"
+		if key == "ProgramArguments.0" {
+			arguments := repairBackgroundLoginArguments(existing.ProgramArguments, executable)
+			if slices.Equal(existing.ProgramArguments, arguments) {
+				return loadBackgroundLogin(path)
+			}
+			encoded, err := json.Marshal(arguments)
+			if err != nil {
+				return err
+			}
+			key, value, valueType = "ProgramArguments", string(encoded), "-json"
+		} else if previous == executable {
 			return loadBackgroundLogin(path)
 		}
-		contents, err = exec.Command("/usr/bin/plutil", "-replace", key, "-string", executable, "-o", "-", "--", path).Output()
+		contents, err = exec.Command("/usr/bin/plutil", "-replace", key, valueType, value, "-o", "-", "--", path).Output()
 		if err != nil {
 			return fmt.Errorf("update login executable: %w", err)
 		}
@@ -129,7 +150,64 @@ func installBackgroundLogin() error {
 	if err := os.Rename(temporary.Name(), path); err != nil {
 		return err
 	}
+	if replaced {
+		return reloadBackgroundLogin(path)
+	}
 	return loadBackgroundLogin(path)
+}
+
+func repairBackgroundLoginArguments(existing []string, executable string) []string {
+	arguments := make([]string, 0, len(existing)+1)
+	arguments = append(arguments, executable)
+	for _, argument := range existing[1:] {
+		if filepath.IsAbs(argument) && backgroundLoginInstallPath(argument) == executable {
+			continue
+		}
+		arguments = append(arguments, argument)
+	}
+	if !slices.Contains(arguments[1:], "--background") {
+		arguments = slices.Insert(arguments, 1, "--background")
+	}
+	return arguments
+}
+
+// launchd keeps the definition it loaded, so a replaced file needs a reload.
+// A process belonging to the job must leave it loaded because bootout stops it.
+func reloadBackgroundLogin(path string) error {
+	loaded, err := exec.Command("launchctl", "print", backgroundLoginTarget()).Output()
+	if err == nil {
+		current, err := backgroundLoginIsCurrentProcess(loaded)
+		if err != nil {
+			return err
+		}
+		if !current {
+			if output, err := exec.Command("launchctl", "bootout", backgroundLoginTarget()).CombinedOutput(); err != nil && backgroundLoginLoaded() {
+				return fmt.Errorf("launchctl bootout: %w: %s", err, strings.TrimSpace(string(output)))
+			}
+		}
+	}
+	return loadBackgroundLogin(path)
+}
+
+var backgroundLoginPID = regexp.MustCompile(`(?m)^\s*pid = ([0-9]+)\s*$`)
+var backgroundLoginWaiting = regexp.MustCompile(`(?m)^\s*state = waiting\s*$`)
+
+func backgroundLoginIsCurrentProcess(output []byte) (bool, error) {
+	if os.Getenv(backgroundLoginMarker) == "io.coslash.local" {
+		return true, nil
+	}
+	match := backgroundLoginPID.FindSubmatch(output)
+	if len(match) != 2 {
+		if backgroundLoginWaiting.Match(output) {
+			return false, nil
+		}
+		return false, fmt.Errorf("cannot safely reload login item: launchctl did not report its process id")
+	}
+	pid, err := strconv.Atoi(string(match[1]))
+	if err != nil {
+		return false, fmt.Errorf("read login item process id: %w", err)
+	}
+	return pid == os.Getpid(), nil
 }
 
 // Homebrew's opt link survives Cellar upgrades, including removal of the old keg.

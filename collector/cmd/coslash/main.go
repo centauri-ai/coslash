@@ -300,6 +300,11 @@ func main() {
 		log.Printf("Hub integration disabled: %v", err)
 	}
 	onboardings := newOnboardingManager(collectorVersion)
+	onboardings.showLocal = func() {
+		if err := openBrowser(accessURL); err != nil {
+			log.Printf("could not open coSlash Local (%v); %s", err, startupAccessInstructions())
+		}
+	}
 	inventoryTracker := &inventory.Tracker{}
 	runtimeReadySignal := make(chan struct{})
 	var controller *syncController
@@ -393,7 +398,7 @@ func main() {
 	if startupIntent != nil {
 		switch startupIntent.Action {
 		case "pair":
-			if err := onboardings.StartPairing(startupIntent.HubURL.String(), startupIntent.AttemptID, startupIntent.LaunchToken); err != nil {
+			if err := onboardings.StartPairing(startupIntent.HubURL.String(), startupIntent.AttemptID, startupIntent.LaunchToken); err != nil && !errors.Is(err, errHubSwitchPending) {
 				fmt.Fprintln(os.Stderr, "coSlash could not start Hub pairing; return to Hub and retry.")
 			}
 		case "check-in":
@@ -799,11 +804,14 @@ func routesWithOnboarding(
 		writeJSON(w, service.queue.UpdatePrompt())
 	})
 	api.HandleFunc("GET /api/sync/status", func(w http.ResponseWriter, _ *http.Request) {
-		if service.syncController == nil {
-			writeJSON(w, syncStatus{State: "not_connected", Sessions: map[string]string{}})
-			return
+		status := syncStatus{State: "not_connected", Sessions: map[string]string{}}
+		if service.syncController != nil {
+			status = service.syncController.Status()
 		}
-		writeJSON(w, service.syncController.Status())
+		if service.onboardings != nil {
+			status.HubSwitch = service.onboardings.PendingSwitch()
+		}
+		writeJSON(w, status)
 	})
 	api.HandleFunc("POST /api/sync/retry", func(w http.ResponseWriter, _ *http.Request) {
 		if service.syncController == nil || !service.syncController.RetryNow() {
