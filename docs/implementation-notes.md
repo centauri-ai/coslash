@@ -70,6 +70,7 @@ Area rules are in [`collector/AGENTS.md`](../collector/AGENTS.md) and [`frontend
 - `cmd/coslash` is the only place that registers HTTP routes. Every route goes through `httpsec`.
 - Windows-only system calls stay in the `win*` and `windowsprivate` packages or in `_windows.go` files.
 - Plugin skills parse the output of the `coslash` CLI. A change to CLI output or flags is a contract change for the skills.
+- Every load, refresh, save, migration and delete of the Hub agent CLI credential runs under the lock in `collector/cmd/coslash/hub_auth_lock.go`. Hub revokes a token family when a refresh token is replayed. Browser approval polling stays outside the lock. A login saves only if no later login or logout advanced the lock file's revision. `coslash hub auth status --json` and its exit codes are a CLI contract ([`docs/agents.md`](agents.md)).
 
 ## Intentional compromises
 
@@ -86,4 +87,5 @@ Each item names the trigger that justifies a real fix.
 - **Untested Pi releases stay enabled.** Diagnostics warn for a stable Pi release that is not in the tested list, but runtime integration and launch continue (`collector/internal/diagnostics`). Add a release to the list after a regression pass on that release.
 - **Remote removal works offline.** Remove deletes local configuration and cache even when the host is offline. Hub removal attempts a bounded helper uninstall after committing removal; Local remove-only leaves the helper installed ([`docs/data-and-privacy.md`](data-and-privacy.md)).
 - **Grok reviews on Windows have no filesystem boundary.** The Grok sandbox does not enforce one on Windows. coSlash restricts tools and warns the user ([`docs/data-and-privacy.md`](data-and-privacy.md)). Upgrade trigger: a Grok release that enforces the sandbox on Windows.
+- **A Hub CLI crash after token rotation can require a new login.** If coslash stops after Hub rotates the refresh token but before the new token is saved, the saved refresh token is already spent. `coslash hub auth status` reports `login_required` or `save_failed`. Upgrade trigger: reports of repeated logins after interrupted commands. Do not weaken Hub replay detection to hide this.
 - **Accounting loss is not always detectable.** An existing zero-byte accounting database initializes as a new store without an unavailable response ([`docs/current-product-baseline.md`](current-product-baseline.md)).

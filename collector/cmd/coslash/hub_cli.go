@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	hubUsage                    = "usage: coslash hub login [--hub URL] [--scope SCOPE ...] | logout | tools [--json] | search <query> | call <tool> --json '{…}'"
+	hubUsage                    = "usage: coslash hub login [--hub URL] [--scope SCOPE ...] | logout | auth status [--json] | tools [--json] | search <query> | call <tool> --json '{…}'"
 	hubDefaultURL               = "https://hub.coslash.io/mcp"
 	hubAgentKeychainService     = "ai.coslash.hub-agent"
 	hubAgentKeychainAccount     = "default"
@@ -701,6 +701,8 @@ type hubRPCError struct {
 	Code int `json:"code"`
 }
 
+func (e *hubRPCError) Error() string { return fmt.Sprintf("Hub MCP request failed (%d)", e.Code) }
+
 func (c *hubAgentCLI) mcpRequest(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	credential, err := c.loadCredential(ctx)
 	var lockErr *hubCredentialLockError
@@ -710,41 +712,53 @@ func (c *hubAgentCLI) mcpRequest(ctx context.Context, method string, params any)
 	if err != nil {
 		return nil, errors.New("Hub is not logged in; run coslash hub login")
 	}
-	credential, err = c.refreshIfNeeded(ctx, credential, false)
+	result, _, err := c.mcpRequestWith(ctx, credential, method, params)
+	return result, err
+}
+
+// mcpRequestWith sends one MCP request with the connection in snapshot,
+// refreshing when it expired and retrying once after an HTTP 401. It returns
+// the credential it last used.
+func (c *hubAgentCLI) mcpRequestWith(ctx context.Context, snapshot hubAgentCredential, method string, params any) (json.RawMessage, hubAgentCredential, error) {
+	credential, err := c.refreshIfNeeded(ctx, snapshot, false)
 	if err != nil {
-		return nil, err
+		return nil, snapshot, err
 	}
 	result, status, err := c.sendMCP(ctx, credential, method, params)
 	if err != nil {
-		return nil, err
+		return nil, credential, err
 	}
 	if status == http.StatusUnauthorized {
 		credential, err = c.refreshIfNeeded(ctx, credential, true)
+		if errors.Is(err, errHubRefreshUnavailable) {
+			// The Hub rejected an unexpired token that cannot be refreshed.
+			return nil, snapshot, &hubHTTPStatusError{Status: http.StatusUnauthorized, MCP: true, message: err.Error()}
+		}
 		if err != nil {
-			return nil, err
+			return nil, snapshot, err
 		}
 		result, status, err = c.sendMCP(ctx, credential, method, params)
 		if err != nil {
-			return nil, err
+			return nil, credential, err
 		}
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("Hub MCP request failed (HTTP %d)", status)
+		return nil, credential, &hubHTTPStatusError{Status: status, MCP: true}
 	}
 	var response struct {
 		Error  *hubRPCError    `json:"error"`
 		Result json.RawMessage `json:"result"`
 	}
 	if json.Unmarshal(result, &response) != nil {
-		return nil, errors.New("Hub returned an invalid JSON-RPC response")
+		return nil, credential, errors.New("Hub returned an invalid JSON-RPC response")
 	}
 	if response.Error != nil {
-		return nil, fmt.Errorf("Hub MCP request failed (%d)", response.Error.Code)
+		return nil, credential, response.Error
 	}
 	if len(response.Result) == 0 {
-		return nil, errors.New("Hub returned an empty JSON-RPC result")
+		return nil, credential, errors.New("Hub returned an empty JSON-RPC result")
 	}
-	return response.Result, nil
+	return response.Result, credential, nil
 }
 
 func (c *hubAgentCLI) sendMCP(ctx context.Context, credential hubAgentCredential, method string, params any) ([]byte, int, error) {
@@ -767,7 +781,10 @@ func (c *hubAgentCLI) sendMCP(ctx context.Context, credential hubAgentCredential
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, hubAgentMaxResponseBytes+1))
-	if err != nil || len(body) > hubAgentMaxResponseBytes {
+	if err != nil {
+		return nil, response.StatusCode, fmt.Errorf("read Hub MCP response: %w", err)
+	}
+	if len(body) > hubAgentMaxResponseBytes {
 		return nil, response.StatusCode, errors.New("read Hub MCP response")
 	}
 	return body, response.StatusCode, nil
@@ -818,7 +835,7 @@ func sameHubConnection(left, right hubAgentCredential) bool {
 // the result. The caller must hold the Hub credential lock.
 func (c *hubAgentCLI) rotateCredentialInTransaction(ctx context.Context, credential hubAgentCredential) (hubAgentCredential, error) {
 	if credential.RefreshToken == "" {
-		return hubAgentCredential{}, errors.New("Hub access token expired and no refresh token is available; run coslash hub login")
+		return hubAgentCredential{}, errHubRefreshUnavailable
 	}
 	endpoints, err := c.discover(ctx, credential.HubURL)
 	if err != nil {
@@ -870,15 +887,18 @@ func (c *hubAgentCLI) loadCredential(ctx context.Context) (hubAgentCredential, e
 // loadCredentialInTransaction requires the caller to hold the Hub credential lock.
 func (c *hubAgentCLI) loadCredentialInTransaction(ctx context.Context) (hubAgentCredential, error) {
 	value, err := c.credentials.Load(ctx)
-	if err != nil {
+	if errors.Is(err, hubclient.ErrNotPaired) {
 		return hubAgentCredential{}, err
+	}
+	if err != nil {
+		return hubAgentCredential{}, &hubCredentialStoreError{err: err}
 	}
 	var credential hubAgentCredential
 	if json.Unmarshal([]byte(value), &credential) != nil || credential.HubURL == "" || credential.Issuer == "" || credential.ClientID == "" || credential.AccessToken == "" || credential.ExpiresAt.IsZero() {
-		return hubAgentCredential{}, errors.New("stored Hub credentials are invalid; run coslash hub login again")
+		return hubAgentCredential{}, errHubStoredCredentialInvalid
 	}
 	if _, err := validateHubURL(credential.HubURL); err != nil {
-		return hubAgentCredential{}, errors.New("stored Hub credentials are invalid; run coslash hub login again")
+		return hubAgentCredential{}, errHubStoredCredentialInvalid
 	}
 	return credential, nil
 }
@@ -889,7 +909,10 @@ func (c *hubAgentCLI) saveCredentialInTransaction(ctx context.Context, credentia
 	if err != nil {
 		return errors.New("encode Hub credentials")
 	}
-	return c.credentials.Save(ctx, string(encoded))
+	if err := c.credentials.Save(ctx, string(encoded)); err != nil {
+		return &hubCredentialStoreError{err: err, save: true}
+	}
+	return nil
 }
 
 type hubOAuthError struct {
@@ -965,7 +988,10 @@ func (c *hubAgentCLI) request(ctx context.Context, method, endpoint, contentType
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, hubAgentMaxResponseBytes+1))
-	if err != nil || len(data) > hubAgentMaxResponseBytes {
+	if err != nil {
+		return nil, response.StatusCode, fmt.Errorf("read Hub response: %w", err)
+	}
+	if len(data) > hubAgentMaxResponseBytes {
 		return nil, response.StatusCode, errors.New("read Hub response")
 	}
 	return data, response.StatusCode, nil
@@ -976,8 +1002,40 @@ func hubHTTPError(status int, body []byte) error {
 	if json.Unmarshal(body, &oauthError) == nil && oauthError.Code != "" {
 		return &oauthError
 	}
-	return fmt.Errorf("Hub request failed (HTTP %d)", status)
+	return &hubHTTPStatusError{Status: status}
 }
+
+// hubHTTPStatusError is an unsuccessful Hub HTTP status without an OAuth error code.
+type hubHTTPStatusError struct {
+	Status  int
+	MCP     bool
+	message string
+}
+
+func (e *hubHTTPStatusError) Error() string {
+	if e.message != "" {
+		return e.message
+	}
+	if e.MCP {
+		return fmt.Sprintf("Hub MCP request failed (HTTP %d)", e.Status)
+	}
+	return fmt.Sprintf("Hub request failed (HTTP %d)", e.Status)
+}
+
+// hubCredentialStoreError is a failure of the OS credential store or file,
+// keeping the store's own message.
+type hubCredentialStoreError struct {
+	err  error
+	save bool
+}
+
+func (e *hubCredentialStoreError) Error() string { return e.err.Error() }
+func (e *hubCredentialStoreError) Unwrap() error { return e.err }
+
+var (
+	errHubStoredCredentialInvalid = errors.New("stored Hub credentials are invalid; run coslash hub login again")
+	errHubRefreshUnavailable      = errors.New("Hub access token expired and no refresh token is available; run coslash hub login")
+)
 
 func writeHubJSON(output io.Writer, value any) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")

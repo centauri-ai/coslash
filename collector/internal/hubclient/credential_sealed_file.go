@@ -39,11 +39,11 @@ func (s SealedFileCredentialStore) Load(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if !strings.HasPrefix(encoded, sealedCredentialVersion) {
-		return "", errors.New("stored Hub credential format is invalid")
+		return "", corruptCredential(errors.New("stored Hub credential format is invalid"))
 	}
 	payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(encoded, sealedCredentialVersion))
 	if err != nil {
-		return "", fmt.Errorf("decode stored Hub credential: %w", err)
+		return "", corruptCredential(fmt.Errorf("decode stored Hub credential: %w", err))
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -54,11 +54,11 @@ func (s SealedFileCredentialStore) Load(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(payload) < aead.NonceSize() {
-		return "", errors.New("stored Hub credential is incomplete")
+		return "", corruptCredential(errors.New("stored Hub credential is incomplete"))
 	}
 	plaintext, err := aead.Open(nil, payload[:aead.NonceSize()], payload[aead.NonceSize():], nil)
 	if err != nil {
-		return "", fmt.Errorf("decrypt stored Hub credential: %w", err)
+		return "", corruptCredential(fmt.Errorf("decrypt stored Hub credential: %w", err))
 	}
 	return string(plaintext), nil
 }
@@ -121,7 +121,7 @@ func (s SealedFileCredentialStore) loadKey(ctx context.Context) ([]byte, error) 
 	}
 	key, err := hex.DecodeString(encoded)
 	if err != nil || len(key) != 32 {
-		return nil, errors.New("stored Hub credential key is invalid")
+		return nil, corruptCredential(errors.New("stored Hub credential key is invalid"))
 	}
 	return key, nil
 }
