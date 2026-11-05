@@ -24,3 +24,11 @@ func runtimeFileExclusivelyLocked(file *os.File) bool {
 	_ = windows.UnlockFileEx(windows.Handle(file.Fd()), 0, 1, 0, overlapped)
 	return false
 }
+
+func runtimeLockContended(err error) bool {
+	return errors.Is(err, windows.ERROR_LOCK_VIOLATION)
+}
+
+func unlockRuntimeFile(file *os.File) error {
+	return windows.UnlockFileEx(windows.Handle(file.Fd()), 0, 1, 0, &windows.Overlapped{})
+}

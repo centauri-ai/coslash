@@ -24,3 +24,11 @@ func runtimeFileExclusivelyLocked(file *os.File) bool {
 	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
 	return false
 }
+
+func runtimeLockContended(err error) bool {
+	return errors.Is(err, unix.EWOULDBLOCK)
+}
+
+func unlockRuntimeFile(file *os.File) error {
+	return unix.Flock(int(file.Fd()), unix.LOCK_UN)
+}

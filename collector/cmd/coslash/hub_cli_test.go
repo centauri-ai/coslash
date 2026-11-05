@@ -139,7 +139,7 @@ func TestHubCLIDeviceLoginCallConfirmationAndResult(t *testing.T) {
 	credentialFile := filepath.Join(t.TempDir(), "hub-agent-credentials")
 	store := hubclient.FileCredentialStore{Path: credentialFile}
 	var output bytes.Buffer
-	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: func(context.Context, time.Duration) error { return nil }, pollEvery: time.Millisecond}
+	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: func(context.Context, time.Duration) error { return nil }, pollEvery: time.Millisecond, lockPath: filepath.Join(t.TempDir(), "agent-access.lock")}
 
 	if err := cli.run(context.Background(), []string{"login", "--hub", endpoint,
 		"--scope", "hub:read", "--scope", "hub:write", "--scope", "hub:share", "--scope", "hub:admin"}); err != nil {
@@ -216,7 +216,7 @@ func TestHubCLILogoutRevokesAndDeletesAgentCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: sleepHubContext, pollEvery: time.Millisecond}
+	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: sleepHubContext, pollEvery: time.Millisecond, lockPath: filepath.Join(t.TempDir(), "agent-access.lock")}
 	if err := cli.run(context.Background(), []string{"logout"}); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestHubCLILogoutRemovesUnreadableCredential(t *testing.T) {
 	if err := store.Save(context.Background(), `{"access_token":"truncated`); err != nil {
 		t.Fatal(err)
 	}
-	cli := &hubAgentCLI{output: &bytes.Buffer{}, credentials: store}
+	cli := &hubAgentCLI{output: &bytes.Buffer{}, credentials: store, lockPath: filepath.Join(t.TempDir(), "agent-access.lock")}
 	err := cli.logout(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "revoke this client in Hub settings") {
 		t.Fatalf("logout unreadable credential = %v", err)
@@ -282,7 +282,7 @@ func TestHubCLIRefreshesAndPersistsRotatedTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: sleepHubContext, pollEvery: time.Millisecond}
+	cli := &hubAgentCLI{output: &output, credentials: store, http: server.Client(), now: time.Now, sleep: sleepHubContext, pollEvery: time.Millisecond, lockPath: filepath.Join(t.TempDir(), "agent-access.lock")}
 	if err := cli.listTools(context.Background(), true); err != nil {
 		t.Fatal(err)
 	}
