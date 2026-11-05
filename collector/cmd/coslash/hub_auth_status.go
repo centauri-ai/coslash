@@ -102,12 +102,17 @@ func (c *hubAgentCLI) authStatus(ctx context.Context) (hubAuthStatusResult, int)
 	scopes := hubGrantedScopes(credential.Scope)
 	expires := credential.ExpiresAt.UTC().Format(time.RFC3339)
 	result := hubAuthStatusResult{Status: "authenticated", HubURL: &credential.HubURL, Scopes: scopes, ExpiresAt: &expires, IdentityStatus: "insufficient_scope"}
-	if scopes == nil || slices.Contains(*scopes, "hub:read") {
+	if scopes == nil || hubScopeGranted(credential.Scope, "hub:read") {
 		var identityErr error
-		result.Account, result.IdentityStatus, identityErr = c.hubAccount(ctx, credential)
+		var effective hubAgentCredential
+		result.Account, result.IdentityStatus, effective, identityErr = c.hubAccount(ctx, credential)
 		if identityErr != nil {
 			return hubAuthFailure(identityErr, &snapshot)
 		}
+		credential = effective
+		result.Scopes = hubGrantedScopes(credential.Scope)
+		expires = credential.ExpiresAt.UTC().Format(time.RFC3339)
+		result.ExpiresAt = &expires
 		if result.IdentityStatus == "unavailable" {
 			code := "identity_unavailable"
 			result.ErrorCode = &code
@@ -120,28 +125,29 @@ func (c *hubAgentCLI) authStatus(ctx context.Context) (hubAuthStatusResult, int)
 }
 
 // hubAccount reads the account for credential once. An error is returned only
-// when the read shows that the login itself is no longer valid or changed.
-func (c *hubAgentCLI) hubAccount(ctx context.Context, credential hubAgentCredential) (*hubAuthAccount, string, error) {
-	response, _, err := c.mcpRequestWith(ctx, credential, "tools/call", map[string]any{"name": "coslash_get_account", "arguments": map[string]any{}})
+// when the read shows that the login itself is no longer valid or changed. The
+// returned credential is the one used by the request, including any refresh.
+func (c *hubAgentCLI) hubAccount(ctx context.Context, credential hubAgentCredential) (*hubAuthAccount, string, hubAgentCredential, error) {
+	response, effective, err := c.mcpRequestWith(ctx, credential, "tools/call", map[string]any{"name": "coslash_get_account", "arguments": map[string]any{}})
 	if err != nil {
 		if _, _, exit := classifyHubAuthError(err); exit == hubAuthExitLoginRequired || exit == hubAuthExitBusy || exit == hubAuthExitCredentialError {
-			return nil, "unavailable", err
+			return nil, "unavailable", effective, err
 		}
-		return nil, "unavailable", nil
+		return nil, "unavailable", effective, nil
 	}
 	var result hubMCPToolResult
 	if json.Unmarshal(response, &result) != nil {
-		return nil, "unavailable", nil
+		return nil, "unavailable", effective, nil
 	}
 	payload, err := hubToolPayload(result)
 	if err != nil {
-		return nil, "unavailable", nil
+		return nil, "unavailable", effective, nil
 	}
 	if result.IsError {
 		if code, _ := hubToolError(payload); code == "SCOPE_MISSING" {
-			return nil, "insufficient_scope", nil
+			return nil, "insufficient_scope", effective, nil
 		}
-		return nil, "unavailable", nil
+		return nil, "unavailable", effective, nil
 	}
 	root, _ := payload.(map[string]any)
 	profile, _ := root["profile"].(map[string]any)
@@ -150,9 +156,9 @@ func (c *hubAgentCLI) hubAccount(ctx context.Context, credential hubAgentCredent
 	email, _ := profile["email"].(string)
 	account := &hubAuthAccount{ID: safeHubAuthText(id), Name: safeHubAuthText(name), Email: safeHubAuthText(email)}
 	if account.ID == "" {
-		return nil, "unavailable", nil
+		return nil, "unavailable", effective, nil
 	}
-	return account, "available", nil
+	return account, "available", effective, nil
 }
 
 // confirmHubConnection checks that the login revision and connection are the
@@ -312,6 +318,18 @@ func hubGrantedScopes(scope *string) *[]string {
 	slices.Sort(scopes)
 	scopes = slices.Compact(scopes)
 	return &scopes
+}
+
+func hubScopeGranted(scope *string, required string) bool {
+	if scope == nil {
+		return false
+	}
+	for _, value := range strings.Split(*scope, " ") {
+		if value == required {
+			return true
+		}
+	}
+	return false
 }
 
 // safeHubAuthText removes terminal control and invisible formatting

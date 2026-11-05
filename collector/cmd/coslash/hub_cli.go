@@ -362,6 +362,9 @@ func (c *hubAgentCLI) login(ctx context.Context, hubURL, scope string) error {
 		AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken,
 		ExpiresAt: c.now().Add(time.Duration(tokens.ExpiresIn) * time.Second), Scope: tokens.Scope,
 	}
+	if credential.Scope == nil {
+		credential.Scope = &scope
+	}
 	err = c.withCredentialLock(ctx, func(ctx context.Context, lock *os.File) error {
 		current, err := readHubAgentRevision(lock)
 		if err != nil {

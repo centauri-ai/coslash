@@ -386,10 +386,17 @@ func writeTestRPC(w http.ResponseWriter, id int, result any) {
 
 func TestHubGrantedScopePersistence(t *testing.T) {
 	scope := func(value string) *string { return &value }
-	t.Run("login keeps the server grant, not the request", func(t *testing.T) {
-		for _, grant := range []*string{scope("hub:read"), scope(""), nil} {
+	t.Run("login uses server grant or requested scopes when omitted", func(t *testing.T) {
+		for _, test := range []struct {
+			grant *string
+			want  string
+		}{
+			{scope("hub:read"), "hub:read"},
+			{scope(""), ""},
+			{nil, "hub:read hub:write"},
+		} {
 			fixture := newLoginHubFixture(t)
-			fixture.scope = grant
+			fixture.scope = test.grant
 			dir := t.TempDir()
 			store := hubclient.FileCredentialStore{Path: filepath.Join(dir, "agent-access")}
 			cli := newTestHubCLI(&bytes.Buffer{}, store, fixture.server.Client(), filepath.Join(dir, "agent-access.lock"))
@@ -397,8 +404,8 @@ func TestHubGrantedScopePersistence(t *testing.T) {
 				t.Fatal(err)
 			}
 			stored, err := cli.loadCredential(context.Background())
-			if err != nil || (stored.Scope == nil) != (grant == nil) || grant != nil && *stored.Scope != *grant {
-				t.Fatalf("grant %v stored as %v, %v", grant, stored.Scope, err)
+			if err != nil || stored.Scope == nil || *stored.Scope != test.want {
+				t.Fatalf("grant %v stored as %v, %v; want %q", test.grant, stored.Scope, err, test.want)
 			}
 		}
 	})
