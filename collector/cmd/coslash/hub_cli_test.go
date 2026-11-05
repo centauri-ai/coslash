@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -381,4 +382,71 @@ func serverOrigin(r *http.Request) string {
 func writeTestRPC(w http.ResponseWriter, id int, result any) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+}
+
+func TestHubGrantedScopePersistence(t *testing.T) {
+	scope := func(value string) *string { return &value }
+	t.Run("login keeps the server grant, not the request", func(t *testing.T) {
+		for _, grant := range []*string{scope("hub:read"), scope(""), nil} {
+			fixture := newLoginHubFixture(t)
+			fixture.scope = grant
+			dir := t.TempDir()
+			store := hubclient.FileCredentialStore{Path: filepath.Join(dir, "agent-access")}
+			cli := newTestHubCLI(&bytes.Buffer{}, store, fixture.server.Client(), filepath.Join(dir, "agent-access.lock"))
+			if err := cli.login(context.Background(), fixture.endpoint, "hub:read hub:write"); err != nil {
+				t.Fatal(err)
+			}
+			stored, err := cli.loadCredential(context.Background())
+			if err != nil || (stored.Scope == nil) != (grant == nil) || grant != nil && *stored.Scope != *grant {
+				t.Fatalf("grant %v stored as %v, %v", grant, stored.Scope, err)
+			}
+		}
+	})
+	t.Run("a credential without scope stays unknown", func(t *testing.T) {
+		dir := t.TempDir()
+		store := hubclient.FileCredentialStore{Path: filepath.Join(dir, "agent-access")}
+		if err := store.Save(context.Background(), `{"hub_url":"http://127.0.0.1:1/mcp","issuer":"http://127.0.0.1:1","client_id":"client_test","access_token":"access","expires_at":"2099-01-01T00:00:00Z"}`); err != nil {
+			t.Fatal(err)
+		}
+		cli := newTestHubCLI(&bytes.Buffer{}, store, nil, filepath.Join(dir, "agent-access.lock"))
+		stored, err := cli.loadCredential(context.Background())
+		if err != nil || stored.Scope != nil {
+			t.Fatalf("legacy credential scope = %v, %v", stored.Scope, err)
+		}
+		if err := cli.withCredentialLock(context.Background(), func(ctx context.Context, _ *os.File) error {
+			return cli.saveCredentialInTransaction(ctx, stored)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if raw, _ := store.Load(context.Background()); strings.Contains(raw, `"scope"`) {
+			t.Fatalf("round trip added a scope: %s", raw)
+		}
+	})
+	for _, test := range []struct {
+		name          string
+		before, grant *string
+		want          *string
+	}{
+		{"refresh replaces the grant", scope("hub:read hub:write"), scope("hub:read"), scope("hub:read")},
+		{"refresh records an empty grant", scope("hub:read"), scope(""), scope("")},
+		{"refresh without scope keeps the known grant", scope("hub:read"), nil, scope("hub:read")},
+		{"refresh without scope keeps an empty grant", scope(""), nil, scope("")},
+		{"refresh without scope keeps unknown", nil, nil, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRotatingHubFixture(t, "access_old", "refresh_old")
+			fixture.scope = test.grant
+			dir := t.TempDir()
+			store := hubclient.FileCredentialStore{Path: filepath.Join(dir, "agent-access")}
+			saveTestHubCredential(t, store, hubAgentCredential{HubURL: fixture.endpoint, Issuer: fixture.server.URL, ClientID: "client_test", AccessToken: "access_old", RefreshToken: "refresh_old", ExpiresAt: time.Now().Add(-time.Minute), Scope: test.before})
+			cli := newTestHubCLI(&bytes.Buffer{}, store, fixture.server.Client(), filepath.Join(dir, "agent-access.lock"))
+			if _, err := cli.mcpRequest(context.Background(), "ping", map[string]any{}); err != nil {
+				t.Fatal(err)
+			}
+			stored := storedTestHubCredential(t, store)
+			if (stored.Scope == nil) != (test.want == nil) || stored.Scope != nil && *stored.Scope != *test.want {
+				t.Fatalf("scope after refresh = %v, want %v", stored.Scope, test.want)
+			}
+		})
+	}
 }

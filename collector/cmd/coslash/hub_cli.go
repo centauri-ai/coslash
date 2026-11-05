@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,6 +41,9 @@ type hubAgentCredential struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at"`
+	// Scope is the grant the Hub returned: nil when unknown, such as in
+	// credentials saved by older CLIs, and empty for a grant without scopes.
+	Scope *string `json:"scope,omitempty"`
 }
 
 type hubOAuthEndpoints struct {
@@ -356,7 +360,7 @@ func (c *hubAgentCLI) login(ctx context.Context, hubURL, scope string) error {
 	credential := hubAgentCredential{
 		HubURL: hubURL, Issuer: endpoints.Issuer, ClientID: client.ClientID,
 		AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken,
-		ExpiresAt: c.now().Add(time.Duration(tokens.ExpiresIn) * time.Second),
+		ExpiresAt: c.now().Add(time.Duration(tokens.ExpiresIn) * time.Second), Scope: tokens.Scope,
 	}
 	err = c.withCredentialLock(ctx, func(ctx context.Context, lock *os.File) error {
 		current, err := readHubAgentRevision(lock)
@@ -370,7 +374,7 @@ func (c *hubAgentCLI) login(ctx context.Context, hubURL, scope string) error {
 			return fmt.Errorf("save Hub credentials: %w", err)
 		}
 		stored, err := c.loadCredentialInTransaction(ctx)
-		if err != nil || stored.AccessToken != credential.AccessToken || stored.RefreshToken != credential.RefreshToken || stored.HubURL != credential.HubURL {
+		if err != nil || stored.AccessToken != credential.AccessToken || stored.RefreshToken != credential.RefreshToken || stored.HubURL != credential.HubURL || !slices.Equal(hubScopeValues(stored.Scope), hubScopeValues(credential.Scope)) {
 			return errors.New("Hub credentials were not retained; disconnect this CLI in Hub and try again")
 		}
 		return nil
@@ -423,10 +427,11 @@ func validateHubLinkURL(raw, issuer string) error {
 }
 
 type hubOAuthToken struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
+	AccessToken  string  `json:"access_token"`
+	RefreshToken string  `json:"refresh_token"`
+	TokenType    string  `json:"token_type"`
+	ExpiresIn    int     `json:"expires_in"`
+	Scope        *string `json:"scope"`
 }
 
 func (c *hubAgentCLI) pollDeviceToken(ctx context.Context, endpoints hubOAuthEndpoints, resource, clientID, deviceCode string, interval time.Duration, deadline time.Time) (hubOAuthToken, error) {
@@ -833,10 +838,21 @@ func (c *hubAgentCLI) rotateCredentialInTransaction(ctx context.Context, credent
 	credential.AccessToken = tokens.AccessToken
 	credential.RefreshToken = tokens.RefreshToken
 	credential.ExpiresAt = c.now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
+	if tokens.Scope != nil {
+		credential.Scope = tokens.Scope
+	}
 	if err := c.saveCredentialInTransaction(ctx, credential); err != nil {
 		return hubAgentCredential{}, fmt.Errorf("save refreshed Hub credentials: %w", err)
 	}
 	return credential, nil
+}
+
+// hubScopeValues distinguishes an unknown grant (nil) from an empty one.
+func hubScopeValues(scope *string) []string {
+	if scope == nil {
+		return nil
+	}
+	return []string{*scope}
 }
 
 // loadCredential reads a snapshot of the stored credential under the Hub
