@@ -29,6 +29,7 @@ var (
 	errHubCredentialsBusy       = errors.New("Hub credentials are in use by another coslash process; try again")
 	errHubConnectionChanged     = errors.New("the Hub connection changed while this command was running; run it again")
 	errHubLoginSuperseded       = errors.New("a newer Hub login or logout replaced this login; its credentials were not saved")
+	errHubLockMalformed         = errors.New("the Hub credential lock file hub-credentials/agent-access.lock is malformed; remove it when no coslash command is running ($COSLASH_HOME on Linux, ~/.coslash on macOS and Windows)")
 	errHubCredentialLockMissing = errors.New("cannot resolve the home directory for the Hub credential lock")
 )
 
@@ -121,7 +122,7 @@ func readHubAgentRevision(file *os.File) (uint64, error) {
 	}
 	revision, err := strconv.ParseUint(text, 10, 64)
 	if err != nil || len(text) != hubAgentRevisionWidth {
-		return 0, errors.New("the Hub credential lock file agent-access.lock is malformed; remove it when no coslash command is running")
+		return 0, errHubLockMalformed
 	}
 	return revision, nil
 }

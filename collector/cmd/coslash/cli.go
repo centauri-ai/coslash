@@ -375,6 +375,9 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	case "status":
 		return runStatus(stdout, stderr, args[1:])
 	case "hub":
+		if len(args) > 1 && args[1] == "auth" {
+			return runHubAuthCLI(stdout, stderr, args[2:])
+		}
 		err = runHubCLI(stdout, args[1:])
 	case "mcp":
 		err = runMCP(stdout, args[1:])

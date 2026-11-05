@@ -8,7 +8,17 @@ import (
 var (
 	ErrNotPaired                  = errors.New("hub device credential is not available")
 	ErrCredentialStoreUnavailable = errors.New("secure credential store unavailable")
+	// ErrCredentialCorrupt marks a stored credential that exists but cannot
+	// be decoded, so only a new login can replace it.
+	ErrCredentialCorrupt = errors.New("stored Hub credential is corrupt")
 )
+
+type corruptCredentialError struct{ err error }
+
+func (e *corruptCredentialError) Error() string   { return e.err.Error() }
+func (e *corruptCredentialError) Unwrap() []error { return []error{e.err, ErrCredentialCorrupt} }
+
+func corruptCredential(err error) error { return &corruptCredentialError{err: err} }
 
 type CredentialStore interface {
 	Load(context.Context) (string, error)

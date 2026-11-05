@@ -72,6 +72,34 @@ text with `coslash hub search "retry backoff"`; use `coslash hub call` for other
 tools. On macOS, the CLI stores its encryption key in Keychain and the encrypted
 credential in a private `0600` file under `$COSLASH_HOME/hub-credentials`.
 
+`coslash hub auth status [--json]` checks the saved connection without starting a
+login. It sends an authenticated MCP `ping`, refreshing an expired token first.
+It reports the Hub URL, the scopes Hub granted, the token expiry, and, when the
+grant includes `hub:read`, the account ID, name and email. A login saved by an
+older coslash shows unknown scopes until its next token refresh. Reading the
+credential can still show an OS Keychain or Credential Manager prompt.
+
+| Exit | `status` | Next step |
+| --- | --- | --- |
+| 0 | `authenticated` | None. `identity_status` is `available`, `insufficient_scope` (no `hub:read`) or `unavailable` (the account read failed after a successful ping). |
+| 1 | `error` | The Hub rejected the request or returned an invalid response; see `error_code`. |
+| 2 | (no output) | Fix the command arguments. |
+| 3 | `login_required` | Run `recovery_command`, for example `coslash hub login --hub https://hub.example.test/mcp`. |
+| 4 | `unreachable` | Check the network and rerun the status command. Do not log in again. |
+| 5 | `credential_error` | The credential store is unreadable or a refreshed token could not be saved; follow `recovery_command`. For `invalid_lock_file`, delete `hub-credentials/agent-access.lock` while no coslash command runs; it is under `$COSLASH_HOME` on Linux and under `~/.coslash` on macOS and Windows, whatever `COSLASH_HOME` is. |
+| 6 | `busy` | Another coslash command holds the credentials or the connection changed; rerun the status command. |
+
+`--json` prints exactly one object with the fields `status`, `hub_url`,
+`scopes`, `expires_at`, `account`, `identity_status`, `error_code` and
+`recovery_command`. `scopes` is `null` when unknown and `[]` when Hub granted no
+scopes. Status never prints tokens or deletes credentials.
+
+Hub CLI commands that share a credential store take a file lock before they
+read, refresh or save it, so concurrent commands rotate a refresh token only
+once. Update every coslash binary that uses the same credentials: an older
+binary ignores the lock, and a refresh token replayed by two processes makes
+Hub revoke the login.
+
 The agent stores its own OAuth credential. To switch Hub accounts for Claude
 Code, Codex, or OpenCode, run `coslash mcp switch <agent>`, change the account
 in the coSlash browser, then run `coslash mcp login <agent>`. For Cursor,
