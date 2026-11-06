@@ -181,6 +181,9 @@ func (message *claudeMessage) firstTextContent(skipHarness bool) string {
 		if err := json.Unmarshal(message.Content, &text); err != nil {
 			return ""
 		}
+		if skipHarness {
+			return userPromptContent(text)
+		}
 		return text
 	}
 	blocks, err := message.contentBlocks()
@@ -189,13 +192,31 @@ func (message *claudeMessage) firstTextContent(skipHarness bool) string {
 	}
 	for _, block := range blocks {
 		if block.Type == "text" {
-			if skipHarness && (block.Text == "" || session.IsHarnessWrapped(block.Text)) {
+			text := block.Text
+			if skipHarness {
+				text = userPromptContent(text)
+			}
+			if skipHarness && text == "" {
 				continue
 			}
-			return block.Text
+			return text
 		}
 	}
 	return ""
+}
+
+func userPromptContent(text string) string {
+	for strings.HasPrefix(strings.TrimSpace(text), "<system-reminder>") {
+		_, remaining, closed := strings.Cut(text, "</system-reminder>")
+		if !closed {
+			return ""
+		}
+		text = strings.TrimSpace(remaining)
+	}
+	if strings.TrimSpace(text) == "" || session.IsHarnessWrapped(strings.TrimSpace(text)) {
+		return ""
+	}
+	return text
 }
 
 func (message *claudeMessage) userToolFeedback() string {
