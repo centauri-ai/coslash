@@ -14,6 +14,15 @@ func TestPromptTextSkipsHarnessBlocks(t *testing.T) {
 		name, row, want string
 	}{
 		{"plain", `{"message":{"content":"debug sharing"}}`, "debug sharing"},
+		{"reminder-prefix", `{"message":{"content":"<system-reminder>linked session status</system-reminder>\n\ndebug sharing"}}`, "debug sharing"},
+		{"reminder-prefix-block", `{"message":{"content":[{"type":"text","text":"<system-reminder>linked session status</system-reminder>\n\ndebug sharing"},{"type":"text","text":"later text"}]}}`, "debug sharing"},
+		{"multiple-reminder-prefixes", `{"message":{"content":" \n<system-reminder>status\nmetadata</system-reminder>\n<system-reminder>context</system-reminder>\ndebug sharing"}}`, "debug sharing"},
+		{"reminder-prefix-after-wrapper", `{"message":{"content":[{"type":"text","text":"<system-reminder>worktree</system-reminder>"},{"type":"text","text":"<system-reminder>status</system-reminder>\ndebug sharing"}]}}`, "debug sharing"},
+		{"reminder-only-whitespace", `{"message":{"content":" \n<system-reminder>status</system-reminder>\n "}}`, ""},
+		{"unclosed-reminder", `{"message":{"content":"<system-reminder>unfinished status\ndebug sharing"}}`, ""},
+		{"reminder-before-command-output", `{"message":{"content":"<system-reminder>status</system-reminder>\n<local-command-stdout>ready</local-command-stdout>"}}`, ""},
+		{"meta-reminder-prefix", `{"isMeta":true,"message":{"content":"<system-reminder>status</system-reminder>\ndebug sharing"}}`, ""},
+		{"compaction-reminder-prefix", `{"isCompactSummary":true,"message":{"content":"<system-reminder>status</system-reminder>\nsummary"}}`, ""},
 		{"worktree", `{"message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":""}},{"type":"text","text":"<system-reminder>You are operating in a git worktree.</system-reminder>"},{"type":"text","text":"debug sharing"}]}}`, "debug sharing"},
 		{"multiple-wrappers", `{"message":{"content":[{"type":"text","text":"<system-reminder>worktree</system-reminder>"},{"type":"text","text":"<local-command-stdout>ready</local-command-stdout>"},{"type":"text","text":"debug sharing"}]}}`, "debug sharing"},
 		{"first-real-block", `{"message":{"content":[{"type":"text","text":"debug sharing"},{"type":"text","text":"<system-reminder>worktree</system-reminder>"},{"type":"text","text":"later text"}]}}`, "debug sharing"},
@@ -32,6 +41,38 @@ func TestPromptTextSkipsHarnessBlocks(t *testing.T) {
 			}
 			if got := row.promptText(); got != test.want {
 				t.Fatalf("prompt = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestReminderPrefixedPromptRetainsAssistantRecap(t *testing.T) {
+	for _, test := range []struct{ name, content string }{
+		{"string", `"<system-reminder>linked session status</system-reminder>\n\ndebug sharing"`},
+		{"blocks", `[{"type":"text","text":"<system-reminder>linked session status</system-reminder>\n\ndebug sharing"}]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
+			writeOutputTranscript(t, path, bashRows(
+				`{"type":"user","message":{"content":`+test.content+`}}`,
+				bashUse("a", "go test"),
+				bashResult("a", `"PASS"`, false),
+				`{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Fixed sharing."}]}}`,
+			))
+			parsed, err := parseTranscript(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := parsed.Session
+			if got.FirstPrompt == nil || *got.FirstPrompt != "debug sharing" || got.Turns != 1 {
+				t.Fatalf("first prompt = %v, turns = %d", got.FirstPrompt, got.Turns)
+			}
+			want := []session.DigestEntry{
+				{Turn: 1, Category: session.DigestFirstPrompt, Description: "debug sharing"},
+				{Turn: 1, Category: session.DigestRecap, Description: "Fixed sharing."},
+			}
+			if !reflect.DeepEqual(got.Digest, want) || got.ToolUses != 1 || len(got.CommandOutputs) != 1 || got.CommandOutputs[0] == nil || *got.CommandOutputs[0] != "PASS" {
+				t.Fatalf("digest = %#v, tool uses = %d, outputs = %v", got.Digest, got.ToolUses, got.CommandOutputs)
 			}
 		})
 	}

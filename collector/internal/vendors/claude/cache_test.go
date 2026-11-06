@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -101,42 +102,58 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 	}
 }
 
-func TestParseCacheEntryWithoutWorktreePromptIsReparsed(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
-	writeOutputTranscript(t, path, bashRows(
-		`{"type":"user","message":{"content":[{"type":"image"},{"type":"text","text":"<system-reminder>worktree</system-reminder>"},{"type":"text","text":"debug sharing"}]}}`,
-		`{"type":"user","message":{"content":"Not now"}}`,
-	))
-	fingerprint, err := transcriptFingerprint(vendors.LocalReadSource, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed, err := parseSourceContext(t.Context(), vendors.LocalReadSource, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed.transcript.Session.FirstPrompt = ptr("Not now")
-	parsed.transcript.Session.Turns = 1
-	parsed.transcript.Session.Digest = nil
-	payload, err := encodeCached(parsed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cache := &claudeTestParseCache{entries: map[vendors.CacheKey]json.RawMessage{
-		{Agent: vendors.AgentClaude, Identity: path, Version: "claude-6", Fingerprint: fingerprint}: payload,
-	}}
-	vendors.SetParseCache(cache)
-	t.Cleanup(func() { vendors.SetParseCache(nil) })
-	for range 2 {
-		got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got.transcript.Session.FirstPrompt == nil || *got.transcript.Session.FirstPrompt != "debug sharing" || got.transcript.Session.Turns != 2 || len(got.transcript.Session.Digest) != 2 {
-			t.Fatalf("cached session lost opening prompt: %#v", got.transcript.Session)
-		}
-	}
-	if cache.stores != 1 {
-		t.Fatalf("cache stores = %d, want 1", cache.stores)
+func TestParseCacheEntryWithoutOpeningPromptIsReparsed(t *testing.T) {
+	for _, test := range []struct{ name, content, version string }{
+		{"separate-blocks", `[{"type":"image"},{"type":"text","text":"<system-reminder>worktree</system-reminder>"},{"type":"text","text":"debug sharing"}]`, "claude-6"},
+		{"reminder-prefix", `"<system-reminder>status</system-reminder>\ndebug sharing"`, "claude-7"},
+		{"reminder-prefix-block", `[{"type":"text","text":"<system-reminder>status</system-reminder>\ndebug sharing"}]`, "claude-7"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
+			writeOutputTranscript(t, path, bashRows(
+				`{"type":"user","message":{"content":`+test.content+`}}`,
+				`{"type":"user","message":{"content":"Not now"}}`,
+			))
+			fingerprint, err := transcriptFingerprint(vendors.LocalReadSource, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := parseSourceContext(t.Context(), vendors.LocalReadSource, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed.transcript.Session.FirstPrompt = ptr("Not now")
+			parsed.transcript.Session.Turns = 1
+			parsed.transcript.Session.Digest = nil
+			cachedRevision, err := session.LocalDetailRevision(*parsed.transcript.Session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, err := encodeCached(parsed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cache := &claudeTestParseCache{entries: map[vendors.CacheKey]json.RawMessage{
+				{Agent: vendors.AgentClaude, Identity: path, Version: test.version, Fingerprint: fingerprint}: payload,
+			}}
+			vendors.SetParseCache(cache)
+			t.Cleanup(func() { vendors.SetParseCache(nil) })
+			for range 2 {
+				got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				revision, err := session.LocalDetailRevision(*got.transcript.Session)
+				if err != nil || revision == cachedRevision || got.transcript.Session.LastActivityTime != parsed.transcript.Session.LastActivityTime {
+					t.Fatalf("reparsed content did not change revision at the same activity time: %v", err)
+				}
+				if got.transcript.Session.FirstPrompt == nil || *got.transcript.Session.FirstPrompt != "debug sharing" || got.transcript.Session.Turns != 2 || len(got.transcript.Session.Digest) != 2 {
+					t.Fatalf("cached session lost opening prompt: %#v", got.transcript.Session)
+				}
+			}
+			if cache.stores != 1 {
+				t.Fatalf("cache stores = %d, want 1", cache.stores)
+			}
+		})
 	}
 }
