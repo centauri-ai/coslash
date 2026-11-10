@@ -523,6 +523,16 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('>server/app<');
   });
 
+  it.each([{ repo: 'org/coslash' }, { cwd: '/workspace/coslash' }])(
+    'shows the table location as text without a group-filter button: %j',
+    (location) => {
+      const markup = renderLayout({ sessions: [session({ id: 'one', ...location })] });
+      const whereCell = markup.match(/<td\b[^>]*>[\s\S]*?<\/td>/g)?.[1];
+      expect(whereCell).toContain('coslash');
+      expect(whereCell).not.toContain('<button');
+    },
+  );
+
   it('uses a remote working directory for folder groups without hiding repository labels', () => {
     const remote = session({
       id: 'remote-folder',

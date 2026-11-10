@@ -630,7 +630,6 @@ function SessionRow({
   selected,
   compact,
   onSelect,
-  onToggleGroup,
   review,
   handoff,
 }: {
@@ -640,7 +639,6 @@ function SessionRow({
   selected: boolean;
   compact: boolean;
   onSelect: () => void;
-  onToggleGroup: () => void;
   review: SessionReviewProps;
   handoff?: DirectedHandoff;
 }) {
@@ -705,16 +703,7 @@ function SessionRow({
       </td>
       <td className={cn(cell, 'max-compact:hidden w-[204px]')}>
         <div className="text-coslash-muted flex min-w-0 items-baseline gap-1.5">
-          <button
-            type="button"
-            className="text-cell hover:text-coslash-accent max-w-full cursor-pointer truncate px-1.5 py-[1.5px] text-left transition-colors"
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleGroup();
-            }}
-          >
-            {group.label}
-          </button>
+          <span className="text-cell max-w-full truncate px-1.5 py-[1.5px]">{group.label}</span>
           {session.branch && (
             <code className="min-w-0 truncate font-mono text-[11.5px] text-[inherit]">
               · {session.branch}
@@ -916,7 +905,6 @@ function SessionListView({
   onToggleSection,
   onShowMore,
   onSelectSession,
-  onToggleGroup,
   review,
   handoffs,
 }: {
@@ -931,7 +919,6 @@ function SessionListView({
   onToggleSection: (status: StatusKey) => void;
   onShowMore: (status: StatusKey, limit: number) => void;
   onSelectSession: (session: Session) => void;
-  onToggleGroup: (id: string) => void;
   review: SessionReviewProps;
   handoffs: ReadonlyMap<string, DirectedHandoff>;
 }) {
@@ -1005,7 +992,6 @@ function SessionListView({
                   selected={key === selectedSessionKey}
                   compact={compact}
                   onSelect={() => onSelectSession(session)}
-                  onToggleGroup={() => onToggleGroup(group.id)}
                   review={review}
                   handoff={handoffs.get(key)}
                 />
@@ -1614,7 +1600,6 @@ export function CoslashLayout({
                       setSectionLimits((limits) => ({ ...limits, [status]: limit + 50 }))
                     }
                     onSelectSession={onSelectSession}
-                    onToggleGroup={toggleGroup}
                     review={{
                       index: reviewIndex,
                       reviewerOptions,
