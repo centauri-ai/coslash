@@ -1272,8 +1272,6 @@ function DebriefBlocks({ blocks, tone }: { blocks: DebriefBlock[]; tone: 'goal' 
 
 type DigestCategory = DigestEntry['category'];
 
-const DEFAULT_HIDDEN_CATEGORIES: DigestCategory[] = [];
-
 const DIGEST_CATEGORIES: Record<DigestCategory, { label: string; fg: string; dot: string }> = {
   first_prompt: { label: 'FIRST PROMPT', fg: 'text-success-fg', dot: 'bg-success-fg' },
   question: { label: 'QUESTION', fg: 'text-question', dot: 'bg-question' },
@@ -1289,23 +1287,24 @@ function CategoryChip({
   category,
   count,
   active,
-  onToggle,
+  onCycle,
 }: {
   category: DigestCategory;
   count: number;
   active: boolean;
-  onToggle: () => void;
+  onCycle: () => void;
 }) {
   const meta = DIGEST_CATEGORIES[category];
   return (
     <button
       type="button"
       aria-pressed={active}
+      title={`Click to show only ${meta.label.toLowerCase()}, click again to exclude, and once more to show all.`}
       className={cn('flex cursor-pointer items-center gap-1 rounded-full border px-2 py-1 select-none', {
         'bg-coslash-soft': active,
         'border-dashed': !active,
       })}
-      onClick={onToggle}
+      onClick={onCycle}
     >
       <span className={cn('size-2 rounded-full', active ? meta.dot : 'bg-coslash-neutral-dot')} />
       <span
@@ -1417,9 +1416,10 @@ function DateDivider({ label }: { label: string }) {
 }
 
 export function DigestSection({ detail }: { detail: SessionDetail }) {
-  const [hiddenCategories, setHiddenCategories] = useState<Set<DigestCategory>>(
-    () => new Set(DEFAULT_HIDDEN_CATEGORIES),
-  );
+  const [categoryFilter, setCategoryFilter] = useState<{
+    category: DigestCategory;
+    mode: 'only' | 'exclude';
+  } | null>(null);
   const digest = detail.digest;
   if (digest.length === 0)
     return detail.detailsIncomplete ? (
@@ -1429,16 +1429,19 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
   const counts = new Map<DigestCategory, number>();
   for (const entry of digest) counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1);
 
-  const toggleCategory = (category: DigestCategory) => {
-    setHiddenCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      return next;
+  const cycleCategory = (category: DigestCategory) => {
+    setCategoryFilter((current) => {
+      if (current?.category !== category) return { category, mode: 'only' };
+      return current.mode === 'only' ? { category, mode: 'exclude' } : null;
     });
   };
-
-  const visible = digest.filter((entry) => !hiddenCategories.has(entry.category));
+  const categoryVisible = (category: DigestCategory) => {
+    if (categoryFilter == null) return true;
+    return categoryFilter.mode === 'only'
+      ? category === categoryFilter.category
+      : category !== categoryFilter.category;
+  };
+  const visible = digest.filter((entry) => categoryVisible(entry.category));
   const times = digest.map((e) => e.time ?? 0).filter((t) => t > 0);
   const dateRange = formatDigestDateRange(times);
 
@@ -1490,8 +1493,8 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
               key={category}
               category={category}
               count={counts.get(category)!}
-              active={!hiddenCategories.has(category)}
-              onToggle={() => toggleCategory(category)}
+              active={categoryVisible(category)}
+              onCycle={() => cycleCategory(category)}
             />
           ))}
       </div>
