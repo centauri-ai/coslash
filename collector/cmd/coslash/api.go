@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
@@ -506,7 +508,7 @@ func handleExactSession(
 }
 
 type promptLauncher func(context.Context, string, string, string, string, string, string, string) error
-type headlessPromptLauncher func(context.Context, string, string, string, string, string) (launch.SendResult, error)
+type headlessSender func(context.Context, string, string, string, string, string) (launch.SendResult, error)
 
 const headlessSendResponseTimeout = launch.SendTimeout + time.Minute
 
@@ -517,9 +519,26 @@ func handleSend(
 	getSession func(string, string) (*session.Session, error),
 	targetAvailable func(string) bool,
 	open promptLauncher,
-	headless ...headlessPromptLauncher,
+	headless headlessSender,
 ) {
+	runHeadless := headless != nil
+	if source := r.URL.Query().Get("source"); source != "" && source != localSourceID {
+		http.Error(w, "send requires a local source session", http.StatusBadRequest)
+		return
+	}
+	access := r.URL.Query().Get("access")
+	if access == "" {
+		access = "read-only"
+	}
+	if (access != "read-only" && access != "workspace-write") || (!runHeadless && r.URL.Query().Has("access")) {
+		http.Error(w, "requested access is unavailable for this send", http.StatusBadRequest)
+		return
+	}
 	target := r.URL.Query().Get("to")
+	if runHeadless && target != vendors.AgentClaude && target != vendors.AgentCodex {
+		http.Error(w, "Linux sends support Claude Code and Codex", http.StatusBadRequest)
+		return
+	}
 	if !validAgent(target) {
 		http.Error(w, "target must be "+agentCommaList(), http.StatusBadRequest)
 		return
@@ -558,6 +577,10 @@ func handleSend(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if runHeadless && strings.TrimSpace(message) == "" {
+		http.Error(w, "headless sends require an explicit task", http.StatusBadRequest)
+		return
+	}
 	handoff := handoffcontext.Build(found)
 	if len(handoff) > launch.MaxHandoffBytes {
 		http.Error(w, "handoff context is too large", http.StatusRequestEntityTooLarge)
@@ -566,28 +589,26 @@ func handleSend(
 	if r.Context().Err() != nil {
 		return
 	}
-	if len(headless) > 0 && headless[0] != nil && message != "" &&
-		(target == vendors.AgentClaude || target == vendors.AgentCodex) {
-		access := r.URL.Query().Get("access")
-		if access == "" {
-			access = "read-only"
-		}
-		if access != "read-only" && access != "workspace-write" {
-			writeAPIError(w, http.StatusBadRequest, "invalid_send_access", "Access must be read-only or workspace-write.")
-			return
-		}
+	if runHeadless {
 		if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(headlessSendResponseTimeout)); err != nil {
 			log.Printf("send: extend response deadline: %v", err)
 			writeAPIError(w, http.StatusInternalServerError, "send_failed", "Could not prepare the send response.")
 			return
 		}
-		result, err := headless[0](r.Context(), target, found.WorkingDirectory, handoff, message, access)
+		result, err := headless(r.Context(), target, found.WorkingDirectory, handoff, message, access)
 		if err != nil {
-			log.Printf("send: %v", err)
+			detail := err.Error()
+			detail = strings.Map(func(r rune) rune {
+				if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
+					return -1
+				}
+				return r
+			}, detail[:min(2048, len(detail))])
+			log.Printf("headless send failed: %s", detail)
 			writeHeadlessSendError(w, err)
 			return
 		}
-		log.Printf("send: completed %s to %s", found.ID, target)
+		log.Printf("headless send completed: %s", target)
 		writeJSON(w, result)
 		return
 	}
@@ -640,6 +661,8 @@ func writeHeadlessSendError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusTooManyRequests, "send_busy", launch.ErrSendBusy.Error())
 	case errors.Is(err, launch.ErrSendPermission):
 		writeAPIError(w, http.StatusConflict, "send_permission_denied", launch.ErrSendPermission.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		writeAPIError(w, http.StatusGatewayTimeout, "send_timeout", "Agent task timed out; inspect any edits before retrying.")
 	case errors.Is(err, launch.ErrSendInvalid):
 		writeAPIError(w, http.StatusBadRequest, "invalid_send", "A headless Linux send requires a task and read-only or workspace-write access.")
 	default:
@@ -648,6 +671,10 @@ func writeHeadlessSendError(w http.ResponseWriter, err error) {
 }
 
 func writeTerminalLaunchError(w http.ResponseWriter, err error) {
+	if errors.Is(err, launch.ErrTerminalUnsupported) {
+		writeAPIError(w, http.StatusConflict, "terminal_unsupported", "Terminal opening is unavailable; Linux supports coslash send with an explicit task.")
+		return
+	}
 	if errors.Is(err, launch.ErrPiUnsupportedVersion) {
 		writeAPIError(w, http.StatusConflict, "pi_runtime_unsupported", "Pi launch requires a stable release at least 0.99.1")
 		return

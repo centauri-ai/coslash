@@ -116,6 +116,7 @@ func TestTerminalLaunchErrorsUseStructuredContract(t *testing.T) {
 		status        int
 		code, message string
 	}{
+		{launch.ErrTerminalUnsupported, 409, "terminal_unsupported", "Terminal opening is unavailable; Linux supports coslash send with an explicit task."},
 		{fmt.Errorf("wrapped: %w", launch.ErrPiUnsupportedVersion), 409, "pi_runtime_unsupported", "Pi launch requires a stable release at least 0.99.1"},
 		{launch.ErrPiExtension, 409, "pi_extension_unavailable", "Required Pi extension is unavailable; check local setup."},
 		{launch.ErrWorkingDirectoryUnavailable, 409, "working_directory_unavailable", "Session working directory is unavailable."},

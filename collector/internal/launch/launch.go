@@ -87,6 +87,8 @@ type HandoffTargetOption struct {
 	Automatic  bool   `json:"automatic"`
 }
 
+var ErrTerminalUnsupported = errors.New("launch: terminal opening is unsupported on this platform")
+
 func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 	home, _ := os.UserHomeDir()
 	options := []HandoffTargetOption{
@@ -103,6 +105,9 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 		options = append(options, HandoffTargetOption{Agent: vendors.AgentGrok, Label: "Grok", Entrypoint: "cli", Automatic: true})
 	}
 	for i := range options {
+		if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+			continue
+		}
 		if !securePromptAvailable() && !(runtime.GOOS == "windows" && (options[i].Entrypoint == "pi-tui" || options[i].Agent == vendors.AgentGrok)) {
 			continue
 		}

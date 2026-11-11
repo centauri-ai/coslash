@@ -726,6 +726,8 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 }
 
 type serverServices struct {
+	sendContext     context.Context
+	headlessSend    headlessSender
 	queue           *syncv4.Queue
 	directedStore   *directedhandoff.Store
 	onboardings     *onboardingManager
@@ -754,6 +756,8 @@ func newServer(
 	if service.settingsOptions == nil {
 		service.settingsOptions = newSettingsOptionsCache()
 	}
+	var stopSends context.CancelFunc
+	service.sendContext, stopSends = context.WithCancel(context.Background())
 	server := &http.Server{
 		Handler:           guard.Wrap(routesWithOnboarding(mgr, reviewManager, settingsStore, remoteManager, hub, service.onboardings, service)),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -765,6 +769,7 @@ func newServer(
 	server.RegisterOnShutdown(service.settingsOptions.close)
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
+	server.RegisterOnShutdown(stopSends)
 	server.RegisterOnShutdown(service.onboardings.Close)
 	if service.syncController != nil {
 		server.RegisterOnShutdown(service.syncController.Stop)
@@ -929,11 +934,17 @@ func routesWithOnboarding(
 		handleDirectedHandoffStart(w, r, directedStore, settingsStore, remoteManager, mgr)
 	})
 	api.HandleFunc("POST /api/send", func(w http.ResponseWriter, r *http.Request) {
-		var headless headlessPromptLauncher
-		if runtime.GOOS == "linux" {
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		if service.sendContext != nil {
+			stop := context.AfterFunc(service.sendContext, cancel)
+			defer stop()
+		}
+		headless := service.headlessSend
+		if headless == nil && runtime.GOOS == "linux" {
 			headless = launch.Headless
 		}
-		handleSend(w, r, settingsStore, getCanonicalSession, launch.ReviewerAvailable, launch.TerminalWithPrompt, headless)
+		handleSend(w, r.WithContext(ctx), settingsStore, getCanonicalSession, launch.ReviewerAvailable, launch.TerminalWithPrompt, headless)
 	})
 	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteTest(w, r, remoteManager)

@@ -508,7 +508,7 @@ func TestWriteSendResultPrintsHeadlessOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	handled, err := writeSendResult(&stdout, data, "claude", "codex:session-1")
-	if err != nil || !handled || stdout.String() != "Findings\n" {
+	if err != nil || !handled || stdout.String() != "Target session: claude:01234567-89ab-4def-8123-456789abcdef\nFindings\n" {
 		t.Fatalf("handled=%t output=%q err=%v", handled, stdout.String(), err)
 	}
 }
@@ -827,7 +827,7 @@ func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	}
 	response = httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", strings.NewReader("fix it"))
-	handleSend(response, request, store, getSession, func(string) bool { return true }, open)
+	handleSend(response, request, store, getSession, func(string) bool { return true }, open, nil)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("send response = %d %q", response.Code, response.Body.String())
 	}
@@ -893,19 +893,27 @@ func TestHandleSendUsesHeadlessForTaskAndReturnsResult(t *testing.T) {
 	response = &sendDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil)
 	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
-	if response.Code != http.StatusNoContent || !opened {
-		t.Fatalf("empty task response=%d terminal=%t", response.Code, opened)
+	if response.Code != http.StatusBadRequest || called || opened {
+		t.Fatalf("empty task response=%d headless=%t terminal=%t", response.Code, called, opened)
+	}
+
+	response = &sendDeadlineRecorder{ResponseRecorder: httptest.NewRecorder(), deadlineErr: http.ErrNotSupported}
+	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", strings.NewReader("fix it"))
+	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
+	if response.Code != http.StatusInternalServerError || called || opened {
+		t.Fatalf("deadline failure response=%d headless=%t terminal=%t", response.Code, called, opened)
 	}
 }
 
 type sendDeadlineRecorder struct {
 	*httptest.ResponseRecorder
 	writeDeadline time.Time
+	deadlineErr   error
 }
 
 func (w *sendDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
 	w.writeDeadline = deadline
-	return nil
+	return w.deadlineErr
 }
 
 func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
@@ -930,7 +938,7 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 		copied, launched = "", false
 		response := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", strings.NewReader("fix it"))
-		handleSend(response, request, settings.Open(), getSession, func(string) bool { return available }, open)
+		handleSend(response, request, settings.Open(), getSession, func(string) bool { return available }, open, nil)
 		if !available {
 			if response.Code != http.StatusBadRequest || copied != "" || launched {
 				t.Fatalf("unavailable response=%d copied=%q launched=%t", response.Code, copied, launched)
@@ -944,7 +952,7 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 	workingDirectory = "/missing"
 	copied, launched = "", false
 	response := httptest.NewRecorder()
-	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true }, open)
+	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true }, open, nil)
 	if response.Code != http.StatusConflict || copied != "" || launched {
 		t.Fatalf("missing directory response=%d copied=%q launched=%t", response.Code, copied, launched)
 	}
@@ -952,7 +960,7 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 	writeCursorClipboard = func(context.Context, string) error { return errors.New("clipboard unavailable") }
 	launched = false
 	response = httptest.NewRecorder()
-	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true }, open)
+	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true }, open, nil)
 	if response.Code != http.StatusInternalServerError || launched {
 		t.Fatalf("clipboard failure response=%d launched=%t", response.Code, launched)
 	}
@@ -962,7 +970,7 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true },
 		func(context.Context, string, string, string, string, string, string, string) error {
 			return errors.New("terminal unavailable")
-		})
+		}, nil)
 	if response.Code != http.StatusInternalServerError || copied == "" || !strings.Contains(response.Body.String(), "handoff remains on the clipboard") {
 		t.Fatalf("launch failure response=%d copied=%q body=%q", response.Code, copied, response.Body.String())
 	}
@@ -995,7 +1003,7 @@ func TestHandleSendCursorCancelsClipboardBeforeLaunch(t *testing.T) {
 			func(context.Context, string, string, string, string, string, string, string) error {
 				launched = true
 				return nil
-			})
+			}, nil)
 	}()
 	select {
 	case <-entered:
@@ -1026,7 +1034,7 @@ func TestHandleSendDoesNotLaunchAfterRequestCancellation(t *testing.T) {
 	response := httptest.NewRecorder()
 	handleSend(response, request, store, func(string, string) (*session.Session, error) {
 		return found, nil
-	}, func(string) bool { return true }, open)
+	}, func(string) bool { return true }, open, nil)
 	if launched {
 		t.Fatal("canceled request launched an agent")
 	}
@@ -1056,7 +1064,7 @@ func TestHandleSendReportsUnavailableWorkingDirectory(t *testing.T) {
 		func(context.Context, string, string, string, string, string, string, string) error {
 			return unavailableWorkingDirectoryError{}
 		},
-	)
+		nil)
 	var body struct{ Code, Error string }
 	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Code != "working_directory_unavailable" || body.Error != "Session working directory is unavailable." {
 		t.Fatalf("response = %d %q", response.Code, response.Body.String())
@@ -1079,7 +1087,7 @@ func TestHandleSendRejectsUnavailableTarget(t *testing.T) {
 			launched = true
 			return nil
 		},
-	)
+		nil)
 	if response.Code != http.StatusBadRequest || response.Body.String() != "target is not installed or supported\n" || launched {
 		t.Fatalf("response = %d %q, launched = %v", response.Code, response.Body.String(), launched)
 	}
@@ -1104,7 +1112,7 @@ func TestHandleSendRejectsOversizedGeneratedHandoff(t *testing.T) {
 			launched = true
 			return nil
 		},
-	)
+		nil)
 	if response.Code != http.StatusRequestEntityTooLarge || launched {
 		t.Fatalf("response = %d %q, launched = %v", response.Code, response.Body.String(), launched)
 	}
@@ -1127,7 +1135,7 @@ func TestHandleSendHidesInvalidSettingsDetails(t *testing.T) {
 		},
 		func(string) bool { return true },
 		func(context.Context, string, string, string, string, string, string, string) error { return nil },
-	)
+		nil)
 	want := "settings are invalid; open Settings to repair them\n"
 	if response.Code != http.StatusConflict || response.Body.String() != want {
 		t.Fatalf("response = %d %q, want %d %q", response.Code, response.Body.String(), http.StatusConflict, want)

@@ -104,7 +104,7 @@ Confirm that synthesis is enabled in Settings and that the selected CLI is insta
 
 ## Resume or Start fresh fails
 
-Launching requires a recorded working directory, the agent CLI, and the terminal selected in Settings. Interactive handoffs on macOS and Linux also require `expect` on `PATH`. On macOS, confirm Apple Terminal or iTerm2 is installed and allow automation under **System Settings → Privacy & Security → Automation**. On Windows, confirm Windows PowerShell 5.1 is available; coSlash uses Windows Terminal when it is installed and otherwise opens Windows PowerShell directly.
+Interactive launching requires a recorded working directory, the agent CLI, and the terminal selected in Settings. Interactive handoffs on macOS also require `expect` on `PATH`. On Linux, use `coslash send` with an explicit Claude or Codex task; it needs no display or `expect` and waits for the result. On macOS, confirm Apple Terminal or iTerm2 is installed and allow automation under **System Settings → Privacy & Security → Automation**. On Windows, confirm Windows PowerShell 5.1 is available; coSlash uses Windows Terminal when it is installed and otherwise opens Windows PowerShell directly.
 
 Cursor CLI **Resume** requires the `agent` command and restores the recorded session. **Open Cursor** for a Cursor IDE session requires the `cursor` command and only opens the recorded workspace; Cursor does not provide a way to restore that specific IDE chat.
 
