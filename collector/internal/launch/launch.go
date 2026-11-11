@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -659,6 +660,10 @@ func (buffer *boundedBuffer) Write(data []byte) (int, error) {
 	}
 	_, _ = buffer.Buffer.Write(data[:min(written, remaining)])
 	return written, nil
+}
+
+func (buffer *boundedBuffer) ReadFrom(reader io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{buffer}, reader)
 }
 
 func Terminal(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff string, transcriptPath ...string) error {

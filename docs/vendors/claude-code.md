@@ -66,6 +66,7 @@ Code: `collector/internal/vendors/claude/`. This package reads Claude Code CLI, 
 - On SSH hosts, a non-interactive SSH command does not read `.bashrc`. Remote launches prepend `$HOME/.local/bin` to `PATH` and source `~/.agent-keys.sh` when it exists. Observed: unknown, 2026-09-22, 60375cea.
 - Synthesis uses `-p --tools "" --safe-mode --no-session-persistence` (`synthesis/runner.go`). `--no-session-persistence` keeps synthesis runs out of `~/.claude/projects`, so they do not show as sessions.
 - Review uses `--permission-mode plan --safe-mode --restricted --strict-mcp-config --tools Read,Glob,Grep` (`launch/launch.go`).
+- Linux sends use print/stream-JSON with safe/restricted mode, strict empty MCP configuration, `dontAsk`, and no permission prompt handler. Read-only exposes Read/Glob/Grep; explicit workspace-write adds Edit/Write. Claude Code 2.1.308 was verified to append Markdown findings and return a session UUID on Linux amd64, 2026-11-10. A local mock provider also verified that restricted Write allows an inside-directory file, denies outside-directory and symlink-escape files, and cannot write with the read-only tool set. The blanket Edit/Write allowlist does not override the restricted directory boundary. Result `permission_denials` override a nominal success (`launch/headless.go`). See the [restricted-mode contract](https://code.claude.com/docs/en/cli-reference).
 
 ## Open questions
 

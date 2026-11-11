@@ -153,6 +153,16 @@ Resume and Start fresh launch your installed agent CLI. Its later network and da
 
 Sending a session to Cursor CLI copies its handoff and optional task to the system clipboard before opening Cursor. Clipboard history tools and cross-device clipboard sync may retain that content. Paste it into the new Cursor session, then clear the clipboard if needed.
 
+Linux sends pass the canonical handoff and explicit task to Claude Code or Codex
+through stdin, with inherited instructions, hooks, plugins, and MCP disabled.
+Access defaults to read-only; explicit workspace-write permits edits within the
+source working directory. The result returns directly to the caller without
+coSlash storing task logs. The agent's normal transcript still follows ordinary
+collection and sync policy. Interrupted tasks may leave edits behind.
+Service logs record failure stages and exit/deadline causes, without raw agent
+output or stderr. Long responses are returned with a truncation marker; total
+stream volume does not by itself mean the task failed.
+
 Remote Hub MCP is an optional agent connection. The agent sends tool questions
 and arguments directly to the Hub MCP endpoint after browser OAuth approval;
 coSlash Local does not copy the bearer token into its settings or process

@@ -98,6 +98,9 @@ func parseOptions(arguments []string) (options, error) {
 }
 
 func main() {
+	if len(os.Args) == 4 && os.Args[1] == "--send-runner" {
+		os.Exit(launch.HeadlessMain(os.Args[2], os.Args[3]))
+	}
 	arguments := os.Args[1:]
 	var startupIntent *hubclient.LaunchIntent
 	protocolRequest := len(arguments) > 0 && arguments[0] == "--protocol-url"
