@@ -155,10 +155,11 @@ Sending a session to Cursor CLI copies its handoff and optional task to the syst
 
 Linux sends pass the canonical handoff and explicit task to Claude Code or Codex
 through stdin, with inherited instructions, hooks, plugins, and MCP disabled.
-Access defaults to read-only; explicit workspace-write permits edits within the
-source working directory. The result returns directly to the caller without
-coSlash storing task logs. The agent's normal transcript still follows ordinary
-collection and sync policy. Interrupted tasks may leave edits behind.
+Access defaults to read-only; `coslash send ... --access workspace-write`
+permits edits within the source working directory. The result returns directly
+to the caller without coSlash storing task logs. The agent's normal transcript
+still follows ordinary collection and sync policy. Interrupted tasks may leave
+edits behind.
 Service logs record failure stages and exit/deadline causes, without raw agent
 output or stderr. Long responses are returned with a truncation marker; total
 stream volume does not by itself mean the task failed.

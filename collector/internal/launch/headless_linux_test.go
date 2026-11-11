@@ -352,7 +352,10 @@ func TestSendOutputBoundsAndFraming(t *testing.T) {
 
 func TestCodexTrustUsesWholeTableForQuotedDottedPaths(t *testing.T) {
 	cwd := filepath.Join(t.TempDir(), "dir.with.dots and \"quotes\"")
-	args := headlessArgs("codex", "read-only", cwd)
+	args, err := headlessArgs("codex", "read-only", cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var table string
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "projects=") {
@@ -370,6 +373,19 @@ func TestCodexTrustUsesWholeTableForQuotedDottedPaths(t *testing.T) {
 		if path == filepath.Dir(path) {
 			break
 		}
+	}
+}
+
+func TestCodexTrustSettingsRejectAnOversizedArgument(t *testing.T) {
+	cwd := string(filepath.Separator)
+	for range 500 {
+		cwd = filepath.Join(cwd, "x")
+	}
+	if len(cwd) >= 4096 {
+		t.Fatalf("test path exceeds PATH_MAX: %d", len(cwd))
+	}
+	if _, err := codexProjectsSetting(cwd); !errors.Is(err, ErrSendConfigTooLarge) {
+		t.Fatalf("oversized trust settings error = %v", err)
 	}
 }
 

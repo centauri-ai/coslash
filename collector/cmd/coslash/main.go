@@ -929,7 +929,11 @@ func routesWithOnboarding(
 		handleDirectedHandoffStart(w, r, directedStore, settingsStore, remoteManager, mgr)
 	})
 	api.HandleFunc("POST /api/send", func(w http.ResponseWriter, r *http.Request) {
-		handleSend(w, r, settingsStore, getCanonicalSession, launch.ReviewerAvailable, launch.TerminalWithPrompt)
+		var headless headlessPromptLauncher
+		if runtime.GOOS == "linux" {
+			headless = launch.Headless
+		}
+		handleSend(w, r, settingsStore, getCanonicalSession, launch.ReviewerAvailable, launch.TerminalWithPrompt, headless)
 	})
 	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteTest(w, r, remoteManager)

@@ -500,6 +500,18 @@ func TestRunSendOpenCode(t *testing.T) {
 	}
 }
 
+func TestWriteSendResultPrintsHeadlessOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	data, err := json.Marshal(launch.SendResult{Output: "Findings\n", SessionID: "01234567-89ab-4def-8123-456789abcdef"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled, err := writeSendResult(&stdout, data, "claude", "codex:session-1")
+	if err != nil || !handled || stdout.String() != "Findings\n" {
+		t.Fatalf("handled=%t output=%q err=%v", handled, stdout.String(), err)
+	}
+}
+
 func TestRunSendCursorRequestsServerAndExplainsPaste(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/send" || r.URL.Query().Get("to") != "cursor" {
@@ -821,6 +833,63 @@ func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	if len(launched) != 7 || launched[1] != "claude" || launched[2] != "/workspace" ||
 		launched[4] != launch.NewSession || !strings.Contains(launched[5], "# Handoff — Test") || launched[6] != "fix it" {
 		t.Fatalf("launch = %#v", launched)
+	}
+}
+
+func TestHandleSendUsesHeadlessForTaskAndReturnsResult(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	workingDirectory := t.TempDir()
+	getSession := func(string, string) (*session.Session, error) {
+		return &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: workingDirectory}, nil
+	}
+	called, opened := false, false
+	headless := func(_ context.Context, target, cwd, handoff, task, access string) (launch.SendResult, error) {
+		called = true
+		if target != vendors.AgentClaude || cwd != workingDirectory || task != "fix it" || access != "read-only" || handoff == "" {
+			t.Fatalf("headless arguments = %q %q %q %q %q", target, cwd, handoff, task, access)
+		}
+		return launch.SendResult{Output: "Findings", SessionID: "01234567-89ab-4def-8123-456789abcdef"}, nil
+	}
+	open := func(context.Context, string, string, string, string, string, string, string) error {
+		opened = true
+		return nil
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", strings.NewReader("fix it"))
+	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
+	var result launch.SendResult
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Output != "Findings" || result.SessionID == "" || !called || opened {
+		t.Fatalf("response=%d body=%q headless=%t terminal=%t", response.Code, response.Body.String(), called, opened)
+	}
+
+	called, opened = false, false
+	response = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude&access=workspace-write", strings.NewReader("fix it"))
+	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open,
+		func(_ context.Context, _, _, _, _, access string) (launch.SendResult, error) {
+			if access != "workspace-write" {
+				t.Fatalf("access = %q", access)
+			}
+			called = true
+			return launch.SendResult{Output: "Findings"}, nil
+		})
+	if response.Code != http.StatusOK || !called || opened {
+		t.Fatalf("workspace-write response=%d headless=%t terminal=%t", response.Code, called, opened)
+	}
+
+	called, opened = false, false
+	response = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude&access=admin", strings.NewReader("fix it"))
+	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
+	if response.Code != http.StatusBadRequest || called || opened {
+		t.Fatalf("invalid access response=%d headless=%t terminal=%t", response.Code, called, opened)
+	}
+
+	response = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil)
+	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
+	if response.Code != http.StatusNoContent || !opened {
+		t.Fatalf("empty task response=%d terminal=%t", response.Code, opened)
 	}
 }
 
