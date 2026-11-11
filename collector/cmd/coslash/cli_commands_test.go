@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -854,16 +855,20 @@ func TestHandleSendUsesHeadlessForTaskAndReturnsResult(t *testing.T) {
 		opened = true
 		return nil
 	}
-	response := httptest.NewRecorder()
+	startedAt := time.Now()
+	response := &sendDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", strings.NewReader("fix it"))
 	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
 	var result launch.SendResult
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Output != "Findings" || result.SessionID == "" || !called || opened {
 		t.Fatalf("response=%d body=%q headless=%t terminal=%t", response.Code, response.Body.String(), called, opened)
 	}
+	if response.writeDeadline.Before(startedAt.Add(headlessSendResponseTimeout - time.Second)) {
+		t.Fatalf("response deadline = %v; want at least %v", response.writeDeadline, startedAt.Add(headlessSendResponseTimeout-time.Second))
+	}
 
 	called, opened = false, false
-	response = httptest.NewRecorder()
+	response = &sendDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude&access=workspace-write", strings.NewReader("fix it"))
 	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open,
 		func(_ context.Context, _, _, _, _, access string) (launch.SendResult, error) {
@@ -878,19 +883,29 @@ func TestHandleSendUsesHeadlessForTaskAndReturnsResult(t *testing.T) {
 	}
 
 	called, opened = false, false
-	response = httptest.NewRecorder()
+	response = &sendDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude&access=admin", strings.NewReader("fix it"))
 	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
 	if response.Code != http.StatusBadRequest || called || opened {
 		t.Fatalf("invalid access response=%d headless=%t terminal=%t", response.Code, called, opened)
 	}
 
-	response = httptest.NewRecorder()
+	response = &sendDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	request = httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil)
 	handleSend(response, request, settings.Open(), getSession, func(string) bool { return true }, open, headless)
 	if response.Code != http.StatusNoContent || !opened {
 		t.Fatalf("empty task response=%d terminal=%t", response.Code, opened)
 	}
+}
+
+type sendDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+	writeDeadline time.Time
+}
+
+func (w *sendDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	w.writeDeadline = deadline
+	return nil
 }
 
 func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
