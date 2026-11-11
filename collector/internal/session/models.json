@@ -2773,6 +2773,22 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00005
   },
+  "azure_ai/claude-mythos-5-2": {
+    "cache_creation_input_token_cost": 0.00001,
+    "cache_creation_input_token_cost_above_1hr": 0.000016,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000008,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00004
+  },
+  "azure_ai/claude-mythos-5-2-fast": {
+    "cache_creation_input_token_cost": 0.00002,
+    "cache_creation_input_token_cost_above_1hr": 0.000032,
+    "cache_read_input_token_cost": 4E-7,
+    "input_cost_per_token": 0.000016,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00008
+  },
   "azure_ai/claude-opus-4-5": {
     "cache_creation_input_token_cost": 0.00000625,
     "cache_creation_input_token_cost_above_1hr": 0.00001,
@@ -4900,6 +4916,14 @@
     "input_cost_per_token": 0.00001,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00005
+  },
+  "claude-mythos-5-2": {
+    "cache_creation_input_token_cost": 0.00001,
+    "cache_creation_input_token_cost_above_1hr": 0.000016,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000008,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00004
   },
   "claude-mythos-preview": {
     "cache_creation_input_token_cost": 0.0000125,
@@ -9092,6 +9116,12 @@
     "max_input_tokens": 32768,
     "output_cost_per_token": 2E-7
   },
+  "fireworks_ai/accounts/fireworks/routers/deepseek-flash-latest": {
+    "cache_read_input_token_cost": 6E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
   "fireworks_ai/accounts/fireworks/routers/deepseek-v4p1-flash-1017-spot": {
     "cache_read_input_token_cost": 4.2E-9,
     "input_cost_per_token": 2.1E-7,
@@ -9158,6 +9188,30 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000066
   },
+  "fireworks_ai/accounts/fireworks/routers/glm-fast-latest": {
+    "cache_read_input_token_cost": 3.9E-7,
+    "input_cost_per_token": 0.0000021,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000066
+  },
+  "fireworks_ai/accounts/fireworks/routers/glm-flash-latest": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
+  },
+  "fireworks_ai/accounts/fireworks/routers/glm-latest": {
+    "cache_read_input_token_cost": 2.6E-7,
+    "input_cost_per_token": 0.0000014,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000044
+  },
+  "fireworks_ai/accounts/fireworks/routers/kimi-fast-latest": {
+    "cache_read_input_token_cost": 4.5E-7,
+    "input_cost_per_token": 0.0000045,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000225
+  },
   "fireworks_ai/accounts/fireworks/routers/kimi-k2p6-fast": {
     "cache_read_input_token_cost": 3E-7,
     "input_cost_per_token": 0.000002,
@@ -9187,6 +9241,24 @@
     "input_cost_per_token": 0.0000045,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000225
+  },
+  "fireworks_ai/accounts/fireworks/routers/kimi-latest": {
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000015
+  },
+  "fireworks_ai/accounts/fireworks/routers/minimax-latest": {
+    "cache_read_input_token_cost": 6E-8,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 512000,
+    "output_cost_per_token": 0.0000012
+  },
+  "fireworks_ai/accounts/fireworks/routers/qwen-max-latest": {
+    "cache_read_input_token_cost": 2.5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000006
   },
   "fireworks_ai/accounts/fireworks/routers/spot-deepseek-v4-flash": {
     "cache_read_input_token_cost": 2.1E-8,
@@ -9752,6 +9824,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.00001
   },
+  "gemini/gemini-4-carbon": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00001
+  },
   "gemini/gemini-exp-1114": {
     "input_cost_per_token": 0,
     "max_input_tokens": 1048576,
@@ -9895,6 +9973,13 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.00005
   },
+  "github_copilot/claude-fable-5.2": {
+    "cache_creation_input_token_cost": 0.00001,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000008,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00004
+  },
   "github_copilot/claude-haiku-4.5": {
     "cache_creation_input_token_cost": 0.00000125,
     "cache_read_input_token_cost": 1E-7,
@@ -9971,6 +10056,12 @@
     "output_cost_per_token": 0.00000375
   },
   "github_copilot/gemini-4-argon": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00001
+  },
+  "github_copilot/gemini-4-carbon": {
     "cache_read_input_token_cost": 1E-7,
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 200000,
@@ -12885,6 +12976,12 @@
     "max_input_tokens": 10000000,
     "output_cost_per_token": 6.6E-7
   },
+  "meta/muse-ember-1.0": {
+    "cache_read_input_token_cost": 4E-9,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
+  },
   "meta/muse-spark-1.1": {
     "cache_read_input_token_cost": 1.5E-7,
     "input_cost_per_token": 0.00000125,
@@ -15331,6 +15428,12 @@
     "output_cost_per_token": 3.75e-06
   },
   "opencode/gemini-4-argon": {
+    "cache_read_input_token_cost": 1.0000000000000001e-07,
+    "input_cost_per_token": 2e-06,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 1e-05
+  },
+  "opencode/gemini-4-carbon": {
     "cache_read_input_token_cost": 1.0000000000000001e-07,
     "input_cost_per_token": 2e-06,
     "max_input_tokens": 1048576,
@@ -18069,6 +18172,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000012
   },
+  "together_ai/elorian-labs/glimpse-1.0": {
+    "cache_read_input_token_cost": 6E-8,
+    "input_cost_per_token": 6E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 0.000003
+  },
   "together_ai/essentialai/rnj-1-instruct": {
     "input_cost_per_token": 1.5E-7,
     "output_cost_per_token": 1.5E-7
@@ -19463,6 +19572,22 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 5E-7
   },
+  "vertex_ai/claude-mythos-5-2": {
+    "cache_creation_input_token_cost": 0.00001,
+    "cache_creation_input_token_cost_above_1hr": 0.000016,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000008,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00004
+  },
+  "vertex_ai/claude-mythos-5-2@default": {
+    "cache_creation_input_token_cost": 0.00001,
+    "cache_creation_input_token_cost_above_1hr": 0.000016,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000008,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00004
+  },
   "vertex_ai/claude-opus-4-5": {
     "cache_creation_input_token_cost": 0.00000625,
     "cache_creation_input_token_cost_above_1hr": 0.00001,
@@ -19764,6 +19889,18 @@
     "output_cost_per_token": 0.00001
   },
   "vertex_ai/gemini-4-argon-cyber-permissive": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00002
+  },
+  "vertex_ai/gemini-4-carbon": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00001
+  },
+  "vertex_ai/gemini-4-carbon-cyber-permissive": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.000004,
     "max_input_tokens": 1048576,
@@ -20224,10 +20361,10 @@
     "output_cost_per_token": 6.5E-7
   },
   "wandb/deepseek-ai/DeepSeek-V4.1-Flash-1017": {
-    "cache_read_input_token_cost": 2E-9,
-    "input_cost_per_token": 1.3E-7,
+    "cache_read_input_token_cost": 6E-9,
+    "input_cost_per_token": 3E-7,
     "max_input_tokens": 1049000,
-    "output_cost_per_token": 6.5E-7
+    "output_cost_per_token": 0.0000012
   },
   "wandb/google/gemma-4-26B-A4B-it": {
     "cache_read_input_token_cost": 5E-8,
