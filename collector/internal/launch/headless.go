@@ -23,7 +23,11 @@ var ErrSendBusy = errors.New("Two headless sends are already running; try again 
 var ErrSendFailed = errors.New("Agent task failed or was interrupted; check the target CLI and its login before retrying.")
 var ErrSendInvalid = errors.New("Headless sends require Linux, Claude or Codex, a task, and read-only or workspace-write access.")
 var ErrSendPermission = errors.New("The agent needs additional permission; check the requested access and task.")
+var ErrSendConfigTooLarge = errors.New("Codex project trust settings exceed the Linux argument limit.")
 var sendSlots = make(chan struct{}, 2)
+
+// 32 pages is the per-string argv limit; 128 KiB fits Linux 4 KiB-page hosts.
+const maxLinuxArgumentBytes = 128 << 10
 
 type SendResult struct {
 	Output    string `json:"output"`
@@ -36,6 +40,11 @@ func Headless(ctx context.Context, target, cwd, handoff, task, access string) (S
 	}
 	if err := ValidateWorkingDirectory(cwd); err != nil {
 		return SendResult{}, err
+	}
+	if target == "codex" {
+		if _, err := codexProjectsSetting(cwd); err != nil {
+			return SendResult{}, fmt.Errorf("%w: %w", ErrSendInvalid, err)
+		}
 	}
 	select {
 	case sendSlots <- struct{}{}:
@@ -78,19 +87,27 @@ func Headless(ctx context.Context, target, cwd, handoff, task, access string) (S
 	return stdout.finish()
 }
 
-func headlessArgs(target, access, cwd string) []string {
+func headlessArgs(target, access, cwd string) ([]string, error) {
 	if target == "claude" {
 		tools := "Read,Glob,Grep"
 		if access == "workspace-write" {
 			tools += ",Edit,Write"
 		}
-		return []string{"-p", "--output-format", "stream-json", "--verbose", "--session-id", uuid.NewString(), "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--tools", tools, "--allowedTools", tools}
+		return []string{"-p", "--output-format", "stream-json", "--verbose", "--session-id", uuid.NewString(), "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--tools", tools, "--allowedTools", tools}, nil
 	}
 	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins", "--disable", "apps", "--disable", "multi_agent", "--disable", "shell_snapshot", "--disable", "skill_search", "--disable", "skill_mcp_dependency_install", "--disable", "memories", "--sandbox", access, "--skip-git-repo-check", "--color", "never"}
 	for _, setting := range []string{`approval_policy="never"`, "project_doc_max_bytes=0", "mcp_servers={}", "skills.include_instructions=false", "skills.bundled.enabled=false", "memories.use_memories=false", "memories.generate_memories=false", "shell_environment_policy.experimental_use_profile=false", `web_search="disabled"`, "sandbox_workspace_write.network_access=false", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "sandbox_workspace_write.exclude_slash_tmp=true"} {
 		args = append(args, "-c", setting)
 	}
 	// Override the entire table: Codex splits dotted override keys literally.
+	projects, err := codexProjectsSetting(cwd)
+	if err != nil {
+		return nil, err
+	}
+	return append(args, "-c", projects, "-"), nil
+}
+
+func codexProjectsSetting(cwd string) (string, error) {
 	projects := []string{}
 	for path := cwd; ; path = filepath.Dir(path) {
 		key, _ := json.Marshal(path)
@@ -99,5 +116,9 @@ func headlessArgs(target, access, cwd string) []string {
 			break
 		}
 	}
-	return append(args, "-c", "projects={"+strings.Join(projects, ",")+"}", "-")
+	setting := "projects={" + strings.Join(projects, ",") + "}"
+	if len(setting)+1 > maxLinuxArgumentBytes {
+		return "", ErrSendConfigTooLarge
+	}
+	return setting, nil
 }

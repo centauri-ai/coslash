@@ -34,7 +34,11 @@ func HeadlessMain(target, access string) int {
 	if err != nil || !utf8.ValidString(cwd) {
 		return 125
 	}
-	cmd := agentexec.CommandContext(ctx, target, headlessArgs(target, access, cwd)...)
+	args, err := headlessArgs(target, access, cwd)
+	if err != nil {
+		return 125
+	}
+	cmd := agentexec.CommandContext(ctx, target, args...)
 	configureReviewProcess(cmd)
 	cmd.SysProcAttr.Pdeathsig = syscall.SIGKILL
 	cmd.Env = append(cmd.Env, "PWD="+cwd)

@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -198,7 +199,13 @@ func (client *localAPIClient) request(method, path string, body io.Reader) ([]by
 		return nil, err
 	}
 	request.Header.Set("X-Coslash-Token", client.token)
-	response, err := client.client.Do(request)
+	requestClient := client.client
+	if strings.HasPrefix(path, "/api/send") {
+		longRequestClient := *client.client
+		longRequestClient.Timeout = launch.SendTimeout + time.Minute
+		requestClient = &longRequestClient
+	}
+	response, err := requestClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("coSlash app is not reachable; start it and retry")
 	}
@@ -233,7 +240,7 @@ func sessionsUsage() string {
 }
 
 func sendUsage() string {
-	return "usage: coslash send <agent>:<session> --to " + agentPipeList() + " [message]"
+	return "usage: coslash send <agent>:<session> --to " + agentPipeList() + " [--access read-only|workspace-write] [--] [message]"
 }
 
 func reviewUsage() string {
@@ -576,13 +583,31 @@ func runSend(stdout io.Writer, args []string) error {
 	if !validAgent(target) {
 		return fmt.Errorf("--to must be %s", agentCommaList())
 	}
-	message := strings.Join(args[3:], " ")
+	index, access := 3, ""
+	if index < len(args) && args[index] == "--access" {
+		if index+1 >= len(args) || (args[index+1] != "read-only" && args[index+1] != "workspace-write") {
+			return errors.New(sendUsage())
+		}
+		access = args[index+1]
+		index += 2
+	}
+	if index < len(args) && args[index] == "--" {
+		index++
+	}
+	message := strings.Join(args[index:], " ")
 	client, err := newLocalAPIClient()
 	if err != nil {
 		return err
 	}
 	path := "/api/send?agent=" + url.QueryEscape(agent) + "&id=" + url.QueryEscape(id) + "&to=" + url.QueryEscape(target)
-	if _, err := client.request(http.MethodPost, path, bytes.NewBufferString(message)); err != nil {
+	if access != "" {
+		path += "&access=" + url.QueryEscape(access)
+	}
+	response, err := client.request(http.MethodPost, path, bytes.NewBufferString(message))
+	if err != nil {
+		return err
+	}
+	if handled, err := writeSendResult(stdout, response, target, args[0]); handled {
 		return err
 	}
 	if target == vendors.AgentCursor {
@@ -591,6 +616,24 @@ func runSend(stdout io.Writer, args []string) error {
 		fmt.Fprintf(stdout, "Success: started %s for session %s\n", target, args[0])
 	}
 	return nil
+}
+
+func writeSendResult(stdout io.Writer, data []byte, target, selector string) (bool, error) {
+	if len(data) == 0 {
+		return false, nil
+	}
+	var result struct {
+		Output *string `json:"output"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil || result.Output == nil {
+		return true, errors.New("invalid send result")
+	}
+	if *result.Output != "" {
+		_, err := io.WriteString(stdout, *result.Output)
+		return true, err
+	}
+	_, err := fmt.Fprintf(stdout, "Success: completed %s task for session %s\n", target, selector)
+	return true, err
 }
 
 func cursorClipboardText(handoff, message string) string {

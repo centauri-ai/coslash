@@ -506,6 +506,7 @@ func handleExactSession(
 }
 
 type promptLauncher func(context.Context, string, string, string, string, string, string, string) error
+type headlessPromptLauncher func(context.Context, string, string, string, string, string) (launch.SendResult, error)
 
 func handleSend(
 	w http.ResponseWriter,
@@ -514,6 +515,7 @@ func handleSend(
 	getSession func(string, string) (*session.Session, error),
 	targetAvailable func(string) bool,
 	open promptLauncher,
+	headless ...headlessPromptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
 	if !validAgent(target) {
@@ -562,6 +564,26 @@ func handleSend(
 	if r.Context().Err() != nil {
 		return
 	}
+	if len(headless) > 0 && headless[0] != nil && message != "" &&
+		(target == vendors.AgentClaude || target == vendors.AgentCodex) {
+		access := r.URL.Query().Get("access")
+		if access == "" {
+			access = "read-only"
+		}
+		if access != "read-only" && access != "workspace-write" {
+			writeAPIError(w, http.StatusBadRequest, "invalid_send_access", "Access must be read-only or workspace-write.")
+			return
+		}
+		result, err := headless[0](r.Context(), target, found.WorkingDirectory, handoff, message, access)
+		if err != nil {
+			log.Printf("send: %v", err)
+			writeHeadlessSendError(w, err)
+			return
+		}
+		log.Printf("send: completed %s to %s", found.ID, target)
+		writeJSON(w, result)
+		return
+	}
 	if target == vendors.AgentCursor {
 		if err := launch.ValidateWorkingDirectory(found.WorkingDirectory); err != nil {
 			writeTerminalLaunchError(w, err)
@@ -599,6 +621,23 @@ func handleSend(
 	}
 	log.Printf("send: %s to %s", found.ID, target)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeHeadlessSendError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, launch.ErrWorkingDirectoryUnavailable):
+		writeTerminalLaunchError(w, err)
+	case errors.Is(err, launch.ErrSendConfigTooLarge):
+		writeAPIError(w, http.StatusBadRequest, "send_configuration_too_large", "The Codex working directory is too deeply nested to launch safely.")
+	case errors.Is(err, launch.ErrSendBusy):
+		writeAPIError(w, http.StatusTooManyRequests, "send_busy", launch.ErrSendBusy.Error())
+	case errors.Is(err, launch.ErrSendPermission):
+		writeAPIError(w, http.StatusConflict, "send_permission_denied", launch.ErrSendPermission.Error())
+	case errors.Is(err, launch.ErrSendInvalid):
+		writeAPIError(w, http.StatusBadRequest, "invalid_send", "A headless Linux send requires a task and read-only or workspace-write access.")
+	default:
+		writeAPIError(w, http.StatusInternalServerError, "send_failed", launch.ErrSendFailed.Error())
+	}
 }
 
 func writeTerminalLaunchError(w http.ResponseWriter, err error) {
