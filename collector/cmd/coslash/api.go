@@ -508,6 +508,8 @@ func handleExactSession(
 type promptLauncher func(context.Context, string, string, string, string, string, string, string) error
 type headlessPromptLauncher func(context.Context, string, string, string, string, string) (launch.SendResult, error)
 
+const headlessSendResponseTimeout = launch.SendTimeout + time.Minute
+
 func handleSend(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -572,6 +574,11 @@ func handleSend(
 		}
 		if access != "read-only" && access != "workspace-write" {
 			writeAPIError(w, http.StatusBadRequest, "invalid_send_access", "Access must be read-only or workspace-write.")
+			return
+		}
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(headlessSendResponseTimeout)); err != nil {
+			log.Printf("send: extend response deadline: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "send_failed", "Could not prepare the send response.")
 			return
 		}
 		result, err := headless[0](r.Context(), target, found.WorkingDirectory, handoff, message, access)
