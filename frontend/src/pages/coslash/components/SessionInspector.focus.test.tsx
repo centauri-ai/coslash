@@ -79,8 +79,9 @@ it.each([false, true])('preserves tabbed content and file-diff focus (docked=%s)
     expect(overview).not.toContain('hello.ts');
     expect(overview).not.toContain('Review the changes.');
     const commands = Array.from(panels[0]!.querySelectorAll('div')).find(
-      (element) => element.textContent === '1 COMMANDS' && element.onclick != null,
+      (element) => element.textContent === '1 COMMANDS' && element.classList.contains('cursor-pointer'),
     );
+    expect(commands).not.toBeNull();
     await act(async () => commands!.click());
     await act(async () => tabs[2]!.focus());
     expect(tabs[2]!.getAttribute('aria-selected')).toBe('true');
@@ -111,6 +112,24 @@ it.each([false, true])('preserves tabbed content and file-diff focus (docked=%s)
       expect(document.activeElement).toBe(trigger);
       expect(onClose).not.toHaveBeenCalled();
     }
+    await act(async () => tabs[2]!.focus());
+    expect(tabs[2]!.getAttribute('aria-selected')).toBe('true');
+    await act(async () =>
+      root.render(
+        renderInspector(
+          decodeSession({
+            sourceId: 'local',
+            agent: 'codex',
+            id: session.id,
+            name: 'Focus regression',
+            detailRevision: '',
+          }),
+        ),
+      ),
+    );
+    const summaryTabs = document.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect(summaryTabs).toHaveLength(1);
+    expect(summaryTabs[0]!.getAttribute('aria-selected')).toBe('true');
     await act(async () =>
       root.render(
         renderInspector(

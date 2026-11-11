@@ -1675,13 +1675,25 @@ function InspectorBody({
   onHandoffStarted: () => void;
   onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
+  const [selectedTab, setSelectedTab] = useState<'session' | 'files' | 'skills'>('session');
+  const selectedTabAvailable =
+    selectedTab === 'session' ||
+    (selectedTab === 'files' && detail.fileEdits.length > 0) ||
+    (selectedTab === 'skills' && (detail.skills?.length ?? 0) > 0);
+  if (!selectedTabAvailable) setSelectedTab('session');
+  const activeTab = selectedTabAvailable ? selectedTab : 'session';
   const tabClassName =
     'text-coslash-muted h-auto flex-none rounded-none px-0 py-3 data-[state=active]:text-coslash-ink data-[state=active]:after:opacity-100 group-data-horizontal/tabs:after:bottom-0';
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
   // the overflow-hidden stat grids
   return (
-    <Tabs key={sessionKey(detail)} defaultValue="session" className="min-h-0 flex-1 gap-0">
+    <Tabs
+      key={sessionKey(detail)}
+      value={activeTab}
+      onValueChange={(value) => setSelectedTab(value as 'session' | 'files' | 'skills')}
+      className="min-h-0 flex-1 gap-0"
+    >
       <TabsList
         variant="line"
         aria-label="Session views"
