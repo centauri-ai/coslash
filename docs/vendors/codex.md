@@ -53,6 +53,9 @@ Code: `collector/internal/vendors/codex/`. This package reads Codex CLI rollouts
 
 ## Resume and launch
 
+- Linux sends use persistent `exec --json` with stdin, ignored user configuration/rules, disabled hooks/plugins/apps, and an explicit sandbox. Codex CLI 0.162.0 was verified to append Markdown findings and return `thread.started`/`turn.completed` on Linux amd64, 2026-11-10 (`launch/headless.go`). Execution success does not prove that every requested edit was possible.
+- Codex CLI 0.162.0 splits `-c` override keys on literal dots, without decoding quoted path segments. On Linux amd64, 2026-11-10, `projects."<dotted path>".trust_level="untrusted"` left an existing trusted project configuration active. Overriding the whole `projects={"<path>"={trust_level="untrusted"}}` table blocked that configuration. A deliberately invalid project setting and a nonexistent model provider proved the difference without a model request. Send encodes table keys with JSON string escaping, which is valid for TOML basic strings; invalid UTF-8 working directories are rejected (`TestCodexTrustUsesWholeTableForQuotedDottedPaths`).
+
 - Resume is `codex resume <uuid>`, with `resume` as a subcommand, not a flag.
 - Local Start fresh passes the handoff as `-c "developer_instructions=$(cat <file>)"`. The file holds the handoff as a JSON-encoded string (`launch/local_posix.go`).
 - Remote Start fresh writes a temporary profile `$CODEX_HOME/coslash-<name>.config.toml` with `developer_instructions` and runs `codex --profile coslash-<name>`. The handoff never goes on the SSH command line (bdda4a10).

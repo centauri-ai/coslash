@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,6 +131,13 @@ func TestReviewGitSnapshotListsFilesInUntrackedDirectories(t *testing.T) {
 }
 
 func TestBoundedBufferCapsDiagnostics(t *testing.T) {
+	for _, data := range []string{"four", "long diagnostic"} {
+		copied := boundedBuffer{limit: 4}
+		n, err := io.Copy(&copied, struct{ io.Reader }{strings.NewReader(data)})
+		if err != nil || n != int64(len(data)) || copied.String() != data[:4] || copied.truncated != (len(data) > 4) {
+			t.Fatalf("copy bypassed bounds: %d %v %+v", n, err, copied)
+		}
+	}
 	buffer := boundedBuffer{limit: 4}
 	if written, err := buffer.Write([]byte("secret diagnostic")); err != nil || written != 17 {
 		t.Fatalf("Write() = %d, %v", written, err)
