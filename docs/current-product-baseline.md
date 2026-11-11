@@ -64,7 +64,7 @@ All routes are loopback-only and protected by the process access-token guard.
 | `POST /api/launch` | Resume or start fresh with a handoff in the configured terminal/agent |
 | `POST /api/reviews` | Start a local session review with a selected installed agent |
 | `GET /api/handoff` | Render canonical Markdown for one local session |
-| `POST /api/send` | Start Claude Code or Codex with a local session handoff; Linux runs task-bearing Claude/Codex sends headlessly and returns the result, while untasked and other sends open the configured terminal |
+| `POST /api/send` | Start an interactive handoff on macOS/Windows; run an explicit Claude/Codex task and return its result on Linux |
 | `POST /api/remote/test` | Validate the configured SSH source |
 | `POST /api/remote/retry` | Retry remote collection |
 | `GET /api/remote/status` | Read sanitized remote/helper health |

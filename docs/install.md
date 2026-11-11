@@ -24,6 +24,9 @@ Choose Hub setup for a connected device, or install coSlash Local without a Hub 
 
 On Linux (amd64, arm64), Local collects these agents' local sessions and syncs them to Hub. Pi and Grok Build synthesis, resume, and handoff stay on macOS and Windows; see [Linux](#linux).
 
+Linux `coslash send` supports unattended Claude Code and Codex tasks; see the
+[command reference](agents.md#command-reference). Interactive terminal opens remain unavailable.
+
 Local collection needs no Hub account or telemetry.
 
 ## Install and connect from Hub

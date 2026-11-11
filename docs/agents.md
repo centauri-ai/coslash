@@ -119,7 +119,7 @@ Run `coslash --help` for the full command list. These commands support local ses
 | `coslash ui-url` | Print the authenticated web UI URL of the running app, also after `--background` or `--no-open` startup. Use the same `COSLASH_HOME` as the running app. |
 | `coslash sessions [query] --json` | List local sessions as JSON. The query filters by title, repository, branch, or agent. An exact session ID or `<agent>:<session>` selector returns only that session. |
 | `coslash handoff <agent>:<session>` | Print the handoff Markdown for a selector from `coslash sessions`. |
-| `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [--access read-only\|workspace-write] [--] [message]` | Start the target agent in the working directory of the session, with the handoff and an optional first task. On Linux, task-bearing Claude/Codex sends run headlessly, default to read-only, and print the result; `--access workspace-write` permits edits within the source directory. Other sends open the configured terminal. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
+| `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [--access read-only\|workspace-write] [--] [message]` | Start the target agent in the working directory of the session, with the handoff. Linux supports Claude/Codex with an explicit task, defaults to read-only, and prints the result; `--access workspace-write` permits edits within the source directory. On macOS and Windows, sends open the configured terminal with an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
 | `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor\|pi\|grok` | Start a review of a local session with an installed agent. |
 | `coslash doctor` / `coslash status` | Check session sources, agent CLIs, local storage, Hub sync health, and the `coslash:` link handler. |
 | `coslash doctor --json` / `coslash status --json` | Print the same diagnostics as JSON, including Hub origin, pairing, last check-in, content-free queue counts, and link-handler state. |
@@ -127,4 +127,13 @@ Run `coslash --help` for the full command list. These commands support local ses
 
 `sessions`, `handoff`, `send`, and `review` need the app to be running. Results go to standard output. Failures write `Error: <message>` to standard error and exit non-zero. The commands find the access token of the running app locally and never print it. Only `coslash ui-url` prints the token, as part of the URL on standard output. It does not write the URL to the app logs.
 
-Interactive handoffs on macOS and Linux need the system `expect` command. On macOS and Windows, Grok Build is also a handoff and review destination after you log in to it. On Windows, a Grok review can read files outside the worktree. Read [Data and privacy](data-and-privacy.md) before you use it.
+On Linux, `send` runs Claude Code or Codex without a terminal, requires an explicit
+task, and waits up to 30 minutes for its result. Access defaults to read-only;
+use `--access workspace-write` before the task to authorize edits in the source
+working directory. For example: `coslash send '<agent>:<session>' --to claude --access workspace-write -- 'Review plan.md and append findings.'`
+Use `--` before flag-looking task text. Stopping the command or Local cancels its
+agent and descendants; results are returned directly, without a job store or
+status/log commands. After a connection failure, inspect any edits before
+retrying: an interrupted task can have made changes.
+
+Interactive handoffs on macOS need the system `expect` command. On macOS and Windows, Grok Build is also a handoff and review destination after you log in to it. On Windows, a Grok review can read files outside the worktree. Read [Data and privacy](data-and-privacy.md) before you use it.

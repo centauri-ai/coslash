@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,7 +19,6 @@ import (
 	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
-	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -202,17 +202,17 @@ func (client *localAPIClient) request(method, path string, body io.Reader) ([]by
 	requestClient := client.client
 	if strings.HasPrefix(path, "/api/send") {
 		longRequestClient := *client.client
-		longRequestClient.Timeout = launch.SendTimeout + time.Minute
+		longRequestClient.Timeout = headlessSendResponseTimeout
 		requestClient = &longRequestClient
 	}
 	response, err := requestClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("coSlash app is not reachable; start it and retry")
+		return nil, &localAPITransportError{errors.New("coSlash app is not reachable; check that it is running")}
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read coSlash response: %w", err)
+		return nil, &localAPITransportError{fmt.Errorf("read coSlash response: %w", err)}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		if path == "/api/hub/onboarding/connect" {
@@ -583,18 +583,17 @@ func runSend(stdout io.Writer, args []string) error {
 	if !validAgent(target) {
 		return fmt.Errorf("--to must be %s", agentCommaList())
 	}
-	index, access := 3, ""
-	if index < len(args) && args[index] == "--access" {
-		if index+1 >= len(args) || (args[index+1] != "read-only" && args[index+1] != "workspace-write") {
+	messageArgs, access := args[3:], ""
+	if len(messageArgs) > 0 && messageArgs[0] == "--access" {
+		if len(messageArgs) < 2 || runtime.GOOS != "linux" || (messageArgs[1] != "read-only" && messageArgs[1] != "workspace-write") {
 			return errors.New(sendUsage())
 		}
-		access = args[index+1]
-		index += 2
+		access, messageArgs = messageArgs[1], messageArgs[2:]
 	}
-	if index < len(args) && args[index] == "--" {
-		index++
+	if len(messageArgs) > 0 && messageArgs[0] == "--" {
+		messageArgs = messageArgs[1:]
 	}
-	message := strings.Join(args[index:], " ")
+	message := strings.Join(messageArgs, " ")
 	client, err := newLocalAPIClient()
 	if err != nil {
 		return err
@@ -603,11 +602,15 @@ func runSend(stdout io.Writer, args []string) error {
 	if access != "" {
 		path += "&access=" + url.QueryEscape(access)
 	}
-	response, err := client.request(http.MethodPost, path, bytes.NewBufferString(message))
+	data, err := client.request(http.MethodPost, path, bytes.NewBufferString(message))
 	if err != nil {
+		var transport *localAPITransportError
+		if runtime.GOOS == "linux" && errors.As(err, &transport) {
+			return fmt.Errorf("%w; do not automatically repeat the task after a connection error", err)
+		}
 		return err
 	}
-	if handled, err := writeSendResult(stdout, response, target, args[0]); handled {
+	if handled, err := writeSendResult(stdout, data, target, args[0]); handled {
 		return err
 	}
 	if target == vendors.AgentCursor {
@@ -618,18 +621,28 @@ func runSend(stdout io.Writer, args []string) error {
 	return nil
 }
 
+type localAPITransportError struct{ error }
+
+func (err *localAPITransportError) Unwrap() error { return err.error }
+
 func writeSendResult(stdout io.Writer, data []byte, target, selector string) (bool, error) {
 	if len(data) == 0 {
 		return false, nil
 	}
 	var result struct {
-		Output *string `json:"output"`
+		Output    *string `json:"output"`
+		SessionID string  `json:"sessionId"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil || result.Output == nil {
-		return true, errors.New("invalid send result")
+		return true, errors.New("could not read the agent result; do not automatically repeat the task")
+	}
+	if result.SessionID != "" {
+		if _, err := fmt.Fprintf(stdout, "Target session: %s:%s\n", target, result.SessionID); err != nil {
+			return true, err
+		}
 	}
 	if *result.Output != "" {
-		_, err := io.WriteString(stdout, *result.Output)
+		_, err := fmt.Fprintln(stdout, strings.TrimSuffix(*result.Output, "\n"))
 		return true, err
 	}
 	_, err := fmt.Fprintf(stdout, "Success: completed %s task for session %s\n", target, selector)
