@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
@@ -1530,7 +1531,6 @@ function ArtifactStats({ detail }: { detail: SessionDetail }) {
         {cells.map(([value, label]) => (
           <StatCell key={label} value={value} label={label} />
         ))}
-        <div className="bg-coslash-surface" />
       </div>
     </div>
   );
@@ -1675,30 +1675,61 @@ function InspectorBody({
   onHandoffStarted: () => void;
   onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
+  const tabClassName =
+    'text-coslash-muted h-auto flex-none rounded-none px-0 py-3 data-[state=active]:text-coslash-ink data-[state=active]:after:opacity-100 group-data-horizontal/tabs:after:bottom-0';
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
   // the overflow-hidden stat grids
   return (
-    <div className="flex-1 overflow-x-hidden overflow-y-auto pb-2">
-      <div className="flex flex-col gap-2 px-4">
-        <HandoffSection
-          detail={detail}
-          exactDetailsAvailable={exactDetailsAvailable}
-          remoteLaunchable={remoteLaunchable}
-          remoteLaunchHint={remoteLaunchHint}
-          handoff={handoff}
-          onHandoffStarted={onHandoffStarted}
-          onOpenTarget={onOpenTarget}
-        />
-        <RecapSection detail={detail} />
-        <DigestSection detail={detail} />
-        <ArtifactStats detail={detail} />
-        <CommandsSection detail={detail} />
-        <SkillsSection skills={detail.skills} />
-        <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
-        <CommitsAndTodos detail={detail} />
+    <Tabs key={sessionKey(detail)} defaultValue="session" className="min-h-0 flex-1 gap-0">
+      <TabsList
+        variant="line"
+        aria-label="Session views"
+        className="w-full shrink-0 justify-start gap-4 border-b px-4 py-0 group-data-horizontal/tabs:h-auto"
+      >
+        <TabsTrigger value="session" className={tabClassName}>
+          Session
+        </TabsTrigger>
+        {detail.fileEdits.length > 0 && (
+          <TabsTrigger value="files" className={tabClassName}>
+            Files · {detail.fileEdits.length}
+          </TabsTrigger>
+        )}
+        {(detail.skills?.length ?? 0) > 0 && (
+          <TabsTrigger value="skills" className={tabClassName}>
+            Skills
+          </TabsTrigger>
+        )}
+      </TabsList>
+      <div className="flex-1 overflow-x-hidden overflow-y-auto">
+        <TabsContent
+          value="session"
+          forceMount
+          className="flex flex-col gap-2 px-4 py-4 data-[state=inactive]:hidden"
+        >
+          <HandoffSection
+            detail={detail}
+            exactDetailsAvailable={exactDetailsAvailable}
+            remoteLaunchable={remoteLaunchable}
+            remoteLaunchHint={remoteLaunchHint}
+            handoff={handoff}
+            onHandoffStarted={onHandoffStarted}
+            onOpenTarget={onOpenTarget}
+          />
+          <RecapSection detail={detail} />
+          <ArtifactStats detail={detail} />
+          <CommandsSection detail={detail} />
+          <CommitsAndTodos detail={detail} />
+          <DigestSection detail={detail} />
+        </TabsContent>
+        <TabsContent value="files" forceMount className="px-4 py-4 data-[state=inactive]:hidden">
+          <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
+        </TabsContent>
+        <TabsContent value="skills" forceMount className="px-4 pb-4 data-[state=inactive]:hidden">
+          <SkillsSection skills={detail.skills} />
+        </TabsContent>
       </div>
-    </div>
+    </Tabs>
   );
 }
 
@@ -1984,7 +2015,6 @@ export function SessionInspector({
                   synthesisSettledCount={synthesisSettledCount}
                 />
                 {session != null && snapshotMayBeStale(detail, session) && <SnapshotStalenessNotice />}
-                <div className="border-b p-1" />
               </div>
             </SheetHeader>
             <SnapshotRefreshStatus
