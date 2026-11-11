@@ -1675,12 +1675,20 @@ function InspectorBody({
   onHandoffStarted: () => void;
   onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
-  const [selectedTab, setSelectedTab] = useState<'session' | 'files' | 'skills'>('session');
+  const currentSessionKey = sessionKey(detail);
+  const [tabSelection, setTabSelection] = useState<{
+    sessionKey: string;
+    tab: 'session' | 'files' | 'skills';
+  }>(() => ({ sessionKey: currentSessionKey, tab: 'session' }));
+  if (tabSelection.sessionKey !== currentSessionKey) {
+    setTabSelection({ sessionKey: currentSessionKey, tab: 'session' });
+  }
+  const selectedTab = tabSelection.sessionKey === currentSessionKey ? tabSelection.tab : 'session';
   const selectedTabAvailable =
     selectedTab === 'session' ||
     (selectedTab === 'files' && detail.fileEdits.length > 0) ||
     (selectedTab === 'skills' && (detail.skills?.length ?? 0) > 0);
-  if (!selectedTabAvailable) setSelectedTab('session');
+  if (!selectedTabAvailable) setTabSelection({ sessionKey: currentSessionKey, tab: 'session' });
   const activeTab = selectedTabAvailable ? selectedTab : 'session';
   const tabClassName =
     'text-coslash-muted h-auto flex-none rounded-none px-0 py-3 data-[state=active]:text-coslash-ink data-[state=active]:after:opacity-100 group-data-horizontal/tabs:after:bottom-0';
@@ -1689,9 +1697,11 @@ function InspectorBody({
   // the overflow-hidden stat grids
   return (
     <Tabs
-      key={sessionKey(detail)}
+      key={currentSessionKey}
       value={activeTab}
-      onValueChange={(value) => setSelectedTab(value as 'session' | 'files' | 'skills')}
+      onValueChange={(value) =>
+        setTabSelection({ sessionKey: currentSessionKey, tab: value as 'session' | 'files' | 'skills' })
+      }
       className="min-h-0 flex-1 gap-0"
     >
       <TabsList

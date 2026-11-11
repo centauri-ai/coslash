@@ -141,6 +141,32 @@ it.each([false, true])('preserves tabbed content and file-diff focus (docked=%s)
     expect(remainingTabs).toHaveLength(1);
     expect(remainingTabs[0]!.textContent).toBe('Session');
     expect(remainingTabs[0]!.getAttribute('aria-selected')).toBe('true');
+
+    const summarySessionA = decodeSession({
+      sourceId: 'local',
+      agent: 'codex',
+      id: 'summary-session-a',
+      name: 'Summary A',
+      detailRevision: '',
+      fileEdits: [{ path: 'a.ts', adds: 1, dels: 0, edits: 1, changeIds: [] }],
+    });
+    await act(async () => root.render(renderInspector(summarySessionA)));
+    const summaryTabsA = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    expect(summaryTabsA[0]!.getAttribute('aria-selected')).toBe('true');
+    await act(async () => summaryTabsA[1]!.focus());
+    expect(summaryTabsA[1]!.getAttribute('aria-selected')).toBe('true');
+
+    const summarySessionB = decodeSession({
+      sourceId: 'local',
+      agent: 'codex',
+      id: 'summary-session-b',
+      name: 'Summary B',
+      detailRevision: '',
+      fileEdits: [{ path: 'b.ts', adds: 1, dels: 0, edits: 1, changeIds: [] }],
+    });
+    await act(async () => root.render(renderInspector(summarySessionB)));
+    const summaryTabsB = document.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect(summaryTabsB[0]!.getAttribute('aria-selected')).toBe('true');
   } finally {
     await act(async () => root.unmount());
     mount.remove();
