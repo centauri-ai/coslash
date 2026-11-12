@@ -225,6 +225,85 @@ func TestEnsureSameBindingKeepsRunningClientForRevocation(t *testing.T) {
 	}
 }
 
+func TestCanceledEnsureDoesNotRebindAfterStoppingOldWorker(t *testing.T) {
+	started, stopping, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	c := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
+		close(started)
+		<-ctx.Done()
+		close(stopping)
+		<-release
+	}, nil)
+	first := syncTestClient(t, &syncTestCredentials{value: "old"})
+	if err := c.Ensure(first); err != nil {
+		t.Fatal(err)
+	}
+	waitSignal(t, started)
+	binding, _ := c.Queue().DiscoveryCursor()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	second := syncTestClient(t, &syncTestCredentials{value: "new"})
+	go func() { done <- c.ensure(ctx, second) }()
+	waitSignal(t, stopping)
+	cancel()
+	unblock()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("ensure error = %v", err)
+	}
+	got, _ := c.Queue().DiscoveryCursor()
+	if got != binding {
+		t.Fatal("canceled ensure rebound the queue")
+	}
+}
+
+type changedBindingWorker struct{}
+
+func (changedBindingWorker) SyncOnce(context.Context) error { return errHubBindingChanged }
+
+func TestChangedBindingStopsOnlyMatchingWorker(t *testing.T) {
+	t.Setenv("COSLASH_V4_SYNC", "1")
+	credentials := &syncTestCredentials{value: "replacement"}
+	old := syncTestClient(t, credentials)
+	newer := syncTestClient(t, credentials)
+	for _, current := range []bool{true, false} {
+		ctx, cancel := context.WithCancel(context.Background())
+		client := newer
+		if current {
+			client = old
+		}
+		controller := &syncController{client: client, binding: "binding", connected: true, cancel: cancel}
+		worker := observedSyncWorker{runner: changedBindingWorker{}, controller: controller, client: old, binding: "binding"}
+		if err := worker.SyncOnce(context.Background()); !errors.Is(err, errHubBindingChanged) {
+			t.Fatalf("error = %v", err)
+		}
+		if current {
+			select {
+			case <-ctx.Done():
+			default:
+				t.Fatal("stale binding worker not stopped")
+			}
+			if controller.Status().State != "not_connected" {
+				t.Fatal("stale binding still connected")
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				t.Fatal("new worker was stopped by stale completion")
+			default:
+			}
+			if controller.Status().State != "connected_idle" {
+				t.Fatal("new worker lost connection")
+			}
+		}
+		if got, err := credentials.Load(context.Background()); err != nil || got != "replacement" {
+			t.Fatalf("replacement credential = %q, %v", got, err)
+		}
+		cancel()
+	}
+}
+
 func TestLocalSyncKillSwitchReportsOff(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("COSLASH_V4_SYNC", "0")

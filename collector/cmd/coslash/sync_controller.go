@@ -44,11 +44,15 @@ type syncController struct {
 }
 
 func newSyncController(startLoop syncLoopStarter, localPause func() bool) (*syncController, error) {
+	return newSyncControllerAt("", startLoop, localPause)
+}
+
+func newSyncControllerAt(root string, startLoop syncLoopStarter, localPause func() bool) (*syncController, error) {
 	controller := &syncController{startLoop: startLoop, localPause: localPause}
 	if !hubclient.V4SyncEnabled() {
 		return controller, nil
 	}
-	queue, err := syncv4.Open("")
+	queue, err := syncv4.Open(root)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +65,10 @@ func (c *syncController) Queue() *syncv4.Queue { return c.queue }
 func (c *syncController) Ensure(client *hubclient.Client) error {
 	c.ensureMu.Lock()
 	defer c.ensureMu.Unlock()
+	return c.ensure(context.Background(), client)
+}
+
+func (c *syncController) ensure(parent context.Context, client *hubclient.Client) error {
 	if client == nil || client.BaseURL == nil || client.Credentials == nil {
 		c.stopLoop(true)
 		c.mu.Lock()
@@ -75,7 +83,7 @@ func (c *syncController) Ensure(client *hubclient.Client) error {
 		c.mu.Unlock()
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	credential, err := client.Credentials.Load(ctx)
 	if errors.Is(err, hubclient.ErrNotPaired) || (err == nil && credential == "") {
@@ -90,6 +98,9 @@ func (c *syncController) Ensure(client *hubclient.Client) error {
 	}
 	binding, err := client.V4Binding(ctx)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	c.mu.RLock()
@@ -109,10 +120,22 @@ func (c *syncController) Ensure(client *hubclient.Client) error {
 		return nil
 	}
 	c.stopLoop(true)
+	c.mu.Lock()
+	c.connected = false
+	c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if c.queue != nil {
 		if err := c.queue.Rebind(binding); err != nil {
 			return err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		c.mu.Lock()
+		c.client, c.binding, c.connected, c.revoked = client, binding, false, false
+		c.mu.Unlock()
+		return err
 	}
 	c.mu.Lock()
 	c.client, c.binding, c.connected, c.revoked = client, binding, true, false
@@ -255,6 +278,9 @@ func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
 	w.controller.passActive.Store(true)
 	err := w.runner.SyncOnce(ctx)
 	w.controller.passActive.Store(false)
+	if errors.Is(err, errHubBindingChanged) {
+		w.controller.markBindingChanged(w.client, w.binding)
+	}
 	var problem hubclient.V4Problem
 	revoked := errors.As(err, &problem) && problem.Code == "device_revoked"
 	if revoked || errors.Is(err, hubclient.ErrNotPaired) {
@@ -286,6 +312,9 @@ func (w observedSyncWorker) ReportUpdate(ctx context.Context) error {
 		credential, credentialErr = w.client.Credentials.Load(ctx)
 	}
 	err := reporter.ReportUpdate(ctx)
+	if errors.Is(err, errHubBindingChanged) {
+		w.controller.markBindingChanged(w.client, w.binding)
+	}
 	var problem hubclient.V4Problem
 	revoked := errors.As(err, &problem) && problem.Code == "device_revoked"
 	if revoked || errors.Is(err, hubclient.ErrNotPaired) {
@@ -312,6 +341,9 @@ func (w observedSyncWorker) CheckInForUpdate(ctx context.Context) error {
 		return errors.New("update check-in unavailable")
 	}
 	err := checker.CheckInForUpdate(ctx)
+	if errors.Is(err, errHubBindingChanged) {
+		w.controller.markBindingChanged(w.client, w.binding)
+	}
 	var problem hubclient.V4Problem
 	if errors.As(err, &problem) && problem.Code == "device_revoked" || errors.Is(err, hubclient.ErrNotPaired) {
 		w.controller.markRevokedIfUnpaired(ctx, w.client, w.binding)
@@ -338,10 +370,27 @@ func (c *syncController) observedWait(wait func(context.Context, int64) (hubclie
 	c.mu.RUnlock()
 	return func(ctx context.Context, since int64) (hubclient.V4Wait, error) {
 		result, err := wait(ctx, since)
+		if errors.Is(err, errHubBindingChanged) {
+			c.markBindingChanged(client, binding)
+		}
 		if syncv4.DeferReason(err) == "not_paired" {
 			c.markRevokedIfUnpaired(ctx, client, binding)
 		}
 		return result, err
+	}
+}
+
+func (c *syncController) markBindingChanged(client *hubclient.Client, binding string) {
+	c.mu.Lock()
+	if c.client != client || c.binding != binding {
+		c.mu.Unlock()
+		return
+	}
+	c.connected = false
+	cancel := c.cancel
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 

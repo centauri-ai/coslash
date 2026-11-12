@@ -39,10 +39,17 @@ type hubRegistryWire struct {
 }
 
 type hubRegistry struct {
-	mu    sync.Mutex
-	dir   string
-	state hubRegistryState
-	write func(string, []byte) (bool, error)
+	mu      sync.Mutex
+	pending []hubRegistryEdit
+	writing bool
+	dir     string
+	state   hubRegistryState
+	write   func(string, []byte) (bool, error)
+}
+
+type hubRegistryEdit struct {
+	apply func(hubRegistryState) (hubRegistryState, error)
+	done  chan error
 }
 
 // canonicalRegistryOrigin normalizes the origin while retaining non-default ports.
@@ -284,12 +291,12 @@ func (r *hubRegistry) addPrimary(raw string) error {
 	if !strings.HasPrefix(origin, "https://") {
 		return errors.New("new Hub requires HTTPS")
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.state.Primary != "" {
-		return errors.New("primary Hub already exists")
-	}
-	return r.publish(hubRegistryState{Version: hubRegistryVersion, Primary: origin, Connections: []hubConnection{{Origin: origin, Enabled: true}}})
+	return r.edit(func(state hubRegistryState) (hubRegistryState, error) {
+		if state.Primary != "" {
+			return state, errors.New("primary Hub already exists")
+		}
+		return hubRegistryState{Version: hubRegistryVersion, Primary: origin, Connections: []hubConnection{{Origin: origin, Enabled: true}}}, nil
+	})
 }
 
 // addSecondary records a destination disabled; it does not authorize sync.
@@ -301,19 +308,18 @@ func (r *hubRegistry) addSecondary(raw string) error {
 	if !strings.HasPrefix(origin, "https://") {
 		return errors.New("secondary Hub requires HTTPS")
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.state.Primary == "" {
-		return errors.New("primary Hub required")
-	}
-	for _, c := range r.state.Connections {
-		if c.Origin == origin {
-			return errors.New("Hub already exists")
+	return r.edit(func(state hubRegistryState) (hubRegistryState, error) {
+		if state.Primary == "" {
+			return state, errors.New("primary Hub required")
 		}
-	}
-	next := r.state
-	next.Connections = append(append([]hubConnection(nil), r.state.Connections...), hubConnection{Origin: origin})
-	return r.publish(next)
+		for _, c := range state.Connections {
+			if c.Origin == origin {
+				return state, errors.New("Hub already exists")
+			}
+		}
+		state.Connections = append(state.Connections, hubConnection{Origin: origin})
+		return state, nil
+	})
 }
 
 // setEnabled records an explicit user action; the caller must also verify
@@ -323,28 +329,62 @@ func (r *hubRegistry) setEnabled(raw string, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	next := r.state
-	next.Connections = append([]hubConnection(nil), r.state.Connections...)
-	for i := range next.Connections {
-		if next.Connections[i].Origin == origin {
-			next.Connections[i].Enabled = enabled
-			return r.publish(next)
+	return r.edit(func(state hubRegistryState) (hubRegistryState, error) {
+		for i := range state.Connections {
+			if state.Connections[i].Origin == origin {
+				state.Connections[i].Enabled = enabled
+				return state, nil
+			}
 		}
-	}
-	return errors.New("unknown Hub")
+		return state, errors.New("unknown Hub")
+	})
 }
 
-func (r *hubRegistry) publish(next hubRegistryState) error {
-	if err := validateHubRegistry(next); err != nil {
-		return err
+func (r *hubRegistry) edit(apply func(hubRegistryState) (hubRegistryState, error)) error {
+	request := hubRegistryEdit{apply: apply, done: make(chan error, 1)}
+	r.mu.Lock()
+	if len(r.pending) >= 128 {
+		r.mu.Unlock()
+		return errors.New("too many pending Hub registry changes")
 	}
-	committed, err := r.save(next)
-	if committed {
-		r.state = next
+	r.pending = append(r.pending, request)
+	if !r.writing {
+		r.writing = true
+		go r.runEdits()
 	}
-	return err
+	r.mu.Unlock()
+	return <-request.done
+}
+
+func (r *hubRegistry) runEdits() {
+	for {
+		r.mu.Lock()
+		if len(r.pending) == 0 {
+			r.writing = false
+			r.mu.Unlock()
+			return
+		}
+		request := r.pending[0]
+		r.pending[0] = hubRegistryEdit{}
+		r.pending = r.pending[1:]
+		state := r.state
+		state.Connections = append([]hubConnection(nil), state.Connections...)
+		r.mu.Unlock()
+		next, err := request.apply(state)
+		if err == nil {
+			err = validateHubRegistry(next)
+		}
+		if err == nil {
+			var committed bool
+			committed, err = r.save(next)
+			if committed {
+				r.mu.Lock()
+				r.state = next
+				r.mu.Unlock()
+			}
+		}
+		request.done <- err
+	}
 }
 
 func (r *hubRegistry) save(state hubRegistryState) (bool, error) {

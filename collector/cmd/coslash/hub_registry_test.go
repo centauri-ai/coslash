@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestHubRegistryLegacyMigrationAndRestart(t *testing.T) {
@@ -278,6 +279,40 @@ func TestHubRegistrySerializesConcurrentChanges(t *testing.T) {
 	reopened, err := openHubRegistry(home, "", nil)
 	if err != nil || len(reopened.snapshot().Connections) != 3 {
 		t.Fatalf("reopened = %+v, %v", reopened, err)
+	}
+}
+
+func TestHubRegistrySnapshotDoesNotWaitForWrite(t *testing.T) {
+	home := t.TempDir()
+	r, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.addPrimary("https://hub.coslash.io"); err != nil {
+		t.Fatal(err)
+	}
+	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	r.write = func(dir string, data []byte) (bool, error) {
+		close(started)
+		<-release
+		return writeHubRegistryFile(dir, data)
+	}
+	go func() { finished <- r.addSecondary("https://beta.coslash.io") }()
+	waitSignal(t, started)
+	snapshotDone := make(chan hubRegistryState, 1)
+	go func() { snapshotDone <- r.snapshot() }()
+	select {
+	case state := <-snapshotDone:
+		if len(state.Connections) != 1 {
+			t.Fatalf("uncommitted state visible: %+v", state)
+		}
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("snapshot waited for disk write")
+	}
+	close(release)
+	if err := <-finished; err != nil {
+		t.Fatal(err)
 	}
 }
 
