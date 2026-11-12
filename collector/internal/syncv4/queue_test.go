@@ -90,6 +90,13 @@ func TestCWDLabelIsPathSafeAndEnforcesFolderLeaveOut(t *testing.T) {
 	if label != "~/private/repo" {
 		t.Fatalf("cwd label = %q; want home-relative path", label)
 	}
+	outside, err := filepath.Abs(filepath.Join(string(filepath.Separator), "coslash-outside-home", "smoke\nrun", "app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := cwdLabel(outside), strings.ReplaceAll(filepath.ToSlash(outside), "\n", "_"); got != want {
+		t.Fatalf("outside-home label = %q; want the full path %q", got, want)
+	}
 	if leftOut(hubclient.V4Session{CWDLabel: label}, []string{"~/private"}) != true {
 		t.Fatal("folder leave-out did not match a child directory")
 	}
