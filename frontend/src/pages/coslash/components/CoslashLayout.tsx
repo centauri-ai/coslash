@@ -1144,14 +1144,21 @@ export function CoslashLayout({
 
   const sessionGroups = useMemo(() => {
     const groupsById = new Map<string, Group>();
+    const legacyIdsByGroup = new Map<string, Set<string>>();
     const sessionGroupIds: [string, string][] = [];
     for (const session of sessions) {
       const group = detectedGroup(session);
-      const existing = groupsById.get(group.id);
-      if (existing) existing.legacyIds = [...new Set([...existing.legacyIds, ...group.legacyIds])];
-      else groupsById.set(group.id, group);
+      const existing = groupsById.has(group.id);
+      if (existing) {
+        const legacyIds = legacyIdsByGroup.get(group.id)!;
+        for (const legacyId of group.legacyIds) legacyIds.add(legacyId);
+      } else {
+        groupsById.set(group.id, group);
+        legacyIdsByGroup.set(group.id, new Set(group.legacyIds));
+      }
       sessionGroupIds.push([sessionKey(session), group.id]);
     }
+    for (const [id, group] of groupsById) group.legacyIds = [...legacyIdsByGroup.get(id)!];
     const result = new Map<string, Group>();
     for (const [key, id] of sessionGroupIds) result.set(key, groupsById.get(id)!);
     return result;
