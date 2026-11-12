@@ -586,7 +586,7 @@ function CoslashHeader({
                 key={value}
                 type="button"
                 className={cn(
-                  'text-coslash-muted hover:bg-coslash-surface grid size-7 cursor-pointer place-items-center rounded-[7px] [&>svg]:size-3.5',
+                  'text-coslash-muted hover:bg-coslash-surface grid size-7 cursor-pointer place-items-center rounded-[7px] disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-3.5',
                   { 'bg-coslash-surface text-coslash-ink shadow-sm': theme === value },
                 )}
                 aria-label={`${value === 'light' ? 'Light' : 'Dark'} theme`}
