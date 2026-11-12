@@ -397,6 +397,7 @@ func (manager *Manager) applySettings(remote *settings.RemoteSettings, save func
 			aliasesToClose = append(aliasesToClose, previous.SSHAlias)
 			manager.helper = nil
 			manager.helperTarget = nil
+			manager.helperProbe = helperProbeFallback
 		}
 	}
 	copyConfig := *remote

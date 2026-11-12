@@ -615,6 +615,31 @@ func TestNonAutoDiscoveryReleasesStaleAutoSetup(t *testing.T) {
 	})
 }
 
+func TestDisabledAliasChangeFallsBack(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	manager := NewManager(Options{Cache: NewCache(filepath.Join(home, "remote-cache"))})
+	config := settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(&config); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	manager.helperTarget = &helperTarget{path: "~/.coslash/helpers/v1/coslash-helper", version: "v1"}
+	manager.helperProbe = helperProbeReady
+	manager.mu.Unlock()
+	moved := config
+	moved.SSHAlias = "new-box"
+	moved.Enabled = false
+	if err := manager.ApplySettings(&moved); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.helperTarget != nil || manager.helperProbe != helperProbeFallback {
+		t.Fatalf("disabled alias change probe=%q target=%#v", manager.helperProbe, manager.helperTarget)
+	}
+}
+
 func TestHelperVersionStoreFailureFallsBack(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
