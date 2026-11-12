@@ -125,6 +125,13 @@ function cssColor(block: string, variable: string): string {
 }
 
 describe('CoslashLayout', () => {
+  it('does not quote an empty group filter when there are no groups', () => {
+    const markup = renderLayout({ sessions: [] });
+
+    expect(markup).not.toContain('No groups match');
+    expect(markup).toContain('No groups yet.');
+  });
+
   it('shows the monthly insights view with existing session data', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 7, 15));
