@@ -228,17 +228,19 @@ function folderRoot(cwd: string, repo: string): string {
   return depth === -1 ? cwd : parts.slice(0, depth + 1).join('/');
 }
 
+/** `~/…` inside a recognizable home folder (`~` for home itself), else the full path, as on the Hub. */
 function homeRelativeLabel(path: string): string {
   const parts = path.split('/').filter(Boolean);
+  const inHome = (rest: string[]) => (rest.length ? `~/${rest.join('/')}` : '~');
   const drive = /^[A-Za-z]:$/.test(parts[0] ?? '');
   if (
     drive
       ? parts[1]?.toLowerCase() === 'users' && parts.length > 2
       : parts[0] === 'home' || parts[0] === 'Users'
   ) {
-    return parts.slice(drive ? 3 : 2).join('/') || '~';
+    return inHome(parts.slice(drive ? 3 : 2));
   }
-  if (parts[0] === 'root') return parts.slice(1).join('/') || '~';
+  if (parts[0] === 'root') return inHome(parts.slice(1));
   return path;
 }
 
