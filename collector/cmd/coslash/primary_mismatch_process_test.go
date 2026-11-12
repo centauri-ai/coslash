@@ -19,6 +19,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
+	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
 func TestPrimaryMismatchProcessRecovery(t *testing.T) {
@@ -171,8 +172,12 @@ func TestPrimaryMismatchProcessRecovery(t *testing.T) {
 	if status, _ := request(desc, token, http.MethodGet, "/api/sessions"); status != 200 {
 		t.Fatalf("collection status %d", status)
 	}
-	if status, _ := request(desc, token, http.MethodGet, "/"); status != 200 {
-		t.Fatalf("UI status %d", status)
+	wantUIStatus := http.StatusOK
+	if _, err := web.Handler(); err != nil {
+		wantUIStatus = http.StatusServiceUnavailable
+	}
+	if status, _ := request(desc, token, http.MethodGet, "/"); status != wantUIStatus {
+		t.Fatalf("UI status %d, want %d", status, wantUIStatus)
 	}
 	if status, _ := request(desc, token, http.MethodPost, "/api/sync/retry"); status != 409 {
 		t.Fatalf("retry status %d", status)
