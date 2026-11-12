@@ -27,10 +27,14 @@ func verifyPrimaryBinding(client *hubclient.Client, controller *syncController) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	binding, err := client.V4Binding(ctx)
-	if errors.Is(err, hubclient.ErrNotPaired) {
+	credential, err := client.Credentials.Load(ctx)
+	if errors.Is(err, hubclient.ErrNotPaired) || (err == nil && credential == "") {
 		return false, nil
 	}
+	if err != nil {
+		return false, err
+	}
+	binding, err := (&hubclient.Client{BaseURL: client.BaseURL, Credentials: fixedCredential(credential)}).V4Binding(ctx)
 	if err != nil {
 		return false, err
 	}

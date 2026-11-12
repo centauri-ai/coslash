@@ -240,6 +240,24 @@ func TestPrimaryHubRuntimeEmptyInstallDoesNotCommit(t *testing.T) {
 	runtime.workers.StopAll()
 }
 
+func TestPrimaryHubRuntimeEmptyCredentialIsUnpaired(t *testing.T) {
+	client, _ := primaryRuntimeFixture(t, "")
+	client.Credentials = fixedCredential("")
+	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
+	c := primaryRuntimeController(t, started, stopped)
+	runtime, selected, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Ensure(selected); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.registry.snapshot().Primary != "" {
+		t.Fatal("empty credential was migrated")
+	}
+	runtime.workers.StopAll()
+}
+
 func TestPrimaryHubRuntimeDoesNotStartSecondary(t *testing.T) {
 	client, _ := primaryRuntimeFixture(t, "credential")
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
