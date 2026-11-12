@@ -922,3 +922,46 @@ func TestDiscardAbandonedDeletesPreparedBundles(t *testing.T) {
 		t.Fatalf("discards left: %v", got)
 	}
 }
+
+func excludedParkedQueue(t *testing.T, sourceBlocked bool) *Queue {
+	t.Helper()
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex", Repo: "owner/private"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry := queue.Entries()[0]
+	entry.Excluded, entry.SourceBlocked = true, sourceBlocked
+	entry.ParkedVersion, entry.BackoffAttempt, entry.RetryAt = "1.0.0", 2, now.Add(time.Hour)
+	if err := queue.Update(entry); err != nil {
+		t.Fatal(err)
+	}
+	return queue
+}
+
+func TestApplyExclusionsReleasesParkOnInclude(t *testing.T) {
+	queue := excludedParkedQueue(t, false)
+	runner := Runner{Queue: queue}
+	if err := runner.applyExclusions(); err != nil {
+		t.Fatal(err)
+	}
+	got := queue.Entries()[0]
+	if got.Excluded || got.ParkedVersion != "" || got.BackoffAttempt != 0 || !got.RetryAt.IsZero() {
+		t.Fatalf("included entry kept park state: %+v", got)
+	}
+}
+
+func TestApplyExclusionsKeepsSourceBlockedPark(t *testing.T) {
+	queue := excludedParkedQueue(t, true)
+	runner := Runner{Queue: queue}
+	if err := runner.applyExclusions(); err != nil {
+		t.Fatal(err)
+	}
+	got := queue.Entries()[0]
+	if got.Excluded || got.ParkedVersion != "1.0.0" || !got.SourceBlocked {
+		t.Fatalf("source-blocked park released: %+v", got)
+	}
+}

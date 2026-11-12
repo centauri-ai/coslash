@@ -557,6 +557,9 @@ func (r *Runner) applyExclusions() error {
 			continue
 		}
 		entry.Excluded, entry.FailureCode = excluded, ""
+		if !excluded && !entry.SourceBlocked {
+			entry.ParkedVersion, entry.BackoffAttempt, entry.RetryAt = "", 0, time.Time{}
+		}
 		if err := r.Queue.Update(entry); err != nil {
 			return err
 		}
