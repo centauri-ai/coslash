@@ -15,6 +15,7 @@ import {
 } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { LOCAL_SOURCE_ID, withLocalSourceDefaults, type Session } from '@/pages/coslash/lib/session';
+import type { TimeWindow } from '@/pages/coslash/lib/time-window';
 
 vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/pages/coslash/lib/api')>()),
@@ -333,6 +334,25 @@ describe('useSessions reload failures', () => {
     vi.mocked(apiFetch).mockRejectedValueOnce(new ApiAuthenticationError());
     await act(async () => state.refreshSessions());
     expect(state.sessions).toEqual([]);
+    expect(state.loadError).not.toBeNull();
+  });
+
+  it('reports a failure after the window changes and returns before the change loads', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(sessionsResponse());
+    function Harness({ localWindow }: { localWindow: TimeWindow }) {
+      const value = useSessions({ localWindow, remoteWindow: 'all' });
+      useEffect(() => {
+        state = value;
+      });
+      return null;
+    }
+    await act(async () => root.render(createElement(Harness, { localWindow: 'all' })));
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise<Response>(() => {}));
+    await act(async () => root.render(createElement(Harness, { localWindow: '7d' })));
+    expect(state.isLoading).toBe(true);
+    vi.mocked(apiFetch).mockResolvedValueOnce(new Response('', { status: 500 }));
+    await act(async () => root.render(createElement(Harness, { localWindow: 'all' })));
+    expect(state.isLoading).toBe(false);
     expect(state.loadError).not.toBeNull();
   });
 });
