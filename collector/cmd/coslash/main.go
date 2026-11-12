@@ -548,7 +548,8 @@ func discoverLocalBatches(ctx context.Context, fingerprints *syncv4.Fingerprints
 		return err
 	}
 	var resume *inventory.Cursor
-	if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
+	binding, saved := queue.DiscoveryCursor()
+	if len(saved) != 0 {
 		resume = inventory.DecodeCursor(saved)
 	}
 	plan, startedAt := queue.DiscoveryPlan()
@@ -567,7 +568,7 @@ func discoverLocalBatches(ctx context.Context, fingerprints *syncv4.Fingerprints
 		if err != nil {
 			return err
 		}
-		if err := fingerprints.SaveDiscoveryCursor(encoded); err != nil {
+		if err := queue.SaveDiscoveryCursor(binding, encoded); err != nil {
 			return err
 		}
 	}

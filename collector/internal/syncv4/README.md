@@ -231,9 +231,10 @@ documentation) and records it in the queue file. The check-in reports it as
 capability in its request. `COSLASH_SCALE_IMPORT=0` turns the cache, the
 inventory and the capability off and restores full-parse discovery. Streamed
 discovery (`inventory.Discover`) yields whole families newest first in
-batches and persists a cursor (`discovery-cursor.json`) after each batch so a
+batches and persists a cursor in its bound queue after each batch so a
 restart resumes below it and revisits families that changed since the
-pass began. Pi always revisits its planned sources. Before stat-only inventory,
+pass began. An older unbound fingerprint cursor is not adopted because its Hub
+binding cannot be established; discovery safely scans again. Pi always revisits its planned sources. Before stat-only inventory,
 startup resolves Pi settings, runtime roots, project roots, and header identities
 through Pi's existing planner. Inventory only stats the resulting selected paths;
 it does not read session contents or run a second discovery scanner.

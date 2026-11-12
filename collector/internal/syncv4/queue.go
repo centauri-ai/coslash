@@ -100,6 +100,7 @@ type state struct {
 	InstallID            string             `json:"installId"`
 	CapUnstable          int64              `json:"cap_unstable,omitempty"`
 	Binding              string             `json:"binding,omitempty"`
+	DiscoveryCursor      json.RawMessage    `json:"discoveryCursor,omitempty"`
 	Entries              []Entry            `json:"entries"`
 	ConfigVersion        int64              `json:"configVersion,omitempty"`
 	Config               hubclient.V4Config `json:"config"`
@@ -267,6 +268,32 @@ func storedInventoryHasD60(data []byte) bool {
 
 func (q *Queue) InstallID() string { q.mu.Lock(); defer q.mu.Unlock(); return q.state.InstallID }
 
+// DiscoveryCursor belongs to the queue binding and is updated under the same
+// lock as Rebind so an old discovery pass cannot publish to a new binding.
+func (q *Queue) DiscoveryCursor() (string, json.RawMessage) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.state.Binding, append(json.RawMessage(nil), q.state.DiscoveryCursor...)
+}
+
+func (q *Queue) SaveDiscoveryCursor(binding string, cursor json.RawMessage) error {
+	if !json.Valid(cursor) {
+		return errors.New("invalid discovery cursor")
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if binding != q.state.Binding {
+		return errors.New("discovery binding changed")
+	}
+	prior := q.state.DiscoveryCursor
+	q.state.DiscoveryCursor = append(json.RawMessage(nil), cursor...)
+	if err := q.save(); err != nil {
+		q.state.DiscoveryCursor = prior
+		return err
+	}
+	return nil
+}
+
 func (q *Queue) Rebind(binding string) error {
 	if len(binding) != 64 {
 		return errors.New("invalid v4 binding")
@@ -281,6 +308,7 @@ func (q *Queue) Rebind(binding string) error {
 	priorDiagnostics := q.diagnosticsAdvertised
 	q.diagnosticsAdvertised = false
 	q.state.HubCapabilities = nil
+	q.state.DiscoveryCursor = nil
 	if q.state.Binding != "" {
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]

@@ -1,6 +1,7 @@
 package syncv4
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,50 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 )
+
+func TestDiscoveryCursorIsScopedToBindingAndQueue(t *testing.T) {
+	root := t.TempDir()
+	first, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	if err := first.Rebind(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Rebind(b); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.SaveDiscoveryCursor(a, json.RawMessage(`{"plan":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.SaveDiscoveryCursor(b, json.RawMessage(`{"plan":2}`)); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding, cursor := reopened.DiscoveryCursor(); binding != a || string(cursor) != `{"plan":1}` {
+		t.Fatalf("reopened binding=%q cursor=%s", binding, cursor)
+	}
+	if err := first.Rebind(b); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.SaveDiscoveryCursor(a, json.RawMessage(`{"stale":true}`)); err == nil {
+		t.Fatal("old pass saved after rebind")
+	}
+	if _, cursor := first.DiscoveryCursor(); len(cursor) != 0 {
+		t.Fatalf("rebound cursor = %s", cursor)
+	}
+	if _, cursor := second.DiscoveryCursor(); string(cursor) != `{"plan":2}` {
+		t.Fatalf("other cursor = %s", cursor)
+	}
+}
 
 func TestQueuePersistsInstallIdentityAndRecentFirstProgress(t *testing.T) {
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
