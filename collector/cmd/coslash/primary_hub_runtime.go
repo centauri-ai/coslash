@@ -250,7 +250,10 @@ func (p *primaryHubRuntime) hubSignalTarget(raw string, includePrimary bool) (bo
 		return true, false, ""
 	}
 	state := p.registry.snapshot()
-	if state.Primary == "" || (origin == state.Primary && !includePrimary) {
+	if state.Primary == "" {
+		return true, false, origin
+	}
+	if origin == state.Primary && !includePrimary {
 		return false, false, origin
 	}
 	for _, connection := range state.Connections {

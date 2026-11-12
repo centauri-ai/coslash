@@ -372,3 +372,33 @@ func TestPrimaryHubRuntimeUnpairedBoundQueueCannotChangeSelector(t *testing.T) {
 	}
 	runtime.workers.StopAll()
 }
+
+func TestUnknownSignalDoesNotAdoptUnregisteredPrimary(t *testing.T) {
+	client, store := primaryRuntimeFixture(t, "")
+	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
+	controller := primaryRuntimeController(t, started, stopped)
+	runtime, _, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), "orphan-credential"); err != nil {
+		t.Fatal(err)
+	}
+	manager := newOnboardingManager("1.2.3")
+	defer manager.Close()
+	manager.setSyncHooks(runtime)
+	if err := manager.RetryCheckIn(client.BaseURL.String()); err == nil {
+		t.Fatal("unknown check-in was accepted")
+	}
+	if err := manager.RequestWake(client.BaseURL.String()); !errors.Is(err, errForeignWakeHub) {
+		t.Fatalf("unknown wake: %v", err)
+	}
+	if runtime.registry.snapshot().Primary != "" {
+		t.Fatal("unknown signal registered a primary")
+	}
+	select {
+	case <-started:
+		t.Fatal("unknown signal started sync")
+	default:
+	}
+}
