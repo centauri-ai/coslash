@@ -276,3 +276,40 @@ func TestConfirmUpdateHandoffRefusesFailed(t *testing.T) {
 		t.Fatalf("failed attempt changed: %+v", got)
 	}
 }
+
+func failedUpdateQueue(t *testing.T, now time.Time, expiry time.Time) *Queue {
+	t.Helper()
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	acceptTestUpdate(t, q, id, "1.2.3", expiry, now.Add(-2*time.Minute), false)
+	if err = q.SetUpdateStage(id, "failed", "update_failed"); err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+func TestAcceptUpdateReplacesExpiredFailedAttempt(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	q := failedUpdateQueue(t, now, now.Add(-time.Minute))
+	const next = "10000000-0000-4000-8000-000000000002"
+	acceptTestUpdate(t, q, next, "1.2.3", now.Add(time.Hour), now, false)
+	if got := q.PendingUpdate(); got.ID != next || got.Stage != "picked_up" {
+		t.Fatalf("expired failed attempt kept: %+v", got)
+	}
+}
+
+func TestAcceptUpdateKeepsUnexpiredFailedAttempt(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	q := failedUpdateQueue(t, now, now.Add(time.Minute))
+	const next = "10000000-0000-4000-8000-000000000002"
+	payload, _ := json.Marshal(map[string]any{"attemptId": next, "targetVersion": "1.2.4", "expiresAt": now.Add(time.Hour)})
+	if err := q.AcceptUpdate(hubclient.V4Command{ID: next, Type: "update", Payload: payload}, "1.2.3", now); err == nil || err.Error() != "another update is active" {
+		t.Fatalf("unexpired failed attempt replaced: %v", err)
+	}
+	if got := q.PendingUpdate(); got.Stage != "failed" || got.ID == next {
+		t.Fatalf("unexpired failed attempt changed: %+v", got)
+	}
+}
