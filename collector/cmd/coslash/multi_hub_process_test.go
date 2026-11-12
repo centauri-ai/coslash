@@ -279,97 +279,32 @@ func TestTwoHubProductionProcess(t *testing.T) {
 	drainWorkerSignals(primary.checkins)
 	post(p, "/api/sync/retry", map[string]any{})
 	wait("primary after secondary revocation", primary.checkins)
-	secondary.pairCredential.Store("secondary-new-account")
-	raw = post(p, "/api/hubs/re-pairings", map[string]any{"origin": secondary.server.URL, "consent": true})
-	pairing.ID = ""
-	if json.Unmarshal(raw, &pairing) != nil || pairing.ID == "" {
-		t.Fatalf("recovery pairing %s", raw)
-	}
-	raw = post(p, "/api/hubs/pairings/"+pairing.ID+"/poll", map[string]any{})
-	if !strings.Contains(string(raw), "binding_mismatch") {
-		t.Fatalf("recovery without new-binding consent %s", raw)
-	}
+	post(p, "/api/hubs/disable", map[string]string{"origin": secondary.server.URL})
 	queuePath := filepath.Join(secondaryRoot, "sync-v4", "queue.json")
 	oldQueue, err := os.ReadFile(queuePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldSpool := filepath.Join(secondaryRoot, "prepared", "quarantine-fixture")
+	oldSpool := filepath.Join(secondaryRoot, "prepared", "pending-fixture")
 	if err := os.MkdirAll(filepath.Dir(oldSpool), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(oldSpool, []byte("old-account"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	raw = post(p, "/api/hubs/re-pairings", map[string]any{"origin": secondary.server.URL, "consent": true, "newBindingConsent": true})
-	pairing.ID = ""
-	if json.Unmarshal(raw, &pairing) != nil || pairing.ID == "" {
-		t.Fatalf("new-binding pairing %s", raw)
+	pairRequest, _ := json.Marshal(map[string]any{"origin": secondary.server.URL, "consent": true})
+	if code, _ := request(p, http.MethodPost, "/api/hubs/pairings", string(pairRequest)); code != http.StatusConflict {
+		t.Fatalf("existing secondary accepted pairing: %d", code)
 	}
-	raw = post(p, "/api/hubs/pairings/"+pairing.ID+"/poll", map[string]any{})
-	if !strings.Contains(string(raw), "recovered_new_binding_disabled") {
-		t.Fatalf("new-binding recovery %s", raw)
-	}
-	if got, err := os.ReadFile(queuePath); err != nil || !bytes.Equal(got, oldQueue) {
-		t.Fatal("new binding changed old queue")
-	}
-	if got, err := os.ReadFile(oldSpool); err != nil || string(got) != "old-account" {
-		t.Fatal("new binding changed old spool")
-	}
-	secondary.expectedCredential.Store("secondary-new-account")
-	secondary.mode.Store(0)
-	post(p, "/api/hubs/enable", map[string]any{"origin": secondary.server.URL, "consent": true})
-	wait("secondary after recovery", secondary.checkins)
 	stop(p)
 	drainWorkerSignals(primary.checkins)
-	drainWorkerSignals(secondary.checkins)
 	p = start()
-	wait("primary after restart", primary.checkins)
-	wait("secondary after restart", secondary.checkins)
-	code, data = request(p, http.MethodGet, "/api/hubs/status", "")
-	if code != 200 || !strings.Contains(string(data), secondary.server.URL) || !strings.Contains(string(data), `"quarantined":1`) {
-		t.Fatalf("Hub status %d %s", code, data)
-	}
+	wait("primary after secondary revocation and restart", primary.checkins)
 	stop(p)
 	if got, err := os.ReadFile(queuePath); err != nil || !bytes.Equal(got, oldQueue) {
-		t.Fatal("new account reused old queue")
+		t.Fatal("secondary queue changed after revocation")
 	}
 	if got, err := os.ReadFile(oldSpool); err != nil || string(got) != "old-account" {
-		t.Fatal("new account used old spool")
-	}
-	registryBytes, err := os.ReadFile(filepath.Join(home, "hub-connections", "registry.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var registryState hubRegistryState
-	if json.Unmarshal(registryBytes, &registryState) != nil {
-		t.Fatal("invalid registry after recovery")
-	}
-	var generation string
-	for _, connection := range registryState.Connections {
-		if connection.Origin == secondary.server.URL {
-			generation = connection.Generation
-		}
-	}
-	if !validHubGeneration(generation) {
-		t.Fatal("new generation was not persisted")
-	}
-	newQueueBytes, err := os.ReadFile(filepath.Join(secondaryRoot, "generations", generation, "sync-v4", "queue.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var newQueue struct {
-		InstallID string `json:"installId"`
-		Entries   []struct {
-			Key string `json:"key"`
-		} `json:"entries"`
-	}
-	if json.Unmarshal(newQueueBytes, &newQueue) != nil || newQueue.InstallID == "" || newQueue.InstallID == idB {
-		t.Fatal("new account reused old install ID")
-	}
-	for _, entry := range newQueue.Entries {
-		if entry.Key == "synthetic-key" {
-			t.Fatal("old queued work reached new account")
-		}
+		t.Fatal("secondary spool changed after revocation")
 	}
 }

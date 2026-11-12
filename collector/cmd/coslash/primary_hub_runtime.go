@@ -235,12 +235,16 @@ func (p *primaryHubRuntime) adopt(origin string) error {
 // supervisor slot once pairing has been verified and committed.
 func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 	state := p.registry.snapshot()
-	if client == nil || client.BaseURL == nil || client.Credentials == nil {
+	ensureLegacy := func() error {
 		if state.Primary == "" {
 			return p.controller.Ensure(client)
 		}
-		slot := p.workers.slot(state.Primary)
-		return slot.execute(func() error { return p.controller.ensure(context.Background(), client) })
+		return p.workers.slot(state.Primary).execute(func() error {
+			return p.controller.ensure(context.Background(), client)
+		})
+	}
+	if client == nil || client.BaseURL == nil || client.Credentials == nil {
+		return ensureLegacy()
 	}
 	if state.Primary != "" {
 		for _, c := range state.Connections {
@@ -257,11 +261,7 @@ func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 		}
 	}
 	if !hubclient.V4SyncEnabled() {
-		if state.Primary == "" {
-			return p.controller.Ensure(client)
-		}
-		slot := p.workers.slot(state.Primary)
-		return slot.execute(func() error { return p.controller.ensure(context.Background(), client) })
+		return ensureLegacy()
 	}
 	paired, err := verifyPrimaryBinding(client, p.controller)
 	if err != nil {
@@ -275,11 +275,7 @@ func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 		return err
 	}
 	if !paired {
-		if state.Primary == "" {
-			return p.controller.Ensure(client)
-		}
-		slot := p.workers.slot(state.Primary)
-		return slot.execute(func() error { return p.controller.ensure(context.Background(), client) })
+		return ensureLegacy()
 	}
 	origin, err := canonicalRegistryOrigin(client.BaseURL.String())
 	if err != nil {

@@ -165,61 +165,21 @@ it('requires separate consent, shows pending and declined states, and manages ea
   mount.remove();
 });
 
-it('requires explicit new-binding consent, preserves errors and ignores closed attempts', async () => {
+it('directs revoked secondary connections to support', async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  let resolvePoll: ((value: Response) => void) | undefined;
-  let pollSignal: AbortSignal | null | undefined;
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input);
-    if (path === '/api/hubs/status') return response([primary, { ...secondary, state: 'disconnected' }]);
-    if (path === '/api/hubs/recovery-disclosure')
-      return response({
-        disclosure: 'Old pending data stays on this computer and will not be sent to the new account.',
-      });
-    if (path === '/api/hubs/re-pairings') {
-      expect(JSON.parse(String(init?.body))).toEqual({
-        origin: secondary.origin,
-        consent: true,
-        newBindingConsent: true,
-      });
-      return response(
-        { id: 'b'.repeat(32), pairing: { userCode: 'EFGH', verificationUri: `${secondary.origin}/approve` } },
-        201,
-      );
-    }
-    if (path.endsWith('/poll')) {
-      pollSignal = init?.signal;
-      return new Promise<Response>((resolve) => {
-        resolvePoll = resolve;
-      });
-    }
-    throw new Error(`Unexpected ${path}`);
-  });
-  vi.stubGlobal('fetch', fetchMock);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response([primary, { ...secondary, state: 'disconnected' }])),
+  );
   const mount = document.createElement('div');
   document.body.append(mount);
   const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
+  await act(async () => root.render(<HubConnectionsSection />));
   await settle();
-  await click(button('Recover pairing'));
-  await settle();
-  expect(document.body.textContent).toContain('will not be sent to the new account');
-  expect(button('Start recovery').disabled).toBe(true);
-  await click(checkbox(0));
-  await click(checkbox(1));
-  await click(button('Start recovery'));
-  await settle();
-  await click(button('Check approval'));
+  expect(document.body.textContent).toContain('contact support; pending data stays on this computer');
+  expect(document.body.textContent).not.toContain('Recover pairing');
   await act(async () => root.unmount());
   mount.remove();
-  expect(pollSignal?.aborted).toBe(true);
-  await act(async () => {
-    resolvePoll?.(response({ state: 'recovered_new_binding_disabled' }));
-    await Promise.resolve();
-  });
-  expect(fetchMock.mock.calls.filter(([path]) => String(path) === '/api/hubs/enable')).toHaveLength(0);
 });
 
 it('shows server errors and allows status loading to be retried', async () => {
@@ -246,79 +206,6 @@ it('shows server errors and allows status loading to be retried', async () => {
   await click(button('Retry loading'));
   await settle();
   expect(button('Add Hub').disabled).toBe(false);
-  await act(async () => root.unmount());
-  mount.remove();
-});
-
-it('shows new-binding recovery as disabled and surfaces an enable failure', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  let quarantined = 0;
-  let enableCalls = 0;
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path === '/api/hubs/status')
-        return response([primary, { ...secondary, state: 'disconnected', quarantined }]);
-      if (path.endsWith('-disclosure'))
-        return response({
-          disclosure:
-            'Old pending data stays on this computer; eligible sessions may upload after you enable sync.',
-        });
-      if (path === '/api/hubs/re-pairings') {
-        expect(JSON.parse(String(init?.body))).toEqual({
-          origin: secondary.origin,
-          consent: true,
-          newBindingConsent: true,
-        });
-        return response(
-          {
-            id: 'c'.repeat(32),
-            pairing: { userCode: 'CODE', verificationUri: `${secondary.origin}/approve` },
-          },
-          201,
-        );
-      }
-      if (path.endsWith('/poll')) {
-        quarantined = 1;
-        return response({ state: 'recovered_new_binding_disabled' });
-      }
-      if (path === '/api/hubs/enable') {
-        enableCalls += 1;
-        return new Response('secondary Hub could not be enabled', { status: 409 });
-      }
-      throw new Error(`Unexpected ${path}`);
-    }),
-  );
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
-  await settle();
-  await click(button('Recover pairing'));
-  await settle();
-  await click(checkbox(0));
-  await click(checkbox(1));
-  await click(button('Start recovery'));
-  await settle();
-  await click(button('Check approval'));
-  await settle();
-  expect(document.body.textContent).toContain('Old pending data stays on this computer; sync is disabled');
-  expect(document.body.textContent).toContain('Old pending data kept on this computer (1)');
-  expect(enableCalls).toBe(0);
-  await click(button('Close'));
-  await click(button('Enable'));
-  await settle();
-  await click(checkbox(0));
-  await click(button('Enable sync'));
-  await settle();
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    'secondary Hub could not be enabled',
-  );
-  expect(enableCalls).toBe(1);
-  expect(button('Enable sync')).not.toBeNull();
   await act(async () => root.unmount());
   mount.remove();
 });
@@ -395,16 +282,16 @@ it('shows an origin-scoped connection failure instead of claiming the Hub is con
 
 it('clears the old disclosure when changing flows and ignores its late response', async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  let resolveRecovery: ((value: Response) => void) | undefined;
+  let resolvePairing: ((value: Response) => void) | undefined;
   let resolveEnable: ((value: Response) => void) | undefined;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path === '/api/hubs/status') return response([primary, secondary]);
-      if (path === '/api/hubs/recovery-disclosure')
+      if (path === '/api/hubs/pairing-disclosure')
         return new Promise<Response>((resolve) => {
-          resolveRecovery = resolve;
+          resolvePairing = resolve;
         });
       if (path === '/api/hubs/enable-disclosure')
         return new Promise<Response>((resolve) => {
@@ -418,22 +305,22 @@ it('clears the old disclosure when changing flows and ignores its late response'
   const root = createRoot(mount);
   await act(async () => root.render(<HubConnectionsSection />));
   await settle();
-  await click(button('Recover pairing'));
+  await click(button('Add Hub'));
   await click(button('Enable'));
   expect(button('Enable sync').disabled).toBe(true);
   await act(async () => {
-    resolveRecovery?.(response({ disclosure: 'Old recovery disclosure' }));
+    resolvePairing?.(response({ disclosure: 'Old pairing disclosure' }));
   });
-  expect(document.body.textContent).not.toContain('Old recovery disclosure');
+  expect(document.body.textContent).not.toContain('Old pairing disclosure');
   await act(async () => {
     resolveEnable?.(response({ disclosure: 'Enable disclosure' }));
   });
   expect(document.body.textContent).toContain('Enable disclosure');
   await click(checkbox(0));
   expect(button('Enable sync').disabled).toBe(false);
-  await click(button('Recover pairing'));
+  await click(button('Add Hub'));
   expect(document.body.textContent).not.toContain('Enable disclosure');
-  expect(button('Start recovery').disabled).toBe(true);
+  expect(button('Start pairing').disabled).toBe(true);
   await act(async () => root.unmount());
   mount.remove();
 });

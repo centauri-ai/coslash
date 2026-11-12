@@ -10,7 +10,7 @@ type Hub = {
   quarantined: number;
   failure?: string;
 };
-type Flow = { kind: 'add' | 'recover' | 'enable'; origin: string };
+type Flow = { kind: 'add' | 'enable'; origin: string };
 type Pairing = { id: string; code: string; url: string; state: string };
 
 const statusLabels: Record<string, string> = {
@@ -34,15 +34,6 @@ const resultLabels: Record<string, string> = {
   credential_store_failed: 'The device credential could not be saved.',
   failed: 'Pairing could not be completed. Check the Hub status and try again.',
   paired_disabled: 'Paired. Sync is disabled until you separately enable it.',
-  recovered_disabled: 'Recovered. Sync is disabled until you separately enable it.',
-  recovered_new_binding_disabled:
-    'Connected with a new credential. Old pending data stays on this computer; sync is disabled.',
-  binding_mismatch:
-    'This connection does not match the previous one and may belong to a different account. Recover again and choose to keep old pending data on this computer if you want to connect it.',
-  binding_unknown: 'The previous account could not be verified. Pending data remains on this computer.',
-  recovery_status_unknown: 'Recovery is uncertain. Check Hub status before trying again.',
-  quarantine_limit:
-    'No more old pending data can be retained for this Hub. Existing data remains on this computer.',
 };
 
 function canonicalOrigin(raw: string): string | null {
@@ -114,7 +105,6 @@ export function HubConnectionsSection() {
   const [disclosure, setDisclosure] = useState<string | null>(null);
   const [disclosureRetry, setDisclosureRetry] = useState(0);
   const [consent, setConsent] = useState(false);
-  const [newBindingConsent, setNewBindingConsent] = useState(false);
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +151,7 @@ export function HubConnectionsSection() {
   useEffect(() => {
     if (!flow) return;
     const controller = new AbortController();
-    const path = flow.kind === 'add' ? 'pairing' : flow.kind === 'recover' ? 'recovery' : 'enable';
+    const path = flow.kind === 'add' ? 'pairing' : 'enable';
     void request(`/api/hubs/${path}-disclosure`, { signal: controller.signal })
       .then((value) => {
         if (controller.signal.aborted || !alive.current) return;
@@ -187,7 +177,6 @@ export function HubConnectionsSection() {
     setDisclosure(null);
     setOriginInput(origin);
     setConsent(false);
-    setNewBindingConsent(false);
     setPairing(null);
     setMessage(null);
     setError(null);
@@ -242,46 +231,41 @@ export function HubConnectionsSection() {
       });
       return;
     }
-    const path = flow.kind === 'recover' ? '/api/hubs/re-pairings' : '/api/hubs/pairings';
-    void perform(
-      path,
-      { origin, consent: true, ...(flow.kind === 'recover' ? { newBindingConsent } : {}) },
-      (value) => {
-        if (value == null || typeof value !== 'object') throw new Error('Invalid pairing response.');
-        const data = value as {
-          id?: unknown;
-          pairing?: { userCode?: unknown; verificationUri?: unknown; verificationUriComplete?: unknown };
-        };
-        const info = data.pairing;
-        if (
-          typeof data.id !== 'string' ||
-          !/^[0-9a-f]{32}$/.test(data.id) ||
-          !info ||
-          typeof info.userCode !== 'string' ||
-          typeof info.verificationUri !== 'string'
-        )
-          throw new Error('Invalid pairing response.');
-        const url =
-          typeof info.verificationUriComplete === 'string' && info.verificationUriComplete
-            ? info.verificationUriComplete
-            : info.verificationUri;
-        let verified: URL;
-        try {
-          verified = new URL(url);
-        } catch {
-          throw new Error('Invalid Hub approval link.');
-        }
-        if (
-          verified.protocol !== 'https:' ||
-          verified.origin !== origin ||
-          verified.username ||
-          verified.password
-        )
-          throw new Error('Invalid Hub approval link.');
-        setPairing({ id: data.id, code: info.userCode, url: verified.href, state: 'pending' });
-        setMessage('Waiting for approval in Hub. Pairing does not start sync.');
-      },
-    );
+    void perform('/api/hubs/pairings', { origin, consent: true }, (value) => {
+      if (value == null || typeof value !== 'object') throw new Error('Invalid pairing response.');
+      const data = value as {
+        id?: unknown;
+        pairing?: { userCode?: unknown; verificationUri?: unknown; verificationUriComplete?: unknown };
+      };
+      const info = data.pairing;
+      if (
+        typeof data.id !== 'string' ||
+        !/^[0-9a-f]{32}$/.test(data.id) ||
+        !info ||
+        typeof info.userCode !== 'string' ||
+        typeof info.verificationUri !== 'string'
+      )
+        throw new Error('Invalid pairing response.');
+      const url =
+        typeof info.verificationUriComplete === 'string' && info.verificationUriComplete
+          ? info.verificationUriComplete
+          : info.verificationUri;
+      let verified: URL;
+      try {
+        verified = new URL(url);
+      } catch {
+        throw new Error('Invalid Hub approval link.');
+      }
+      if (
+        verified.protocol !== 'https:' ||
+        verified.origin !== origin ||
+        verified.username ||
+        verified.password
+      )
+        throw new Error('Invalid Hub approval link.');
+      setPairing({ id: data.id, code: info.userCode, url: verified.href, state: 'pending' });
+      setMessage('Waiting for approval in Hub. Pairing does not start sync.');
+    });
   };
   const poll = () => {
     if (!pairing) return;
@@ -344,6 +328,12 @@ export function HubConnectionsSection() {
               {hub.quarantined > 0 && ` · Old pending data kept on this computer (${hub.quarantined})`}
             </div>
             {hub.failure && <div role="alert">{hub.failure}</div>}
+            {!hub.primary && ['disconnected', 'not_connected', 'start_failed'].includes(hub.state) && (
+              <p>
+                Try again. If pairing was revoked or changed, contact support; pending data stays on this
+                computer.
+              </p>
+            )}
           </div>
           {!hub.primary && (
             <div className="flex flex-wrap gap-2">
@@ -379,20 +369,6 @@ export function HubConnectionsSection() {
                   Enable
                 </Button>
               )}
-              {(hub.state === 'disconnected' ||
-                hub.state === 'not_connected' ||
-                hub.state === 'start_failed' ||
-                !hub.enabled) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy || loadError != null}
-                  aria-label={`Recover ${hub.origin}`}
-                  onClick={() => openFlow('recover', hub.origin)}
-                >
-                  Recover pairing
-                </Button>
-              )}
             </div>
           )}
         </div>
@@ -401,17 +377,7 @@ export function HubConnectionsSection() {
         <p
           role={
             pairing &&
-            [
-              'declined',
-              'expired',
-              'cancelled',
-              'credential_store_failed',
-              'failed',
-              'binding_mismatch',
-              'binding_unknown',
-              'recovery_status_unknown',
-              'quarantine_limit',
-            ].includes(pairing.state)
+            ['declined', 'expired', 'cancelled', 'credential_store_failed', 'failed'].includes(pairing.state)
               ? 'alert'
               : 'status'
           }
@@ -428,11 +394,7 @@ export function HubConnectionsSection() {
       {flow && (
         <div className="border-coslash-line bg-coslash-soft flex min-w-0 flex-col gap-3 rounded-lg border p-3">
           <div className="text-sm font-semibold">
-            {flow.kind === 'add'
-              ? 'Add a Hub'
-              : flow.kind === 'recover'
-                ? `Recover ${flow.origin}`
-                : `Enable sync for ${flow.origin}`}
+            {flow.kind === 'add' ? 'Add a Hub' : `Enable sync for ${flow.origin}`}
           </div>
           {flow.kind === 'add' && !pairing && (
             <label className="flex flex-col gap-1 text-sm">
@@ -481,28 +443,13 @@ export function HubConnectionsSection() {
                 I agree for{' '}
                 {flow.kind === 'add' ? (canonicalOrigin(originInput) ?? 'the entered Hub') : flow.origin}.
               </label>
-              {flow.kind === 'recover' && (
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={newBindingConsent}
-                    onChange={(event) => setNewBindingConsent(event.target.checked)}
-                  />
-                  Keep the old pending data on this computer and allow a different connection, which may
-                  belong to another account.
-                </label>
-              )}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   disabled={busy || !consent || !disclosure || loadError != null}
                   onClick={submitFlow}
                 >
-                  {flow.kind === 'enable'
-                    ? 'Enable sync'
-                    : flow.kind === 'recover'
-                      ? 'Start recovery'
-                      : 'Start pairing'}
+                  {flow.kind === 'enable' ? 'Enable sync' : 'Start pairing'}
                 </Button>
                 <Button type="button" variant="outline" disabled={busy} onClick={closeFlow}>
                   Cancel

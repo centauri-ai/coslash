@@ -39,11 +39,7 @@ queue, install ID, discovery cursor and prepared spool. The primary keeps its
 existing queue and spool. Local pause applies to every worker; each Hub's policy
 and leave-out rules apply only to its own queue. Disabling one connection stops
 its worker before recording that decision and does not rebind another queue.
-Recovery compares the approved credential's binding with the existing queue
-without opening or rewriting it. With separate consent, a mismatched credential
-selects a fresh queue and spool; the old binding's queue and spool remain locally
-quarantined and are never replayed to the new account. Freshly discovered
-eligible sessions can sync after a separate enable action.
+If a secondary credential is revoked or its binding changes, Local stops that connection and retains its queue and spool. Recovery requires support; old pending data must not be replayed to another binding.
 
 For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed

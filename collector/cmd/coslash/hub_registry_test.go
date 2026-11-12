@@ -428,3 +428,27 @@ func TestHubRegistryV2KeepsConsentedSecondaryOnUpgrade(t *testing.T) {
 		t.Fatalf("v2 upgrade: %+v", state)
 	}
 }
+
+func TestHubRegistryKeepsEarlierRecoveryGeneration(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "hub-connections")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"version":3,"primary":"https://primary.example","connections":[{"origin":"https://primary.example","enabled":true},{"origin":"https://secondary.example","enabled":true,"syncConsent":true,"generation":"0123456789abcdef0123456789abcdef","quarantined":["legacy"]}]}`)
+	if _, err := writeHubRegistryFile(dir, data); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondary := registry.snapshot().Connections[1]
+	if !secondary.Enabled || secondary.Generation != "0123456789abcdef0123456789abcdef" || len(secondary.Quarantined) != 1 || secondary.Quarantined[0] != "legacy" {
+		t.Fatalf("existing recovery generation changed: %+v", secondary)
+	}
+	supervisor := &hubWorkerSupervisor{home: home}
+	if got := supervisor.secondaryRoot(secondary); filepath.Base(got) != secondary.Generation || filepath.Base(filepath.Dir(got)) != "generations" {
+		t.Fatalf("existing generation root changed: %s", got)
+	}
+}
