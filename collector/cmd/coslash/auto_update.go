@@ -754,7 +754,7 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 		}
 		if update := queue.PendingUpdate(); update != nil {
 			if update.LegacySettlement {
-				if update.HandoffReady || time.Now().Before(nextLegacySettlement) {
+				if update.HandoffReady || update.Stage == "failed" || time.Now().Before(nextLegacySettlement) {
 					continue
 				}
 				target, err := settleLegacyInstallation()
