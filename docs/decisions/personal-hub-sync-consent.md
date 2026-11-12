@@ -12,7 +12,7 @@
 - The default import covers recent activity from three days, capped at 30 sessions. Older history requires an explicit per-device backfill request.
 - A one-time backfill covers the selected window. Completion returns the device to live activity without another automatic history import.
 - Local pause, Hub pause, device-off policy, leave-out rules, and network or battery conditions restrict uploads. Failed check-ins or stale consent stop uploads.
-- Device revocation removes the stored credential and stops sync. Pairing or changing the Hub resets upload state for the new binding.
+- Device revocation removes the stored credential and stops sync. The primary runtime refuses a different credential or Hub binding while a bound queue exists, preserving pending work until an explicit recovery path is available (`collector/cmd/coslash/primary_hub_runtime.go`).
 - A pairing, check-in, or wake link from a Hub other than the paired one never switches Hubs on its own. Local keeps the current Hub and asks in its UI first.
 - A connect code from another Hub cannot replace a paired Hub without explicit Local consent, including when the current Hub is configured only through the environment. See `TestForeignConnectCodeRequiresLocalConsent` and `TestForeignConnectCodeChecksCurrentHubWithoutStoredSelector`.
 - V4 transfers only parsed session-record artifacts for supported local Codex, Claude, OpenCode, Cursor, Grok, and Pi families. Other artifact kinds remain in the private local spool. Pi forks sync as independent roots; their ancestors are private evidence, not uploaded family members.
