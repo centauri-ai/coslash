@@ -170,6 +170,8 @@ func bindingPinnedClient(client *hubclient.Client, binding string) *hubclient.Cl
 	return &hubclient.Client{
 		BaseURL: &base, HTTP: client.HTTP,
 		Credentials: bindingPinnedCredentials{inner: client.Credentials, base: base, binding: binding},
+		DeviceName:  client.DeviceName, CollectorVersion: client.CollectorVersion, InstallChannel: client.InstallChannel,
+		LoadSession: client.LoadSession, LoadSourceSession: client.LoadSourceSession, LoadFullSession: client.LoadFullSession,
 	}
 }
 

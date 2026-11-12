@@ -317,18 +317,22 @@ func main() {
 			return
 		case <-runtimeReadySignal:
 		}
+		controller.mu.RLock()
+		binding := controller.binding
+		controller.mu.RUnlock()
+		pinned := bindingPinnedClient(client, binding)
 		var inventoryRequest chan struct{}
 		if fingerprints != nil {
 			inventoryRequest = make(chan struct{}, 1)
 			go runInventoryWithRequests(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
-				if client == nil || client.Credentials == nil {
+				if pinned.Credentials == nil {
 					return false
 				}
-				credential, err := client.Credentials.Load(ctx)
+				credential, err := pinned.Credentials.Load(ctx)
 				return err == nil && credential != ""
 			}, inventoryRequest)
 		}
-		syncHub := currentHubTransport{current: func() *hubclient.Client { return client }, queue: queue}
+		syncHub := currentHubTransport{current: func() *hubclient.Client { return pinned }, queue: queue}
 		runner := &syncv4.Runner{
 			Version: collectorVersion,
 			Queue:   queue, Backup: backupManager, Hub: syncHub,

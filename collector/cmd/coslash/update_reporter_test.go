@@ -161,6 +161,18 @@ func pinnedFixture(t *testing.T, server *receiptServer, store *switchingCredenti
 
 var failedReceipt = hubclient.V4CommandResult{CommandID: fixtureUpdateID, Result: "failed", Error: "update_failed"}
 
+func TestBindingPinnedClientPreservesCheckInMetadata(t *testing.T) {
+	client := &hubclient.Client{BaseURL: mustParseURL(t, "https://hub.coslash.io"), Credentials: fixedCredential("credential"), DeviceName: "device", CollectorVersion: "1.2.3", InstallChannel: "test"}
+	binding, err := client.V4Binding(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := bindingPinnedClient(client, binding)
+	if pinned.DeviceName != client.DeviceName || pinned.CollectorVersion != client.CollectorVersion || pinned.InstallChannel != client.InstallChannel {
+		t.Fatal("pinned client lost check-in metadata")
+	}
+}
+
 // An origin check cannot tell two accounts on the same Hub apart; the credential
 // used for the request must itself belong to the binding that owns the receipt.
 func TestPinnedReporterClientRefusesAnotherCredentialOnTheSameOrigin(t *testing.T) {
