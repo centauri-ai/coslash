@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import { act, createElement, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeSessionsResponse,
   decodeSessionsResponseWithCostVersion,
@@ -8,8 +11,15 @@ import {
   sessionDetailRequestPath,
   sessionsRequestPath,
   synthesisRequestPath,
+  useSessions,
 } from '@/pages/coslash/hooks/use-sessions';
+import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { LOCAL_SOURCE_ID, withLocalSourceDefaults, type Session } from '@/pages/coslash/lib/session';
+
+vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/pages/coslash/lib/api')>()),
+  apiFetch: vi.fn(),
+}));
 
 function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
   const local = sourceId === LOCAL_SOURCE_ID;
@@ -263,5 +273,66 @@ describe('exact diff failures', () => {
       kind: 'other',
       message: 'Could not load this exact session revision’s file changes (502).',
     });
+  });
+});
+
+describe('useSessions reload failures', () => {
+  let root: ReturnType<typeof createRoot>;
+  let state: ReturnType<typeof useSessions>;
+
+  function sessionsResponse() {
+    return new Response(JSON.stringify({ sessions: [sampleSession('one')], machines: [] }));
+  }
+
+  async function mountWithOneSession() {
+    vi.mocked(apiFetch).mockResolvedValueOnce(sessionsResponse());
+    function Harness() {
+      const value = useSessions({ localWindow: 'all', remoteWindow: 'all' });
+      useEffect(() => {
+        state = value;
+      });
+      return null;
+    }
+    await act(async () => root.render(createElement(Harness)));
+    expect(state.sessions).toHaveLength(1);
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(apiFetch).mockReset();
+    root = createRoot(document.createElement('div'));
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the last good list when refreshSessions fails', async () => {
+    await mountWithOneSession();
+    vi.mocked(apiFetch).mockResolvedValueOnce(new Response('', { status: 500 }));
+    await act(async () => state.refreshSessions());
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(state.sessions).toHaveLength(1);
+    expect(state.loadError).toBeNull();
+    expect(state.isLoading).toBe(false);
+  });
+
+  it('clears the list when retrySessions fails', async () => {
+    await mountWithOneSession();
+    vi.mocked(apiFetch).mockResolvedValueOnce(new Response('', { status: 500 }));
+    await act(async () => state.retrySessions());
+    expect(state.sessions).toEqual([]);
+    expect(state.loadError).not.toBeNull();
+    expect(state.isLoading).toBe(false);
+  });
+
+  it('clears the list when refreshSessions fails authentication', async () => {
+    await mountWithOneSession();
+    vi.mocked(apiFetch).mockRejectedValueOnce(new ApiAuthenticationError());
+    await act(async () => state.refreshSessions());
+    expect(state.sessions).toEqual([]);
+    expect(state.loadError).not.toBeNull();
   });
 });
