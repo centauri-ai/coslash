@@ -24,13 +24,21 @@ export function SyncHeader({
   const statusClass = cn('text-cell inline-flex min-w-0 items-center gap-1.5 font-semibold', {
     'text-success-fg':
       !failure && (status.state === 'connected_idle' || status.state === 'connected_syncing'),
-    'text-warning-fg': failure != null || status.state === 'paused' || status.state === 'update_required',
+    'text-warning-fg':
+      failure != null ||
+      status.state === 'paused' ||
+      status.state === 'update_required' ||
+      status.state === 'binding_mismatch',
     'text-danger-fg': !failure && status.state === 'disconnected',
     'text-coslash-muted': !failure && (status.state === 'not_connected' || status.state === 'auto_sync_off'),
   });
   const stateDot = cn('size-2 shrink-0 rounded-full', {
     'bg-success': !failure && (status.state === 'connected_idle' || status.state === 'connected_syncing'),
-    'bg-warning': failure != null || status.state === 'paused' || status.state === 'update_required',
+    'bg-warning':
+      failure != null ||
+      status.state === 'paused' ||
+      status.state === 'update_required' ||
+      status.state === 'binding_mismatch',
     'bg-danger': !failure && status.state === 'disconnected',
     'bg-coslash-neutral-dot':
       !failure && (status.state === 'not_connected' || status.state === 'auto_sync_off'),

@@ -7,6 +7,7 @@ export type SyncState =
   | 'paused'
   | 'auto_sync_off'
   | 'disconnected'
+  | 'binding_mismatch'
   | 'update_required';
 
 export type SessionSyncState = 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out' | 'parked_failed';
@@ -48,6 +49,7 @@ const SYNC_STATES = new Set<SyncState>([
   'paused',
   'auto_sync_off',
   'disconnected',
+  'binding_mismatch',
   'update_required',
 ]);
 

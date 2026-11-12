@@ -80,6 +80,8 @@ export function syncHeader(status: SyncStatus): { label: string; href: string | 
       return { label: 'Paused on this computer', href: null, linked: false };
     case 'disconnected':
       return { label: 'Disconnected from Hub', href: null, linked: false };
+    case 'binding_mismatch':
+      return { label: 'Hub sync needs recovery', href: null, linked: false };
     case 'update_required':
       return { label: 'Update required', href: hub, linked: true };
     default:
@@ -101,14 +103,19 @@ export type SyncSettingsView = {
 };
 
 export function syncSettingsView(status: SyncStatus): SyncSettingsView {
-  const connected = status.state !== 'not_connected' && status.state !== 'disconnected';
+  const connected =
+    status.state !== 'not_connected' &&
+    status.state !== 'disconnected' &&
+    status.state !== 'binding_mismatch';
   const autoLine =
     status.state === 'auto_sync_off' ? 'Off' : status.state === 'update_required' ? 'Update required' : 'On';
   const autoSyncNote =
     status.state === 'auto_sync_off' ? 'Auto-sync is off.' : 'Auto-sync is managed in Hub.';
   const notConnectedText =
-    status.state === 'disconnected'
-      ? 'Disconnected from Hub. This computer was removed from your account.'
-      : 'Not connected to Hub.';
+    status.state === 'binding_mismatch'
+      ? 'Hub sync and Local updates are stopped. Restore the original Hub address and device credential, then restart Local. Pending sync data stays on this computer.'
+      : status.state === 'disconnected'
+        ? 'Disconnected from Hub. This computer was removed from your account.'
+        : 'Not connected to Hub.';
   return { connected, autoLine, autoSyncNote, notConnectedText };
 }

@@ -49,6 +49,17 @@ describe('Local sync UI design states', () => {
 });
 
 describe('disabled sync status', () => {
+  it('explains how to recover a mismatched primary binding', () => {
+    const status: SyncStatus = { state: 'binding_mismatch', hubOrigin: '', sessions: {} };
+    expect(syncHeader(status).label).toBe('Hub sync needs recovery');
+    expect(syncSettingsView(status)).toEqual(
+      expect.objectContaining({
+        connected: false,
+        notConnectedText: expect.stringContaining('Restore the original Hub address and device credential'),
+      }),
+    );
+  });
+
   it('does not imply that Hub disabled auto-sync', () => {
     const status: SyncStatus = {
       state: 'auto_sync_off',

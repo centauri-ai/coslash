@@ -287,7 +287,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			http.Error(w, "invalid update request", http.StatusBadRequest)
 			return
 		}
-		if service.queue == nil || !service.queue.UpdatePrompt().Available || service.queue.UpdatePrompt().Version == "" {
+		if service.primaryMismatch || service.queue == nil || !service.queue.UpdatePrompt().Available || service.queue.UpdatePrompt().Version == "" {
 			http.Error(w, "no Local update is available", http.StatusConflict)
 			return
 		}

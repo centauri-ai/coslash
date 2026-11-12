@@ -364,12 +364,24 @@ func main() {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
 	}
 	primaryRuntime, selectedHub, err := newPrimaryHubRuntime(hub, controller, collectorVersion, func() bool { return settingsStore.State().Config.SyncPaused })
-	if err != nil {
+	primaryMismatch := errors.Is(err, errPrimaryHubMismatch)
+	if err != nil && !primaryMismatch {
 		log.Fatalf("coslash: initialize primary Hub: %v", err)
 	}
-	hub = selectedHub
+	if primaryMismatch {
+		log.Print("primary Hub binding does not match; sync and updates are stopped")
+		hub = nil
+	} else {
+		hub = selectedHub
+	}
 	onboardings.SetV4SyncActive(controller.Queue() != nil)
-	onboardings.setSyncHooks(primaryRuntime)
+	var hubWorkers *hubWorkerSupervisor
+	if primaryMismatch {
+		onboardings.setSyncHooks(blockedPrimarySync{})
+	} else {
+		onboardings.setSyncHooks(primaryRuntime)
+		hubWorkers = primaryRuntime.workers
+	}
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	shutdownRequests := make(chan struct{}, 1)
 	updateRequests := make(chan struct{}, 1)
@@ -377,7 +389,7 @@ func main() {
 	settingsOptions := newSettingsOptionsCache()
 	defer settingsOptions.close()
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, hubWorkers: primaryRuntime.workers, shutdown: shutdownRequests, updateRequests: updateRequests})
+		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, hubWorkers: hubWorkers, primaryMismatch: primaryMismatch, shutdown: shutdownRequests, updateRequests: updateRequests})
 	onboardings.ensureSync(hub)
 	shutdownComplete := make(chan error, 1)
 	var shutdownOnce sync.Once
@@ -388,7 +400,7 @@ func main() {
 			}()
 		})
 	}
-	if queue := controller.Queue(); queue != nil {
+	if queue := controller.Queue(); queue != nil && !primaryMismatch {
 		go func() {
 			<-runtimeReadySignal
 			watchAutomaticUpdates(queue, updateRequests, func(staged, attemptID string) error {
@@ -419,7 +431,7 @@ func main() {
 				log.Printf("wake request was ignored")
 			}
 		case "update":
-			if queue := controller.Queue(); queue != nil && startupIntent.DeviceID == queue.InstallID() {
+			if queue := controller.Queue(); queue != nil && !primaryMismatch && startupIntent.DeviceID == queue.InstallID() {
 				select {
 				case updateRequests <- struct{}{}:
 				default:
@@ -446,7 +458,7 @@ func main() {
 	defer cancelReady()
 	close(runtimeReadySignal)
 	go func() {
-		if queue := controller.Queue(); queue != nil {
+		if queue := controller.Queue(); queue != nil && !primaryMismatch {
 			if err := waitForUpdateHandoff(readyContext, queue, collectorVersion); err != nil {
 				log.Printf("wait for update handoff: %v", err)
 				return
@@ -742,6 +754,7 @@ type serverServices struct {
 	onboardings     *onboardingManager
 	syncController  *syncController
 	hubWorkers      *hubWorkerSupervisor
+	primaryMismatch bool
 	shutdown        chan struct{}
 	updateRequests  chan struct{}
 	settingsOptions *settingsOptionsCache
@@ -825,7 +838,7 @@ func routesWithOnboarding(
 		})
 	}
 	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
-		if service.queue == nil {
+		if service.queue == nil || service.primaryMismatch {
 			writeJSON(w, syncv4.UpdatePrompt{})
 			return
 		}
@@ -833,7 +846,9 @@ func routesWithOnboarding(
 	})
 	api.HandleFunc("GET /api/sync/status", func(w http.ResponseWriter, _ *http.Request) {
 		status := syncStatus{State: "not_connected", Sessions: map[string]string{}}
-		if service.syncController != nil {
+		if service.primaryMismatch {
+			status.State = "binding_mismatch"
+		} else if service.syncController != nil {
 			status = service.syncController.Status()
 		}
 		if service.onboardings != nil {
@@ -842,6 +857,10 @@ func routesWithOnboarding(
 		writeJSON(w, status)
 	})
 	api.HandleFunc("POST /api/sync/retry", func(w http.ResponseWriter, _ *http.Request) {
+		if service.primaryMismatch {
+			writeAPIError(w, http.StatusConflict, "binding_mismatch", "Restore the original Hub address and credential, then restart Local")
+			return
+		}
 		if service.syncController == nil || !service.syncController.RetryNow() {
 			writeAPIError(w, http.StatusConflict, "sync_unavailable", "Hub sync is not available")
 			return

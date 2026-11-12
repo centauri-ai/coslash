@@ -46,7 +46,7 @@ export function SyncSettingsSection({
           </>
         ) : (
           <div className="bg-coslash-soft flex items-center justify-between gap-3 p-3">
-            <span className="text-sm">
+            <span className="text-sm" role={status?.state === 'binding_mismatch' ? 'alert' : undefined}>
               {view?.notConnectedText ??
                 (statusLoadState === 'loading' ? 'Checking sync status…' : 'Sync status is unavailable.')}
             </span>

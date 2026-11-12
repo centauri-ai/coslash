@@ -13,6 +13,14 @@ import (
 
 var errPrimaryHubMismatch = errors.New("primary Hub does not match the existing sync binding")
 
+// blockedPrimarySync prevents legacy pairing and wake paths from starting or
+// rebinding sync until the original binding is restored and Local restarts.
+type blockedPrimarySync struct{}
+
+func (blockedPrimarySync) Ensure(*hubclient.Client) error  { return errPrimaryHubMismatch }
+func (blockedPrimarySync) RequestPass(string)              {}
+func (blockedPrimarySync) checkPrimaryTarget(string) error { return errPrimaryHubMismatch }
+
 type primaryHubRuntime struct {
 	registry   *hubRegistry
 	workers    *hubWorkerSupervisor
