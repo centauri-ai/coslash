@@ -6,8 +6,10 @@ export function useDirectedHandoffs() {
   const [handoffs, setHandoffs] = useState<DirectedHandoff[]>([]);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
+  const inFlight = useRef(0);
   const refresh = useCallback(async () => {
     const current = ++requestId.current;
+    inFlight.current += 1;
     try {
       const response = await apiFetch('/api/directed-handoffs');
       if (!response.ok) throw new Error(`Could not load handoffs (${response.status})`);
@@ -19,13 +21,17 @@ export function useDirectedHandoffs() {
     } catch (failure) {
       if (current === requestId.current)
         setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      inFlight.current -= 1;
     }
   }, []);
 
   /* oxlint-disable react/set-state-in-effect -- load and poll backend handoff state */
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
+    const timer = window.setInterval(() => {
+      if (inFlight.current === 0) void refresh();
+    }, 3000);
     return () => window.clearInterval(timer);
   }, [refresh]);
   /* oxlint-enable react/set-state-in-effect */
