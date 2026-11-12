@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -400,5 +404,117 @@ func TestUnknownSignalDoesNotAdoptUnregisteredPrimary(t *testing.T) {
 	case <-started:
 		t.Fatal("unknown signal started sync")
 	default:
+	}
+}
+
+func TestPrimaryPairingCannotReplaceBoundCredential(t *testing.T) {
+	client, store := primaryRuntimeFixture(t, "original")
+	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
+	controller := primaryRuntimeController(t, started, stopped)
+	binding, err := client.V4Binding(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.Queue().Rebind(binding); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, BundleID: "pending-bundle"}}, time.Unix(1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	runtime, client, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := newOnboardingManager("1.2.3")
+	manager.setSyncHooks(runtime)
+	manager.setHubClient(client)
+	if err := manager.currentHubClient().Credentials.Save(context.Background(), "replacement"); !errors.Is(err, errPrimaryHubMismatch) {
+		t.Fatalf("replacement credential: %v", err)
+	}
+	if got, err := store.Load(context.Background()); err != nil || got != "original" {
+		t.Fatalf("original credential = %q, %v", got, err)
+	}
+	if got, _ := controller.Queue().DiscoveryCursor(); got != binding || len(controller.Queue().Entries()) != 1 {
+		t.Fatal("pending primary work changed")
+	}
+	if err := client.Credentials.Save(context.Background(), "original"); err != nil {
+		t.Fatalf("matching credential: %v", err)
+	}
+	t.Setenv("COSLASH_V4_SYNC", "0")
+	killed := primaryRuntimeController(t, started, stopped)
+	killRuntime, _, err := newPrimaryHubRuntime(client, killed, "1.2.3", func() bool { return false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainClient, err := hubClientForURL("1.2.3", "https://hub.coslash.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	killRuntime.guardPairingCredential(plainClient)
+	if err := plainClient.Credentials.Save(context.Background(), "replacement"); !errors.Is(err, errPrimaryHubMismatch) {
+		t.Fatalf("kill switch replacement: %v", err)
+	}
+	if got, err := store.Load(context.Background()); err != nil || got != "original" {
+		t.Fatalf("kill switch credential = %q, %v", got, err)
+	}
+}
+
+func TestPrimaryPairingAPIPreservesBoundCredential(t *testing.T) {
+	client, store := primaryRuntimeFixture(t, "original")
+	hub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/device-authorizations":
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "pair", "deviceCode": "device-code", "userCode": "ABCD", "verificationUri": "https://" + r.Host + "/approve", "expiresAt": time.Now().Add(time.Minute), "intervalSeconds": 1})
+		case "/v1/device-authorizations/token":
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceId": "device", "credential": "replacement", "tokenType": "Device", "scope": "ingest"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer hub.Close()
+	client.BaseURL, _ = url.Parse(hub.URL)
+	client.HTTP = hub.Client()
+	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
+	controller := primaryRuntimeController(t, started, stopped)
+	binding, err := client.V4Binding(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.Queue().Rebind(binding); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1}}, time.Unix(1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	runtime, client, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := newOnboardingManager("1.2.3")
+	manager.setSyncHooks(runtime)
+	mux := http.NewServeMux()
+	registerHubRoutes(mux, client, nil, manager)
+	begin := httptest.NewRecorder()
+	mux.ServeHTTP(begin, httptest.NewRequest(http.MethodPost, "/api/hub/pairings", nil))
+	if begin.Code != http.StatusCreated {
+		t.Fatalf("begin status %d: %s", begin.Code, begin.Body.String())
+	}
+	for i := 0; i < 3; i++ {
+		poll := httptest.NewRecorder()
+		mux.ServeHTTP(poll, httptest.NewRequest(http.MethodPost, "/api/hub/pairings/pair/poll", nil))
+		var result hubclient.PairingResult
+		if err := json.Unmarshal(poll.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if i == 2 && result.State != hubclient.PairingStateCredentialStoreFailed {
+			t.Fatalf("poll = %s", result.State)
+		}
+	}
+	if got, err := store.Load(context.Background()); err != nil || got != "original" {
+		t.Fatalf("credential = %q, %v", got, err)
+	}
+	if got, _ := controller.Queue().DiscoveryCursor(); got != binding || len(controller.Queue().Entries()) != 1 {
+		t.Fatal("pending primary work changed")
 	}
 }

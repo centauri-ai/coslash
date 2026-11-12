@@ -143,7 +143,9 @@ export function HubConnectionsSection() {
 
   useEffect(() => {
     alive.current = true;
-    void refresh();
+    void Promise.resolve().then(() => {
+      if (alive.current) void refresh();
+    });
     const interval = window.setInterval(() => {
       if (document.visibilityState !== 'hidden') void refresh();
     }, 10_000);
@@ -160,7 +162,6 @@ export function HubConnectionsSection() {
     if (!flow) return;
     const controller = new AbortController();
     const path = flow.kind === 'add' ? 'pairing' : flow.kind === 'recover' ? 'recovery' : 'enable';
-    setDisclosure(null);
     void request(`/api/hubs/${path}-disclosure`, { signal: controller.signal })
       .then((value) => {
         if (controller.signal.aborted || !alive.current) return;
@@ -183,6 +184,7 @@ export function HubConnectionsSection() {
     generation.current += 1;
     operation.current?.abort();
     setFlow({ kind, origin });
+    setDisclosure(null);
     setOriginInput(origin);
     setConsent(false);
     setNewBindingConsent(false);

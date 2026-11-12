@@ -392,3 +392,48 @@ it('shows an origin-scoped connection failure instead of claiming the Hub is con
   await act(async () => root.unmount());
   mount.remove();
 });
+
+it('clears the old disclosure when changing flows and ignores its late response', async () => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  let resolveRecovery: ((value: Response) => void) | undefined;
+  let resolveEnable: ((value: Response) => void) | undefined;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/hubs/status') return response([primary, secondary]);
+      if (path === '/api/hubs/recovery-disclosure')
+        return new Promise<Response>((resolve) => {
+          resolveRecovery = resolve;
+        });
+      if (path === '/api/hubs/enable-disclosure')
+        return new Promise<Response>((resolve) => {
+          resolveEnable = resolve;
+        });
+      throw new Error(`Unexpected ${path}`);
+    }),
+  );
+  const mount = document.createElement('div');
+  document.body.append(mount);
+  const root = createRoot(mount);
+  await act(async () => root.render(<HubConnectionsSection />));
+  await settle();
+  await click(button('Recover pairing'));
+  await click(button('Enable'));
+  expect(button('Enable sync').disabled).toBe(true);
+  await act(async () => {
+    resolveRecovery?.(response({ disclosure: 'Old recovery disclosure' }));
+  });
+  expect(document.body.textContent).not.toContain('Old recovery disclosure');
+  await act(async () => {
+    resolveEnable?.(response({ disclosure: 'Enable disclosure' }));
+  });
+  expect(document.body.textContent).toContain('Enable disclosure');
+  await click(checkbox(0));
+  expect(button('Enable sync').disabled).toBe(false);
+  await click(button('Recover pairing'));
+  expect(document.body.textContent).not.toContain('Enable disclosure');
+  expect(button('Start recovery').disabled).toBe(true);
+  await act(async () => root.unmount());
+  mount.remove();
+});

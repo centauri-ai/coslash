@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -117,6 +120,68 @@ func newPrimaryHubRuntime(client *hubclient.Client, controller *syncController, 
 		}
 	}
 	return runtime, client, nil
+}
+
+// guardPairingCredential prevents legacy pairing routes from replacing a
+// credential that owns pending primary work before the binding is checked.
+func (p *primaryHubRuntime) guardPairingCredential(client *hubclient.Client) {
+	if client == nil || client.BaseURL == nil || client.Credentials == nil {
+		return
+	}
+	if _, ok := client.Credentials.(*primaryPairingCredential); ok {
+		return
+	}
+	origin, err := canonicalRegistryOrigin(client.BaseURL.String())
+	if err != nil {
+		return
+	}
+	client.Credentials = &primaryPairingCredential{inner: client.Credentials, base: *client.BaseURL, runtime: p, origin: origin}
+}
+
+type primaryPairingCredential struct {
+	inner   hubclient.CredentialStore
+	base    url.URL
+	runtime *primaryHubRuntime
+	origin  string
+}
+
+func (s *primaryPairingCredential) Load(ctx context.Context) (string, error) {
+	return s.inner.Load(ctx)
+}
+
+func (s *primaryPairingCredential) Save(ctx context.Context, credential string) error {
+	return s.runtime.workers.slot(s.origin).execute(func() error {
+		var stored string
+		if queue := s.runtime.controller.Queue(); queue != nil {
+			stored, _ = queue.DiscoveryCursor()
+		} else {
+			var err error
+			stored, err = syncv4.ReadStoredBinding(filepath.Join(s.runtime.workers.home, "sync-v4"))
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		if stored != "" {
+			base := s.base
+			binding, err := (&hubclient.Client{BaseURL: &base, Credentials: fixedCredential(credential)}).V4Binding(ctx)
+			if err != nil {
+				return err
+			}
+			if binding != stored {
+				return errPrimaryHubMismatch
+			}
+		}
+		return s.inner.Save(ctx, credential)
+	})
+}
+
+func (s *primaryPairingCredential) Delete(ctx context.Context) error { return s.inner.Delete(ctx) }
+
+func (s *primaryPairingCredential) DeleteIfMatches(ctx context.Context, credential string) (bool, error) {
+	if deleter, ok := s.inner.(hubclient.ConditionalCredentialDeleter); ok {
+		return deleter.DeleteIfMatches(ctx, credential)
+	}
+	return false, nil
 }
 
 func (p *primaryHubRuntime) checkPrimaryTarget(origin string) error {

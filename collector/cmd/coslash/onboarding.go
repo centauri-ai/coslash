@@ -244,6 +244,9 @@ func (m *onboardingManager) setHubClient(client *hubclient.Client) {
 	if m.bindHubClient != nil {
 		m.bindHubClient(client)
 	}
+	if guard, ok := m.syncHooks.(interface{ guardPairingCredential(*hubclient.Client) }); ok {
+		guard.guardPairingCredential(client)
+	}
 	m.hubClient = client
 	m.mu.Unlock()
 }
