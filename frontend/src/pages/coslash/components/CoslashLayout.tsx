@@ -102,6 +102,7 @@ type Group = {
   label: string;
   kind: 'Repository' | 'Folder' | 'No location';
   basis: string;
+  legacyIds: string[];
 };
 type FacetKey = 'status' | 'machine' | 'agent' | 'group';
 type FacetOption = {
@@ -228,6 +229,30 @@ function folderRoot(cwd: string, repo: string): string {
   return depth === -1 ? cwd : parts.slice(0, depth + 1).join('/');
 }
 
+/** The previous per-session group ID, retained so saved filters keep matching after regrouping. */
+function legacyGroupIds(session: Session, currentId: string): string[] {
+  const repo = session.repo?.trim() ?? '';
+  if (repo && !session.repoLocalOnly) return [];
+
+  let legacyId: string | null = null;
+  if (repo) {
+    const parts = session.cwd.trim().split('/');
+    const depth = parts.lastIndexOf(repo);
+    const root = depth === -1 ? session.cwd.trim() || repo : parts.slice(0, depth + 1).join('/');
+    legacyId = `folder:${session.sourceId}:${root.toLowerCase()}`;
+  } else {
+    const cwd = session.cwd.trim();
+    if (cwd && !isLocalSession(session)) {
+      legacyId = `folder:${session.sourceId}:${cwd}`;
+    } else if (cwd) {
+      const parts = cwd.split('/').filter(Boolean);
+      const parent = parts.slice(0, -1).join('/') || parts.join('/');
+      legacyId = `folder:${session.sourceId}:${parent}`;
+    }
+  }
+  return legacyId && legacyId !== currentId ? [legacyId] : [];
+}
+
 /** `~/…` inside a recognizable home folder (`~` for home itself), else the full path, as on the Hub. */
 function homeRelativeLabel(path: string): string {
   const parts = path.split('/').filter(Boolean);
@@ -253,17 +278,20 @@ function detectedGroup(session: Session): Group {
       label,
       kind: 'Repository',
       basis: repo,
+      legacyIds: [],
     };
   }
   const cwd = session.cwd.trim().replaceAll('\\', '/');
   const root = cwd ? folderRoot(cwd, repo) : repo;
   if (root) {
     const label = homeRelativeLabel(root);
+    const id = `folder:${session.sourceId}:${isLocalSession(session) ? root.toLowerCase() : root}`;
     return {
-      id: `folder:${session.sourceId}:${isLocalSession(session) ? root.toLowerCase() : root}`,
+      id,
       label,
       kind: 'Folder',
       basis: label,
+      legacyIds: legacyGroupIds(session, id),
     };
   }
   return {
@@ -272,6 +300,7 @@ function detectedGroup(session: Session): Group {
     label: 'No location',
     kind: 'No location',
     basis: 'No repository or folder was recorded',
+    legacyIds: [],
   };
 }
 
@@ -320,7 +349,12 @@ function matchesFacets(
   const { statusFilters, groupFilters, machineFilters, agentFilters } = preferences;
   if (skip !== 'status' && statusFilters.length > 0 && !statusFilters.includes(boardStatusKey(session)))
     return false;
-  if (skip !== 'group' && groupFilters.length > 0 && !groupFilters.includes(group.id)) return false;
+  if (
+    skip !== 'group' &&
+    groupFilters.length > 0 &&
+    !groupFilters.some((filter) => filter === group.id || group.legacyIds.includes(filter))
+  )
+    return false;
   if (skip !== 'machine' && machineFilters.length > 0 && !machineFilters.includes(session.sourceId))
     return false;
   if (skip !== 'agent' && agentFilters.length > 0 && !agentFilters.includes(session.agent)) return false;
@@ -1108,15 +1142,22 @@ export function CoslashLayout({
 
   useEffect(() => saveSessionViewPreferences({ ...preferences, range }), [preferences, range]);
 
-  const sessionGroups = useMemo(
-    () => new Map(sessions.map((session) => [sessionKey(session), detectedGroup(session)])),
-    [sessions],
-  );
+  const sessionGroups = useMemo(() => {
+    const groupsById = new Map<string, Group>();
+    const sessionGroupIds: [string, string][] = [];
+    for (const session of sessions) {
+      const group = detectedGroup(session);
+      const existing = groupsById.get(group.id);
+      if (existing) existing.legacyIds = [...new Set([...existing.legacyIds, ...group.legacyIds])];
+      else groupsById.set(group.id, group);
+      sessionGroupIds.push([sessionKey(session), group.id]);
+    }
+    const result = new Map<string, Group>();
+    for (const [key, id] of sessionGroupIds) result.set(key, groupsById.get(id)!);
+    return result;
+  }, [sessions]);
   const groups = useMemo(
-    () =>
-      [...new Map([...sessionGroups.values()].map((group) => [group.id, group])).values()].sort((a, b) =>
-        a.label.localeCompare(b.label),
-      ),
+    () => [...new Set(sessionGroups.values())].sort((a, b) => a.label.localeCompare(b.label)),
     [sessionGroups],
   );
   const agents = useMemo(() => getSessionVendors(sessions), [sessions]);
@@ -1159,12 +1200,15 @@ export function CoslashLayout({
         ? preferences.statusFilters.filter((value) => value !== status)
         : [...preferences.statusFilters, status],
     });
-  const toggleGroup = (id: string) =>
+  const toggleGroup = (group: Group) => {
+    const ids = new Set([group.id, ...group.legacyIds]);
+    const selected = preferences.groupFilters.some((value) => ids.has(value));
     patchPreferences({
-      groupFilters: preferences.groupFilters.includes(id)
-        ? preferences.groupFilters.filter((value) => value !== id)
-        : [...preferences.groupFilters, id],
+      groupFilters: selected
+        ? preferences.groupFilters.filter((value) => !ids.has(value))
+        : [...preferences.groupFilters, group.id],
     });
+  };
   const toggleMachine = (id: string) =>
     patchPreferences({
       machineFilters: preferences.machineFilters.includes(id)
@@ -1275,8 +1319,10 @@ export function CoslashLayout({
         id: group.id,
         label: group.label,
         count: countWith((session) => sessionGroups.get(sessionKey(session))?.id === group.id, 'group'),
-        selected: preferences.groupFilters.includes(group.id),
-        onClick: () => toggleGroup(group.id),
+        selected: preferences.groupFilters.some(
+          (filter) => filter === group.id || group.legacyIds.includes(filter),
+        ),
+        onClick: () => toggleGroup(group),
       }));
   const groupSections = GROUP_KINDS.map((kind) => ({ kind, options: groupOptions(kind) })).filter(
     ({ options }) => options.length > 0,
@@ -1294,7 +1340,7 @@ export function CoslashLayout({
     ...preferences.groupFilters.map((value) => ({
       kind: 'Group',
       value,
-      label: groups.find((group) => group.id === value)?.label ?? value,
+      label: groups.find((group) => group.id === value || group.legacyIds.includes(value))?.label ?? value,
       remove: () =>
         patchPreferences({ groupFilters: preferences.groupFilters.filter((item) => item !== value) }),
     })),

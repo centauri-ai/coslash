@@ -106,6 +106,43 @@ func TestOriginProbeScriptDropsInjectedRecords(t *testing.T) {
 	}
 }
 
+func TestOriginProbeScriptBoundsBranchOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("validates a script executed by the remote POSIX shell")
+	}
+	bin := t.TempDir()
+	fake := filepath.Join(bin, "git")
+	payload := `#!/bin/sh
+case "$*" in
+  *"remote get-url"*) printf 'https://github.com/o/r\n' ;;
+  *"symbolic-ref"*) head -c 10000 /dev/zero | tr '\000' x; printf '\n' ;;
+esac
+`
+	if err := os.WriteFile(fake, []byte(payload), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cwds := make([]string, maxOriginProbes)
+	for i := range cwds {
+		cwds[i] = "/home/dev/repo-" + strconv.Itoa(i)
+	}
+	cmd := exec.Command("sh", "-c", originProbeScript)
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Stdin = strings.NewReader(strings.Join(cwds, "\n") + "\n")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := parseOriginProbeOutput(cwds, string(output))
+	if len(output) > maxOriginProbeBytes || len(found) != len(cwds) {
+		t.Fatalf("output length=%d facts=%d", len(output), len(found))
+	}
+	for _, cwd := range cwds {
+		if found[cwd].origin != "github.com/o/r" || found[cwd].branch != "" {
+			t.Fatalf("facts[%q] = %#v", cwd, found[cwd])
+		}
+	}
+}
+
 func TestProbeRemoteOriginsStopsAfterSSHFailure(t *testing.T) {
 	calls := 0
 	fake := fakeOptions(nil, 1, "", false)
@@ -200,6 +237,28 @@ func TestRepairFillsRepositoryAndBranchWithoutRecordedBranch(t *testing.T) {
 	got := snapshot.Families[0].Facts.Sessions[0]
 	if got.Display.Repository == nil || *got.Display.Repository != "github.com/centauri-ai/coslash" || got.Branch != "codex/align-session-inspector-layout" {
 		t.Fatalf("repository = %v branch = %q", got.Display.Repository, got.Branch)
+	}
+}
+
+func TestRepairRefreshesCachedBranch(t *testing.T) {
+	family := validFamily(t, "root-1")
+	family.Sessions[0].Branch = "codex/old-branch"
+	family.Sessions[0].Display.WorkingDirectory = "/home/dev/repos/coslash"
+	repository := "github.com/centauri-ai/coslash"
+	family.Sessions[0].Display.Repository = &repository
+	snapshot := CachedSnapshotV2{
+		Families: []CachedFamilyV2{{Vendor: vendors.AgentCodex, FamilyID: "root-1", Facts: family}},
+	}
+	calls := 0
+	repairRemoteDisplay(context.Background(), &snapshot, "source-1", func(_ context.Context, cwds []string) map[string]remoteGit {
+		calls++
+		if len(cwds) != 1 || cwds[0] != "/home/dev/repos/coslash" {
+			t.Fatalf("cwds = %v", cwds)
+		}
+		return map[string]remoteGit{cwds[0]: {origin: repository, branch: "codex/new-branch"}}
+	})
+	if calls != 1 || snapshot.Families[0].Facts.Sessions[0].Branch != "codex/new-branch" {
+		t.Fatalf("calls=%d branch=%q", calls, snapshot.Families[0].Facts.Sessions[0].Branch)
 	}
 }
 

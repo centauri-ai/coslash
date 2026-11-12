@@ -30,7 +30,7 @@ func UseRepositoryMemory(path string) {
 		if file, err := os.Open(path); err == nil {
 			data, readErr := io.ReadAll(io.LimitReader(file, maxRepositoryMemoryBytes+1))
 			file.Close()
-			if readErr != nil || len(data) > maxRepositoryMemoryBytes || json.Unmarshal(data, &entries) != nil {
+			if readErr != nil || len(data) > maxRepositoryMemoryBytes || json.Unmarshal(data, &entries) != nil || entries == nil {
 				entries = map[string]string{}
 			}
 		}
