@@ -132,3 +132,48 @@ it('does not refresh after a failed save and keeps explicit retry available', as
   expect(retryRemoteRefreshAndWait).toHaveBeenCalledTimes(1);
   expect(retrySessions).toHaveBeenCalledTimes(1);
 });
+
+it('saves the theme from the newest settings and rolls back only the newest failure', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const response = {
+    settings,
+    persisted: true,
+    valid: true,
+    options: { synthesisBackends: [], terminals: [], reviewers: [] },
+  };
+  const newest = {
+    ...response,
+    settings: { ...settings, synthesis: { ...settings.synthesis, enabled: true } },
+  };
+  const saved: CoslashSettings[] = [];
+  const results: ((ok: boolean) => void)[] = [];
+  const save = vi.fn(
+    (next: CoslashSettings | ((current: typeof response) => CoslashSettings)) =>
+      new Promise<boolean>((resolve) => {
+        saved.push(typeof next === 'function' ? next(newest) : next);
+        results.push(resolve);
+      }),
+  );
+  vi.mocked(useSettings).mockReturnValue({
+    response,
+    save,
+    isLoading: false,
+    loadError: null,
+    saveError: null,
+    isSaving: false,
+  });
+  mounted = root();
+  await act(async () => mounted.render(<CoslashPage />));
+  const dark = () => document.documentElement.classList.contains('dark');
+
+  await act(async () => layout.onThemeChange?.('dark'));
+  await act(async () => layout.onThemeChange?.('dark'));
+  expect(saved[1]).toMatchObject({ synthesis: { enabled: true }, appearance: { theme: 'dark' } });
+  await act(async () => results[1](true));
+  await act(async () => results[0](false));
+  expect(dark()).toBe(true);
+
+  await act(async () => layout.onThemeChange?.('dark'));
+  await act(async () => results[2](false));
+  expect(dark()).toBe(false);
+});
