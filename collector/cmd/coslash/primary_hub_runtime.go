@@ -243,3 +243,22 @@ func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 }
 
 func (p *primaryHubRuntime) RequestPass(reason string) { p.controller.RequestPass(reason) }
+
+func (p *primaryHubRuntime) hubSignalTarget(raw string, includePrimary bool) (bool, bool, string) {
+	origin, err := canonicalRegistryOrigin(raw)
+	if err != nil {
+		return true, false, ""
+	}
+	state := p.registry.snapshot()
+	if state.Primary == "" || (origin == state.Primary && !includePrimary) {
+		return false, false, origin
+	}
+	for _, connection := range state.Connections {
+		if connection.Origin == origin {
+			return true, connection.Enabled && (origin == state.Primary || connection.SyncConsent), origin
+		}
+	}
+	return true, false, origin
+}
+
+func (p *primaryHubRuntime) signalHub(origin string) bool { return p.workers.Retry(origin) }

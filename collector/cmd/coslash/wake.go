@@ -43,6 +43,9 @@ func (m *onboardingManager) RequestWake(rawHubURL string) error {
 	if err != nil {
 		return errForeignWakeHub
 	}
+	if handled, err := m.routeHubSignal(origin, true); handled {
+		return err
+	}
 	stored, err := readStoredHubURL()
 	if err != nil {
 		return err
@@ -75,4 +78,41 @@ func (m *onboardingManager) RequestWake(rawHubURL string) error {
 	}
 	hooks.RequestPass("wake")
 	return nil
+}
+
+func (m *onboardingManager) routeHubSignal(raw string, rateLimit bool) (bool, error) {
+	m.mu.Lock()
+	hooks := m.syncHooks
+	m.mu.Unlock()
+	router, ok := hooks.(interface {
+		hubSignalTarget(string, bool) (bool, bool, string)
+		signalHub(string) bool
+	})
+	if !ok {
+		return false, nil
+	}
+	handled, enabled, origin := router.hubSignalTarget(raw, rateLimit)
+	if !handled {
+		return false, nil
+	}
+	if !enabled {
+		return true, errForeignWakeHub
+	}
+	if rateLimit {
+		now := time.Now()
+		m.mu.Lock()
+		if m.lastHubWake == nil {
+			m.lastHubWake = make(map[string]time.Time)
+		}
+		if previous := m.lastHubWake[origin]; !previous.IsZero() && now.Sub(previous) < 10*time.Second {
+			m.mu.Unlock()
+			return true, errWakeRateLimited
+		}
+		m.lastHubWake[origin] = now
+		m.mu.Unlock()
+	}
+	if !router.signalHub(origin) {
+		return true, errors.New("secondary Hub sync is unavailable")
+	}
+	return true, nil
 }

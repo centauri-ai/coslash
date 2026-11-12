@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -28,6 +30,20 @@ func TestWakeIntentURLGrammar(t *testing.T) {
 		if _, err := parseWakeIntentURL(raw); err == nil {
 			t.Fatalf("parseWakeIntentURL accepted %q", raw)
 		}
+	}
+}
+
+func TestWakeProtocolForwardsWhenRuntimeHasNoStoredSelector(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = r.Method == http.MethodPost && r.URL.Path == "/api/hub/wake" && r.Header.Get("X-Coslash-Token") == "secret"
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	intent, done := handleProtocolActivation("coslash://wake?hub=https%3A%2F%2Fsecondary.example")
+	if intent != nil || !done || !called {
+		t.Fatalf("wake not forwarded: intent=%v done=%v called=%v", intent, done, called)
 	}
 }
 

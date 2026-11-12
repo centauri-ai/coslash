@@ -212,6 +212,30 @@ func TestTwoHubProductionProcess(t *testing.T) {
 		t.Fatal("wrong per-Hub install IDs")
 	}
 	drainWorkerSignals(secondary.checkins)
+	post(p, "/api/hub/wake", map[string]string{"hubUrl": secondary.server.URL})
+	wait("secondary wake", secondary.checkins)
+	data, _ := json.Marshal(map[string]string{"hubUrl": secondary.server.URL})
+	if code, _ := request(p, http.MethodPost, "/api/hub/wake", string(data)); code != http.StatusTooManyRequests {
+		t.Fatalf("secondary wake rate limit = %d", code)
+	}
+	drainWorkerSignals(primary.checkins)
+	post(p, "/api/hub/wake", map[string]string{"hubUrl": primary.server.URL})
+	wait("primary wake independent of secondary rate limit", primary.checkins)
+	drainWorkerSignals(secondary.checkins)
+	post(p, "/api/hub/onboarding/check-in", map[string]string{"hubUrl": secondary.server.URL})
+	wait("secondary check-in request", secondary.checkins)
+	code, _ := request(p, http.MethodPost, "/api/hub/wake", `{"hubUrl":"https://unknown.example"}`)
+	if code != http.StatusNoContent {
+		t.Fatalf("unknown wake status %d", code)
+	}
+	code, _ = request(p, http.MethodPost, "/api/hub/onboarding/check-in", `{"hubUrl":"https://unknown.example"}`)
+	if code != http.StatusBadGateway {
+		t.Fatalf("unknown check-in status %d", code)
+	}
+	if code, body := request(p, http.MethodGet, "/api/sync/status", ""); code != http.StatusOK || strings.Contains(string(body), `"hubSwitch"`) {
+		t.Fatalf("unknown check-in affected primary: %d %s", code, body)
+	}
+	drainWorkerSignals(secondary.checkins)
 	secondary.mode.Store(1)
 	post(p, "/api/hubs/retry", map[string]string{"origin": secondary.server.URL})
 	wait("secondary outage", secondary.offline)
@@ -219,16 +243,47 @@ func TestTwoHubProductionProcess(t *testing.T) {
 	post(p, "/api/sync/retry", map[string]any{})
 	wait("primary during secondary outage", primary.checkins)
 	post(p, "/api/hubs/disable", map[string]string{"origin": secondary.server.URL})
+	if code, _ := request(p, http.MethodPost, "/api/hub/wake", string(data)); code != http.StatusNoContent {
+		t.Fatalf("disabled wake status %d", code)
+	}
 	secondary.mode.Store(0)
 	post(p, "/api/hubs/enable", map[string]any{"origin": secondary.server.URL, "consent": true})
 	wait("secondary re-enabled", secondary.checkins)
+	secondary.mode.Store(2)
+	post(p, "/api/hubs/retry", map[string]string{"origin": secondary.server.URL})
+	credentialPath := filepath.Join(secondaryRoot, "credential")
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(credentialPath); os.IsNotExist(err) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(credentialPath); !os.IsNotExist(err) {
+		t.Fatal("secondary revocation did not remove its credential")
+	}
+	drainWorkerSignals(primary.checkins)
+	post(p, "/api/sync/retry", map[string]any{})
+	wait("primary after secondary revocation", primary.checkins)
+	raw = post(p, "/api/hubs/re-pairings", map[string]any{"origin": secondary.server.URL, "consent": true})
+	pairing.ID = ""
+	if json.Unmarshal(raw, &pairing) != nil || pairing.ID == "" {
+		t.Fatalf("recovery pairing %s", raw)
+	}
+	raw = post(p, "/api/hubs/pairings/"+pairing.ID+"/poll", map[string]any{})
+	if !strings.Contains(string(raw), "recovered_disabled") {
+		t.Fatalf("recovery outcome %s", raw)
+	}
+	secondary.mode.Store(0)
+	post(p, "/api/hubs/enable", map[string]any{"origin": secondary.server.URL, "consent": true})
+	wait("secondary after recovery", secondary.checkins)
 	stop(p)
 	drainWorkerSignals(primary.checkins)
 	drainWorkerSignals(secondary.checkins)
 	p = start()
 	wait("primary after restart", primary.checkins)
 	wait("secondary after restart", secondary.checkins)
-	code, data := request(p, http.MethodGet, "/api/hubs/status", "")
+	code, data = request(p, http.MethodGet, "/api/hubs/status", "")
 	if code != 200 || !strings.Contains(string(data), secondary.server.URL) {
 		t.Fatalf("Hub status %d %s", code, data)
 	}

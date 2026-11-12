@@ -15,12 +15,11 @@ import (
 func handleProtocolActivation(raw string) (*hubclient.LaunchIntent, bool) {
 	wake, wakeErr := parseWakeIntentURL(raw)
 	if wakeErr == nil {
-		// A wake from another Hub still reaches Local, which asks before it switches.
-		if stored, err := readStoredHubURL(); err != nil || stored == "" {
-			return nil, true
-		}
 		intent := hubclient.LaunchIntent{Action: "wake", HubURL: wake.HubURL}
 		if forwardWhenReady(&intent) {
+			return nil, true
+		}
+		if stored, err := readStoredHubURL(); err != nil || stored == "" {
 			return nil, true
 		}
 		return &intent, false

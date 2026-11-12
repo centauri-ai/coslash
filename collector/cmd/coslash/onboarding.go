@@ -34,6 +34,7 @@ type onboardingManager struct {
 	registerBackground func() error
 	v4SyncActive       bool
 	lastWake           time.Time
+	lastHubWake        map[string]time.Time
 	pendingSwitch      *hubSwitch
 	showLocal          func()
 	lastUpdate         time.Time
@@ -292,6 +293,9 @@ func (m *onboardingManager) RetryCheckIn(rawHubURL string) error {
 	origin, err := hubOrigin(rawHubURL)
 	if err != nil {
 		return errors.New("invalid Hub address")
+	}
+	if handled, err := m.routeHubSignal(origin, false); handled {
+		return err
 	}
 	from, bound, err := m.boundElsewhere(origin)
 	if err != nil {

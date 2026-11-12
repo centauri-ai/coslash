@@ -268,6 +268,22 @@ func storedInventoryHasD60(data []byte) bool {
 
 func (q *Queue) InstallID() string { q.mu.Lock(); defer q.mu.Unlock(); return q.state.InstallID }
 
+// ReadStoredBinding reads an existing queue without opening or rewriting it.
+func ReadStoredBinding(root string) (string, error) {
+	data, err := readQueueFile(filepath.Join(root, "queue.json"))
+	if err != nil {
+		return "", err
+	}
+	var stored state
+	if json.Unmarshal(data, &stored) != nil || stored.Version != 1 || stored.InstallID == "" {
+		return "", errors.New("invalid v4 queue")
+	}
+	if stored.Binding == "" {
+		return "", errors.New("v4 queue binding unavailable")
+	}
+	return stored.Binding, nil
+}
+
 // DiscoveryCursor belongs to the queue binding and is updated under the same
 // lock as Rebind so an old discovery pass cannot publish to a new binding.
 func (q *Queue) DiscoveryCursor() (string, json.RawMessage) {

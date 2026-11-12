@@ -3,22 +3,45 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
 const secondaryDisclosure = "Pairing this Hub stores a device credential but does not authorize or start personal sync. Enabling sync requires separate consent. Workspace sharing requires separate consent."
 const secondaryEnableDisclosure = "Enabling this Hub starts sync and authorizes automatic upload of eligible personal session records, including prompts, commands and source snippets, to this destination under its policy and Local privacy settings. This consent persists across restarts. Workspace sharing requires separate consent."
+const secondaryRecoveryDisclosure = "Recovery stops this secondary and keeps its pending queue and prepared data. An approved credential is restored only if it matches the existing queue binding. A different credential requires a separate migration; sync remains disabled."
 
 func runSecondaryPairCLI(out io.Writer, args []string) error {
+	if len(args) == 2 && args[0] == "recover" {
+		fmt.Fprintln(out, secondaryRecoveryDisclosure)
+		fmt.Fprintf(out, "To recover %s, repeat with --consent.\n", args[1])
+		return nil
+	}
+	if len(args) == 3 && args[0] == "recover" && args[2] == "--consent" {
+		fmt.Fprintln(out, secondaryRecoveryDisclosure)
+		client, err := newLocalAPIClient()
+		if err != nil {
+			return err
+		}
+		data, _ := json.Marshal(map[string]any{"origin": args[1], "consent": true})
+		response, err := client.request(http.MethodPost, "/api/hubs/re-pairings", bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, string(response))
+		return err
+	}
 	if len(args) == 1 && args[0] == "status" {
 		client, err := newLocalAPIClient()
 		if err != nil {
@@ -138,11 +161,12 @@ func (s *stagedCredential) Delete(ctx context.Context) error {
 }
 
 type secondaryAttempt struct {
-	origin  string
-	client  *hubclient.Client
-	staged  *stagedCredential
-	pairing hubclient.PairingResult
-	busy    bool
+	origin   string
+	client   *hubclient.Client
+	staged   *stagedCredential
+	pairing  hubclient.PairingResult
+	busy     bool
+	recovery bool
 }
 type secondaryPairings struct {
 	mu       sync.Mutex
@@ -156,6 +180,10 @@ func newSecondaryPairings(workers *hubWorkerSupervisor) *secondaryPairings {
 }
 
 func (m *secondaryPairings) begin(ctx context.Context, raw string, consent bool) (string, hubclient.PairingResult, error) {
+	return m.beginAttempt(ctx, raw, consent, false)
+}
+
+func (m *secondaryPairings) beginAttempt(ctx context.Context, raw string, consent, recovery bool) (string, hubclient.PairingResult, error) {
 	if !consent {
 		return "", hubclient.PairingResult{}, errors.New("explicit Local consent required")
 	}
@@ -167,16 +195,21 @@ func (m *secondaryPairings) begin(ctx context.Context, raw string, consent bool)
 	if state.Primary == "" {
 		return "", hubclient.PairingResult{}, errors.New("primary Hub required")
 	}
+	exists := false
 	for _, c := range state.Connections {
 		if c.Origin == origin {
-			return "", hubclient.PairingResult{}, errors.New("Hub already exists")
+			exists = true
+			break
 		}
+	}
+	if origin == state.Primary || exists != recovery {
+		return "", hubclient.PairingResult{}, errors.New("invalid secondary pairing target")
 	}
 	id, err := newConnectJobID()
 	if err != nil {
 		return "", hubclient.PairingResult{}, err
 	}
-	attempt := &secondaryAttempt{origin: origin, busy: true}
+	attempt := &secondaryAttempt{origin: origin, busy: true, recovery: recovery}
 	m.mu.Lock()
 	for previousID, previous := range m.attempts {
 		if !previous.busy && !time.Now().Before(previous.pairing.ExpiresAt) {
@@ -194,6 +227,16 @@ func (m *secondaryPairings) begin(ctx context.Context, raw string, consent bool)
 	client, err := m.workers.client(hubConnection{Origin: origin}, false)
 	if err == nil && (client == nil || client.BaseURL == nil || client.BaseURL.String() != origin || client.Credentials == nil) {
 		err = errors.New("invalid secondary Hub client")
+	}
+	if err == nil && recovery {
+		loadContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, loadErr := client.Credentials.Load(loadContext)
+		cancel()
+		if !errors.Is(loadErr, hubclient.ErrNotPaired) {
+			err = errors.New("recovery requires a missing credential")
+		} else {
+			err = m.workers.Disable(origin)
+		}
 	}
 	if err == nil {
 		attempt.staged = &stagedCredential{}
@@ -263,6 +306,9 @@ func (m *secondaryPairings) poll(ctx context.Context, id string) (string, error)
 		if err != nil {
 			return "failed", nil
 		}
+		if attempt.recovery {
+			return m.commitRecovery(ctx, attempt, credential), nil
+		}
 		state := m.workers.registry.snapshot()
 		for _, connection := range state.Connections {
 			if connection.Origin == attempt.origin {
@@ -286,6 +332,81 @@ func (m *secondaryPairings) poll(ctx context.Context, id string) (string, error)
 	default:
 		return result.State, nil
 	}
+}
+
+func (m *secondaryPairings) commitRecovery(ctx context.Context, attempt *secondaryAttempt, credential string) string {
+	result := "failed"
+	slot := m.workers.slot(attempt.origin)
+	err := slot.executeControl(func() error {
+		if ctx.Err() != nil || !time.Now().Before(attempt.pairing.ExpiresAt) {
+			result = "expired"
+			return nil
+		}
+		state := m.workers.registry.snapshot()
+		found := false
+		for _, c := range state.Connections {
+			if c.Origin == attempt.origin && c.Origin != state.Primary && !c.Enabled && !c.SyncConsent {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return errors.New("recovery target changed")
+		}
+		client, err := m.workers.client(hubConnection{Origin: attempt.origin}, false)
+		if err != nil || client == nil || client.BaseURL == nil || client.BaseURL.String() != attempt.origin || client.Credentials == nil {
+			return errors.New("recovery client unavailable")
+		}
+		loadContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err = client.Credentials.Load(loadContext)
+		cancel()
+		if !errors.Is(err, hubclient.ErrNotPaired) {
+			return errors.New("recovery credential changed")
+		}
+		var stored string
+		if slot.controller != nil && slot.controller.Queue() != nil {
+			stored, _ = slot.controller.Queue().DiscoveryCursor()
+		} else {
+			root := filepath.Join(m.workers.home, "hub-connections", fmt.Sprintf("%x", sha256.Sum256([]byte(attempt.origin))), "sync-v4")
+			stored, err = syncv4.ReadStoredBinding(root)
+			if err != nil {
+				result = "binding_unknown"
+				return nil
+			}
+		}
+		binding, err := (&hubclient.Client{BaseURL: client.BaseURL, Credentials: fixedCredential(credential)}).V4Binding(ctx)
+		if err != nil {
+			return err
+		}
+		if stored == "" {
+			result = "binding_unknown"
+			return nil
+		}
+		if stored != binding {
+			result = "binding_mismatch"
+			return nil
+		}
+		if ctx.Err() != nil || !time.Now().Before(attempt.pairing.ExpiresAt) {
+			result = "expired"
+			return nil
+		}
+		if err := client.Credentials.Save(ctx, credential); err != nil {
+			return err
+		}
+		if slot.controller != nil {
+			slot.controller.mu.Lock()
+			slot.controller.client = nil
+			slot.controller.connected = false
+			slot.controller.revoked = false
+			slot.controller.mu.Unlock()
+		}
+		result = "recovered_disabled"
+		return nil
+	})
+	if err != nil {
+		return "failed"
+	}
+	return result
 }
 
 func (m *secondaryPairings) enable(ctx context.Context, raw string, consent bool) error {
@@ -374,6 +495,31 @@ func (m *secondaryPairings) enable(ctx context.Context, raw string, consent bool
 }
 
 func registerSecondaryPairingRoutes(api *http.ServeMux, pairings *secondaryPairings) {
+	api.HandleFunc("GET /api/hubs/recovery-disclosure", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]string{"disclosure": secondaryRecoveryDisclosure})
+	})
+	api.HandleFunc("POST /api/hubs/re-pairings", func(w http.ResponseWriter, r *http.Request) {
+		if pairings == nil {
+			http.Error(w, "secondary recovery unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			Origin  string `json:"origin"`
+			Consent bool   `json:"consent"`
+		}
+		if decodeHubJSON(r.Body, &input) != nil {
+			http.Error(w, "invalid recovery request", http.StatusBadRequest)
+			return
+		}
+		id, result, err := pairings.beginAttempt(r.Context(), input.Origin, input.Consent, true)
+		if err != nil {
+			http.Error(w, "secondary recovery could not be started", http.StatusConflict)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, map[string]any{"id": id, "origin": input.Origin, "pairing": result, "disclosure": secondaryRecoveryDisclosure})
+	})
 	api.HandleFunc("GET /api/hubs/status", func(w http.ResponseWriter, _ *http.Request) {
 		if pairings == nil {
 			http.Error(w, "Hub status unavailable", http.StatusServiceUnavailable)

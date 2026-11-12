@@ -258,7 +258,7 @@ var cliCommandHelp = []struct {
 }{
 	{"service", "install login and URL handlers on macOS", "coslash service install"},
 	{"connect", "pair this Local with Hub", "coslash connect <code> --hub <origin> [--json]"},
-	{"secondary-pair", "manage another Hub", "coslash secondary-pair <origin> [--consent] | poll <attempt-id> | enable <origin> [--consent] | disable <origin> | retry <origin> | status"},
+	{"secondary-pair", "manage another Hub", "coslash secondary-pair <origin> [--consent] | poll <attempt-id> | recover <origin> [--consent] | enable <origin> [--consent] | disable <origin> | retry <origin> | status"},
 	{"sessions", "list local sessions as JSON", sessionsUsage()},
 	{"handoff", "print a session handoff", "coslash handoff <agent>:<session>"},
 	{"send", "start an agent with a session handoff", sendUsage()},
@@ -290,8 +290,9 @@ func printCLIHelp(w io.Writer) {
 
 func printCommandHelp(w io.Writer, name string) bool {
 	if name == "secondary-pair" {
-		fmt.Fprintln(w, "usage: coslash secondary-pair <origin> [--consent] | poll <attempt-id> | enable <origin> [--consent] | disable <origin> | retry <origin> | status")
+		fmt.Fprintln(w, "usage: coslash secondary-pair <origin> [--consent] | poll <attempt-id> | recover <origin> [--consent] | enable <origin> [--consent] | disable <origin> | retry <origin> | status")
 		fmt.Fprintln(w, secondaryDisclosure)
+		fmt.Fprintln(w, secondaryRecoveryDisclosure)
 		fmt.Fprintln(w, secondaryEnableDisclosure)
 		return true
 	}
