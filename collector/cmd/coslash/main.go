@@ -396,15 +396,19 @@ func main() {
 			return runner
 		}
 		if fingerprints != nil {
-			hubWorkers.prepare = func(ctx context.Context, runner *syncv4.Runner, queue *syncv4.Queue, client *hubclient.Client, wake chan struct{}) chan struct{} {
+			hubWorkers.prepare = func(ctx context.Context, runner *syncv4.Runner, queue *syncv4.Queue, client *hubclient.Client, wake chan struct{}) (chan struct{}, func()) {
 				tracker := &inventory.Tracker{}
 				runner.InventoryProgress = func() (int64, bool) { return tracker.FilesSoFar(), tracker.Running() }
 				requests := make(chan struct{}, 1)
-				go runInventoryWithRequests(ctx, fingerprints, queue, wake, tracker, func(ctx context.Context) bool {
-					credential, err := client.Credentials.Load(ctx)
-					return err == nil && credential != ""
-				}, requests)
-				return requests
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					runInventoryWithRequests(ctx, fingerprints, queue, wake, tracker, func(ctx context.Context) bool {
+						credential, err := client.Credentials.Load(ctx)
+						return err == nil && credential != ""
+					}, requests)
+				}()
+				return requests, func() { <-done }
 			}
 		}
 		hubWorkers.primaryOnly = false

@@ -109,7 +109,7 @@ type hubWorkerSupervisor struct {
 	runner      func() *syncv4.Runner
 	client      func(hubConnection, bool) (*hubclient.Client, error)
 	poll        func(context.Context, *syncLoopControl)
-	prepare     func(context.Context, *syncv4.Runner, *syncv4.Queue, *hubclient.Client, chan struct{}) chan struct{}
+	prepare     func(context.Context, *syncv4.Runner, *syncv4.Queue, *hubclient.Client, chan struct{}) (chan struct{}, func())
 }
 
 func newHubWorkerSupervisor(registry *hubRegistry, version string, pause func() bool, backup sessionbackupproducer.Options, runner func() *syncv4.Runner) (*hubWorkerSupervisor, error) {
@@ -260,6 +260,8 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 	if slot.controller == nil {
 		var controller *syncController
 		controller, err = newSyncControllerAt(queueRoot, func(ctx context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retry chan struct{}) {
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
 			options := s.backup
 			options.Root, options.Lifecycle = spoolRoot, ctx
 			if !primary {
@@ -273,7 +275,14 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 			runner.RequireImportPlan = true
 			var inventoryRequest chan struct{}
 			if s.prepare != nil {
-				inventoryRequest = s.prepare(ctx, runner, queue, client, wake)
+				var waitInventory func()
+				inventoryRequest, waitInventory = s.prepare(ctx, runner, queue, client, wake)
+				defer func() {
+					cancel()
+					if waitInventory != nil {
+						waitInventory()
+					}
+				}()
 			}
 			control := newSyncLoopControl(func() bool { _, policy, _ := queue.Policy(); return policy.Paused || policy.DeviceOff || s.pause() })
 			go s.poll(ctx, control)

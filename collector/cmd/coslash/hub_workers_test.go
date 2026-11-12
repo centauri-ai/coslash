@@ -976,3 +976,67 @@ func TestSecondaryControlsDoNotCancelPrimaryStart(t *testing.T) {
 		t.Fatal("unknown control created worker slot")
 	}
 }
+
+func TestSecondaryDisableWaitsForInventory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COSLASH_V4_SYNC", "1")
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	hub := newWorkerTestHub(t, "secondary-secret")
+	if err = registry.addSecondary(hub.server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.setEnabled(hub.server.URL, true); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner {
+		return &syncv4.Runner{Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &syncTestCredentials{value: hub.credential}
+	workers.client = func(c hubConnection, _ bool) (*hubclient.Client, error) {
+		base, _ := url.Parse(c.Origin)
+		return &hubclient.Client{BaseURL: base, HTTP: hub.server.Client(), Credentials: store}, nil
+	}
+	entered, cancelled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer workers.StopAll()
+	defer unblock()
+	workers.prepare = func(ctx context.Context, _ *syncv4.Runner, _ *syncv4.Queue, _ *hubclient.Client, _ chan struct{}) (chan struct{}, func()) {
+		done := make(chan struct{})
+		go func() { defer close(done); close(entered); <-ctx.Done(); close(cancelled); <-release }()
+		return nil, func() { <-done }
+	}
+	if err := workers.StartEnabled(hub.server.URL); err != nil {
+		t.Fatal(err)
+	}
+	waitSignal(t, entered)
+	disabled := make(chan error, 1)
+	go func() { disabled <- workers.Disable(hub.server.URL) }()
+	waitSignal(t, cancelled)
+	select {
+	case err := <-disabled:
+		t.Fatalf("disable returned before inventory stopped: %v", err)
+	default:
+	}
+	unblock()
+	select {
+	case err := <-disabled:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("disable did not complete")
+	}
+}
