@@ -261,6 +261,64 @@ func TestConnectCodeIsNotLoggedOrPersistedOnClaimFailure(t *testing.T) {
 	}
 }
 
+func TestForeignConnectCodeRequiresLocalConsent(t *testing.T) {
+	manager, primary, secondary, _ := switchFixture(t, map[string]string{"https://hub-a.coslash.io": "primary-credential"})
+	client, err := hubClientForURL("1.2.3", primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.setHubClient(client)
+	if _, err := manager.StartConnectCode(secondary, "K7QX-29PD"); !errors.Is(err, errConnectNeedsLocalConsent) {
+		t.Fatalf("foreign connect error = %v", err)
+	}
+	if got := storedHub(t); got != primary {
+		t.Fatalf("saved Hub changed to %q", got)
+	}
+	if manager.currentHubClient() != client {
+		t.Fatal("foreign request changed active Hub client")
+	}
+}
+
+func TestForeignConnectCodeChecksCurrentHubWithoutStoredSelector(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	manager := newOnboardingManager("1.2.3")
+	t.Cleanup(manager.Close)
+	client := syncTestClient(t, &syncTestCredentials{value: "existing"})
+	manager.setHubClient(client)
+	if _, err := manager.StartConnectCode("https://beta.coslash.io", "K7QX-29PD"); !errors.Is(err, errConnectNeedsLocalConsent) {
+		t.Fatalf("foreign connect error = %v", err)
+	}
+	if got, err := readStoredHubURL(); err != nil || got != "" {
+		t.Fatalf("saved Hub = %q, %v", got, err)
+	}
+	if manager.currentHubClient() != client {
+		t.Fatal("foreign request changed active Hub client")
+	}
+}
+
+func TestForeignConnectCodeRouteAndCLIReportConsentRequirement(t *testing.T) {
+	manager, primary, secondary, _ := switchFixture(t, map[string]string{"https://hub-a.coslash.io": "primary-credential"})
+	client, err := hubClientForURL("1.2.3", primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := http.NewServeMux()
+	registerHubRoutes(api, client, nil, manager)
+	body, err := json.Marshal(map[string]string{"hubUrl": secondary, "connectCode": "K7QX-29PD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hub/onboarding/connect", bytes.NewReader(body)))
+	if response.Code != http.StatusConflict || strings.TrimSpace(response.Body.String()) != errConnectNeedsLocalConsent.Error() {
+		t.Fatalf("response = %d %q", response.Code, response.Body.String())
+	}
+	var stdout, stderr bytes.Buffer
+	if code := connectErrorFromLocal(&stdout, &stderr, connectOptions{hub: secondary}, errConnectNeedsLocalConsent); code != connectExitRetryable || !strings.Contains(stderr.String(), "requires consent") {
+		t.Fatalf("CLI = %d %q", code, stderr.String())
+	}
+}
+
 func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 	for _, test := range []struct {
 		name         string

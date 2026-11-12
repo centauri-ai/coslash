@@ -36,6 +36,8 @@ var connectSignalContext = func() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt)
 }
 
+var errConnectNeedsLocalConsent = errors.New("connect_requires_local_consent")
+
 type connectJob struct {
 	state     string
 	updatedAt time.Time
@@ -257,6 +259,13 @@ func connectErrorFromLocal(stdout, stderr io.Writer, opts connectOptions, err er
 		return connectExitRetryable
 	}
 	switch strings.TrimSpace(err.Error()) {
+	case "connect_requires_local_consent":
+		if opts.json {
+			writeConnectJSON(stdout, "connect_requires_local_consent", connectExitRetryable)
+		} else {
+			fmt.Fprintln(stderr, "This computer is already connected to another Hub. Connecting another Hub requires consent in coSlash Local.")
+		}
+		return connectExitRetryable
 	case "connect_code_invalid":
 		return printConnectFailure(stdout, stderr, opts, connectExitInvalid, "")
 	case "connect_unsupported":
@@ -314,6 +323,50 @@ func (m *onboardingManager) StartConnectCode(rawHubURL, code string) (string, er
 	}
 	m.hubBindingMu.Lock()
 	defer m.hubBindingMu.Unlock()
+	canonical, err := canonicalRegistryOrigin(origin)
+	if err != nil {
+		return "", errors.New("invalid connect request")
+	}
+	stored, err := readStoredHubURL()
+	if err != nil {
+		return "", err
+	}
+	if stored != "" {
+		savedOrigin, err := canonicalRegistryOrigin(stored)
+		if err != nil {
+			return "", err
+		}
+		if savedOrigin != canonical {
+			paired, err := m.hasCredential(stored)
+			if err != nil {
+				return "", err
+			}
+			if paired {
+				return "", errConnectNeedsLocalConsent
+			}
+		} else {
+			origin = stored
+		}
+	}
+	if current := m.currentHubClient(); current != nil && current.BaseURL != nil && current.Credentials != nil {
+		currentOrigin, err := canonicalRegistryOrigin(current.BaseURL.String())
+		if err != nil {
+			return "", err
+		}
+		if currentOrigin != canonical {
+			checkContext, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+			credential, err := current.Credentials.Load(checkContext)
+			cancel()
+			if err != nil && !errors.Is(err, hubclient.ErrNotPaired) {
+				return "", err
+			}
+			if err == nil && credential != "" {
+				return "", errConnectNeedsLocalConsent
+			}
+		} else if stored == "" {
+			origin = current.BaseURL.String()
+		}
+	}
 	hubURL, _ := url.Parse(origin)
 	client, err := hubClientForURL(m.version, hubURL.String())
 	if err != nil {

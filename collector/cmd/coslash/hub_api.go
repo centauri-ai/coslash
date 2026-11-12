@@ -209,6 +209,10 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			return
 		}
 		id, err := onboardings.StartConnectCode(input.HubURL, input.ConnectCode)
+		if errors.Is(err, errConnectNeedsLocalConsent) {
+			http.Error(w, errConnectNeedsLocalConsent.Error(), http.StatusConflict)
+			return
+		}
 		if errors.Is(err, hubclient.ErrConnectCodeInvalid) {
 			http.Error(w, hubclient.ErrConnectCodeInvalid.Error(), http.StatusNotFound)
 			return

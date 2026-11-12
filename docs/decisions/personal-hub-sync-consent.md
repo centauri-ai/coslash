@@ -14,6 +14,7 @@
 - Local pause, Hub pause, device-off policy, leave-out rules, and network or battery conditions restrict uploads. Failed check-ins or stale consent stop uploads.
 - Device revocation removes the stored credential and stops sync. Pairing or changing the Hub resets upload state for the new binding.
 - A pairing, check-in, or wake link from a Hub other than the paired one never switches Hubs on its own. Local keeps the current Hub and asks in its UI first.
+- A connect code from another Hub cannot replace a paired Hub without explicit Local consent, including when the current Hub is configured only through the environment. See `TestForeignConnectCodeRequiresLocalConsent` and `TestForeignConnectCodeChecksCurrentHubWithoutStoredSelector`.
 - V4 transfers only parsed session-record artifacts for supported local Codex, Claude, OpenCode, Cursor, Grok, and Pi families. Other artifact kinds remain in the private local spool. Pi forks sync as independent roots; their ancestors are private evidence, not uploaded family members.
 - Parsed records can contain prompts, commands, source snippets, working directories, and derived synthesis. File-edit path sanitization does not redact secrets from record contents.
 - Personal sync does not authorize workspace sharing or create a workspace share link. Workspace sharing requires separate authorization for its destination audience.
