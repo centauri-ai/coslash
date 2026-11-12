@@ -76,11 +76,12 @@ Both collection paths may read these paths beneath the SSH user's home:
   open, from `lsof -a -c codex -Fn`. The SFTP fallback filters this list on the
   remote host so only Codex rollout file paths cross SSH. It does not contact the
   network;
-- the Git configuration that `git remote get-url origin` reads, only in a
-  working directory that a collected session recorded with a branch. The Mac
-  runs this over SSH, not the helper, for at most 64 directories per refresh.
-  The directory may be outside the home directory. The raw origin crosses SSH
-  transiently; the Mac canonicalizes it before caching or exposure.
+- the Git configuration and `HEAD` that `git remote get-url origin` and
+  `git symbolic-ref HEAD` read, only in a working directory whose collected
+  session lacks a repository or a branch. The Mac runs this over SSH, not the
+  helper, for at most 64 directories per refresh. The directory may be outside
+  the home directory. The raw origin crosses SSH transiently; the Mac
+  canonicalizes it before caching or exposure.
 
 The SFTP interface has no write, delete, rename, or chmod operation. It rejects
 symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
