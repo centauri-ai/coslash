@@ -248,6 +248,9 @@ directories, and derived synthesis. Local does not scan these records for
 secrets. File-edit paths are sanitized, but that does not redact record
 contents. See [the sync consent decision](decisions/personal-hub-sync-consent.md).
 
+Session metadata names the working folder: home-relative (`~/…`) inside the
+home folder, and the full path outside it.
+
 This client change removes Local's V3 complete-backup preview and upload path.
 It does not change Hub V3 routes, stored backups, revisions, chunks, existing
 workspace links, or their current URLs. No V3 data migration or deletion takes
