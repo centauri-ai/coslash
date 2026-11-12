@@ -40,6 +40,7 @@ type failure struct {
 type Manager struct {
 	runnerMu              sync.RWMutex
 	runner                Runner
+	runnerGeneration      uint64
 	cache                 *Cache
 	accounting            *AccountingStore
 	accountingUnavailable atomic.Bool
@@ -186,12 +187,12 @@ func (m *Manager) ensure(s *session.Session, revision int64, requested bool) boo
 			return
 		}
 		defer func() { <-m.slots }()
-		runner := m.currentRunner()
+		runner, generation := m.runnerSnapshot()
 		if runner == nil {
 			return
 		}
 		vendor, model := runner.VendorName(), runner.ModelName()
-		m.execute(input, revision, runner, vendor, model, agent, id)
+		m.execute(input, revision, runner, generation, vendor, model, agent, id)
 	}()
 	return true
 }
@@ -206,7 +207,7 @@ func (m *Manager) accountingError(err error) {
 	}
 }
 
-func (m *Manager) execute(input *session.Session, revision int64, runner Runner, vendor, model, agent, id string) {
+func (m *Manager) execute(input *session.Session, revision int64, runner Runner, generation uint64, vendor, model, agent, id string) {
 	m.workMu.Lock()
 	stopped := m.stopped
 	m.workMu.Unlock()
@@ -296,7 +297,9 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 		}
 	}
 	if err != nil {
-		m.recordFailure(agent, id, revision, err)
+		if _, current := m.runnerSnapshot(); current == generation {
+			m.recordFailure(agent, id, revision, err)
+		}
 		log.Printf("synthesize session %s: failed", id)
 	}
 	if roundID != "" && !accountingFailed {
@@ -489,6 +492,7 @@ func (m *Manager) SetRunner(runner Runner) {
 	}
 	m.runnerMu.Lock()
 	m.runner = runner
+	m.runnerGeneration++
 	m.runnerMu.Unlock()
 	m.cliMissingUntil.Store(0)
 	m.failures.Range(func(key, _ any) bool {
@@ -518,4 +522,10 @@ func (m *Manager) currentRunner() Runner {
 	m.runnerMu.RLock()
 	defer m.runnerMu.RUnlock()
 	return m.runner
+}
+
+func (m *Manager) runnerSnapshot() (Runner, uint64) {
+	m.runnerMu.RLock()
+	defer m.runnerMu.RUnlock()
+	return m.runner, m.runnerGeneration
 }
