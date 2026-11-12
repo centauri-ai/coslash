@@ -227,3 +227,52 @@ func TestLegacySettlementIsBoundedNoDownloadWork(t *testing.T) {
 		t.Fatal("accepted legacy settlement before target was installed")
 	}
 }
+
+func acceptTestUpdate(t *testing.T, q *Queue, id, current string, expiry, now time.Time, legacy bool) {
+	t.Helper()
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": expiry, "legacySettlement": legacy})
+	if err := q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, current, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetUpdateStageKeepsFailedFinal(t *testing.T) {
+	now := time.Now().UTC()
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	acceptTestUpdate(t, q, id, "1.2.3", now.Add(time.Hour), now, false)
+	if err = q.SetUpdateStage(id, "failed", "update_failed"); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.SetUpdateStage(id, "finalizing", ""); err == nil {
+		t.Fatal("failed attempt moved to finalizing")
+	}
+	if got := q.PendingUpdate(); got.Stage != "failed" || got.Error != "update_failed" {
+		t.Fatalf("failed attempt changed: %+v", got)
+	}
+	if err = q.SetUpdateStage(id, "failed", "update_unavailable"); err != nil {
+		t.Fatalf("failed attempt refused a new failure code: %v", err)
+	}
+}
+
+func TestConfirmUpdateHandoffRefusesFailed(t *testing.T) {
+	now := time.Now().UTC()
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	acceptTestUpdate(t, q, id, "1.2.4", now.Add(-time.Hour), now, true)
+	if err = q.SetUpdateStage(id, "failed", "update_failed"); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.ConfirmUpdateHandoff(id); err == nil {
+		t.Fatal("confirmed handoff of a failed attempt")
+	}
+	if got := q.PendingUpdate(); got.Stage != "failed" || got.HandoffReady {
+		t.Fatalf("failed attempt changed: %+v", got)
+	}
+}

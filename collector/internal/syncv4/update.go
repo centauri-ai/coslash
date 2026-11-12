@@ -14,6 +14,7 @@ import (
 )
 
 var ErrUpdateAlreadyCurrent = errors.New("update target already installed")
+var errUpdateAlreadyFailed = errors.New("update already failed")
 
 func (q *Queue) SignalUpdate() {
 	select {
@@ -140,6 +141,9 @@ func (q *Queue) SetUpdateStage(id, stage, code string) error {
 	if q.state.Update == nil || q.state.Update.ID != id {
 		return errors.New("update is no longer active")
 	}
+	if q.state.Update.Stage == "failed" && stage != "failed" {
+		return errUpdateAlreadyFailed
+	}
 	prior := *q.state.Update
 	q.state.Update.Stage, q.state.Update.Error = stage, code
 	if err := q.save(); err != nil {
@@ -154,6 +158,9 @@ func (q *Queue) ConfirmUpdateHandoff(id string) error {
 	defer q.mu.Unlock()
 	if q.state.Update == nil || q.state.Update.ID != id {
 		return errors.New("update is no longer active")
+	}
+	if q.state.Update.Stage == "failed" {
+		return errUpdateAlreadyFailed
 	}
 	prior := *q.state.Update
 	q.state.Update.HandoffReady = true
