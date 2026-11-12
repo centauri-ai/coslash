@@ -1454,7 +1454,7 @@ export function CoslashLayout({
                   ))}
                   {groupSections.length === 0 && (
                     <div className="text-coslash-muted px-2.5 py-2 text-xs">
-                      No groups match “{groupQuery}”.
+                      {groupQuery.trim() === '' ? 'No groups yet.' : `No groups match “${groupQuery}”.`}
                     </div>
                   )}
                 </div>
