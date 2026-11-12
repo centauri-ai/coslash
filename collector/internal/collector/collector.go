@@ -975,9 +975,12 @@ func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSess
 			continue
 		}
 		s.Git = drifts[driftKey{cwd: s.WorkingDirectory, branch: deref(s.Branch)}].drift
-		repo := repoByCwd[s.WorkingDirectory]
-		s.Repository = &repo.name
-		s.RepositoryLocalOnly = repo.localOnly
+		// A remote the agent recorded (Codex's session_meta) outlives a
+		// folder that no longer has one.
+		if repo := repoByCwd[s.WorkingDirectory]; !repo.localOnly || s.Repository == nil || *s.Repository == "" || s.RepositoryLocalOnly {
+			s.Repository = &repo.name
+			s.RepositoryLocalOnly = repo.localOnly
+		}
 	}
 	return nil
 }

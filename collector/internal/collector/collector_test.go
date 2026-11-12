@@ -691,3 +691,27 @@ func TestGrokUnknownModelSourceCostCompletesAggregate(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeKeepsRecordedRemoteWhenFolderHasNone(t *testing.T) {
+	removed := filepath.Join(t.TempDir(), "worktrees", "0040", "coslash")
+	recorded := "github.com/centauri-ai/coslash"
+	local := "github.com/centauri-ai/other"
+	parsed := []*vendors.ParsedSession{
+		{Session: &session.Session{Agent: vendors.AgentCodex, ID: "recorded", WorkingDirectory: removed, Repository: &recorded}},
+		{Session: &session.Session{Agent: vendors.AgentCodex, ID: "local-only", WorkingDirectory: removed, Repository: &local, RepositoryLocalOnly: true}},
+		{Session: &session.Session{Agent: vendors.AgentClaude, ID: "none", WorkingDirectory: removed}},
+	}
+	if err := probeGitEnvironmentContext(context.Background(), parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		index     int
+		name      string
+		localOnly bool
+	}{{0, recorded, false}, {1, "coslash", true}, {2, "coslash", true}} {
+		s := parsed[tc.index].Session
+		if s.Repository == nil || *s.Repository != tc.name || s.RepositoryLocalOnly != tc.localOnly {
+			t.Errorf("%s: repository = %v localOnly = %v; want %q %v", s.ID, s.Repository, s.RepositoryLocalOnly, tc.name, tc.localOnly)
+		}
+	}
+}
