@@ -314,9 +314,6 @@ func (m *onboardingManager) StartConnectCode(rawHubURL, code string) (string, er
 	}
 	m.hubBindingMu.Lock()
 	defer m.hubBindingMu.Unlock()
-	if err := writeStoredHubURL(origin); err != nil {
-		return "", errors.New("Hub address could not be saved")
-	}
 	hubURL, _ := url.Parse(origin)
 	client, err := hubClientForURL(m.version, hubURL.String())
 	if err != nil {
@@ -327,6 +324,9 @@ func (m *onboardingManager) StartConnectCode(rawHubURL, code string) (string, er
 	cancelClaim()
 	if err != nil {
 		return "", err
+	}
+	if err := writeStoredHubURL(origin); err != nil {
+		return "", errors.New("Hub address could not be saved")
 	}
 	m.setHubClient(client)
 	key := "connect/" + jobID

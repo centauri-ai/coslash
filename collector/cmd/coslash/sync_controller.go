@@ -98,7 +98,7 @@ func (c *syncController) Ensure(client *hubclient.Client) error {
 	c.mu.RUnlock()
 	if sameLoop {
 		c.mu.Lock()
-		c.client, c.connected, c.revoked = client, true, false
+		c.connected, c.revoked = true, false
 		c.mu.Unlock()
 		return nil
 	}

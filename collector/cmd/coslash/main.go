@@ -321,15 +321,14 @@ func main() {
 		if fingerprints != nil {
 			inventoryRequest = make(chan struct{}, 1)
 			go runInventoryWithRequests(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
-				current := onboardings.currentHubClient()
-				if current == nil || current.Credentials == nil {
+				if client == nil || client.Credentials == nil {
 					return false
 				}
-				credential, err := current.Credentials.Load(ctx)
+				credential, err := client.Credentials.Load(ctx)
 				return err == nil && credential != ""
 			}, inventoryRequest)
 		}
-		syncHub := currentHubTransport{current: onboardings.currentHubClient, queue: queue}
+		syncHub := currentHubTransport{current: func() *hubclient.Client { return client }, queue: queue}
 		runner := &syncv4.Runner{
 			Version: collectorVersion,
 			Queue:   queue, Backup: backupManager, Hub: syncHub,

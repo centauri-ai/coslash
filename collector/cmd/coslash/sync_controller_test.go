@@ -203,6 +203,28 @@ func TestEnsureIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureSameBindingKeepsRunningClientForRevocation(t *testing.T) {
+	credentials := &syncTestCredentials{value: "stored-device-credential"}
+	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _, _ chan struct{}) {
+		<-ctx.Done()
+	}, nil)
+	first := syncTestClient(t, credentials)
+	second := syncTestClient(t, credentials)
+	if err := controller.Ensure(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.Ensure(second); err != nil {
+		t.Fatal(err)
+	}
+	controller.mu.RLock()
+	binding := controller.binding
+	controller.mu.RUnlock()
+	controller.markRevoked(first, binding)
+	if status := controller.Status(); status.State != "disconnected" {
+		t.Fatalf("revoked status = %s", status.State)
+	}
+}
+
 func TestLocalSyncKillSwitchReportsOff(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("COSLASH_V4_SYNC", "0")

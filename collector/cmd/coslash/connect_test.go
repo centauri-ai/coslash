@@ -232,6 +232,10 @@ func assertConnectCodeNotOnDisk(t *testing.T, root, code string) {
 func TestConnectCodeIsNotLoggedOrPersistedOnClaimFailure(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
+	const existingHub = "https://hub.coslash.io"
+	if err := writeStoredHubURL(existingHub); err != nil {
+		t.Fatal(err)
+	}
 	var logs bytes.Buffer
 	previousLogOutput := log.Writer()
 	log.SetOutput(&logs)
@@ -247,6 +251,9 @@ func TestConnectCodeIsNotLoggedOrPersistedOnClaimFailure(t *testing.T) {
 	defer manager.Close()
 	if _, err := manager.StartConnectCode(hub.URL, "K7QX-29PD"); !errors.Is(err, hubclient.ErrConnectCodeInvalid) {
 		t.Fatalf("StartConnectCode error=%v, want invalid code", err)
+	}
+	if got, err := readStoredHubURL(); err != nil || got != existingHub {
+		t.Fatalf("saved Hub after failed claim = %q, %v; want %q", got, err, existingHub)
 	}
 	assertConnectCodeNotOnDisk(t, home, "K7QX-29PD")
 	if strings.Contains(logs.String(), "K7QX-29PD") {
