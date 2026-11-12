@@ -73,34 +73,8 @@ func TestSharedAuthorityCommandsAndRestart(t *testing.T) {
 	}
 }
 
-func TestSecondaryRejectsStaleUpdateBeforeCheckIn(t *testing.T) {
-	root := t.TempDir()
-	q, err := Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Unix(1790000000, 0)
-	id := "11111111-2222-4333-8444-555555555555"
-	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": now.Add(time.Hour)})
-	if err := q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, "1.2.3", now); err != nil {
-		t.Fatal(err)
-	}
-	if err := q.ApplyPolicy(hubclient.V4CheckIn{ConfigVersion: 1, RecommendedUpdate: true, RecommendedVersion: "1.2.4"}); err != nil {
-		t.Fatal(err)
-	}
-	q, err = Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := &authorityHub{planHub: &planHub{withoutScale: true}, response: hubclient.V4CheckIn{ConfigVersion: 1}}
-	r := Runner{Queue: q, Hub: h, NoSharedAuthority: true, Now: func() time.Time { return now }}
-	if err := r.refreshConsent(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(h.results) != 1 || h.results[0].Result != "failed" || h.results[0].Error != "update_unavailable" || q.UpdatePrompt().Available {
-		t.Fatalf("stale update: %+v", h.results)
-	}
-	if err := r.ReportUpdate(t.Context()); err == nil {
+func TestSecondaryDoesNotReportUpdateReceipts(t *testing.T) {
+	if err := (&Runner{NoSharedAuthority: true}).ReportUpdate(t.Context()); err == nil {
 		t.Fatal("secondary reported update receipt")
 	}
 }

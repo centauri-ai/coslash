@@ -453,7 +453,7 @@ func main() {
 	if hubWorkers != nil && hubclient.V4SyncEnabled() {
 		state := primaryRuntime.registry.snapshot()
 		for _, connection := range state.Connections {
-			if connection.Origin != state.Primary && connection.Enabled && connection.SyncConsent {
+			if connection.Origin != state.Primary && connection.Enabled {
 				go func(origin string) {
 					if err := hubWorkers.StartEnabled(origin); err != nil {
 						log.Print("secondary Hub worker could not start")

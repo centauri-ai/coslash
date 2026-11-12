@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,7 +9,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -176,5 +179,94 @@ func TestPrimaryMismatchProcessRecovery(t *testing.T) {
 	}
 	if data, err := os.ReadFile(spool); err != nil || string(data) != "pending" {
 		t.Fatalf("origin recovery spool %q: %v", data, err)
+	}
+}
+
+// Reuse the test binary so process tests exercise the production entrypoint.
+func runTestLocalChild() bool {
+	if os.Getenv("COSLASH_TEST_LOCAL_CHILD") != "1" {
+		return false
+	}
+	os.Args = []string{os.Args[0], "--no-open", "--port", "0"}
+	main()
+	return true
+}
+
+type testLocalProcess struct {
+	t      *testing.T
+	cmd    *exec.Cmd
+	output bytes.Buffer
+	desc   runtimeDescriptor
+	token  string
+}
+
+func startTestLocal(t *testing.T, home, binary string) *testLocalProcess {
+	t.Helper()
+	args := []string{"--no-open", "--port", "0"}
+	if binary == "" {
+		binary, args = os.Args[0], []string{"-test.run=^" + regexp.QuoteMeta(t.Name()) + "$"}
+	}
+	p := &testLocalProcess{t: t, cmd: exec.Command(binary, args...)}
+	p.cmd.Env = append(os.Environ(), "COSLASH_TEST_LOCAL_CHILD=1")
+	p.cmd.Stdout, p.cmd.Stderr = &p.output, &p.output
+	requireHubTestOK(t, p.cmd.Start())
+	t.Cleanup(func() {
+		if p.cmd.ProcessState == nil {
+			_ = p.cmd.Process.Kill()
+			_ = p.cmd.Wait()
+		}
+	})
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		data, readErr := os.ReadFile(filepath.Join(home, "runtime.json"))
+		token, tokenErr := os.ReadFile(filepath.Join(home, "token"))
+		if readErr == nil && tokenErr == nil && json.Unmarshal(data, &p.desc) == nil && p.desc.BaseURL != "" {
+			p.token = strings.TrimSpace(string(token))
+			return p
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = p.cmd.Process.Kill()
+	_ = p.cmd.Wait()
+	t.Fatalf("Local did not start: %s", p.output.String())
+	return nil
+}
+
+func (p *testLocalProcess) request(method, path, body string) (int, []byte) {
+	p.t.Helper()
+	req, err := http.NewRequest(method, p.desc.BaseURL+path, strings.NewReader(body))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	req.Header.Set("X-Coslash-Token", p.token)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return resp.StatusCode, data
+}
+
+func (p *testLocalProcess) stop() {
+	p.t.Helper()
+	code, data := p.request(http.MethodPost, "/api/shutdown", "{}")
+	if code != http.StatusAccepted {
+		p.t.Fatalf("shutdown: %d %s", code, data)
+	}
+	done := make(chan error, 1)
+	go func() { done <- p.cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			p.t.Fatalf("Local exit: %v: %s", err, p.output.String())
+		}
+	case <-time.After(20 * time.Second):
+		_ = p.cmd.Process.Kill()
+		<-done
+		p.t.Fatal("Local did not shut down")
 	}
 }

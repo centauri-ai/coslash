@@ -66,30 +66,6 @@ func (r *Runner) ReportUpdate(ctx context.Context) error {
 	return r.Queue.ReconcileUpdate(r.Version, nil, results, true)
 }
 
-// denySharedUpdate invalidates stale prompts and fails an already journaled
-// attempt before a secondary sends any check-in results.
-func (q *Queue) denySharedUpdate() error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if q.state.Update == nil && q.state.MinVersion == "" && q.state.RecommendedVersion == "" && q.state.RecommendedDownloadURL == "" && !q.state.UpdateRequired && !q.state.RecommendedUpdate {
-		return nil
-	}
-	prior := q.state
-	if q.state.Update != nil {
-		copy := *q.state.Update
-		q.state.Update = &copy
-		q.state.Update.Stage, q.state.Update.Error, q.state.Update.HandoffReady = "failed", "update_unavailable", false
-		q.state.Update.LegacySettlement = false
-	}
-	q.state.MinVersion, q.state.RecommendedVersion, q.state.RecommendedDownloadURL = "", "", ""
-	q.state.UpdateRequired, q.state.RecommendedUpdate = false, false
-	if err := q.save(); err != nil {
-		q.state = prior
-		return err
-	}
-	return nil
-}
-
 // UpdateAttempt is persisted with the paired queue before any update starts.
 type UpdateAttempt struct {
 	ID               string    `json:"attemptId"`

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -50,6 +49,9 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		requireHubTestOK(t, os.WriteFile(path, []byte(contents), 0600))
 	}
 	var mode atomic.Int32
+	var credential atomic.Pointer[string]
+	first, second := "secondary-secret", "replacement-secret"
+	credential.Store(&first)
 	var requests atomic.Int32
 	pollStarted, releasePoll := make(chan struct{}, 1), make(chan struct{})
 	pollReleased := make(chan struct{}, 1)
@@ -75,7 +77,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 			<-releasePoll
 			pollReleased <- struct{}{}
 		}
-		_, _ = fmt.Fprint(w, `{"deviceId":"device","credential":"secondary-secret","tokenType":"Device","scope":"ingest"}`)
+		_, _ = fmt.Fprintf(w, `{"deviceId":"device","credential":%q,"tokenType":"Device","scope":"ingest"}`, *credential.Load())
 	}))
 	defer hub.Close()
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
@@ -221,9 +223,9 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	client, err := original(hubConnection{Origin: hub.URL}, false)
 	requireHubTestOK(t, err)
-	credential, err := client.Credentials.Load(ctx)
-	if err != nil || credential != "secondary-secret" {
-		t.Fatalf("worker credential %q %v", credential, err)
+	stored, err := client.Credentials.Load(ctx)
+	if err != nil || stored != first {
+		t.Fatalf("worker credential %q %v", stored, err)
 	}
 	if data, err := os.ReadFile(primary); err != nil || string(data) != "primary data" {
 		t.Fatal("primary changed")
@@ -240,10 +242,32 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	if _, _, err := pairings.begin(ctx, hub.URL, true); err == nil {
 		t.Fatal("existing secondary was overwritten")
 	}
+	queue := workers.slot(hub.URL).controller.Queue()
+	firstBinding, _ := queue.DiscoveryCursor()
+	requireHubTestOK(t, client.Credentials.Delete(ctx))
+	credential.Store(&second)
+	id, _, err = pairings.begin(ctx, hub.URL, true)
+	requireHubTestOK(t, err)
+	if registry.snapshot().Connections[1].Enabled {
+		t.Fatal("re-pairing kept sync consent")
+	}
+	if state, err := pairings.poll(ctx, id); err != nil || state != "paired_disabled" {
+		t.Fatalf("re-pairing %q %v", state, err)
+	}
+	if stored, err := client.Credentials.Load(ctx); err != nil || stored != second || registry.snapshot().Connections[1].Enabled {
+		t.Fatalf("re-paired credential %q %v", stored, err)
+	}
+	if binding, _ := queue.DiscoveryCursor(); binding != firstBinding {
+		t.Fatal("re-pairing rebound the queue before consent")
+	}
+	requireHubTestOK(t, pairings.enable(ctx, hub.URL, true))
+	if binding, _ := queue.DiscoveryCursor(); binding == firstBinding || workers.slot(hub.URL).controller.Queue() != queue {
+		t.Fatal("consented re-pairing did not rebind the existing queue")
+	}
 	home2 := t.TempDir()
 	registry2, err := openHubRegistry(home2, "", nil)
 	requireHubTestOK(t, err)
-	requireHubTestOK(t, registry2.addPrimary("https://primary.example"))
+	requireHubTestOK(t, registry2.adoptLegacyPrimary("https://primary.example"))
 	workers2, err := newHubWorkerSupervisor(registry2, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
 	requireHubTestOK(t, err)
 	workers2.home = home2
@@ -255,14 +279,14 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		}
 		return client, err
 	}
-	second := newSecondaryPairings(workers2)
-	id, _, err = second.begin(ctx, hub.URL, true)
+	pairings2 := newSecondaryPairings(workers2)
+	id, _, err = pairings2.begin(ctx, hub.URL, true)
 	requireHubTestOK(t, err)
-	if state, err := second.poll(ctx, id); err != nil || state != "paired_disabled" {
+	if state, err := pairings2.poll(ctx, id); err != nil || state != "paired_disabled" {
 		t.Fatalf("pairing %q %v", state, err)
 	}
 	registry2.write = func(string, []byte) (bool, error) { return false, errors.New("enable write failed") }
-	if err := second.enable(ctx, hub.URL, true); err == nil {
+	if err := pairings2.enable(ctx, hub.URL, true); err == nil {
 		t.Fatal("enable write failure accepted")
 	}
 	reopened, err = openHubRegistry(home2, "", nil)
@@ -272,11 +296,11 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		t.Fatalf("failed enable after restart: %+v", state)
 	}
 	workers2.registry = reopened
-	second = newSecondaryPairings(workers2)
-	if err := second.enable(ctx, hub.URL, false); err == nil {
+	pairings2 = newSecondaryPairings(workers2)
+	if err := pairings2.enable(ctx, hub.URL, false); err == nil {
 		t.Fatal("recovery without consent accepted")
 	}
-	if err := second.enable(ctx, hub.URL, true); err != nil {
+	if err := pairings2.enable(ctx, hub.URL, true); err != nil {
 		t.Fatalf("enable retry: %v", err)
 	}
 	reopened, err = openHubRegistry(home2, "", nil)
@@ -285,60 +309,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 }
 
-func TestSecondaryPairingAPIRequiresConsent(t *testing.T) {
-	mux := http.NewServeMux()
-	registerSecondaryPairingRoutes(mux, nil)
-	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hubs/pairing-disclosure", nil))
-	if response.Code != 200 || !strings.Contains(response.Body.String(), "does not authorize") {
-		t.Fatalf("disclosure %d %s", response.Code, response.Body.String())
-	}
-	response = httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hubs/enable-disclosure", nil))
-	if response.Code != 200 || !strings.Contains(response.Body.String(), "starts sync") || !strings.Contains(response.Body.String(), "prompts, commands and source snippets") {
-		t.Fatalf("enable disclosure %d %s", response.Code, response.Body.String())
-	}
-}
-
-func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		var input struct {
-			Origin            string `json:"origin"`
-			Consent           bool   `json:"consent"`
-			NewBindingConsent bool   `json:"newBindingConsent"`
-		}
-		if (r.URL.Path != "/api/hubs/pairings" && r.URL.Path != "/api/hubs/re-pairings") || r.Header.Get("X-Coslash-Token") != "secret" || json.NewDecoder(r.Body).Decode(&input) != nil || input.Origin != "https://secondary.example" || !input.Consent || (r.URL.Path == "/api/hubs/re-pairings" && !input.NewBindingConsent) {
-			t.Error("invalid consent request")
-		}
-		_, _ = fmt.Fprint(w, `{"id":"attempt"}`)
-	}))
-	defer server.Close()
-	writeTestRuntime(t, server.URL, "secret")
-	var out, errOut bytes.Buffer
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "does not authorize") {
-		t.Fatalf("disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
-	}
-	out.Reset()
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "recover", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "matches the previous one") {
-		t.Fatalf("recovery disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
-	}
-	out.Reset()
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "enable", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "starts sync") {
-		t.Fatalf("enable disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
-	}
-	out.Reset()
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example", "--consent"}); code != 0 || calls.Load() != 1 || !strings.Contains(out.String(), `"id":"attempt"`) {
-		t.Fatalf("consent exit=%d output=%s error=%s", code, out.String(), errOut.String())
-	}
-	out.Reset()
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "recover", "https://secondary.example", "--consent", "--new-binding-consent"}); code != 0 || calls.Load() != 2 || !strings.Contains(out.String(), "another account") {
-		t.Fatalf("new-binding consent exit=%d output=%s error=%s", code, out.String(), errOut.String())
-	}
-}
-
-func TestSecondaryActionsRejectMisplacedConsentFields(t *testing.T) {
+func TestSecondaryActionsRejectUnknownFieldsAndMissingConsent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	registry := workerTestRegistry(t, home, "https://primary.example")
@@ -353,15 +324,15 @@ func TestSecondaryActionsRejectMisplacedConsentFields(t *testing.T) {
 	registerSecondaryPairingRoutes(mux, newSecondaryPairings(workers))
 	for _, action := range []string{"pairings", "enable", "disable", "retry"} {
 		t.Run(action, func(t *testing.T) {
-			body := `{"origin":"https://secondary.example","newBindingConsent":true}`
+			body := `{"origin":"https://secondary.example","unreviewedConsent":true}`
 			response := httptest.NewRecorder()
 			mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/"+action, strings.NewReader(body)))
 			if response.Code != http.StatusBadRequest {
-				t.Fatalf("misplaced consent: %d %s", response.Code, response.Body.String())
+				t.Fatalf("unknown field: %d %s", response.Code, response.Body.String())
 			}
 		})
 	}
-	for _, action := range []string{"pairings", "re-pairings", "enable"} {
+	for _, action := range []string{"pairings", "enable"} {
 		response := httptest.NewRecorder()
 		mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/"+action, strings.NewReader(`{"origin":"https://secondary.example"}`)))
 		if response.Code != http.StatusConflict {

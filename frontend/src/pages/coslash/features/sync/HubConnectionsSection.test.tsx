@@ -4,23 +4,26 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { HubConnectionsSection } from './HubConnectionsSection';
 
-const primary = {
-  origin: 'https://primary.example',
-  primary: true,
-  enabled: true,
-  state: 'connected_idle',
-  quarantined: 0,
-};
-const secondary = {
-  origin: 'https://secondary.example',
-  primary: false,
-  enabled: false,
-  state: 'disabled',
-  quarantined: 0,
-};
-const disclosure = 'This disclosure applies to the named Hub.';
+const primary = { origin: 'https://primary.example', primary: true, enabled: true, state: 'connected_idle' };
+const secondary = { origin: 'https://secondary.example', primary: false, enabled: false, state: 'disabled' };
+const started = (id: string, verificationUri = `${secondary.origin}/approve`) =>
+  response({ id: id.repeat(32), pairing: { userCode: 'ABCD', verificationUri } }, 201);
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+
+type Handler = (path: string, body: unknown) => Response | Promise<Response> | undefined;
+function stubApi(hubs: () => unknown, handler: Handler = () => undefined) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/hubs/status') return response(hubs());
+      const result = handler(path, init?.body ? JSON.parse(String(init.body)) : undefined);
+      if (!result) throw new Error(`Unexpected ${path}`);
+      return result;
+    }),
+  );
+}
 
 function button(text: string) {
   const found = [...document.querySelectorAll('button')].find((item) => item.textContent?.trim() === text);
@@ -31,6 +34,7 @@ async function click(target: HTMLElement) {
   await act(async () => {
     target.click();
   });
+  await settle();
 }
 async function settle() {
   await act(async () => {
@@ -38,18 +42,20 @@ async function settle() {
     await Promise.resolve();
   });
 }
-function setOrigin(value: string) {
+async function setOrigin(value: string) {
   const input = document.querySelector<HTMLInputElement>('input[aria-label="Hub origin"]');
   if (!input) throw new Error('Missing origin input');
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-  setter?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 }
-function checkbox(index: number) {
-  const item = document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[index];
-  if (!item) throw new Error(`Missing checkbox ${index}`);
+function consent() {
+  const item = document.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  if (!item) throw new Error('Missing consent checkbox');
   return item;
 }
+const alertText = () => document.querySelector('[role="alert"]')?.textContent;
 
 let unmount: (() => Promise<void>) | undefined;
 beforeEach(() => {
@@ -61,343 +67,176 @@ async function renderConnections() {
   const root = createRoot(mount);
   unmount = async () => {
     await act(async () => root.unmount());
-    mount.remove();
     unmount = undefined;
   };
   await act(async () => root.render(<HubConnectionsSection />));
   await settle();
 }
-
 afterEach(async () => {
   await unmount?.();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 
-it('requires separate consent, shows pending and declined states, and manages each secondary', async () => {
+it('pairs with consent, then enables with separate consent and manages the secondary', async () => {
   let hubs = [primary];
-  let poll = 0;
-  let starts = 0;
-  const actions: string[] = [];
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input);
-    if (path === '/api/hubs/status') return response(hubs);
-    if (path.endsWith('-disclosure')) return response({ disclosure });
-    if (path === '/api/hubs/pairings') {
-      starts += 1;
-      const body = JSON.parse(String(init?.body)) as { origin: string; consent: boolean };
-      expect(body).toEqual({ origin: secondary.origin, consent: true });
-      return response(
-        { id: 'a'.repeat(32), pairing: { userCode: 'ABCD', verificationUri: `${secondary.origin}/approve` } },
-        201,
-      );
-    }
-    if (path.endsWith('/poll')) {
-      poll += 1;
-      const state = poll === 1 ? 'pending' : poll === 2 ? 'declined' : 'paired_disabled';
-      if (state === 'paired_disabled') hubs = [primary, secondary];
-      return response({ state });
-    }
-    if (path === '/api/hubs/enable') {
-      actions.push('enable');
-      expect(JSON.parse(String(init?.body))).toEqual({ origin: secondary.origin, consent: true });
-      hubs = [primary, { ...secondary, enabled: true, state: 'connected_idle' }];
-      return response({ state: 'started' });
-    }
-    if (path === '/api/hubs/retry' || path === '/api/hubs/disable') {
-      actions.push(path);
-      expect(JSON.parse(String(init?.body))).toEqual({ origin: secondary.origin });
-      if (path.endsWith('disable')) hubs = [primary, secondary];
+  const polls = ['pending', 'declined', 'paired_disabled'];
+  const calls: string[] = [];
+  stubApi(
+    () => hubs,
+    (path, body) => {
+      calls.push(path);
+      if (path === '/api/hubs/pairings') {
+        expect(body).toEqual({ origin: secondary.origin, consent: true });
+        return started('a');
+      }
+      if (path.endsWith('/poll')) {
+        const state = polls.shift();
+        if (state === 'paired_disabled') hubs = [primary, secondary];
+        return response({ state });
+      }
+      if (path === '/api/hubs/enable') {
+        expect(body).toEqual({ origin: secondary.origin, consent: true });
+        hubs = [primary, { ...secondary, enabled: true, state: 'connected_idle' }];
+        return response({ state: 'started' });
+      }
+      expect(body).toEqual({ origin: secondary.origin });
+      if (path === '/api/hubs/disable') hubs = [primary, secondary];
       return response({ state: 'ok' });
-    }
-    throw new Error(`Unexpected ${path}`);
-  });
-  vi.stubGlobal('fetch', fetchMock);
+    },
+  );
   await renderConnections();
-  expect(document.body.textContent).toContain('https://primary.example');
-  expect(document.body.textContent).toContain('(Primary)');
+  expect(document.body.textContent).toContain('https://primary.example (Primary)');
+
   await click(button('Add Hub'));
-  await settle();
-  await act(async () => {
-    setOrigin(secondary.origin);
-  });
+  expect(document.body.textContent).toContain('does not authorize or start personal sync');
+  await setOrigin('https://secondary.example/path');
+  expect(alertText()).toContain('Enter an HTTPS Hub origin');
+  expect(consent().disabled).toBe(true);
+  await setOrigin(secondary.origin);
+  await click(consent());
+  await setOrigin('https://other.example');
+  expect(consent().checked).toBe(false);
   expect(button('Start pairing').disabled).toBe(true);
-  expect(starts).toBe(0);
-  await click(checkbox(0));
-  await act(async () => {
-    setOrigin('https://other.example');
-  });
-  expect(checkbox(0).checked).toBe(false);
-  expect(button('Start pairing').disabled).toBe(true);
-  await act(async () => {
-    setOrigin(secondary.origin);
-  });
-  await click(checkbox(0));
+  await setOrigin(secondary.origin);
+  await click(consent());
   await click(button('Start pairing'));
-  await settle();
-  expect(document.body.textContent).toContain('Waiting for approval');
   expect(document.querySelector('a')?.getAttribute('href')).toBe(`${secondary.origin}/approve`);
   await click(button('Check approval'));
-  await settle();
   expect(document.body.textContent).toContain('Waiting for approval');
   await click(button('Check approval'));
-  await settle();
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain('declined');
+  expect(alertText()).toContain('declined');
+
   await click(button('Close'));
   await click(button('Add Hub'));
-  await settle();
-  await act(async () => {
-    setOrigin(secondary.origin);
-  });
-  await click(checkbox(0));
+  await setOrigin(secondary.origin);
+  await click(consent());
   await click(button('Start pairing'));
-  await settle();
   await click(button('Check approval'));
-  await settle();
   expect(document.body.textContent).toContain('Paired. Sync is disabled');
-  expect(actions).toEqual([]);
+  expect(calls).not.toContain('/api/hubs/enable');
+
   await click(button('Close'));
   await click(button('Enable'));
-  await settle();
+  expect(document.body.textContent).toContain('prompts, commands and source snippets');
   expect(button('Enable sync').disabled).toBe(true);
-  await click(checkbox(0));
+  await click(consent());
   await click(button('Enable sync'));
-  await settle();
-  expect(actions).toEqual(['enable']);
   expect(document.body.textContent).toContain('Sync started');
   await click(button('Retry'));
-  await settle();
   await click(button('Disable'));
-  await settle();
-  expect(actions).toEqual(['enable', '/api/hubs/retry', '/api/hubs/disable']);
-  expect(document.body.textContent).toContain('Sync disabled');
+  expect(calls.slice(-3)).toEqual(['/api/hubs/enable', '/api/hubs/retry', '/api/hubs/disable']);
   expect(document.querySelector('[aria-label="Enable https://secondary.example"]')).not.toBeNull();
-  await unmount?.();
 });
 
-it('requires explicit new-binding consent, preserves errors and ignores closed attempts', async () => {
+it('pairs a known Hub again and ignores a completion from a closed flow', async () => {
   let resolvePoll: ((value: Response) => void) | undefined;
-  let pollSignal: AbortSignal | null | undefined;
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input);
-    if (path === '/api/hubs/status') return response([primary, { ...secondary, state: 'disconnected' }]);
-    if (path === '/api/hubs/recovery-disclosure')
-      return response({
-        disclosure: 'Old pending data stays on this computer and will not be sent to the new account.',
-      });
-    if (path === '/api/hubs/re-pairings') {
-      expect(JSON.parse(String(init?.body))).toEqual({
-        origin: secondary.origin,
-        consent: true,
-        newBindingConsent: true,
-      });
-      return response(
-        { id: 'b'.repeat(32), pairing: { userCode: 'EFGH', verificationUri: `${secondary.origin}/approve` } },
-        201,
-      );
-    }
-    if (path.endsWith('/poll')) {
-      pollSignal = init?.signal;
-      return new Promise<Response>((resolve) => {
-        resolvePoll = resolve;
-      });
-    }
-    throw new Error(`Unexpected ${path}`);
-  });
-  vi.stubGlobal('fetch', fetchMock);
+  stubApi(
+    () => [primary, { ...secondary, enabled: true, state: 'not_connected' }],
+    (path, body) => {
+      if (path === '/api/hubs/pairings') {
+        expect(body).toEqual({ origin: secondary.origin, consent: true });
+        return started('b');
+      }
+      if (path.endsWith('/poll'))
+        return new Promise<Response>((resolve) => {
+          resolvePoll = resolve;
+        });
+    },
+  );
   await renderConnections();
-  await click(button('Recover pairing'));
-  await settle();
-  expect(document.body.textContent).toContain('will not be sent to the new account');
-  expect(button('Start recovery').disabled).toBe(true);
-  await click(checkbox(0));
-  await click(checkbox(1));
-  await click(button('Start recovery'));
-  await settle();
+  await click(button('Pair again'));
+  expect(document.body.textContent).toContain('Uploads to this Hub then start over');
+  expect(document.querySelector('input[aria-label="Hub origin"]')).toBeNull();
+  await click(consent());
+  await click(button('Start pairing'));
   await click(button('Check approval'));
-  await unmount?.();
-  expect(pollSignal?.aborted).toBe(true);
+  await click(button('Close'));
   await act(async () => {
-    resolvePoll?.(response({ state: 'recovered_new_binding_disabled' }));
+    resolvePoll?.(response({ state: 'paired_disabled' }));
     await Promise.resolve();
   });
-  expect(fetchMock.mock.calls.filter(([path]) => String(path) === '/api/hubs/enable')).toHaveLength(0);
+  expect(document.body.textContent).not.toContain('Paired.');
+  expect(button('Add Hub').disabled).toBe(false);
 });
 
-it('shows server errors and allows status loading to be retried', async () => {
+it('clears consent when switching flows', async () => {
+  stubApi(() => [primary, secondary]);
+  await renderConnections();
+  await click(button('Enable'));
+  await click(consent());
+  expect(button('Enable sync').disabled).toBe(false);
+  await click(button('Pair again'));
+  expect(consent().checked).toBe(false);
+  expect(button('Start pairing').disabled).toBe(true);
+});
+
+it('shows a status load failure and retries it', async () => {
   let fail = true;
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input) !== '/api/hubs/status') throw new Error('unexpected request');
-      if (fail) return new Response('Hub status unavailable', { status: 503 });
-      return response([primary]);
-    }),
+    vi.fn(async () => (fail ? new Response('Hub status unavailable', { status: 503 }) : response([primary]))),
   );
   await renderConnections();
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain('Hub status unavailable');
+  expect(alertText()).toContain('Hub status unavailable');
   expect(button('Add Hub').disabled).toBe(true);
   fail = false;
   await click(button('Retry loading'));
-  await settle();
   expect(button('Add Hub').disabled).toBe(false);
-  await unmount?.();
 });
 
-it('shows new-binding recovery as disabled and surfaces an enable failure', async () => {
-  let quarantined = 0;
-  let enableCalls = 0;
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path === '/api/hubs/status')
-        return response([primary, { ...secondary, state: 'disconnected', quarantined }]);
-      if (path.endsWith('-disclosure'))
-        return response({
-          disclosure:
-            'Old pending data stays on this computer; eligible sessions may upload after you enable sync.',
-        });
-      if (path === '/api/hubs/re-pairings') {
-        expect(JSON.parse(String(init?.body))).toEqual({
-          origin: secondary.origin,
-          consent: true,
-          newBindingConsent: true,
-        });
-        return response(
-          {
-            id: 'c'.repeat(32),
-            pairing: { userCode: 'CODE', verificationUri: `${secondary.origin}/approve` },
-          },
-          201,
-        );
-      }
-      if (path.endsWith('/poll')) {
-        quarantined = 1;
-        return response({ state: 'recovered_new_binding_disabled' });
-      }
-      if (path === '/api/hubs/enable') {
-        enableCalls += 1;
-        return new Response('secondary Hub could not be enabled', { status: 409 });
-      }
-      throw new Error(`Unexpected ${path}`);
-    }),
+it('surfaces an enable failure and keeps the flow open for retry', async () => {
+  stubApi(
+    () => [primary, secondary],
+    () => new Response('This Hub could not be enabled.', { status: 409 }),
   );
   await renderConnections();
-  await click(button('Recover pairing'));
-  await settle();
-  await click(checkbox(0));
-  await click(checkbox(1));
-  await click(button('Start recovery'));
-  await settle();
-  await click(button('Check approval'));
-  await settle();
-  expect(document.body.textContent).toContain('Old pending data stays on this computer; sync is disabled');
-  expect(document.body.textContent).toContain('Old pending data kept on this computer (1)');
-  expect(enableCalls).toBe(0);
-  await click(button('Close'));
   await click(button('Enable'));
-  await settle();
-  await click(checkbox(0));
+  await click(consent());
   await click(button('Enable sync'));
-  await settle();
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    'secondary Hub could not be enabled',
-  );
-  expect(enableCalls).toBe(1);
-  expect(button('Enable sync')).not.toBeNull();
-  await unmount?.();
+  expect(alertText()).toContain('This Hub could not be enabled.');
+  expect(button('Enable sync').disabled).toBe(false);
 });
 
 it('does not offer an approval link to a different origin', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path === '/api/hubs/status') return response([primary]);
-      if (path === '/api/hubs/pairing-disclosure') return response({ disclosure });
-      if (path === '/api/hubs/pairings')
-        return response(
-          {
-            id: 'd'.repeat(32),
-            pairing: { userCode: 'CODE', verificationUri: 'https://other.example/approve' },
-          },
-          201,
-        );
-      throw new Error(`Unexpected ${path}`);
-    }),
+  stubApi(
+    () => [primary],
+    () => started('d', 'https://other.example/approve'),
   );
   await renderConnections();
   await click(button('Add Hub'));
-  await settle();
-  await act(async () => {
-    setOrigin(secondary.origin);
-  });
-  await click(checkbox(0));
+  await setOrigin(secondary.origin);
+  await click(consent());
   await click(button('Start pairing'));
-  await settle();
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain('Invalid Hub approval link');
+  expect(alertText()).toContain('Invalid Hub approval link');
   expect(document.querySelector('a')).toBeNull();
-  await unmount?.();
 });
 
 it('shows an origin-scoped connection failure instead of claiming the Hub is connected', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () =>
-      response([
-        primary,
-        {
-          ...secondary,
-          enabled: true,
-          state: 'connected_idle',
-          failure: 'Hub is temporarily unavailable. Try again shortly.',
-        },
-      ]),
-    ),
-  );
+  const failure = 'Hub is temporarily unavailable. Try again shortly.';
+  stubApi(() => [primary, { ...secondary, enabled: true, state: 'connected_idle', failure }]);
   await renderConnections();
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain('Hub is temporarily unavailable');
+  expect(alertText()).toContain(failure);
   expect(document.body.textContent).toContain('Connection issue');
   expect(document.querySelector('[aria-label="Retry https://secondary.example"]')).not.toBeNull();
-  await unmount?.();
-});
-
-it('clears the old disclosure when changing flows and ignores its late response', async () => {
-  let resolveRecovery: ((value: Response) => void) | undefined;
-  let resolveEnable: ((value: Response) => void) | undefined;
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path === '/api/hubs/status') return response([primary, secondary]);
-      if (path === '/api/hubs/recovery-disclosure')
-        return new Promise<Response>((resolve) => {
-          resolveRecovery = resolve;
-        });
-      if (path === '/api/hubs/enable-disclosure')
-        return new Promise<Response>((resolve) => {
-          resolveEnable = resolve;
-        });
-      throw new Error(`Unexpected ${path}`);
-    }),
-  );
-  await renderConnections();
-  await click(button('Recover pairing'));
-  await click(button('Enable'));
-  expect(button('Enable sync').disabled).toBe(true);
-  await act(async () => {
-    resolveRecovery?.(response({ disclosure: 'Old recovery disclosure' }));
-  });
-  expect(document.body.textContent).not.toContain('Old recovery disclosure');
-  await act(async () => {
-    resolveEnable?.(response({ disclosure: 'Enable disclosure' }));
-  });
-  expect(document.body.textContent).toContain('Enable disclosure');
-  await click(checkbox(0));
-  expect(button('Enable sync').disabled).toBe(false);
-  await click(button('Recover pairing'));
-  expect(document.body.textContent).not.toContain('Enable disclosure');
-  expect(button('Start recovery').disabled).toBe(true);
-  await unmount?.();
 });

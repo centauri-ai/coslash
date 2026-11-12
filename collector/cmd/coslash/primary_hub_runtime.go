@@ -284,7 +284,7 @@ func (p *primaryHubRuntime) hubSignalTarget(raw string, includePrimary bool) (bo
 	}
 	for _, connection := range state.Connections {
 		if connection.Origin == origin {
-			return true, connection.Enabled && (origin == state.Primary || connection.SyncConsent), origin
+			return true, connection.Enabled, origin
 		}
 	}
 	return true, false, origin

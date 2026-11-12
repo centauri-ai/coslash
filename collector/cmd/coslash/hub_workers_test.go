@@ -36,7 +36,7 @@ func workerTestRegistry(t *testing.T, home, primary string) *hubRegistry {
 	t.Helper()
 	r, err := openHubRegistry(home, "", nil)
 	requireHubTestOK(t, err)
-	requireHubTestOK(t, r.addPrimary(primary))
+	requireHubTestOK(t, r.adoptLegacyPrimary(primary))
 	return r
 }
 
@@ -658,122 +658,6 @@ func TestHubWorkerRejectsWrongOriginClient(t *testing.T) {
 	}
 }
 
-func TestHubWorkerStopCancelsPendingCredentialLoad(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("COSLASH_HOME", home)
-	t.Setenv("COSLASH_V4_SYNC", "1")
-	r := workerTestRegistry(t, home, "https://hub.example")
-	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	requireHubTestOK(t, err)
-	started := make(chan struct{})
-	s.client = func(connection hubConnection, _ bool) (*hubclient.Client, error) {
-		base, _ := url.Parse(connection.Origin)
-		return &hubclient.Client{BaseURL: base, Credentials: blockingWorkerCredentials{started: started}}, nil
-	}
-	done := make(chan error, 1)
-	go func() { done <- s.StartEnabled("https://hub.example") }()
-	waitSignal(t, started)
-	requireHubTestOK(t, s.Stop("https://hub.example"))
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatalf("pending start error = %v", err)
-	}
-	if s.Retry("https://hub.example") {
-		t.Fatal("canceled start is running")
-	}
-}
-
-func TestHubWorkerDisableCancelsStartAfterEnabledCheck(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("COSLASH_HOME", home)
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("COSLASH_V4_SYNC", "1")
-	hub := newWorkerTestHub(t, "secondary")
-	r := workerTestRegistry(t, home, "https://primary.example")
-	requireHubTestOK(t, r.addSecondary(hub.server.URL))
-	requireHubTestOK(t, r.setEnabled(hub.server.URL, true))
-	store := &racingWorkerCredentials{syncTestCredentials: &syncTestCredentials{value: hub.credential}, entered: make(chan struct{}), canceled: make(chan struct{}), release: make(chan struct{})}
-	base, _ := url.Parse(hub.server.URL)
-	seedClient := &hubclient.Client{BaseURL: base, HTTP: hub.server.Client(), Credentials: store.syncTestCredentials, CollectorVersion: "1.2.3"}
-	root := filepath.Join(home, "hub-connections", fmt.Sprintf("%x", sha256.Sum256([]byte(hub.server.URL))))
-	id, bundle := seedWorkerQueue(t, filepath.Join(root, "sync-v4"), filepath.Join(root, "prepared"), seedClient, time.Unix(1800000000, 0), "pending")
-	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner {
-		return &syncv4.Runner{Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }}
-	})
-	requireHubTestOK(t, err)
-	s.poll = func(context.Context, *syncLoopControl) {}
-	s.client = func(hubConnection, bool) (*hubclient.Client, error) {
-		return &hubclient.Client{BaseURL: base, HTTP: hub.server.Client(), Credentials: store, CollectorVersion: "1.2.3"}, nil
-	}
-	startDone, disableDone := make(chan error, 1), make(chan error, 1)
-	go func() { startDone <- s.StartEnabled(hub.server.URL) }()
-	waitSignal(t, store.entered)
-	go func() { disableDone <- s.Disable(hub.server.URL) }()
-	waitSignal(t, store.canceled)
-	close(store.release)
-	if err := <-startDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("stale start error = %v", err)
-	}
-	requireHubTestOK(t, <-disableDone)
-	if s.Retry(hub.server.URL) {
-		t.Fatal("disabled worker was running")
-	}
-	if err := s.StartEnabled(hub.server.URL); err == nil {
-		t.Fatal("disabled worker restarted")
-	}
-	select {
-	case <-hub.checkins:
-		t.Fatal("stale worker checked in")
-	default:
-	}
-	q, err := syncv4.Open(filepath.Join(root, "sync-v4"))
-	requireHubTestOK(t, err)
-	if q.InstallID() != id || len(q.Entries()) != 1 || q.Entries()[0].BundleID != bundle {
-		t.Fatal("pending work changed during disable")
-	}
-	if _, err := os.Stat(filepath.Join(root, "prepared", bundle, "manifest.json")); err != nil {
-		t.Fatalf("pending spool lost: %v", err)
-	}
-}
-
-func TestSecondaryEnableCancelledByDisable(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("COSLASH_HOME", home)
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("COSLASH_V4_SYNC", "1")
-	registry := workerTestRegistry(t, home, "https://primary.example")
-	requireHubTestOK(t, registry.addSecondary("https://secondary.example"))
-	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	requireHubTestOK(t, err)
-	defer workers.StopAll()
-	entered := make(chan struct{})
-	workers.client = func(c hubConnection, _ bool) (*hubclient.Client, error) {
-		base, _ := url.Parse(c.Origin)
-		return &hubclient.Client{BaseURL: base, Credentials: blockingWorkerCredentials{started: entered}}, nil
-	}
-	pairings := newSecondaryPairings(workers)
-	done := make(chan error, 1)
-	go func() { done <- pairings.enable(context.Background(), "https://secondary.example", true) }()
-	waitSignal(t, entered)
-	requireHubTestOK(t, workers.Disable("https://secondary.example"))
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("stale enable succeeded")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("enable did not cancel")
-	}
-	state := registry.snapshot()
-	if state.Connections[1].Enabled || state.Connections[1].SyncConsent {
-		t.Fatal("disable left secondary authorized")
-	}
-	if err := workers.StartEnabled("https://secondary.example"); err == nil {
-		t.Fatal("disabled worker restarted")
-	}
-}
-
 type failSecondCredentialLoad struct{ loads atomic.Int32 }
 
 func (s *failSecondCredentialLoad) Load(context.Context) (string, error) {
@@ -810,7 +694,7 @@ func TestSecondaryEnableReportsStartFailure(t *testing.T) {
 	}
 }
 
-func TestSecondaryControlsDoNotCancelPrimaryStart(t *testing.T) {
+func TestSecondaryControlsRejectPrimaryAndUnknownHubs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("HOME", home)
@@ -820,20 +704,11 @@ func TestSecondaryControlsDoNotCancelPrimaryStart(t *testing.T) {
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
 	requireHubTestOK(t, err)
 	defer workers.StopAll()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	slot := workers.slot("https://primary.example")
-	slot.startMu.Lock()
-	slot.startCancel = cancel
-	slot.startMu.Unlock()
 	if err := workers.Disable("https://primary.example"); err == nil {
 		t.Fatal("primary disable accepted")
 	}
 	if err := newSecondaryPairings(workers).enable(context.Background(), "https://primary.example", true); err == nil {
 		t.Fatal("primary secondary-enable accepted")
-	}
-	if ctx.Err() != nil {
-		t.Fatal("secondary control cancelled primary start")
 	}
 	if err := workers.Disable("https://unknown.example"); err == nil {
 		t.Fatal("unknown disable accepted")

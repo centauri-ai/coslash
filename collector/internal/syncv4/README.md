@@ -27,7 +27,7 @@ Receipt reporting does not run uploads or consume policy or other commands.
 
 A worker configured with `NoSharedAuthority` rejects SSH test/install and update
 commands with persisted failures, ignores SSH host reconciliation and update
-prompts, and fails a stale update attempt before sending check-in results.
+prompts.
 Worker owners must use a separate queue for each Hub and must never attach a
 secondary queue to the global updater, update receipt reporter, update deep
 links, or shared-machine maintenance. Authority is fixed for the worker lifetime;
@@ -39,11 +39,10 @@ queue, install ID, discovery cursor and prepared spool. The primary keeps its
 existing queue and spool. Local pause applies to every worker; each Hub's policy
 and leave-out rules apply only to its own queue. Disabling one connection stops
 its worker before recording that decision and does not rebind another queue.
-Recovery compares the approved credential's binding with the existing queue
-without opening or rewriting it. With separate consent, a mismatched credential
-selects a fresh queue and spool; the old binding's queue and spool remain locally
-quarantined and are never replayed to the new account. Freshly discovered
-eligible sessions can sync after a separate enable action.
+Pairing a secondary again disables it first. Its next consented start rebinds
+its own queue, which resets upload state exactly as a primary Hub change does,
+so work prepared for the old binding is never sent under the new one. The
+primary never rebinds a bound queue.
 
 For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed

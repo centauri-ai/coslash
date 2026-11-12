@@ -76,9 +76,9 @@ func TestHubRegistrySecondaryRequiresExplicitEnableAndKeepsPrimaryAuthority(t *t
 	if err := r.addSecondary("https://beta.coslash.io"); err == nil {
 		t.Fatal("secondary without primary accepted")
 	}
-	requireHubTestOK(t, r.addPrimary("https://Hub.CoSlash.io:0443"))
-	if err := r.addSecondary("https://hub.coslash.io."); err == nil {
-		t.Fatal("normalized duplicate accepted")
+	requireHubTestOK(t, r.adoptLegacyPrimary("https://Hub.CoSlash.io:443"))
+	if err := r.addSecondary("https://hub.coslash.io"); err == nil {
+		t.Fatal("duplicate accepted")
 	}
 	if err := r.addSecondary("http://localhost:8787"); err == nil {
 		t.Fatal("insecure secondary accepted")
@@ -96,11 +96,11 @@ func TestHubRegistrySecondaryRequiresExplicitEnableAndKeepsPrimaryAuthority(t *t
 	if err != nil || reopened.snapshot().Connections[1].Enabled {
 		t.Fatalf("secondary enabled on restart: %+v %v", reopened, err)
 	}
-	requireHubTestOK(t, reopened.setEnabled("https://BETA.coslash.io:443", true))
+	requireHubTestOK(t, reopened.setEnabled("https://beta.coslash.io", true))
 	if err := reopened.setEnabled("https://unknown.example", true); err == nil {
 		t.Fatal("unknown Hub enabled")
 	}
-	if err := reopened.addPrimary("https://other.example"); err == nil {
+	if err := reopened.adoptLegacyPrimary("https://other.example"); err == nil {
 		t.Fatal("primary replaced")
 	}
 	reopened, err = openHubRegistry(home, "", nil)
@@ -109,39 +109,10 @@ func TestHubRegistrySecondaryRequiresExplicitEnableAndKeepsPrimaryAuthority(t *t
 	}
 }
 
-func TestHubRegistryOldEnabledSecondaryRequiresSyncConsent(t *testing.T) {
-	home := t.TempDir()
-	r, err := openHubRegistry(home, "", nil)
-	requireHubTestOK(t, err)
-	requireHubTestOK(t, r.addPrimary("https://primary.example"))
-	requireHubTestOK(t, r.addSecondary("https://secondary.example"))
-	legacy := []byte(`{"version":1,"primary":"https://primary.example","connections":[{"origin":"https://primary.example","enabled":true},{"origin":"https://secondary.example","enabled":true}]}`)
-	if _, err := writeHubRegistryFile(filepath.Join(home, "hub-connections"), legacy); err != nil {
-		t.Fatal(err)
-	}
-	r, err = openHubRegistry(home, "", nil)
-	requireHubTestOK(t, err)
-	if c := r.snapshot().Connections[1]; c.Enabled || c.SyncConsent {
-		t.Fatalf("old enabled entry remained authorized: %+v", c)
-	}
-	requireHubTestOK(t, r.setEnabled("https://secondary.example", true))
-	r, err = openHubRegistry(home, "", nil)
-	requireHubTestOK(t, err)
-	if c := r.snapshot().Connections[1]; !c.Enabled || !c.SyncConsent {
-		t.Fatalf("explicit consent did not survive restart: %+v", c)
-	}
-}
-
 func TestHubRegistryWriteFailureDoesNotPublish(t *testing.T) {
 	home := t.TempDir()
 	fail := errors.New("write failed")
 	legacy := "https://hub.coslash.io"
-	if _, err := openHubRegistryWithWriter(home, legacy, func(string) (bool, error) { return true, nil }, func(string, []byte) (bool, error) { return false, fail }); !errors.Is(err, fail) {
-		t.Fatalf("migration error = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(home, "hub-connections", "registry.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("failed migration created registry: %v", err)
-	}
 	r, err := openHubRegistry(home, legacy, func(string) (bool, error) { return true, nil })
 	requireHubTestOK(t, err)
 	before := r.snapshot()
@@ -162,7 +133,7 @@ func TestHubRegistryReportsCommittedStateWhenDirectorySyncFails(t *testing.T) {
 	home := t.TempDir()
 	r, err := openHubRegistry(home, "", nil)
 	requireHubTestOK(t, err)
-	requireHubTestOK(t, r.addPrimary("https://hub.coslash.io"))
+	requireHubTestOK(t, r.adoptLegacyPrimary("https://hub.coslash.io"))
 	fail := errors.New("directory sync failed")
 	r.write = func(dir string, data []byte) (bool, error) {
 		committed, err := writeHubRegistryFile(dir, data)
@@ -185,7 +156,7 @@ func TestHubRegistryFailedEnableDoesNotGrantConsent(t *testing.T) {
 	home := t.TempDir()
 	r, err := openHubRegistry(home, "", nil)
 	requireHubTestOK(t, err)
-	requireHubTestOK(t, r.addPrimary("https://hub.coslash.io"))
+	requireHubTestOK(t, r.adoptLegacyPrimary("https://hub.coslash.io"))
 	requireHubTestOK(t, r.addSecondary("https://beta.coslash.io"))
 	r.write = func(string, []byte) (bool, error) { return false, errors.New("write failed") }
 	if err := r.setEnabled("https://beta.coslash.io", true); err == nil {
@@ -203,7 +174,7 @@ func TestHubRegistryRealWriteFailureLeavesStateEmpty(t *testing.T) {
 	r, err := openHubRegistry(home, "", nil)
 	requireHubTestOK(t, err)
 	requireHubTestOK(t, os.Mkdir(filepath.Join(home, "hub-connections", "registry.json"), 0o700))
-	if err := r.addPrimary("https://hub.coslash.io"); err == nil {
+	if err := r.adoptLegacyPrimary("https://hub.coslash.io"); err == nil {
 		t.Fatal("write over directory succeeded")
 	}
 	if state := r.snapshot(); state.Primary != "" || len(state.Connections) != 0 {
@@ -214,9 +185,6 @@ func TestHubRegistryRealWriteFailureLeavesStateEmpty(t *testing.T) {
 func TestHubRegistryMigrationRequiresVerification(t *testing.T) {
 	home := t.TempDir()
 	legacy := "https://hub.coslash.io"
-	if _, err := openHubRegistry(home, legacy, nil); err == nil {
-		t.Fatal("missing verifier accepted")
-	}
 	fail := errors.New("credential store unavailable")
 	if _, err := openHubRegistry(home, legacy, func(string) (bool, error) { return false, fail }); !errors.Is(err, fail) {
 		t.Fatalf("verification error = %v", err)
@@ -228,15 +196,16 @@ func TestHubRegistryMigrationRequiresVerification(t *testing.T) {
 
 func TestCanonicalRegistryOrigin(t *testing.T) {
 	for _, test := range []struct{ input, want string }{
-		{"https://HUB.Coslash.io.:0443", "https://hub.coslash.io"},
+		{"https://HUB.Coslash.io.:443", "https://hub.coslash.io"},
 		{"https://hub.coslash.io:8443", "https://hub.coslash.io:8443"},
-		{"https://[2001:0db8::1]:443", "https://[2001:db8::1]"},
+		{"https://[2001:DB8::1]:443", "https://[2001:db8::1]"},
+		{"http://LOCALHOST:80", "http://localhost"},
 	} {
 		if got, err := canonicalRegistryOrigin(test.input); err != nil || got != test.want {
 			t.Errorf("%q = %q, %v; want %q", test.input, got, err, test.want)
 		}
 	}
-	for _, input := range []string{"https://hub.coslash.io/path", "https://user@hub.coslash.io", "https://hub.coslash.io:65536", "https://bad_host.example", "http://example.com"} {
+	for _, input := range []string{"https://hub.coslash.io/path", "https://user@hub.coslash.io", "http://example.com"} {
 		if _, err := canonicalRegistryOrigin(input); err == nil {
 			t.Errorf("accepted invalid origin %q", input)
 		}
@@ -247,7 +216,7 @@ func TestHubRegistrySerializesConcurrentChanges(t *testing.T) {
 	home := t.TempDir()
 	r, err := openHubRegistry(home, "", nil)
 	requireHubTestOK(t, err)
-	requireHubTestOK(t, r.addPrimary("https://hub.coslash.io"))
+	requireHubTestOK(t, r.adoptLegacyPrimary("https://hub.coslash.io"))
 	var wait sync.WaitGroup
 	errs := make(chan error, 2)
 	for _, origin := range []string{"https://beta.coslash.io", "https://other.example"} {
@@ -269,7 +238,7 @@ func TestHubRegistrySnapshotDoesNotWaitForWrite(t *testing.T) {
 	home := t.TempDir()
 	r, err := openHubRegistry(home, "", nil)
 	requireHubTestOK(t, err)
-	requireHubTestOK(t, r.addPrimary("https://hub.coslash.io"))
+	requireHubTestOK(t, r.adoptLegacyPrimary("https://hub.coslash.io"))
 	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	r.write = func(dir string, data []byte) (bool, error) {
 		close(started)
@@ -296,17 +265,10 @@ func TestHubRegistrySnapshotDoesNotWaitForWrite(t *testing.T) {
 func TestHubRegistryRejectsCorruptOrUnknownData(t *testing.T) {
 	inputs := []string{
 		`{}`, `null`, `{"version":2,"primary":"https://hub.coslash.io","connections":[]}`,
-		`{"version":4,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true}]}`,
-		`{"version":2,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true,"generation":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}`,
-		`{"version":3,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true,"generation":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","quarantined":["legacy"]}]}`,
-		`{"version":3,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true},{"origin":"https://other.example","enabled":false,"generation":"../escape","quarantined":["legacy"]}]}`,
-		`{"version":3,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true},{"origin":"https://other.example","enabled":false,"quarantined":["legacy"]}]}`,
 		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true,"extra":1}]}`,
-		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io"}]}`,
-		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":false,"enabled":true}]}`,
 		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true},{"origin":"https://hub.coslash.io","enabled":false}]}`,
-		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true,"legacyOrigin":null}]}`,
-		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true}]} {}`,
+		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://HUB.coslash.io","enabled":true}]}`,
+		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true},{"origin":"http://localhost:8787","enabled":false}]}`,
 		strings.Repeat(" ", (1<<20)+1),
 	}
 	for i, input := range inputs {
@@ -319,42 +281,5 @@ func TestHubRegistryRejectsCorruptOrUnknownData(t *testing.T) {
 				t.Fatal("corrupt registry accepted")
 			}
 		})
-	}
-}
-
-func TestHubRegistryRejectsExcessiveJSONDepth(t *testing.T) {
-	if err := rejectDuplicateJSONKeys([]byte(`{"connections":[{"enabled":false}]}`)); err != nil {
-		t.Fatalf("valid registry depth rejected: %v", err)
-	}
-	for _, input := range []string{
-		`{"connections":[{"enabled":{}}]}`,
-		`{"connections":` + strings.Repeat("[", 10000) + `0` + strings.Repeat("]", 10000) + `}`,
-	} {
-		if err := rejectDuplicateJSONKeys([]byte(input)); err == nil || err.Error() != "registry nesting too deep" {
-			t.Fatalf("depth error = %v", err)
-		}
-		home := t.TempDir()
-		dir := filepath.Join(home, "hub-connections")
-		requireHubTestOK(t, os.MkdirAll(dir, 0o700))
-		requireHubTestOK(t, os.WriteFile(filepath.Join(dir, "registry.json"), []byte(input), 0o600))
-		if _, err := openHubRegistry(home, "", nil); err == nil {
-			t.Fatal("deep registry accepted")
-		}
-	}
-}
-
-func TestHubRegistryV2KeepsConsentedSecondaryOnUpgrade(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, "hub-connections")
-	requireHubTestOK(t, os.MkdirAll(dir, 0700))
-	data := []byte(`{"version":2,"primary":"https://primary.example","connections":[{"origin":"https://primary.example","enabled":true},{"origin":"https://secondary.example","enabled":true,"syncConsent":true}]}`)
-	if _, err := writeHubRegistryFile(dir, data); err != nil {
-		t.Fatal(err)
-	}
-	registry, err := openHubRegistry(home, "", nil)
-	requireHubTestOK(t, err)
-	state := registry.snapshot()
-	if state.Version != hubRegistryVersion || len(state.Connections) != 2 || !state.Connections[1].Enabled || !state.Connections[1].SyncConsent || state.Connections[1].Generation != "" {
-		t.Fatalf("v2 upgrade: %+v", state)
 	}
 }

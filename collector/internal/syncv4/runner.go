@@ -966,11 +966,6 @@ func truncate(value string, max int) string {
 }
 
 func (r *Runner) refreshConsent(ctx context.Context) error {
-	if r.NoSharedAuthority {
-		if err := r.Queue.denySharedUpdate(); err != nil {
-			return err
-		}
-	}
 	if until := r.checkInRetryUntil.Load(); until > r.now().UnixNano() {
 		return fmt.Errorf("%w: %w", ErrStaleConsent, hubclient.V4Problem{
 			Code: "rate_limited", RetryAfter: time.Duration(until - r.now().UnixNano()),
