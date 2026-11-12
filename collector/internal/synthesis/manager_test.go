@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"reflect"
 	"runtime"
 	"slices"
@@ -281,6 +282,30 @@ func TestManagerQueuedWorkUsesCurrentRunner(t *testing.T) {
 
 func int64Pointer(n int64) *int64 { return &n }
 
+func TestReplacedRunnerFailureIsIgnored(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	old := &accountingRunner{vendor: "codex", model: "old", run: func(context.Context, string) (RunResult, error) {
+		close(started)
+		<-release
+		return RunResult{}, exec.ErrNotFound
+	}}
+	replacement := &accountingRunner{vendor: "claude", model: "new", run: func(context.Context, string) (RunResult, error) {
+		return RunResult{}, nil
+	}}
+	manager := NewManager(old, nil)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "replaced", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	<-started
+	manager.SetRunner(replacement)
+	close(release)
+	manager.workers.Wait()
+	if manager.InCooldown("codex", "replaced", 42) || manager.BackendUnavailable() || manager.Failure("codex", "replaced", 42) != "" {
+		t.Fatalf("replaced runner failure recorded: cooldown=%t unavailable=%t failure=%q", manager.InCooldown("codex", "replaced", 42), manager.BackendUnavailable(), manager.Failure("codex", "replaced", 42))
+	}
+}
+
 func TestManagerShutdownKeepsPaidCancellationWithoutPublishingSummary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
@@ -438,7 +463,7 @@ func TestManagerCanceledAfterSlotDoesNotBeginAccounting(t *testing.T) {
 	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) { called = true; return RunResult{}, nil }}
 	manager := NewManager(runner, store)
 	manager.cancelWork()
-	manager.execute(&session.Session{Agent: "codex", ID: "canceled", SessionDetails: session.SessionDetails{Turns: 6}}, 42, runner, "codex", "gpt-4o", "codex", "canceled")
+	manager.execute(&session.Session{Agent: "codex", ID: "canceled", SessionDetails: session.SessionDetails{Turns: 6}}, 42, runner, 0, "codex", "gpt-4o", "codex", "canceled")
 	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "canceled"})
 	if err != nil {
 		t.Fatal(err)
