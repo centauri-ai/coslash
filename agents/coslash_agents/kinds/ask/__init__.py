@@ -17,6 +17,7 @@ from coslash_agents.mcp.client import TOOLS, TaskExpired, TaskForbidden, ToolErr
 from coslash_agents.safety import quote_untrusted, strip_slack_controls, validate_refs
 from coslash_agents.usage import record_usage
 
+REPLY_RESERVE_SECONDS = 5
 PROMPT = files(__package__).joinpath("prompt.md").read_text(encoding="utf-8").strip()
 READS = frozenset(
     {
@@ -278,7 +279,13 @@ async def run(task, mcp, deadline):
     count = 0
     try:
         async with asyncio.timeout(
-            min(80, max(0.001, (deadline - datetime.now(UTC)).total_seconds()))
+            min(
+                80,
+                max(
+                    0.001,
+                    (deadline - datetime.now(UTC)).total_seconds() - REPLY_RESERVE_SECONDS,
+                ),
+            )
         ):
             args = {"channel_id": ask["channelId"], "thread_ts": ask["threadTs"], "limit": 200}
             cursors = set()

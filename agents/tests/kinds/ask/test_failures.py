@@ -15,10 +15,9 @@ async def test_model_error_replies_and_records(monkeypatch, cases, ask_task):
     assert usage[0]["feature"] == "ask" and usage[0]["estimated"] is True
 
 
-async def test_budget_timeout(monkeypatch, cases, ask_task):
+def budget_timeout(monkeypatch):
     import asyncio
 
-    fake, _ = setup(monkeypatch, cases)
     durations = []
 
     class Budget:
@@ -37,8 +36,36 @@ async def test_budget_timeout(monkeypatch, cases, ask_task):
 
     monkeypatch.setattr(ask, "asyncio", SimpleNamespace(timeout=Budget))
     monkeypatch.setattr(ask, "ask_model", slow)
+    return durations
+
+
+async def test_budget_timeout(monkeypatch, cases, ask_task):
+    fake, _ = setup(monkeypatch, cases)
+    durations = budget_timeout(monkeypatch)
     await execute(fake, ask_task)
     assert durations == [80]
+    assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
+        "text": TIMEOUT,
+        "citations": [],
+    }
+
+
+async def test_budget_timeout_near_expiry_still_replies(monkeypatch, cases, ask_task):
+    fake, _ = setup(monkeypatch, cases)
+    durations = budget_timeout(monkeypatch)
+    await execute(fake, ask_task, 20)
+    assert len(durations) == 1 and 0.001 < durations[0] <= 20 - ask.REPLY_RESERVE_SECONDS
+    assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
+        "text": TIMEOUT,
+        "citations": [],
+    }
+
+
+async def test_budget_floor_when_reserve_exceeds_remaining(monkeypatch, cases, ask_task):
+    fake, _ = setup(monkeypatch, cases)
+    durations = budget_timeout(monkeypatch)
+    await execute(fake, ask_task, 3)
+    assert durations == [0.001]
     assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
         "text": TIMEOUT,
         "citations": [],
