@@ -79,3 +79,29 @@ func parseLifecycleRows(t *testing.T, rows []string) *vendors.ParsedSession {
 	}
 	return parsed
 }
+
+func TestSessionMetaRecordsCanonicalRepository(t *testing.T) {
+	for _, tc := range []struct{ url, want string }{
+		{"git@github.com:centauri-ai/coslash.git", "github.com/centauri-ai/coslash"},
+		{"", ""},
+		{"not a url", ""},
+	} {
+		id := "01a0c51b-94c2-72b0-90ef-b23ea631af30"
+		path := filepath.Join(t.TempDir(), "rollout-2026-09-21T10-55-14-"+id+".jsonl")
+		meta := `{"timestamp":"2026-09-21T17:55:14Z","type":"session_meta","payload":{"id":"` + id + `","cwd":"/home/dev/.codex/worktrees/0040/coslash","git":{"commit_hash":"cc39","repository_url":` + string(mustJSON(tc.url)) + `}}}` + "\n"
+		if err := os.WriteFile(path, []byte(meta), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := parseTranscriptSource(vendors.LocalReadSource, path, func(string, string) bool { return false })
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := ""
+		if parsed.Session.Repository != nil {
+			got = *parsed.Session.Repository
+		}
+		if got != tc.want || parsed.Session.RepositoryLocalOnly || parsed.Session.Branch != nil {
+			t.Errorf("url %q: repository=%q localOnly=%v branch=%v", tc.url, got, parsed.Session.RepositoryLocalOnly, parsed.Session.Branch)
+		}
+	}
+}

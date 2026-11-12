@@ -38,6 +38,7 @@ On macOS, background enrichment does not open project files in Desktop, Document
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
 | `session-backups/prepared/` | Verified, private session-family bundles retained locally while a V4 sync can resume. |
 | `fingerprints/v1/<agent>/` | The local parse cache: one private file per local transcript, Cursor session or OpenCode family holding the parsed summary already produced for the board (prompts, commands, working directories, edited-file paths and file-change bodies), keyed by file size and modification time so an unchanged source is never parsed twice. It holds no raw transcript rows. Deleting the directory is always safe; `discovery-cursor.json` beside it records where a streamed discovery pass stopped. `COSLASH_SCALE_IMPORT=0` disables the cache. |
+| `repositories.json` | The canonical origin remote last read for each working directory, keyed by the local path, or by remote source ID and path for an SSH host. It keeps a session in its repository after its worktree is removed or its folder cannot be probed. |
 | `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
@@ -255,6 +256,12 @@ window has elapsed.
 
 The local session-family producer and private spool remain in use by V4 sync.
 V3 requests and payloads are not redirected to a V4 endpoint.
+
+A session's repository is the canonical origin remote Git reports for its
+working directory. When Git finds no repository there, as after a worktree is
+removed, it is the remote Codex recorded in the session, else the remote last
+read for that directory. A `.git` directory without a `HEAD` file does not make
+its folder a repository.
 
 The library card for an SSH session carries the canonical origin remote when
 `git remote get-url origin` succeeds on that host, and its live status from the

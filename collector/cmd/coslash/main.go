@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -193,6 +194,7 @@ func main() {
 		log.Fatalf("coslash: %v", err)
 	}
 	defer runtimeLock.Close()
+	session.UseRepositoryMemory(filepath.Join(settings.Home(), "repositories.json"))
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || runtime.GOOS == "linux" {
 		if err := ensureProtocolHandler(); err != nil {
 			log.Printf("Hub app launch handoff is unavailable; return to Hub and use the install/open recovery steps")
