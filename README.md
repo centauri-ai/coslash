@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml/badge.svg)](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml)
 [![Go 1.26.10](https://img.shields.io/badge/Go-1.26.10-00ADD8?logo=go)](collector/go.mod)
-[![Node 24.4.1](https://img.shields.io/badge/Node-24.4.1-339933?logo=node.js&logoColor=white)](frontend/.nvmrc)
+[![Node 24.21.0](https://img.shields.io/badge/Node-24.21.0-339933?logo=node.js&logoColor=white)](frontend/.nvmrc)
 [![Latest release](https://img.shields.io/github/v/release/centauri-ai/coslash)](https://github.com/centauri-ai/coslash/releases)
 [![License](https://img.shields.io/github/license/centauri-ai/coslash)](LICENSE)
 
