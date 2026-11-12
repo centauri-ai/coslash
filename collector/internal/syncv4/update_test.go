@@ -228,10 +228,14 @@ func TestLegacySettlementIsBoundedNoDownloadWork(t *testing.T) {
 	}
 }
 
+func testUpdateCommand(id string, expiry time.Time, legacy bool) hubclient.V4Command {
+	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": expiry, "legacySettlement": legacy})
+	return hubclient.V4Command{ID: id, Type: "update", Payload: payload}
+}
+
 func acceptTestUpdate(t *testing.T, q *Queue, id, current string, expiry, now time.Time, legacy bool) {
 	t.Helper()
-	payload, _ := json.Marshal(map[string]any{"attemptId": id, "targetVersion": "1.2.4", "expiresAt": expiry, "legacySettlement": legacy})
-	if err := q.AcceptUpdate(hubclient.V4Command{ID: id, Type: "update", Payload: payload}, current, now); err != nil {
+	if err := q.AcceptUpdate(testUpdateCommand(id, expiry, legacy), current, now); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -305,8 +309,7 @@ func TestAcceptUpdateKeepsUnexpiredFailedAttempt(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	q := failedUpdateQueue(t, now, now.Add(time.Minute))
 	const next = "10000000-0000-4000-8000-000000000002"
-	payload, _ := json.Marshal(map[string]any{"attemptId": next, "targetVersion": "1.2.4", "expiresAt": now.Add(time.Hour)})
-	if err := q.AcceptUpdate(hubclient.V4Command{ID: next, Type: "update", Payload: payload}, "1.2.3", now); err == nil || err.Error() != "another update is active" {
+	if err := q.AcceptUpdate(testUpdateCommand(next, now.Add(time.Hour), false), "1.2.3", now); err == nil || err.Error() != "another update is active" {
 		t.Fatalf("unexpired failed attempt replaced: %v", err)
 	}
 	if got := q.PendingUpdate(); got.Stage != "failed" || got.ID == next {
