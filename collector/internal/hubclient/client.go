@@ -234,7 +234,17 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 func (c *Client) savePairingCredential(ctx context.Context, pairingID, credential string) (PairingResult, error) {
 	saveContext, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancelSave()
-	if c.Credentials == nil || c.Credentials.Save(saveContext, credential) != nil {
+	var saveErr error
+	if c.Credentials == nil {
+		saveErr = ErrCredentialStoreUnavailable
+	} else {
+		saveErr = c.Credentials.Save(saveContext, credential)
+	}
+	if errors.Is(saveErr, ErrPairingBindingMismatch) {
+		c.forgetPairing(pairingID)
+		return PairingResult{State: PairingStateBindingMismatch}, nil
+	}
+	if saveErr != nil {
 		c.pairingMu.Lock()
 		secret, ok := c.pairings[pairingID]
 		if ok {

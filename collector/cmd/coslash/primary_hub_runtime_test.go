@@ -440,6 +440,9 @@ func TestPrimaryPairingCannotReplaceBoundCredential(t *testing.T) {
 	if err := client.Credentials.Save(context.Background(), "original"); err != nil {
 		t.Fatalf("matching credential: %v", err)
 	}
+	if status := controller.Status(); status.PairingIssue != "" {
+		t.Fatalf("matching pairing retained issue: %q", status.PairingIssue)
+	}
 	t.Setenv("COSLASH_V4_SYNC", "0")
 	killed := primaryRuntimeController(t, started, stopped)
 	killRuntime, _, err := newPrimaryHubRuntime(client, killed, "1.2.3", func() bool { return false })
@@ -500,17 +503,16 @@ func TestPrimaryPairingAPIPreservesBoundCredential(t *testing.T) {
 	if begin.Code != http.StatusCreated {
 		t.Fatalf("begin status %d: %s", begin.Code, begin.Body.String())
 	}
-	for i := 0; i < 3; i++ {
-		poll := httptest.NewRecorder()
-		mux.ServeHTTP(poll, httptest.NewRequest(http.MethodPost, "/api/hub/pairings/pair/poll", nil))
-		var result hubclient.PairingResult
-		if err := json.Unmarshal(poll.Body.Bytes(), &result); err != nil {
-			t.Fatal(err)
-		}
-		if i == 2 && result.State != hubclient.PairingStateCredentialStoreFailed {
-			t.Fatalf("poll = %s", result.State)
-		}
+	poll := httptest.NewRecorder()
+	mux.ServeHTTP(poll, httptest.NewRequest(http.MethodPost, "/api/hub/pairings/pair/poll", nil))
+	var result hubclient.PairingResult
+	if err := json.Unmarshal(poll.Body.Bytes(), &result); err != nil || result.State != hubclient.PairingStateBindingMismatch {
+		t.Fatalf("poll = %s, %v", result.State, err)
 	}
+	if status := controller.Status(); status.PairingIssue != "binding_mismatch" {
+		t.Fatalf("status pairing issue = %q", status.PairingIssue)
+	}
+
 	if got, err := store.Load(context.Background()); err != nil || got != "original" {
 		t.Fatalf("credential = %q, %v", got, err)
 	}

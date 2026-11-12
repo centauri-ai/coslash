@@ -38,6 +38,7 @@ export type SyncStatus = {
   hubFailureActive?: boolean;
   sessionFailures?: Record<string, string>;
   hubSwitch?: HubSwitch;
+  pairingIssue?: 'binding_mismatch';
 };
 
 export type SyncStatusLoad = 'loading' | 'ready' | 'error';
@@ -147,6 +148,9 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
   if (value.hubFailureActive !== undefined && typeof value.hubFailureActive !== 'boolean') {
     throw new Error('Invalid sync status');
   }
+  if (value.pairingIssue !== undefined && value.pairingIssue !== 'binding_mismatch') {
+    throw new Error('Invalid sync status');
+  }
   let hubSwitch: HubSwitch | undefined;
   if (value.hubSwitch != null) {
     const request = value.hubSwitch;
@@ -174,6 +178,7 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
     ...(lastFailure ? { lastFailure } : {}),
     ...(typeof value.hubFailureActive === 'boolean' ? { hubFailureActive: value.hubFailureActive } : {}),
     ...(hubSwitch ? { hubSwitch } : {}),
+    ...(value.pairingIssue === 'binding_mismatch' ? { pairingIssue: value.pairingIssue } : {}),
   };
 }
 

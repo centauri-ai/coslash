@@ -22,6 +22,7 @@ type syncStatus struct {
 	SessionFailures  map[string]string       `json:"sessionFailures"`
 	LastFailure      *diagnostics.HubFailure `json:"lastFailure,omitempty"`
 	HubFailureActive bool                    `json:"hubFailureActive"`
+	PairingIssue     string                  `json:"pairingIssue,omitempty"`
 	HubSwitch        *hubSwitch              `json:"hubSwitch,omitempty"`
 }
 
@@ -32,15 +33,16 @@ type syncController struct {
 	startLoop  syncLoopStarter
 	localPause func() bool
 
-	client     *hubclient.Client
-	binding    string
-	connected  bool
-	revoked    bool
-	cancel     context.CancelFunc
-	done       chan struct{}
-	wake       chan struct{}
-	retryWake  chan struct{}
-	passActive atomic.Bool
+	client          *hubclient.Client
+	binding         string
+	connected       bool
+	revoked         bool
+	pairingMismatch bool
+	cancel          context.CancelFunc
+	done            chan struct{}
+	wake            chan struct{}
+	retryWake       chan struct{}
+	passActive      atomic.Bool
 }
 
 func newSyncController(startLoop syncLoopStarter, localPause func() bool) (*syncController, error) {
@@ -207,10 +209,13 @@ func (c *syncController) Status() syncStatus {
 
 func (c *syncController) statusAt(now time.Time) syncStatus {
 	c.mu.RLock()
-	client, connected, revoked := c.client, c.connected, c.revoked
+	client, connected, revoked, pairingMismatch := c.client, c.connected, c.revoked, c.pairingMismatch
 	c.mu.RUnlock()
 	status := syncStatus{
 		State: "not_connected", Sessions: map[string]string{}, SessionFailures: map[string]string{},
+	}
+	if pairingMismatch {
+		status.PairingIssue = "binding_mismatch"
 	}
 	if client != nil && client.BaseURL != nil {
 		status.HubOrigin = client.BaseURL.Scheme + "://" + client.BaseURL.Host

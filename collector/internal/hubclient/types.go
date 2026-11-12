@@ -13,6 +13,7 @@ const (
 	PairingStatePaired                = "paired"
 	PairingStateDeclined              = "declined"
 	PairingStateExpired               = "expired"
+	PairingStateBindingMismatch       = "binding_mismatch"
 	PairingStateCredentialStoreFailed = "credential_store_failed"
 )
 

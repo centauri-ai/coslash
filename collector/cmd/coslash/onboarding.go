@@ -148,6 +148,9 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 				return
 			case hubclient.PairingStateExpired, hubclient.PairingStateDeclined:
 				return
+			case hubclient.PairingStateBindingMismatch:
+				log.Print("Hub pairing did not match the existing primary connection; the existing credential and pending data were preserved")
+				return
 			case hubclient.PairingStateCredentialStoreFailed:
 				log.Print("Hub pairing could not save the credential to the secure credential store")
 				return

@@ -30,6 +30,7 @@ const (
 	connectExitRetryable             = 8
 	connectExitCredentialRevoked     = 9
 	connectExitClientVersionRejected = 10
+	connectExitBindingMismatch       = 11
 )
 
 var connectSignalContext = func() (context.Context, context.CancelFunc) {
@@ -51,6 +52,7 @@ const (
 	connectJobDeclined               = "declined"
 	connectJobExpired                = "expired"
 	connectJobCredentialStoreFailed  = "credential_store_failed"
+	connectJobBindingMismatch        = "binding_mismatch"
 	connectJobCredentialRevoked      = "credential_revoked"
 	connectJobCheckInRetryable       = "check_in_retryable"
 	connectJobClientVersionRejected  = "client_version_rejected"
@@ -182,6 +184,8 @@ func runConnectCLI(stdout, stderr io.Writer, args []string) int {
 			return printConnectFailure(stdout, stderr, opts, connectExitDeclined, "")
 		case connectJobExpired:
 			return printConnectFailure(stdout, stderr, opts, connectExitInvalid, "")
+		case connectJobBindingMismatch:
+			return printConnectFailure(stdout, stderr, opts, connectExitBindingMismatch, "")
 		case connectJobCredentialStoreFailed:
 			return printConnectFailure(stdout, stderr, opts, connectExitCredentialStore, "")
 		case connectJobCredentialRevoked:
@@ -207,6 +211,7 @@ func printConnectFailure(stdout, stderr io.Writer, opts connectOptions, code int
 		state := map[int]string{connectExitInvalid: "connect_code_invalid", connectExitUnreachable: "unreachable",
 			connectExitDeclined: "declined", connectExitUnsupported: "unsupported",
 			connectExitCredentialStore: connectJobCredentialStoreFailed, connectExitRetryable: connectJobCheckInRetryable,
+			connectExitBindingMismatch:       connectJobBindingMismatch,
 			connectExitCredentialRevoked:     connectJobCredentialRevoked,
 			connectExitClientVersionRejected: connectJobClientVersionRejected}[code]
 		writeConnectJSON(stdout, state, code)
@@ -220,6 +225,8 @@ func printConnectFailure(stdout, stderr io.Writer, opts connectOptions, code int
 		message = "Couldn't reach " + opts.hub + ". Check your connection and run the command again."
 	case connectExitDeclined:
 		message = "This setup was declined in Hub. Nothing was connected."
+	case connectExitBindingMismatch:
+		message = "This pairing does not match the existing primary Hub connection. The existing credential and pending data were not changed. Continue using the original connection; if it is unavailable, contact support before changing it."
 	case connectExitCredentialStore:
 		message = "Local could not access the secure credential store. Resolve the system credential store issue and retry."
 	case connectExitRetryable:
@@ -417,6 +424,9 @@ func (m *onboardingManager) runConnectApproval(ctx context.Context, client *hubc
 			case hubclient.PairingStatePaired:
 				m.setConnectJobState(jobID, connectJobCheckingIn)
 				m.confirmFirstCheckIn(ctx, client, jobID)
+				return
+			case hubclient.PairingStateBindingMismatch:
+				m.setConnectJobState(jobID, connectJobBindingMismatch)
 				return
 			case hubclient.PairingStateCredentialStoreFailed:
 				m.setConnectJobState(jobID, connectJobCredentialStoreFailed)

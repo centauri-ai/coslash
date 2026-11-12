@@ -9,6 +9,9 @@ const healthy: SyncStatus = {
 };
 
 describe('sameStatus', () => {
+  it('observes the rejected pairing notice', () => {
+    expect(sameStatus(healthy, { ...healthy, pairingIssue: 'binding_mismatch' })).toBe(false);
+  });
   it('observes when a repeated failure passes its retry interval', () => {
     const failure: SyncStatus = {
       ...healthy,

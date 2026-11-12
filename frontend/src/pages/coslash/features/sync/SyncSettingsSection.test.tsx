@@ -29,3 +29,23 @@ describe('SyncSettingsSection', () => {
     expect(markup).not.toContain('Not connected to Hub.');
   });
 });
+
+it('explains a rejected primary pairing while retaining its real sync status', () => {
+  const markup = renderToStaticMarkup(
+    <SyncSettingsSection
+      status={{
+        state: 'connected_idle',
+        hubOrigin: 'https://hub.example',
+        sessions: {},
+        pairingIssue: 'binding_mismatch',
+      }}
+      statusLoadState="ready"
+      paused={false}
+      onPauseChange={() => {}}
+    />,
+  );
+  expect(markup).toContain('Auto-sync is managed in Hub.');
+  expect(markup).toContain('role="alert"');
+  expect(markup).toContain('existing credential and pending');
+  expect(markup).toContain('contact support');
+});

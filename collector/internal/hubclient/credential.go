@@ -6,6 +6,7 @@ import (
 )
 
 var (
+	ErrPairingBindingMismatch     = errors.New("primary Hub does not match the existing sync binding")
 	ErrNotPaired                  = errors.New("hub device credential is not available")
 	ErrCredentialStoreUnavailable = errors.New("secure credential store unavailable")
 	// ErrCredentialCorrupt marks a stored credential that exists but cannot

@@ -130,6 +130,7 @@ func TestConnectTerminalFailureLinesAndExitCodes(t *testing.T) {
 		{code: connectExitUnreachable, want: "Couldn't reach https://hub.coslash.io. Check your connection and run the command again.\n"},
 		{code: connectExitDeclined, want: "This setup was declined in Hub. Nothing was connected.\n"},
 		{code: connectExitUnsupported, want: "This Hub doesn't support connect codes yet. Use Devices → Add device in Hub.\n"},
+		{code: connectExitBindingMismatch, want: "This pairing does not match the existing primary Hub connection. The existing credential and pending data were not changed. Continue using the original connection; if it is unavailable, contact support before changing it.\n"},
 		{code: connectExitCredentialStore, want: "Local could not access the secure credential store. Resolve the system credential store issue and retry.\n"},
 		{code: connectExitCredentialRevoked, want: "Hub revoked this pairing. Start a new connect command in Hub to pair again.\n"},
 		{code: connectExitClientVersionRejected, want: "Hub rejected this coSlash Local version. Update or rebuild coSlash Local, then it can check in.\n"},
@@ -148,6 +149,7 @@ func TestConnectTerminalPairingStatesAreSanitizedForCLI(t *testing.T) {
 		state string
 	}{
 		{code: connectExitCredentialStore, state: connectJobCredentialStoreFailed},
+		{code: connectExitBindingMismatch, state: connectJobBindingMismatch},
 		{code: connectExitRetryable, state: connectJobCheckInRetryable},
 		{code: connectExitCredentialRevoked, state: connectJobCredentialRevoked},
 		{code: connectExitClientVersionRejected, state: connectJobClientVersionRejected},
@@ -319,6 +321,12 @@ func TestForeignConnectCodeRouteAndCLIReportConsentRequirement(t *testing.T) {
 	}
 }
 
+type mismatchCredentialStore struct{ *testCredentialStore }
+
+func (m mismatchCredentialStore) Save(context.Context, string) error {
+	return hubclient.ErrPairingBindingMismatch
+}
+
 func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 	for _, test := range []struct {
 		name         string
@@ -327,11 +335,13 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 		wantEnsure   bool
 		wantCheckIn  bool
 		saveFailures int
+		mismatch     bool
 	}{
 		{name: "connected", want: connectJobConnected, wantEnsure: true, wantCheckIn: true},
 		{name: "declined", problem: "onboarding_declined", want: "declined"},
 		{name: "expired", problem: "pairing_expired", want: "expired"},
 		{name: "credential-store-failed", want: connectJobCredentialStoreFailed, saveFailures: 3},
+		{name: "binding-mismatch", want: connectJobBindingMismatch, mismatch: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("COSLASH_HOME", t.TempDir())
@@ -339,6 +349,10 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 			var polls atomic.Int32
 			var checkIns atomic.Int32
 			credentials := &testCredentialStore{saveFailures: test.saveFailures}
+			var pairingStore hubclient.CredentialStore = credentials
+			if test.mismatch {
+				pairingStore = mismatchCredentialStore{credentials}
+			}
 			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 				switch request.URL.Path {
 				case "/v1/device-onboarding-codes/claim":
@@ -368,7 +382,7 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 
 			manager := newOnboardingManager("0.1.0")
 			manager.SetV4SyncActive(true)
-			manager.setHubClientBinder(func(client *hubclient.Client) { client.Credentials = credentials })
+			manager.setHubClientBinder(func(client *hubclient.Client) { client.Credentials = pairingStore })
 			manager.setSyncHooks(syncHookFuncs{ensure: func(*hubclient.Client) error {
 				ensureCalls.Add(1)
 				if checkIns.Load() == 0 {

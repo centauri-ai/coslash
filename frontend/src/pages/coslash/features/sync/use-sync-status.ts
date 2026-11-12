@@ -25,6 +25,7 @@ export function sameStatus(left: SyncStatus, right: SyncStatus): boolean {
   return (
     left.state === right.state &&
     left.hubOrigin === right.hubOrigin &&
+    left.pairingIssue === right.pairingIssue &&
     left.hubFailureActive === right.hubFailureActive &&
     left.hubSwitch?.requestedAt === right.hubSwitch?.requestedAt &&
     sameFailure &&

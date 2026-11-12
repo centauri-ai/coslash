@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { decodeSyncStatus } from './api';
 
 describe('decodeSyncStatus', () => {
+  it('preserves a rejected primary pairing and rejects unknown issues', () => {
+    const base = { state: 'connected_idle', hubOrigin: 'https://hub.example', sessions: {} };
+    expect(decodeSyncStatus({ ...base, pairingIssue: 'binding_mismatch' }).pairingIssue).toBe(
+      'binding_mismatch',
+    );
+    expect(() => decodeSyncStatus({ ...base, pairingIssue: 'unexpected' })).toThrow();
+  });
   it('decodes a pending Hub switch and rejects a malformed one', () => {
     const base = { state: 'connected_idle', hubOrigin: 'https://hub-a.example.test', sessions: {} };
     const hubSwitch = {

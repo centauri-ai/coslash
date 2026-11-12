@@ -14,7 +14,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
-var errPrimaryHubMismatch = errors.New("primary Hub does not match the existing sync binding")
+var errPrimaryHubMismatch = hubclient.ErrPairingBindingMismatch
 
 // blockedPrimarySync prevents legacy pairing and wake paths from starting or
 // rebinding sync until the original binding is restored and Local restarts.
@@ -168,10 +168,19 @@ func (s *primaryPairingCredential) Save(ctx context.Context, credential string) 
 				return err
 			}
 			if binding != stored {
+				s.runtime.controller.mu.Lock()
+				s.runtime.controller.pairingMismatch = true
+				s.runtime.controller.mu.Unlock()
 				return errPrimaryHubMismatch
 			}
 		}
-		return s.inner.Save(ctx, credential)
+		if err := s.inner.Save(ctx, credential); err != nil {
+			return err
+		}
+		s.runtime.controller.mu.Lock()
+		s.runtime.controller.pairingMismatch = false
+		s.runtime.controller.mu.Unlock()
+		return nil
 	})
 }
 

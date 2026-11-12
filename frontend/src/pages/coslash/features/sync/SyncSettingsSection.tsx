@@ -62,6 +62,13 @@ export function SyncSettingsSection({
             )}
           </div>
         )}
+        {status?.pairingIssue === 'binding_mismatch' && (
+          <p role="alert" className="border-coslash-line border-t p-3 text-sm">
+            This pairing does not match the existing primary Hub connection. The existing credential and
+            pending data were preserved. Continue using the original connection; if it is unavailable, contact
+            support before changing it.
+          </p>
+        )}
         {(!status || view?.connected) && (
           <div className="border-coslash-line flex items-start gap-3 border-t p-3">
             <button
