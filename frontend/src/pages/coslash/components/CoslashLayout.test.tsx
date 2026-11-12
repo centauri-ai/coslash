@@ -519,8 +519,8 @@ describe('CoslashLayout', () => {
       range: 'today',
     });
 
-    expect(markup).toContain('>client/app<');
-    expect(markup).toContain('>server/app<');
+    expect(markup).toContain('>~/client/app<');
+    expect(markup).toContain('>~/server/app<');
   });
 
   it('labels local folders by their full path and groups Codex task folders together', () => {
@@ -539,10 +539,10 @@ describe('CoslashLayout', () => {
       range: 'all',
     });
 
-    for (const label of ['.codex/worktrees/0040/coslash', '/tmp/smoke/app', 'codex_work', 'work/api']) {
+    for (const label of ['~/.codex/worktrees/0040/coslash', '/tmp/smoke/app', '~/codex_work', '~/work/api']) {
       expect(markup).toContain(`>${label}<`);
     }
-    expect(markup).toContain('>Documents/Codex<');
+    expect(markup).toContain('>~/Documents/Codex<');
     expect(markup).not.toMatch(/>[^<]*Codex\/2026-/);
     expect(markup).not.toContain('>Local · ');
   });
@@ -575,7 +575,7 @@ describe('CoslashLayout', () => {
     });
     const markup = renderLayout({ sessions: [remote, repository], range: 'all' });
 
-    expect(markup).toContain('>codex_work/finance_benchmark<');
+    expect(markup).toContain('>~/codex_work/finance_benchmark<');
     expect(markup).not.toContain('/home/milan/codex_work/finance_benchmark');
     expect(markup).toContain('>coslash<');
     expect(markup).toContain('>Folders<');
@@ -597,7 +597,7 @@ describe('CoslashLayout', () => {
     ['/home/milan', '~'],
     ['/Users/milan', '~'],
     ['/root', '~'],
-    ['/home/milan/projects/app', 'projects/app'],
+    ['/home/milan/projects/app', '~/projects/app'],
     ['/tmp', '/tmp'],
   ])('shows a non-repository SSH Codex location for %s', (cwd, label) => {
     const markup = renderLayout({
@@ -623,8 +623,8 @@ describe('CoslashLayout', () => {
       range: 'all',
     });
 
-    expect(markup.match(/>Foo</g)).toHaveLength(2);
-    expect(markup.match(/>foo</g)).toHaveLength(2);
+    expect(markup.match(/>~\/Foo</g)).toHaveLength(2);
+    expect(markup.match(/>~\/foo</g)).toHaveLength(2);
   });
 
   it('collapses row actions into one menu trigger', () => {
