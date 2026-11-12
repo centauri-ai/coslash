@@ -110,7 +110,7 @@ func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, e
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := syncHubRegistryParent(home); err != nil {
+	if err := syncHubRegistryDirectory(home); err != nil {
 		return nil, err
 	}
 	if err := protectHubRegistryDirectory(dir); err != nil {
@@ -163,9 +163,6 @@ func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, e
 	if err := decoder.Decode(&wire); err != nil {
 		return nil, errors.New("invalid Hub connection registry")
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return nil, errors.New("invalid Hub connection registry")
-	}
 	if wire.Version == nil || wire.Primary == nil || wire.Connections == nil {
 		return nil, errors.New("invalid Hub connection registry")
 	}
@@ -186,8 +183,8 @@ func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, e
 // fields. Reject them before decoding so the registry has one interpretation.
 func rejectDuplicateJSONKeys(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	var readValue func() error
-	readValue = func() error {
+	var readValue func(int) error
+	readValue = func(depth int) error {
 		token, err := decoder.Token()
 		if err != nil {
 			return err
@@ -198,6 +195,10 @@ func rejectDuplicateJSONKeys(data []byte) error {
 				return errors.New("null registry value")
 			}
 			return nil
+		}
+		// The registry has only a root object, connections array and entries.
+		if depth > 3 {
+			return errors.New("registry nesting too deep")
 		}
 		switch delim {
 		case '{':
@@ -212,13 +213,13 @@ func rejectDuplicateJSONKeys(data []byte) error {
 					return errors.New("duplicate JSON key")
 				}
 				seen[key] = true
-				if err := readValue(); err != nil {
+				if err := readValue(depth + 1); err != nil {
 					return err
 				}
 			}
 		case '[':
 			for decoder.More() {
-				if err := readValue(); err != nil {
+				if err := readValue(depth + 1); err != nil {
 					return err
 				}
 			}
@@ -228,7 +229,7 @@ func rejectDuplicateJSONKeys(data []byte) error {
 		_, err = decoder.Token()
 		return err
 	}
-	if err := readValue(); err != nil {
+	if err := readValue(1); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); err != io.EOF {

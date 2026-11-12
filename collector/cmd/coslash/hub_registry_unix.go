@@ -9,8 +9,8 @@ import (
 
 func protectHubRegistryDirectory(dir string) error { return os.Chmod(dir, 0o700) }
 
-func syncHubRegistryParent(home string) error {
-	dir, err := os.Open(home)
+func syncHubRegistryDirectory(path string) error {
+	dir, err := os.Open(path)
 	if err != nil {
 		return err
 	}
@@ -42,13 +42,5 @@ func writeHubRegistryFile(dir string, data []byte) (bool, error) {
 	if err := os.Rename(f.Name(), filepath.Join(dir, "registry.json")); err != nil {
 		return false, err
 	}
-	directory, err := os.Open(dir)
-	if err != nil {
-		return true, err
-	}
-	err = directory.Sync()
-	if closeErr := directory.Close(); err == nil {
-		err = closeErr
-	}
-	return true, err
+	return true, syncHubRegistryDirectory(dir)
 }

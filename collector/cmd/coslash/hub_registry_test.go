@@ -308,3 +308,28 @@ func TestHubRegistryRejectsCorruptOrUnknownData(t *testing.T) {
 		})
 	}
 }
+
+func TestHubRegistryRejectsExcessiveJSONDepth(t *testing.T) {
+	if err := rejectDuplicateJSONKeys([]byte(`{"connections":[{"enabled":false}]}`)); err != nil {
+		t.Fatalf("valid registry depth rejected: %v", err)
+	}
+	for _, input := range []string{
+		`{"connections":[{"enabled":{}}]}`,
+		`{"connections":` + strings.Repeat("[", 10000) + `0` + strings.Repeat("]", 10000) + `}`,
+	} {
+		if err := rejectDuplicateJSONKeys([]byte(input)); err == nil || err.Error() != "registry nesting too deep" {
+			t.Fatalf("depth error = %v", err)
+		}
+		home := t.TempDir()
+		dir := filepath.Join(home, "hub-connections")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "registry.json"), []byte(input), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := openHubRegistry(home, "", nil); err == nil {
+			t.Fatal("deep registry accepted")
+		}
+	}
+}

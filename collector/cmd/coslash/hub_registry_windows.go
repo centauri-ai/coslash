@@ -8,7 +8,7 @@ func protectHubRegistryDirectory(dir string) error {
 	return windowsprivate.ProtectDirectory(dir, "Hub connection registry")
 }
 
-func syncHubRegistryParent(string) error { return nil }
+func syncHubRegistryDirectory(string) error { return nil }
 
 func writeHubRegistryFile(dir string, data []byte) (bool, error) {
 	pending, err := windowsprivate.CreatePrivateTempFile(dir, ".registry-", "Hub connection registry")
