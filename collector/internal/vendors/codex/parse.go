@@ -26,6 +26,7 @@ type codexSessionAnalysis struct {
 	taskName         string
 	workingDirectory string
 	branch           *string
+	repository       *string
 	entrypoint       *string
 	model            string
 	timestamps       session.TimestampRange
@@ -306,6 +307,7 @@ func analyzeCodexSessionSource(
 			}
 			if row.Payload.Git != nil {
 				meta.branch = row.Payload.Git.Branch
+				meta.repository = session.CanonicalOriginURL(row.Payload.Git.RepositoryURL)
 			}
 			metas = append(metas, meta)
 		case "turn_context":
@@ -496,6 +498,10 @@ func analyzeCodexSessionSource(
 	if own.branch != "" {
 		analysis.branch = &own.branch
 	}
+	analysis.repository = nil
+	if own.repository != "" {
+		analysis.repository = &own.repository
+	}
 	analysis.entrypoint = nil
 	if own.entrypoint != "" {
 		analysis.entrypoint = &own.entrypoint
@@ -565,6 +571,7 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		ID:               sessionID,
 		WorkingDirectory: analysis.workingDirectory,
 		Branch:           analysis.branch,
+		Repository:       analysis.repository,
 		Entrypoint:       analysis.entrypoint,
 		CommitLog:        analysis.commitLog,
 		StartedAt:        analysis.timestamps.Earliest,

@@ -102,6 +102,7 @@ type Group = {
   label: string;
   kind: 'Repository' | 'Folder' | 'No location';
   basis: string;
+  legacyIds: string[];
 };
 type FacetKey = 'status' | 'machine' | 'agent' | 'group';
 type FacetOption = {
@@ -213,57 +214,84 @@ function rangeStart(range: SessionRange): number | null {
   return Date.now() - (range === 'week' ? 7 : 30) * DAY;
 }
 
-/** The collector reports only a basename for a local-only repository, merging same-named folders. */
-function localRepositoryRoot(cwd: string, repo: string): string {
-  const parts = cwd.trim().split('/');
-  const depth = parts.lastIndexOf(repo.trim());
-  return depth === -1 ? cwd.trim() || repo : parts.slice(0, depth + 1).join('/');
+/** Codex's dated task folders group under the `Documents/Codex` folder that holds them. */
+const AGENT_TASK_FOLDER = /^(.*?(?:^|\/)Documents\/Codex)\/\d{4}-\d{2}-\d{2}\/[^/]+(?:\/|$)/;
+
+/**
+ * The folder a session without a remote groups under, the same rule as the Hub's personal groups: an
+ * agent task folder's parent, else the working directory cut at the local repository's name.
+ */
+function folderRoot(cwd: string, repo: string): string {
+  const agentFolder = AGENT_TASK_FOLDER.exec(cwd)?.[1];
+  if (agentFolder) return agentFolder;
+  const parts = cwd.split('/');
+  const depth = repo ? parts.lastIndexOf(repo) : -1;
+  return depth === -1 ? cwd : parts.slice(0, depth + 1).join('/');
 }
 
-function remoteWorkingDirectoryLabel(cwd: string): string {
-  const parts = cwd.trim().split('/').filter(Boolean);
-  if (parts[0] === 'home' || parts[0] === 'Users') return parts.slice(2).join('/') || '~';
-  if (parts[0] === 'root') return parts.slice(1).join('/') || '~';
-  return cwd.trim();
+/** The previous per-session group ID, retained so saved filters keep matching after regrouping. */
+function legacyGroupIds(session: Session, currentId: string): string[] {
+  const repo = session.repo?.trim() ?? '';
+  if (repo && !session.repoLocalOnly) return [];
+
+  let legacyId: string | null = null;
+  if (repo) {
+    const parts = session.cwd.trim().split('/');
+    const depth = parts.lastIndexOf(repo);
+    const root = depth === -1 ? session.cwd.trim() || repo : parts.slice(0, depth + 1).join('/');
+    legacyId = `folder:${session.sourceId}:${root.toLowerCase()}`;
+  } else {
+    const cwd = session.cwd.trim();
+    if (cwd && !isLocalSession(session)) {
+      legacyId = `folder:${session.sourceId}:${cwd}`;
+    } else if (cwd) {
+      const parts = cwd.split('/').filter(Boolean);
+      const parent = parts.slice(0, -1).join('/') || parts.join('/');
+      legacyId = `folder:${session.sourceId}:${parent}`;
+    }
+  }
+  return legacyId && legacyId !== currentId ? [legacyId] : [];
+}
+
+/** `~/…` inside a recognizable home folder (`~` for home itself), else the full path, as on the Hub. */
+function homeRelativeLabel(path: string): string {
+  const parts = path.split('/').filter(Boolean);
+  const inHome = (rest: string[]) => (rest.length ? `~/${rest.join('/')}` : '~');
+  const drive = /^[A-Za-z]:$/.test(parts[0] ?? '');
+  if (
+    drive
+      ? parts[1]?.toLowerCase() === 'users' && parts.length > 2
+      : parts[0] === 'home' || parts[0] === 'Users'
+  ) {
+    return inHome(parts.slice(drive ? 3 : 2));
+  }
+  if (parts[0] === 'root') return inHome(parts.slice(1));
+  return path;
 }
 
 function detectedGroup(session: Session): Group {
-  if (session.repo?.trim() && !session.repoLocalOnly) {
-    const label = session.repo.split('/').filter(Boolean).at(-1) ?? session.repo;
+  const repo = session.repo?.trim() ?? '';
+  if (repo && !session.repoLocalOnly) {
+    const label = repo.split('/').filter(Boolean).at(-1) ?? repo;
     return {
-      id: `repo:${session.repo.toLowerCase()}`,
+      id: `repo:${repo.toLowerCase()}`,
       label,
       kind: 'Repository',
-      basis: session.repo,
+      basis: repo,
+      legacyIds: [],
     };
   }
-  if (session.repo?.trim()) {
-    const root = localRepositoryRoot(session.cwd, session.repo);
+  const cwd = session.cwd.trim().replaceAll('\\', '/');
+  const root = cwd ? folderRoot(cwd, repo) : repo;
+  if (root) {
+    const label = homeRelativeLabel(root);
+    const id = `folder:${session.sourceId}:${isLocalSession(session) ? root.toLowerCase() : root}`;
     return {
-      id: `folder:${session.sourceId}:${root.toLowerCase()}`,
-      label: root.split('/').filter(Boolean).slice(-2).join('/'),
+      id,
+      label,
       kind: 'Folder',
-      basis: root,
-    };
-  }
-  const cwd = session.cwd.trim();
-  if (cwd) {
-    if (!isLocalSession(session)) {
-      const label = remoteWorkingDirectoryLabel(cwd);
-      return {
-        id: `folder:${session.sourceId}:${cwd}`,
-        label,
-        kind: 'Folder',
-        basis: label,
-      };
-    }
-    const parts = cwd.split('/').filter(Boolean);
-    const parent = parts.slice(0, -1).join('/') || parts.join('/');
-    return {
-      id: `folder:${session.sourceId}:${parent}`,
-      label: `${session.sourceLabel} · ${parts.at(-2) ?? parts.at(-1) ?? 'Folder'}`,
-      kind: 'Folder',
-      basis: parent ? `/${parent}` : cwd,
+      basis: label,
+      legacyIds: legacyGroupIds(session, id),
     };
   }
   return {
@@ -272,6 +300,7 @@ function detectedGroup(session: Session): Group {
     label: 'No location',
     kind: 'No location',
     basis: 'No repository or folder was recorded',
+    legacyIds: [],
   };
 }
 
@@ -320,7 +349,12 @@ function matchesFacets(
   const { statusFilters, groupFilters, machineFilters, agentFilters } = preferences;
   if (skip !== 'status' && statusFilters.length > 0 && !statusFilters.includes(boardStatusKey(session)))
     return false;
-  if (skip !== 'group' && groupFilters.length > 0 && !groupFilters.includes(group.id)) return false;
+  if (
+    skip !== 'group' &&
+    groupFilters.length > 0 &&
+    !groupFilters.some((filter) => filter === group.id || group.legacyIds.includes(filter))
+  )
+    return false;
   if (skip !== 'machine' && machineFilters.length > 0 && !machineFilters.includes(session.sourceId))
     return false;
   if (skip !== 'agent' && agentFilters.length > 0 && !agentFilters.includes(session.agent)) return false;
@@ -1108,15 +1142,29 @@ export function CoslashLayout({
 
   useEffect(() => saveSessionViewPreferences({ ...preferences, range }), [preferences, range]);
 
-  const sessionGroups = useMemo(
-    () => new Map(sessions.map((session) => [sessionKey(session), detectedGroup(session)])),
-    [sessions],
-  );
+  const sessionGroups = useMemo(() => {
+    const groupsById = new Map<string, Group>();
+    const legacyIdsByGroup = new Map<string, Set<string>>();
+    const sessionGroupIds: [string, string][] = [];
+    for (const session of sessions) {
+      const group = detectedGroup(session);
+      const existing = groupsById.has(group.id);
+      if (existing) {
+        const legacyIds = legacyIdsByGroup.get(group.id)!;
+        for (const legacyId of group.legacyIds) legacyIds.add(legacyId);
+      } else {
+        groupsById.set(group.id, group);
+        legacyIdsByGroup.set(group.id, new Set(group.legacyIds));
+      }
+      sessionGroupIds.push([sessionKey(session), group.id]);
+    }
+    for (const [id, group] of groupsById) group.legacyIds = [...legacyIdsByGroup.get(id)!];
+    const result = new Map<string, Group>();
+    for (const [key, id] of sessionGroupIds) result.set(key, groupsById.get(id)!);
+    return result;
+  }, [sessions]);
   const groups = useMemo(
-    () =>
-      [...new Map([...sessionGroups.values()].map((group) => [group.id, group])).values()].sort((a, b) =>
-        a.label.localeCompare(b.label),
-      ),
+    () => [...new Set(sessionGroups.values())].sort((a, b) => a.label.localeCompare(b.label)),
     [sessionGroups],
   );
   const agents = useMemo(() => getSessionVendors(sessions), [sessions]);
@@ -1159,12 +1207,15 @@ export function CoslashLayout({
         ? preferences.statusFilters.filter((value) => value !== status)
         : [...preferences.statusFilters, status],
     });
-  const toggleGroup = (id: string) =>
+  const toggleGroup = (group: Group) => {
+    const ids = new Set([group.id, ...group.legacyIds]);
+    const selected = preferences.groupFilters.some((value) => ids.has(value));
     patchPreferences({
-      groupFilters: preferences.groupFilters.includes(id)
-        ? preferences.groupFilters.filter((value) => value !== id)
-        : [...preferences.groupFilters, id],
+      groupFilters: selected
+        ? preferences.groupFilters.filter((value) => !ids.has(value))
+        : [...preferences.groupFilters, group.id],
     });
+  };
   const toggleMachine = (id: string) =>
     patchPreferences({
       machineFilters: preferences.machineFilters.includes(id)
@@ -1275,8 +1326,10 @@ export function CoslashLayout({
         id: group.id,
         label: group.label,
         count: countWith((session) => sessionGroups.get(sessionKey(session))?.id === group.id, 'group'),
-        selected: preferences.groupFilters.includes(group.id),
-        onClick: () => toggleGroup(group.id),
+        selected: preferences.groupFilters.some(
+          (filter) => filter === group.id || group.legacyIds.includes(filter),
+        ),
+        onClick: () => toggleGroup(group),
       }));
   const groupSections = GROUP_KINDS.map((kind) => ({ kind, options: groupOptions(kind) })).filter(
     ({ options }) => options.length > 0,
@@ -1294,7 +1347,7 @@ export function CoslashLayout({
     ...preferences.groupFilters.map((value) => ({
       kind: 'Group',
       value,
-      label: groups.find((group) => group.id === value)?.label ?? value,
+      label: groups.find((group) => group.id === value || group.legacyIds.includes(value))?.label ?? value,
       remove: () =>
         patchPreferences({ groupFilters: preferences.groupFilters.filter((item) => item !== value) }),
     })),

@@ -515,12 +515,61 @@ describe('CoslashLayout', () => {
       }) as Session;
 
     const markup = renderLayout({
-      sessions: [folder('client', '/work/client/app'), folder('server', '/work/server/app/src')],
+      sessions: [folder('client', '/home/milan/client/app'), folder('server', '/home/milan/server/app/src')],
       range: 'today',
     });
 
-    expect(markup).toContain('>client/app<');
-    expect(markup).toContain('>server/app<');
+    expect(markup).toContain('>~/client/app<');
+    expect(markup).toContain('>~/server/app<');
+  });
+
+  it('labels local folders by their full path and groups Codex task folders together', () => {
+    const local = (id: string, cwd: string, repo: string | null) =>
+      session({ id, sourceId: 'local', repo, repoLocalOnly: true, cwd });
+
+    const markup = renderLayout({
+      sessions: [
+        local('nested', '/home/milan/.codex/worktrees/0040/coslash', 'coslash'),
+        local('outside', '/tmp/smoke/app', 'app'),
+        local('task-1', '/Users/milan/Documents/Codex/2026-10-21/can-x20', 'can-x20'),
+        local('task-2', '/Users/milan/Documents/Codex/2026-10-22/other/src', 'other'),
+        local('no-repo', '/home/milan/codex_work', null),
+        local('windows', 'C:\\Users\\milan\\work\\api', 'api'),
+      ],
+      range: 'all',
+    });
+
+    for (const label of ['~/.codex/worktrees/0040/coslash', '/tmp/smoke/app', '~/codex_work', '~/work/api']) {
+      expect(markup).toContain(`>${label}<`);
+    }
+    expect(markup).toContain('>~/Documents/Codex<');
+    expect(markup).not.toMatch(/>[^<]*Codex\/2026-/);
+    expect(markup).not.toContain('>Local · ');
+  });
+
+  it('keeps saved task-folder filters active after grouping Codex tasks together', () => {
+    const stored = JSON.stringify({
+      groupFilters: ['folder:local:/users/milan/documents/codex/2026-10-22/other'],
+    });
+    vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
+    const local = (id: string, name: string, cwd: string, repo: string) =>
+      session({ id, name, sourceId: 'local', cwd, repo, repoLocalOnly: true });
+
+    const markup = renderLayout({
+      sessions: [
+        local('task-1', 'Task One', '/Users/milan/Documents/Codex/2026-10-21/can-x20', 'can-x20'),
+        local('task-2', 'Task Two', '/Users/milan/Documents/Codex/2026-10-22/other/src', 'other'),
+        local('task-3', 'Task Three', '/Users/milan/Documents/Codex/2026-10-23/another', 'another'),
+        local('outside', 'Other Project', '/Users/milan/work/app', 'app'),
+      ],
+      range: 'all',
+    });
+
+    expect(markup).toContain('Task One');
+    expect(markup).toContain('Task Two');
+    expect(markup).toContain('Task Three');
+    expect(markup).not.toContain('Other Project');
+    expect(markup).toContain('>~/Documents/Codex<');
   });
 
   it.each([{ repo: 'org/coslash' }, { cwd: '/workspace/coslash' }])(
@@ -551,7 +600,7 @@ describe('CoslashLayout', () => {
     });
     const markup = renderLayout({ sessions: [remote, repository], range: 'all' });
 
-    expect(markup).toContain('>codex_work/finance_benchmark<');
+    expect(markup).toContain('>~/codex_work/finance_benchmark<');
     expect(markup).not.toContain('/home/milan/codex_work/finance_benchmark');
     expect(markup).toContain('>coslash<');
     expect(markup).toContain('>Folders<');
@@ -573,7 +622,7 @@ describe('CoslashLayout', () => {
     ['/home/milan', '~'],
     ['/Users/milan', '~'],
     ['/root', '~'],
-    ['/home/milan/projects/app', 'projects/app'],
+    ['/home/milan/projects/app', '~/projects/app'],
     ['/tmp', '/tmp'],
   ])('shows a non-repository SSH Codex location for %s', (cwd, label) => {
     const markup = renderLayout({
@@ -599,8 +648,8 @@ describe('CoslashLayout', () => {
       range: 'all',
     });
 
-    expect(markup.match(/>Foo</g)).toHaveLength(2);
-    expect(markup.match(/>foo</g)).toHaveLength(2);
+    expect(markup.match(/>~\/Foo</g)).toHaveLength(2);
+    expect(markup.match(/>~\/foo</g)).toHaveLength(2);
   });
 
   it('collapses row actions into one menu trigger', () => {

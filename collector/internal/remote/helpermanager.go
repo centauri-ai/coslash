@@ -126,7 +126,7 @@ func helperRefreshWithOpen(
 	result, collectErr := HelperCollect(ctx, alias, target.path, request, toGeneration(effectiveBaseline), open)
 	snapshot := fromGeneration(result.Proposal, result.Coverage, now.UnixMilli(), result.RoundTrip.Milliseconds(), nil)
 	if collectErr == nil {
-		repairRemoteDisplay(ctx, &snapshot, sshTarget{alias: alias, options: open}.origins)
+		repairRemoteDisplay(ctx, &snapshot, baseline.SourceID, sshTarget{alias: alias, options: open}.gitFacts)
 	}
 	outcome := refreshOutcome{
 		Snapshot: snapshot,

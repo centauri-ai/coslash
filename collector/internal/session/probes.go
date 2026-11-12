@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -58,21 +59,39 @@ func CanonicalRepositoryName(cwd string) (string, bool) {
 	return CanonicalRepositoryNameContext(context.Background(), cwd)
 }
 
+// CanonicalRepositoryNameContext names the repository that holds cwd: its
+// canonical origin remote, else the remote last read for cwd when no
+// repository is found there now, else a local-only folder name.
 func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bool) {
 	if cwd == "" {
 		return "", false
 	}
-	fallback := filepath.Base(filepath.Clean(cwd))
+	root := repositoryRootForName(ctx, cwd)
+	name, localOnly := repositoryName(ctx, cwd, root)
+	if !localOnly {
+		RememberRepository(cwd, name)
+	} else if root == "" {
+		if remembered := RememberedRepository(cwd); remembered != "" {
+			return remembered, false
+		}
+	}
+	return name, localOnly
+}
+
+func repositoryRootForName(ctx context.Context, cwd string) string {
 	if !backgroundFilesystemProbeAllowed(cwd) {
-		return fallback, true
+		return ""
 	}
 	resolved, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
-		return fallback, true
+		return ""
 	}
-	root := RepositoryRootContext(ctx, resolved)
+	return RepositoryRootContext(ctx, resolved)
+}
+
+func repositoryName(ctx context.Context, cwd, root string) (string, bool) {
 	if root == "" {
-		return fallback, true
+		return filepath.Base(filepath.Clean(cwd)), true
 	}
 	if output, err := backgroundexec.CommandContext(ctx, "git", "-C", root, "remote", "get-url", "origin").Output(); err == nil {
 		if remote := CanonicalOriginURL(string(output)); remote != "" {
@@ -158,7 +177,7 @@ func RepositoryRootContext(ctx context.Context, cwd string) string {
 		if ctx.Err() != nil {
 			return ""
 		}
-		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
+		if isGitMarker(filepath.Join(current, ".git")) {
 			return current
 		}
 		parent := filepath.Dir(current)
@@ -270,4 +289,26 @@ func gitRefExistsContext(ctx context.Context, cwd, ref string) bool {
 		return false
 	}
 	return backgroundexec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--verify", "--quiet", ref).Run() == nil
+}
+
+// isGitMarker reports whether path is a Git directory with a HEAD file or a
+// worktree's "gitdir:" file. An empty .git directory, as some home folders
+// have, does not make its folder a repository.
+func isGitMarker(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		head, err := os.Stat(filepath.Join(path, "HEAD"))
+		return err == nil && !head.IsDir()
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	prefix := make([]byte, len("gitdir:"))
+	n, _ := io.ReadFull(file, prefix)
+	return string(prefix[:n]) == "gitdir:"
 }

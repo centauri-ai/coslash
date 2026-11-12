@@ -84,7 +84,8 @@ type codexText struct {
 }
 
 type codexGit struct {
-	Branch string `json:"branch"`
+	Branch        string `json:"branch"`
+	RepositoryURL string `json:"repository_url"`
 }
 type codexArguments string
 
@@ -190,5 +191,6 @@ type codexMeta struct {
 	agentNickname    string
 	workingDirectory string
 	branch           string
+	repository       string
 	entrypoint       string
 }

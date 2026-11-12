@@ -38,6 +38,7 @@ On macOS, background enrichment does not open project files in Desktop, Document
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
 | `session-backups/prepared/` | Verified, private session-family bundles retained locally while a V4 sync can resume. |
 | `fingerprints/v1/<agent>/` | The local parse cache: one private file per local transcript, Cursor session or OpenCode family holding the parsed summary already produced for the board (prompts, commands, working directories, edited-file paths and file-change bodies), keyed by file size and modification time so an unchanged source is never parsed twice. It holds no raw transcript rows. Deleting the directory is always safe; `discovery-cursor.json` beside it records where a streamed discovery pass stopped. `COSLASH_SCALE_IMPORT=0` disables the cache. |
+| `repositories.json` | The canonical origin remote last read for each working directory, keyed by the local path, or by remote source ID and path for an SSH host. It keeps a session in its repository after its worktree is removed or its folder cannot be probed. |
 | `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
@@ -75,11 +76,12 @@ Both collection paths may read these paths beneath the SSH user's home:
   open, from `lsof -a -c codex -Fn`. The SFTP fallback filters this list on the
   remote host so only Codex rollout file paths cross SSH. It does not contact the
   network;
-- the Git configuration that `git remote get-url origin` reads, only in a
-  working directory that a collected session recorded with a branch. The Mac
-  runs this over SSH, not the helper, for at most 64 directories per refresh.
-  The directory may be outside the home directory. The raw origin crosses SSH
-  transiently; the Mac canonicalizes it before caching or exposure.
+- the Git configuration and `HEAD` that `git remote get-url origin` and
+  `git symbolic-ref HEAD` read, only in a working directory whose collected
+  session lacks a repository or a branch. The Mac runs this over SSH, not the
+  helper, for at most 64 directories per refresh. The directory may be outside
+  the home directory. The raw origin crosses SSH transiently; the Mac
+  canonicalizes it before caching or exposure.
 
 The SFTP interface has no write, delete, rename, or chmod operation. It rejects
 symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
@@ -257,6 +259,9 @@ directories, and derived synthesis. Local does not scan these records for
 secrets. File-edit paths are sanitized, but that does not redact record
 contents. See [the sync consent decision](decisions/personal-hub-sync-consent.md).
 
+Session metadata names the working folder: home-relative (`~/…`) inside the
+home folder, and the full path outside it.
+
 This client change removes Local's V3 complete-backup preview and upload path.
 It does not change Hub V3 routes, stored backups, revisions, chunks, existing
 workspace links, or their current URLs. No V3 data migration or deletion takes
@@ -266,6 +271,12 @@ window has elapsed.
 
 The local session-family producer and private spool remain in use by V4 sync.
 V3 requests and payloads are not redirected to a V4 endpoint.
+
+A session's repository is the canonical origin remote Git reports for its
+working directory. When Git finds no repository there, as after a worktree is
+removed, it is the remote Codex recorded in the session, else the remote last
+read for that directory. A `.git` directory without a `HEAD` file does not make
+its folder a repository.
 
 The library card for an SSH session carries the canonical origin remote when
 `git remote get-url origin` succeeds on that host, and its live status from the

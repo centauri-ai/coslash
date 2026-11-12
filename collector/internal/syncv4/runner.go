@@ -1419,13 +1419,12 @@ func cwdLabel(workingDirectory string) string {
 			}
 		}
 	}
-	label := filepath.Base(clean)
-	label = strings.Map(func(value rune) rune {
-		if unicode.IsControl(value) || value == '/' || value == '\\' {
+	label := strings.Map(func(value rune) rune {
+		if unicode.IsControl(value) {
 			return '_'
 		}
 		return value
-	}, label)
+	}, filepath.ToSlash(clean))
 	return truncate(label, 500)
 }
 
