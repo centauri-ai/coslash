@@ -565,6 +565,56 @@ func TestStaleHelperDiscoveryKeepsNewerAutoSetup(t *testing.T) {
 	})
 }
 
+func TestNonAutoDiscoveryReleasesStaleAutoSetup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	cache := NewCache(filepath.Join(home, "remote-cache"))
+	config := settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := cache.StoreHelperVersion(config.ID, "v1", config.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	provider := gatedHelperRelease{started: make(chan struct{}), release: make(chan struct{})}
+	manager := NewManager(Options{
+		Cache: cache, Now: time.Now,
+		ReleaseProvider:             provider,
+		LifecycleFactory:            func(string) (Lifecycle, error) { return Lifecycle{}, nil },
+		HelperInstallationAvailable: true,
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			return refreshOutcome{}, nil
+		},
+	})
+	if err := manager.ApplySettings(&config); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+	<-provider.started
+
+	if err := manager.ReleaseHelperOwnership(); err != nil {
+		t.Fatal(err)
+	}
+	moved := config
+	moved.SSHAlias = "new-box"
+	if err := manager.ApplySettings(&moved); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+	// The newer run waits to send on started, so only the stale auto run receives this.
+	provider.release <- struct{}{}
+	<-provider.started
+	manager.mu.Lock()
+	autoSetup := manager.helperAutoSetup
+	manager.mu.Unlock()
+	if autoSetup {
+		t.Fatal("a non-auto discovery left the stale auto-setup flag set")
+	}
+	close(provider.release)
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return manager.helperProbe == helperProbeFallback && !manager.refreshing
+	})
+}
+
 func TestHelperVersionStoreFailureFallsBack(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
