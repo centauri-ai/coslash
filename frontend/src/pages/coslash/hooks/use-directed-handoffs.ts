@@ -11,7 +11,7 @@ export function useDirectedHandoffs() {
     const current = ++requestId.current;
     inFlight.current += 1;
     try {
-      const response = await apiFetch('/api/directed-handoffs');
+      const response = await apiFetch('/api/directed-handoffs', { signal: AbortSignal.timeout(10_000) });
       if (!response.ok) throw new Error(`Could not load handoffs (${response.status})`);
       const body = (await response.json()) as { handoffs: DirectedHandoff[] };
       if (current === requestId.current) {
