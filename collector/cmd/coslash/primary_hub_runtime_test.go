@@ -518,3 +518,31 @@ func TestPrimaryPairingAPIPreservesBoundCredential(t *testing.T) {
 		t.Fatal("pending primary work changed")
 	}
 }
+
+func TestPrimaryPairingWithDisabledSyncAndFreshQueue(t *testing.T) {
+	client, store := primaryRuntimeFixture(t, "")
+	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
+	_ = primaryRuntimeController(t, started, stopped) // Persist the fresh unbound queue.
+	t.Setenv("COSLASH_V4_SYNC", "0")
+	controller := primaryRuntimeController(t, started, stopped)
+	runtime, client, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.guardPairingCredential(client)
+	if err := client.Credentials.Save(context.Background(), "first-credential"); err != nil {
+		t.Fatalf("first credential: %v", err)
+	}
+	if got, err := store.Load(context.Background()); err != nil || got != "first-credential" {
+		t.Fatalf("credential = %q, %v", got, err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("COSLASH_HOME"), "sync-v4", "queue.json"), []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Credentials.Save(context.Background(), "replacement"); err == nil {
+		t.Fatal("corrupt queue accepted replacement credential")
+	}
+	if got, err := store.Load(context.Background()); err != nil || got != "first-credential" {
+		t.Fatalf("credential after corrupt queue = %q, %v", got, err)
+	}
+}

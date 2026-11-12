@@ -268,6 +268,8 @@ func storedInventoryHasD60(data []byte) bool {
 
 func (q *Queue) InstallID() string { q.mu.Lock(); defer q.mu.Unlock(); return q.state.InstallID }
 
+var ErrQueueUnbound = errors.New("v4 queue binding unavailable")
+
 // ReadStoredBinding reads an existing queue without opening or rewriting it.
 func ReadStoredBinding(root string) (string, error) {
 	data, err := readQueueFile(filepath.Join(root, "queue.json"))
@@ -279,7 +281,7 @@ func ReadStoredBinding(root string) (string, error) {
 		return "", errors.New("invalid v4 queue")
 	}
 	if stored.Binding == "" {
-		return "", errors.New("v4 queue binding unavailable")
+		return "", ErrQueueUnbound
 	}
 	return stored.Binding, nil
 }

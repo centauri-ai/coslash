@@ -157,7 +157,7 @@ func (s *primaryPairingCredential) Save(ctx context.Context, credential string) 
 		} else {
 			var err error
 			stored, err = syncv4.ReadStoredBinding(filepath.Join(s.runtime.workers.home, "sync-v4"))
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syncv4.ErrQueueUnbound) {
 				return err
 			}
 		}
