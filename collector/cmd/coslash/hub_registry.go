@@ -14,13 +14,15 @@ import (
 	"sync"
 )
 
-const hubRegistryVersion = 2
+const hubRegistryVersion = 3
 
 type hubConnection struct {
-	Origin       string `json:"origin"`
-	Enabled      bool   `json:"enabled"`
-	LegacyOrigin string `json:"legacyOrigin,omitempty"`
-	SyncConsent  bool   `json:"syncConsent,omitempty"`
+	Origin       string   `json:"origin"`
+	Enabled      bool     `json:"enabled"`
+	LegacyOrigin string   `json:"legacyOrigin,omitempty"`
+	SyncConsent  bool     `json:"syncConsent,omitempty"`
+	Generation   string   `json:"generation,omitempty"`
+	Quarantined  []string `json:"quarantined,omitempty"`
 }
 
 type hubRegistryState struct {
@@ -33,10 +35,12 @@ type hubRegistryWire struct {
 	Version     *int    `json:"version"`
 	Primary     *string `json:"primary"`
 	Connections []struct {
-		Origin       *string `json:"origin"`
-		Enabled      *bool   `json:"enabled"`
-		LegacyOrigin string  `json:"legacyOrigin,omitempty"`
-		SyncConsent  *bool   `json:"syncConsent,omitempty"`
+		Origin       *string  `json:"origin"`
+		Enabled      *bool    `json:"enabled"`
+		LegacyOrigin string   `json:"legacyOrigin,omitempty"`
+		SyncConsent  *bool    `json:"syncConsent,omitempty"`
+		Generation   *string  `json:"generation,omitempty"`
+		Quarantined  []string `json:"quarantined,omitempty"`
 	} `json:"connections"`
 }
 
@@ -175,12 +179,12 @@ func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, e
 	if wire.Version == nil || wire.Primary == nil || wire.Connections == nil {
 		return nil, errors.New("invalid Hub connection registry")
 	}
-	if *wire.Version != 1 && *wire.Version != hubRegistryVersion {
+	if *wire.Version != 1 && *wire.Version != 2 && *wire.Version != hubRegistryVersion {
 		return nil, errors.New("invalid Hub connection registry")
 	}
 	r.state = hubRegistryState{Version: hubRegistryVersion, Primary: *wire.Primary}
 	for _, c := range wire.Connections {
-		if c.Origin == nil || c.Enabled == nil || (*wire.Version == 1 && c.SyncConsent != nil) {
+		if c.Origin == nil || c.Enabled == nil || (*wire.Version == 1 && c.SyncConsent != nil) || (*wire.Version < 3 && (c.Generation != nil || c.Quarantined != nil)) {
 			return nil, errors.New("invalid Hub connection registry")
 		}
 		consent := c.SyncConsent != nil && *c.SyncConsent
@@ -188,7 +192,11 @@ func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, e
 		if *c.Origin != *wire.Primary && !consent {
 			enabled = false
 		}
-		r.state.Connections = append(r.state.Connections, hubConnection{Origin: *c.Origin, Enabled: enabled, LegacyOrigin: c.LegacyOrigin, SyncConsent: consent})
+		generation := ""
+		if c.Generation != nil {
+			generation = *c.Generation
+		}
+		r.state.Connections = append(r.state.Connections, hubConnection{Origin: *c.Origin, Enabled: enabled, LegacyOrigin: c.LegacyOrigin, SyncConsent: consent, Generation: generation, Quarantined: c.Quarantined})
 	}
 	if err := validateHubRegistry(r.state); err != nil {
 		return nil, err
@@ -213,8 +221,8 @@ func rejectDuplicateJSONKeys(data []byte) error {
 			}
 			return nil
 		}
-		// The registry has only a root object, connections array and entries.
-		if depth > 3 {
+		// Bound nesting, including the versioned quarantine list.
+		if depth > 4 || (depth == 4 && delim != '[') {
 			return errors.New("registry nesting too deep")
 		}
 		switch delim {
@@ -275,6 +283,25 @@ func validateHubRegistry(state hubRegistryState) error {
 		if c.LegacyOrigin == "" && !strings.HasPrefix(c.Origin, "https://") {
 			return invalid
 		}
+		if c.Origin == state.Primary && (c.Generation != "" || len(c.Quarantined) != 0) {
+			return invalid
+		}
+		if c.Generation != "" && !validHubGeneration(c.Generation) {
+			return invalid
+		}
+		if len(c.Quarantined) > 100 {
+			return invalid
+		}
+		generations := map[string]bool{}
+		for _, generation := range c.Quarantined {
+			if (generation != "legacy" && !validHubGeneration(generation)) || generation == c.Generation || generations[generation] {
+				return invalid
+			}
+			generations[generation] = true
+		}
+		if (c.Generation == "" && len(c.Quarantined) != 0) || (c.Generation != "" && !generations["legacy"]) {
+			return invalid
+		}
 		seen[origin] = true
 	}
 	if !seen[state.Primary] {
@@ -283,11 +310,26 @@ func validateHubRegistry(state hubRegistryState) error {
 	return nil
 }
 
+func validHubGeneration(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *hubRegistry) snapshot() hubRegistryState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	state := r.state
 	state.Connections = append([]hubConnection(nil), state.Connections...)
+	for i := range state.Connections {
+		state.Connections[i].Quarantined = append([]string(nil), state.Connections[i].Quarantined...)
+	}
 	return state
 }
 
@@ -397,6 +439,9 @@ func (r *hubRegistry) runEdits() {
 		r.pending = r.pending[1:]
 		state := r.state
 		state.Connections = append([]hubConnection(nil), state.Connections...)
+		for i := range state.Connections {
+			state.Connections[i].Quarantined = append([]string(nil), state.Connections[i].Quarantined...)
+		}
 		r.mu.Unlock()
 		next, err := request.apply(state)
 		if err == nil {

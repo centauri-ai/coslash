@@ -178,6 +178,12 @@ and leaves sync disabled. A separate consent action enables the destination and
 authorizes automatic upload of eligible parsed records, which can contain prompts,
 commands and source snippets. Enabling starts sync and that authorization
 persists across restarts. This does not authorize workspace sharing.
+
+If a secondary is re-paired with a different credential, it may represent a
+different account. With separate new-binding consent, Local retains the old
+queue and prepared spool on this computer as quarantine and starts a fresh
+queue. Old pending work is not replayed to the new account, though eligible
+sessions can be discovered and uploaded after sync is separately enabled.
 Eligible activity can upload without a separate preview or approval for each
 session. Sync starts by default after pairing or startup with a stored
 credential, but uploads require a compatible Hub import plan.

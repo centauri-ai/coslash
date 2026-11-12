@@ -354,6 +354,11 @@ func TestHubRegistrySnapshotDoesNotWaitForWrite(t *testing.T) {
 func TestHubRegistryRejectsCorruptOrUnknownData(t *testing.T) {
 	inputs := []string{
 		`{}`, `null`, `{"version":2,"primary":"https://hub.coslash.io","connections":[]}`,
+		`{"version":4,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true}]}`,
+		`{"version":2,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true,"generation":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}`,
+		`{"version":3,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true,"generation":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","quarantined":["legacy"]}]}`,
+		`{"version":3,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true},{"origin":"https://other.example","enabled":false,"generation":"../escape","quarantined":["legacy"]}]}`,
+		`{"version":3,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true},{"origin":"https://other.example","enabled":false,"quarantined":["legacy"]}]}`,
 		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":true,"extra":1}]}`,
 		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io"}]}`,
 		`{"version":1,"primary":"https://hub.coslash.io","connections":[{"origin":"https://hub.coslash.io","enabled":false,"enabled":true}]}`,
@@ -401,5 +406,25 @@ func TestHubRegistryRejectsExcessiveJSONDepth(t *testing.T) {
 		if _, err := openHubRegistry(home, "", nil); err == nil {
 			t.Fatal("deep registry accepted")
 		}
+	}
+}
+
+func TestHubRegistryV2KeepsConsentedSecondaryOnUpgrade(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "hub-connections")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"version":2,"primary":"https://primary.example","connections":[{"origin":"https://primary.example","enabled":true},{"origin":"https://secondary.example","enabled":true,"syncConsent":true}]}`)
+	if _, err := writeHubRegistryFile(dir, data); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := registry.snapshot()
+	if state.Version != hubRegistryVersion || len(state.Connections) != 2 || !state.Connections[1].Enabled || !state.Connections[1].SyncConsent || state.Connections[1].Generation != "" {
+		t.Fatalf("v2 upgrade: %+v", state)
 	}
 }

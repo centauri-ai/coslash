@@ -26,24 +26,26 @@ import (
 )
 
 type workerTestHub struct {
-	server        *httptest.Server
-	credential    string
-	mode          atomic.Int32
-	checkins      chan struct{}
-	offline       chan struct{}
-	finished      chan struct{}
-	results       chan []hubclient.V4CommandResult
-	commands      bool
-	minVersion    string
-	uploadGate    <-chan struct{}
-	uploadStarted chan<- struct{}
-	mu            sync.Mutex
-	manifest      hubclient.V4Manifest
-	missing       []hubclient.V4Missing
-	received      map[string]bool
-	bytes         int
-	creates       int
-	installID     string
+	server             *httptest.Server
+	credential         string
+	pairCredential     atomic.Value
+	expectedCredential atomic.Value
+	mode               atomic.Int32
+	checkins           chan struct{}
+	offline            chan struct{}
+	finished           chan struct{}
+	results            chan []hubclient.V4CommandResult
+	commands           bool
+	minVersion         string
+	uploadGate         <-chan struct{}
+	uploadStarted      chan<- struct{}
+	mu                 sync.Mutex
+	manifest           hubclient.V4Manifest
+	missing            []hubclient.V4Missing
+	received           map[string]bool
+	bytes              int
+	creates            int
+	installID          string
 }
 
 const workerUpdateID = "11111111-2222-4333-8444-555555555555"
@@ -107,10 +109,18 @@ func newWorkerTestHub(t *testing.T, credential string) *workerTestHub {
 			return
 		}
 		if r.URL.Path == "/v1/device-authorizations/token" {
-			_ = json.NewEncoder(w).Encode(map[string]string{"deviceId": "device", "credential": h.credential, "tokenType": "Device", "scope": "ingest"})
+			credential := h.credential
+			if value := h.pairCredential.Load(); value != nil {
+				credential = value.(string)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceId": "device", "credential": credential, "tokenType": "Device", "scope": "ingest"})
 			return
 		}
-		if r.Header.Get("Authorization") != "Device "+h.credential {
+		expected := h.credential
+		if value := h.expectedCredential.Load(); value != nil {
+			expected = value.(string)
+		}
+		if r.Header.Get("Authorization") != "Device "+expected {
 			t.Errorf("wrong credential at %s", r.URL.Path)
 			http.Error(w, "unauthorized", 401)
 			return

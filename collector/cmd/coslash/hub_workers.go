@@ -24,6 +24,7 @@ type hubWorkerSlot struct {
 	startCancel context.CancelFunc
 	disabling   bool
 	controller  *syncController
+	generation  string
 	lastError   string
 }
 
@@ -132,18 +133,32 @@ func (s *hubWorkerSupervisor) clientForConnection(connection hubConnection, prim
 		return nil, err
 	}
 	if !primary {
-		key := fmt.Sprintf("%x", sha256.Sum256([]byte(connection.Origin)))
+		if connection.Generation != "" && !validHubGeneration(connection.Generation) {
+			return nil, errors.New("invalid Hub generation")
+		}
 		if runtime.GOOS == "linux" {
-			client.Credentials = hubclient.FileCredentialStore{Path: filepath.Join(s.home, "hub-connections", key, "credential")}
+			client.Credentials = hubclient.FileCredentialStore{Path: filepath.Join(s.secondaryRoot(connection), "credential")}
 		} else {
 			home, err := filepath.Abs(s.home)
 			if err != nil {
 				return nil, err
 			}
-			client.Credentials = hubclient.OSKeychain{Service: "ai.coslash.hub-device", Account: fmt.Sprintf("%x:multi:%s", sha256.Sum256([]byte(home)), connection.Origin)}
+			account := fmt.Sprintf("%x:multi:%s", sha256.Sum256([]byte(home)), connection.Origin)
+			if connection.Generation != "" {
+				account += ":generation:" + connection.Generation
+			}
+			client.Credentials = hubclient.OSKeychain{Service: "ai.coslash.hub-device", Account: account}
 		}
 	}
 	return client, nil
+}
+
+func (s *hubWorkerSupervisor) secondaryRoot(connection hubConnection) string {
+	root := filepath.Join(s.home, "hub-connections", fmt.Sprintf("%x", sha256.Sum256([]byte(connection.Origin))))
+	if connection.Generation != "" {
+		root = filepath.Join(root, "generations", connection.Generation)
+	}
+	return root
 }
 
 func (s *hubWorkerSupervisor) slot(origin string) *hubWorkerSlot {
@@ -249,13 +264,17 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 		return err
 	}
 	pinned := bindingPinnedClient(client, binding)
-	root := filepath.Join(s.home, "hub-connections", fmt.Sprintf("%x", sha256.Sum256([]byte(origin))))
+	root := s.secondaryRoot(connection)
 	queueRoot, spoolRoot := filepath.Join(root, "sync-v4"), filepath.Join(root, "prepared")
 	if primary {
 		queueRoot, spoolRoot = filepath.Join(s.home, "sync-v4"), filepath.Join(s.home, "session-backups", "prepared")
 	}
 	if s.primaryOnly && slot.controller == nil {
 		return errors.New("primary worker was not adopted")
+	}
+	if !primary && slot.controller != nil && slot.generation != connection.Generation {
+		slot.stopWorker()
+		slot.controller = nil
 	}
 	if slot.controller == nil {
 		var controller *syncController
@@ -299,6 +318,7 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 			return err
 		}
 		slot.controller = controller
+		slot.generation = connection.Generation
 	}
 	if slot.controller.Queue() != nil {
 		stored, _ := slot.controller.Queue().DiscoveryCursor()
@@ -375,17 +395,19 @@ func (s *hubWorkerSupervisor) Retry(raw string) bool {
 }
 
 type hubWorkerStatus struct {
-	Origin  string `json:"origin"`
-	Primary bool   `json:"primary"`
-	Enabled bool   `json:"enabled"`
-	State   string `json:"state"`
+	Origin      string `json:"origin"`
+	Primary     bool   `json:"primary"`
+	Enabled     bool   `json:"enabled"`
+	State       string `json:"state"`
+	Quarantined int    `json:"quarantined"`
+	Generation  string `json:"generation,omitempty"`
 }
 
 func (s *hubWorkerSupervisor) statuses() []hubWorkerStatus {
 	registry := s.registry.snapshot()
 	result := make([]hubWorkerStatus, 0, len(registry.Connections))
 	for _, c := range registry.Connections {
-		status := hubWorkerStatus{Origin: c.Origin, Primary: c.Origin == registry.Primary, Enabled: c.Enabled, State: "disabled"}
+		status := hubWorkerStatus{Origin: c.Origin, Primary: c.Origin == registry.Primary, Enabled: c.Enabled, State: "disabled", Quarantined: len(c.Quarantined), Generation: c.Generation}
 		if c.Enabled {
 			status.State = "not_running"
 			slot := s.slot(c.Origin)

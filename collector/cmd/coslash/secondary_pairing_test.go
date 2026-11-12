@@ -345,10 +345,11 @@ func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		var input struct {
-			Origin  string `json:"origin"`
-			Consent bool   `json:"consent"`
+			Origin            string `json:"origin"`
+			Consent           bool   `json:"consent"`
+			NewBindingConsent bool   `json:"newBindingConsent"`
 		}
-		if r.URL.Path != "/api/hubs/pairings" || r.Header.Get("X-Coslash-Token") != "secret" || json.NewDecoder(r.Body).Decode(&input) != nil || input.Origin != "https://secondary.example" || !input.Consent {
+		if (r.URL.Path != "/api/hubs/pairings" && r.URL.Path != "/api/hubs/re-pairings") || r.Header.Get("X-Coslash-Token") != "secret" || json.NewDecoder(r.Body).Decode(&input) != nil || input.Origin != "https://secondary.example" || !input.Consent || (r.URL.Path == "/api/hubs/re-pairings" && !input.NewBindingConsent) {
 			t.Error("invalid consent request")
 		}
 		_, _ = fmt.Fprint(w, `{"id":"attempt"}`)
@@ -370,5 +371,9 @@ func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
 	out.Reset()
 	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example", "--consent"}); code != 0 || calls.Load() != 1 || !strings.Contains(out.String(), `"id":"attempt"`) {
 		t.Fatalf("consent exit=%d output=%s error=%s", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	if code := runCLI(&out, &errOut, []string{"secondary-pair", "recover", "https://secondary.example", "--consent", "--new-binding-consent"}); code != 0 || calls.Load() != 2 || !strings.Contains(out.String(), "another account") {
+		t.Fatalf("new-binding consent exit=%d output=%s error=%s", code, out.String(), errOut.String())
 	}
 }
