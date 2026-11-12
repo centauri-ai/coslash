@@ -747,17 +747,18 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 }
 
 type serverServices struct {
-	sendContext     context.Context
-	headlessSend    headlessSender
-	queue           *syncv4.Queue
-	directedStore   *directedhandoff.Store
-	onboardings     *onboardingManager
-	syncController  *syncController
-	hubWorkers      *hubWorkerSupervisor
-	primaryMismatch bool
-	shutdown        chan struct{}
-	updateRequests  chan struct{}
-	settingsOptions *settingsOptionsCache
+	sendContext      context.Context
+	headlessSend     headlessSender
+	queue            *syncv4.Queue
+	directedStore    *directedhandoff.Store
+	onboardings      *onboardingManager
+	syncController   *syncController
+	hubWorkers       *hubWorkerSupervisor
+	secondaryPairing *secondaryPairings
+	primaryMismatch  bool
+	shutdown         chan struct{}
+	updateRequests   chan struct{}
+	settingsOptions  *settingsOptionsCache
 }
 
 func newServer(
@@ -778,6 +779,9 @@ func newServer(
 	}
 	if service.settingsOptions == nil {
 		service.settingsOptions = newSettingsOptionsCache()
+	}
+	if service.hubWorkers != nil && service.secondaryPairing == nil {
+		service.secondaryPairing = newSecondaryPairings(service.hubWorkers)
 	}
 	var stopSends context.CancelFunc
 	service.sendContext, stopSends = context.WithCancel(context.Background())

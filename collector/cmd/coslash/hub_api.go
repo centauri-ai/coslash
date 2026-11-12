@@ -85,6 +85,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 	if len(services) > 0 {
 		service = services[0]
 	}
+	registerSecondaryPairingRoutes(api, service.secondaryPairing)
 	bindClient := func(client *hubclient.Client) {
 		if client == nil {
 			return

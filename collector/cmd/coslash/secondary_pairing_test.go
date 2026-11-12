@@ -1,0 +1,341 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/syncv4"
+)
+
+type failingSecondaryStore struct{ hubclient.CredentialStore }
+
+func (f failingSecondaryStore) Save(context.Context, string) error {
+	return errors.New("storage failed")
+}
+
+func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("exercises the Linux secondary credential store")
+	}
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	primary := filepath.Join(home, "hub-url")
+	if err = os.WriteFile(primary, []byte("primary data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	primaryFiles := map[string]string{
+		"hub-credentials/primary.example": "primary credential",
+		"sync-v4/queue.json":              "pending primary queue",
+		"session-backups/prepared/bundle": "pending primary spool",
+	}
+	for name, contents := range primaryFiles {
+		path := filepath.Join(home, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mode atomic.Int32
+	var requests atomic.Int32
+	pollStarted, releasePoll := make(chan struct{}, 1), make(chan struct{})
+	pollReleased := make(chan struct{}, 1)
+	hub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path == "/v1/device-authorizations" {
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "attempt", "deviceCode": "device-code", "userCode": "ABCD", "verificationUri": "https://" + r.Host + "/approve", "expiresAt": time.Now().Add(time.Minute), "intervalSeconds": 1})
+			return
+		}
+		if mode.Load() == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprint(w, `{"code":"onboarding_declined"}`)
+			return
+		}
+		if mode.Load() == 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprint(w, `{"code":"pairing_pending"}`)
+			return
+		}
+		if mode.Load() == 3 {
+			pollStarted <- struct{}{}
+			<-releasePoll
+			pollReleased <- struct{}{}
+		}
+		_, _ = fmt.Fprint(w, `{"deviceId":"device","credential":"secondary-secret","tokenType":"Device","scope":"ingest"}`)
+	}))
+	defer hub.Close()
+	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := workers.client
+	var fail atomic.Bool
+	workers.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
+		client, err := original(c, primary)
+		if err == nil {
+			client.HTTP = hub.Client()
+			if fail.Load() {
+				client.Credentials = failingSecondaryStore{client.Credentials}
+			}
+		}
+		return client, err
+	}
+	pairings := newSecondaryPairings(workers)
+	ctx := context.Background()
+	mux := http.NewServeMux()
+	registerSecondaryPairingRoutes(mux, pairings)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/pairings", strings.NewReader(`{"origin":"`+hub.URL+`","consent":false}`)))
+	if response.Code != http.StatusConflict || requests.Load() != 0 {
+		t.Fatal("API started pairing without consent")
+	}
+	if _, _, err := pairings.begin(ctx, hub.URL, false); err == nil || requests.Load() != 0 {
+		t.Fatal("pairing occurred without consent")
+	}
+	mode.Store(1)
+	id, _, err := pairings.begin(ctx, hub.URL, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, err := pairings.poll(ctx, id); err != nil || state != "declined" {
+		t.Fatalf("decline %q %v", state, err)
+	}
+	if len(registry.snapshot().Connections) != 1 {
+		t.Fatal("decline changed registry")
+	}
+	mode.Store(2)
+	id, _, err = pairings.begin(ctx, hub.URL, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = pairings.begin(ctx, hub.URL, true); err == nil {
+		t.Fatal("concurrent attempt accepted")
+	}
+	if state, err := pairings.poll(ctx, id); err != nil || state != "pending" {
+		t.Fatalf("pending %q %v", state, err)
+	}
+	restarted := newSecondaryPairings(workers)
+	if _, err := restarted.poll(ctx, id); err == nil || len(registry.snapshot().Connections) != 1 {
+		t.Fatal("pending attempt survived restart or changed registry")
+	}
+	pairings.mu.Lock()
+	pairings.attempts[id].pairing.ExpiresAt = time.Now().Add(-time.Second)
+	pairings.mu.Unlock()
+	if state, err := pairings.poll(ctx, id); err != nil || state != "expired" {
+		t.Fatalf("expiry %q %v", state, err)
+	}
+	if _, err := pairings.poll(ctx, id); err == nil {
+		t.Fatal("stale attempt accepted")
+	}
+	mode.Store(3)
+	id, _, err = pairings.begin(ctx, hub.URL, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pollCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { _, _ = pairings.poll(pollCtx, id); close(done) }()
+	<-pollStarted
+	if _, _, err := pairings.begin(ctx, hub.URL, true); err == nil {
+		t.Fatal("overlapping attempt accepted during approval")
+	}
+	cancel()
+	close(releasePoll)
+	<-done
+	<-pollReleased
+	if len(registry.snapshot().Connections) != 1 {
+		t.Fatal("cancelled approval changed registry")
+	}
+	pollStarted, releasePoll = make(chan struct{}, 1), make(chan struct{})
+	id, _, err = pairings.begin(ctx, hub.URL, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan string, 1)
+	go func() { state, _ := pairings.poll(ctx, id); result <- state }()
+	<-pollStarted
+	pairings.mu.Lock()
+	pairings.attempts[id].pairing.ExpiresAt = time.Now().Add(-time.Second)
+	pairings.mu.Unlock()
+	close(releasePoll)
+	if state := <-result; state != "expired" || len(registry.snapshot().Connections) != 1 {
+		t.Fatalf("stale approval committed: %q", state)
+	}
+	<-pollReleased
+	mode.Store(0)
+	fail.Store(true)
+	id, _, err = pairings.begin(ctx, hub.URL, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, err := pairings.poll(ctx, id); err != nil || state != "failed" {
+		t.Fatalf("save failure %q %v", state, err)
+	}
+	if len(registry.snapshot().Connections) != 1 {
+		t.Fatal("failed credential write enabled Hub")
+	}
+	fail.Store(false)
+	id, _, err = pairings.begin(ctx, hub.URL, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := registry.write
+	registry.write = func(string, []byte) (bool, error) { return false, errors.New("write failed") }
+	if state, err := pairings.poll(ctx, id); err != nil || state != "failed" {
+		t.Fatalf("registry failure %q %v", state, err)
+	}
+	registry.write = writer
+	if len(registry.snapshot().Connections) != 1 {
+		t.Fatal("failed registry write enabled Hub")
+	}
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/pairings", strings.NewReader(`{"origin":"`+hub.URL+`","consent":true}`)))
+	var started struct {
+		ID string `json:"id"`
+	}
+	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &started) != nil || started.ID == "" {
+		t.Fatalf("pairing API start %d: %s", response.Code, response.Body.String())
+	}
+	id = started.ID
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/pairings/"+id+"/poll", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"paired"`) {
+		t.Fatalf("pairing API poll %d: %s", response.Code, response.Body.String())
+	}
+	reopened, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := reopened.snapshot()
+	if state.Primary != "https://primary.example" || len(state.Connections) != 2 || !state.Connections[1].Enabled || state.Connections[1].Origin != hub.URL {
+		t.Fatalf("restarted registry %+v", state)
+	}
+	client, err := original(hubConnection{Origin: hub.URL}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := client.Credentials.Load(ctx)
+	if err != nil || credential != "secondary-secret" {
+		t.Fatalf("worker credential %q %v", credential, err)
+	}
+	if data, err := os.ReadFile(primary); err != nil || string(data) != "primary data" {
+		t.Fatal("primary changed")
+	}
+	for name, contents := range primaryFiles {
+		data, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(name)))
+		if err != nil || string(data) != contents {
+			t.Fatalf("primary data changed: %s", name)
+		}
+	}
+	if _, err := pairings.poll(ctx, id); err == nil {
+		t.Fatal("completed attempt reused")
+	}
+	if _, _, err := pairings.begin(ctx, hub.URL, true); err == nil {
+		t.Fatal("existing secondary was overwritten")
+	}
+	home2 := t.TempDir()
+	registry2, err := openHubRegistry(home2, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry2.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	workers2, err := newHubWorkerSupervisor(registry2, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	workers2.home = home2
+	workers2.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
+		client, err := workers2.clientForConnection(c, primary)
+		if err == nil {
+			client.HTTP = hub.Client()
+		}
+		return client, err
+	}
+	second := newSecondaryPairings(workers2)
+	id, _, err = second.begin(ctx, hub.URL, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer2 := registry2.write
+	writes := 0
+	registry2.write = func(dir string, data []byte) (bool, error) {
+		writes++
+		if writes == 2 {
+			return false, errors.New("enable write failed")
+		}
+		return writer2(dir, data)
+	}
+	if state, err := second.poll(ctx, id); err != nil || state != "failed" {
+		t.Fatalf("enable failure %q %v", state, err)
+	}
+	reopened, err = openHubRegistry(home2, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = reopened.snapshot()
+	if len(state.Connections) != 2 || state.Connections[1].Enabled || state.Primary != "https://primary.example" {
+		t.Fatalf("failed enable after restart: %+v", state)
+	}
+}
+
+func TestSecondaryPairingAPIRequiresConsent(t *testing.T) {
+	mux := http.NewServeMux()
+	registerSecondaryPairingRoutes(mux, nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hubs/pairing-disclosure", nil))
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "prompts, commands and source snippets") {
+		t.Fatalf("disclosure %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var input struct {
+			Origin  string `json:"origin"`
+			Consent bool   `json:"consent"`
+		}
+		if r.URL.Path != "/api/hubs/pairings" || r.Header.Get("X-Coslash-Token") != "secret" || json.NewDecoder(r.Body).Decode(&input) != nil || input.Origin != "https://secondary.example" || !input.Consent {
+			t.Error("invalid consent request")
+		}
+		_, _ = fmt.Fprint(w, `{"id":"attempt"}`)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	var out, errOut bytes.Buffer
+	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "prompts, commands and source snippets") {
+		t.Fatalf("disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example", "--consent"}); code != 0 || calls.Load() != 1 || !strings.Contains(out.String(), `"id":"attempt"`) {
+		t.Fatalf("consent exit=%d output=%s error=%s", code, out.String(), errOut.String())
+	}
+}

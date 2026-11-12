@@ -258,6 +258,7 @@ var cliCommandHelp = []struct {
 }{
 	{"service", "install login and URL handlers on macOS", "coslash service install"},
 	{"connect", "pair this Local with Hub", "coslash connect <code> --hub <origin> [--json]"},
+	{"secondary-pair", "consent to add another Hub", "coslash secondary-pair <origin> [--consent] | coslash secondary-pair poll <attempt-id>"},
 	{"sessions", "list local sessions as JSON", sessionsUsage()},
 	{"handoff", "print a session handoff", "coslash handoff <agent>:<session>"},
 	{"send", "start an agent with a session handoff", sendUsage()},
@@ -288,6 +289,11 @@ func printCLIHelp(w io.Writer) {
 }
 
 func printCommandHelp(w io.Writer, name string) bool {
+	if name == "secondary-pair" {
+		fmt.Fprintln(w, "usage: coslash secondary-pair <origin> [--consent] | coslash secondary-pair poll <attempt-id>")
+		fmt.Fprintln(w, secondaryDisclosure)
+		return true
+	}
 	if name == "status" {
 		fmt.Fprintln(w, "usage: coslash status [--json] [--retry]")
 		return true
@@ -336,6 +342,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 			fmt.Fprintln(stdout, "usage: coslash service install")
 		case "connect":
 			return runConnectCLI(stdout, stderr, args[1:])
+		case "secondary-pair":
+			printCommandHelp(stdout, "secondary-pair")
 		case "sessions":
 			fmt.Fprintln(stdout, sessionsUsage())
 		case "handoff":
@@ -369,6 +377,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		err = installService()
 	case "connect":
 		return runConnectCLI(stdout, stderr, args[1:])
+	case "secondary-pair":
+		err = runSecondaryPairCLI(stdout, args[1:])
 	case "sessions":
 		err = runSessions(stdout, args[1:])
 	case "handoff":
