@@ -22,7 +22,9 @@ type hubWorkerSlot struct {
 	running     bool
 	startMu     sync.Mutex
 	startCancel context.CancelFunc
+	disabling   bool
 	controller  *syncController
+	lastError   string
 }
 
 type hubWorkerOperation struct {
@@ -107,6 +109,7 @@ type hubWorkerSupervisor struct {
 	runner      func() *syncv4.Runner
 	client      func(hubConnection, bool) (*hubclient.Client, error)
 	poll        func(context.Context, *syncLoopControl)
+	prepare     func(context.Context, *syncv4.Runner, *syncv4.Queue, *hubclient.Client, chan struct{}) chan struct{}
 }
 
 func newHubWorkerSupervisor(registry *hubRegistry, version string, pause func() bool, backup sessionbackupproducer.Options, runner func() *syncv4.Runner) (*hubWorkerSupervisor, error) {
@@ -186,6 +189,10 @@ func (s *hubWorkerSupervisor) StartEnabled(raw string) error {
 	}
 	s.mu.Unlock()
 	slot.startMu.Lock()
+	if slot.disabling {
+		slot.startMu.Unlock()
+		return errors.New("Hub is being disabled")
+	}
 	if slot.startCancel != nil {
 		slot.startCancel()
 	}
@@ -193,7 +200,15 @@ func (s *hubWorkerSupervisor) StartEnabled(raw string) error {
 	slot.startCancel = cancelStart
 	slot.startMu.Unlock()
 	defer cancelStart()
-	return slot.execute(func() error { return s.start(slot, origin, startContext) })
+	return slot.execute(func() error {
+		err := s.start(slot, origin, startContext)
+		if err != nil {
+			slot.lastError = "start_failed"
+		} else {
+			slot.lastError = ""
+		}
+		return err
+	})
 }
 
 func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startContext context.Context) error {
@@ -209,6 +224,9 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 	connection, primary, err := s.enabled(origin)
 	if err != nil {
 		return err
+	}
+	if !primary && !hubclient.V4SyncEnabled() {
+		return errors.New("secondary sync is disabled")
 	}
 	client, err := s.client(connection, primary)
 	if err != nil {
@@ -253,10 +271,14 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 			runner.Version, runner.Queue, runner.Backup, runner.Hub = s.version, queue, backup, currentHubTransport{current: func() *hubclient.Client { return client }, queue: queue}
 			runner.NoSharedAuthority, runner.LocalPause, runner.CommandContext = !primary, s.pause, ctx
 			runner.RequireImportPlan = true
+			var inventoryRequest chan struct{}
+			if s.prepare != nil {
+				inventoryRequest = s.prepare(ctx, runner, queue, client, wake)
+			}
 			control := newSyncLoopControl(func() bool { _, policy, _ := queue.Policy(); return policy.Paused || policy.DeviceOff || s.pause() })
 			go s.poll(ctx, control)
 			loop := func() {
-				runV4SyncLoopWithControl(ctx, controller.observed(runner, client), queue, controller.observedWait(client.V4Wait, client), control, wake, retry, nil)
+				runV4SyncLoopWithControl(ctx, controller.observed(runner, client), queue, controller.observedWait(client.V4Wait, client), control, wake, retry, inventoryRequest)
 			}
 			if primary {
 				controller.runWithUpdateReporter(ctx, s.version, queue, client, loop)
@@ -287,6 +309,14 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 			slot.stopWorker()
 		}
 		return err
+	}
+	if !primary {
+		slot.controller.mu.RLock()
+		connected := slot.controller.connected && slot.controller.done != nil
+		slot.controller.mu.RUnlock()
+		if !connected {
+			return errors.New("secondary worker did not start")
+		}
 	}
 	if err := startContext.Err(); err != nil {
 		slot.stopWorker()
@@ -335,6 +365,35 @@ func (s *hubWorkerSupervisor) Retry(raw string) bool {
 	return err == nil && retried
 }
 
+type hubWorkerStatus struct {
+	Origin  string `json:"origin"`
+	Primary bool   `json:"primary"`
+	Enabled bool   `json:"enabled"`
+	State   string `json:"state"`
+}
+
+func (s *hubWorkerSupervisor) statuses() []hubWorkerStatus {
+	registry := s.registry.snapshot()
+	result := make([]hubWorkerStatus, 0, len(registry.Connections))
+	for _, c := range registry.Connections {
+		status := hubWorkerStatus{Origin: c.Origin, Primary: c.Origin == registry.Primary, Enabled: c.Enabled, State: "disabled"}
+		if c.Enabled {
+			status.State = "not_running"
+			slot := s.slot(c.Origin)
+			_ = slot.execute(func() error {
+				if slot.lastError != "" {
+					status.State = slot.lastError
+				} else if slot.controller != nil {
+					status.State = slot.controller.Status().State
+				}
+				return nil
+			})
+		}
+		result = append(result, status)
+	}
+	return result
+}
+
 // Disable serializes with StartEnabled so a disabled destination cannot be
 // restarted by an overlapping start. Direct registry disables must not bypass it.
 func (s *hubWorkerSupervisor) Disable(raw string) error {
@@ -342,13 +401,49 @@ func (s *hubWorkerSupervisor) Disable(raw string) error {
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.enabled(origin); err != nil {
-		return err
+	state := s.registry.snapshot()
+	if origin == state.Primary {
+		return errors.New("cannot disable primary Hub")
+	}
+	found := false
+	for _, c := range state.Connections {
+		if c.Origin == origin {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return errors.New("unknown Hub")
 	}
 	slot := s.slot(origin)
-	slot.cancelStart()
+	slot.startMu.Lock()
+	if slot.disabling {
+		slot.startMu.Unlock()
+		return errors.New("Hub is being disabled")
+	}
+	slot.disabling = true
+	if slot.startCancel != nil {
+		slot.startCancel()
+	}
+	slot.startMu.Unlock()
+	defer func() { slot.startMu.Lock(); slot.disabling = false; slot.startMu.Unlock() }()
 	return slot.executeControl(func() error {
+		state := s.registry.snapshot()
+		if origin == state.Primary {
+			return errors.New("cannot disable primary Hub")
+		}
+		found := false
+		for _, c := range state.Connections {
+			if c.Origin == origin {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return errors.New("unknown Hub")
+		}
 		slot.stopWorker()
+		slot.lastError = ""
 		return s.registry.setEnabled(origin, false)
 	})
 }

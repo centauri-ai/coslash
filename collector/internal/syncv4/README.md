@@ -34,6 +34,12 @@ links, or shared-machine maintenance. Authority is fixed for the worker lifetime
 stop the worker and its consumers before changing it. The existing single-Hub
 worker retains authority.
 
+An explicitly consented secondary runs independently with its own credential,
+queue, install ID, discovery cursor and prepared spool. The primary keeps its
+existing queue and spool. Local pause applies to every worker; each Hub's policy
+and leave-out rules apply only to its own queue. Disabling one connection stops
+its worker before recording that decision and does not rebind another queue.
+
 For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed
 content revision schedules a fresh capture even when activity time is equal.

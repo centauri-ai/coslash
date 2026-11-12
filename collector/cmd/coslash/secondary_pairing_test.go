@@ -35,6 +35,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("COSLASH_V4_SYNC", "1")
 	registry, err := openHubRegistry(home, "", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +94,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workers.primaryOnly = true
+	t.Cleanup(workers.StopAll)
 	original := workers.client
 	var fail atomic.Bool
 	workers.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
@@ -243,8 +244,8 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	response = httptest.NewRecorder()
 	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/enable", strings.NewReader(`{"origin":"`+hub.URL+`","consent":true}`)))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "enabled_pending_activation") || !registry.snapshot().Connections[1].Enabled || workers.slot(hub.URL).controller != nil {
-		t.Fatal("explicit enable did not remain pending activation")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "started") || !registry.snapshot().Connections[1].Enabled || workers.slot(hub.URL).controller == nil {
+		t.Fatal("explicit enable did not start worker")
 	}
 	client, err := original(hubConnection{Origin: hub.URL}, false)
 	if err != nil {
@@ -282,7 +283,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	workers2.home = home2
-	workers2.primaryOnly = true
+	t.Cleanup(workers2.StopAll)
 	workers2.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
 		client, err := workers2.clientForConnection(c, primary)
 		if err == nil {
@@ -334,7 +335,7 @@ func TestSecondaryPairingAPIRequiresConsent(t *testing.T) {
 	}
 	response = httptest.NewRecorder()
 	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hubs/enable-disclosure", nil))
-	if response.Code != 200 || !strings.Contains(response.Body.String(), "future updates") || !strings.Contains(response.Body.String(), "prompts, commands and source snippets") {
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "starts sync") || !strings.Contains(response.Body.String(), "prompts, commands and source snippets") {
 		t.Fatalf("enable disclosure %d %s", response.Code, response.Body.String())
 	}
 }
@@ -359,7 +360,7 @@ func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
 		t.Fatalf("disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
 	}
 	out.Reset()
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "enable", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "future updates") {
+	if code := runCLI(&out, &errOut, []string{"secondary-pair", "enable", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "starts sync") {
 		t.Fatalf("enable disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
 	}
 	out.Reset()

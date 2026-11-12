@@ -34,6 +34,7 @@ type workerTestHub struct {
 	finished      chan struct{}
 	results       chan []hubclient.V4CommandResult
 	commands      bool
+	minVersion    string
 	uploadGate    <-chan struct{}
 	uploadStarted chan<- struct{}
 	mu            sync.Mutex
@@ -100,6 +101,15 @@ func newWorkerTestHub(t *testing.T, credential string) *workerTestHub {
 	t.Helper()
 	h := &workerTestHub{credential: credential, checkins: make(chan struct{}, 20), offline: make(chan struct{}, 20), finished: make(chan struct{}, 20), results: make(chan []hubclient.V4CommandResult, 20)}
 	h.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/device-authorizations" {
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "pair", "deviceCode": "device-code", "userCode": "ABCD", "verificationUri": "https://" + r.Host + "/approve", "expiresAt": time.Now().Add(time.Minute), "intervalSeconds": 1})
+			return
+		}
+		if r.URL.Path == "/v1/device-authorizations/token" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceId": "device", "credential": h.credential, "tokenType": "Device", "scope": "ingest"})
+			return
+		}
 		if r.Header.Get("Authorization") != "Device "+h.credential {
 			t.Errorf("wrong credential at %s", r.URL.Path)
 			http.Error(w, "unauthorized", 401)
@@ -138,7 +148,11 @@ func newWorkerTestHub(t *testing.T, credential string) *workerTestHub {
 				commands = []hubclient.V4Command{{ID: "ssh", Type: "ssh.install"}, {ID: workerUpdateID, Type: "update", Payload: json.RawMessage(`{"attemptId":"11111111-2222-4333-8444-555555555555","targetVersion":"1.2.4","expiresAt":"2099-01-01T00:00:00Z"}`)}}
 				hosts = []hubclient.V4SSHHost{{ID: "host", Alias: "fixture"}}
 			}
-			response := map[string]any{"configVersion": 1, "config": map[string]any{"paused": false, "deviceOff": false, "leaveOut": []string{}, "agentKnowledge": true, "importPlan": map[string]any{"version": 1, "window": "all", "history": true}}, "minVersion": "0.0.3", "commands": commands, "capabilities": []string{hubclient.CapabilitySyncPolicy}}
+			minimum := h.minVersion
+			if minimum == "" {
+				minimum = "0.0.3"
+			}
+			response := map[string]any{"configVersion": 1, "config": map[string]any{"paused": false, "deviceOff": false, "leaveOut": []string{}, "agentKnowledge": true, "importPlan": map[string]any{"version": 1, "window": "all", "history": true}}, "minVersion": minimum, "commands": commands, "capabilities": []string{hubclient.CapabilitySyncPolicy}}
 			if hosts != nil {
 				response["sshHosts"] = hosts
 			}
@@ -820,5 +834,145 @@ func TestHubWorkerDisableCancelsStartAfterEnabledCheck(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "prepared", bundle, "manifest.json")); err != nil {
 		t.Fatalf("pending spool lost: %v", err)
+	}
+}
+
+func TestSecondaryEnableCancelledByDisable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COSLASH_V4_SYNC", "1")
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addSecondary("https://secondary.example"); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workers.StopAll()
+	entered := make(chan struct{})
+	workers.client = func(c hubConnection, _ bool) (*hubclient.Client, error) {
+		base, _ := url.Parse(c.Origin)
+		return &hubclient.Client{BaseURL: base, Credentials: blockingWorkerCredentials{started: entered}}, nil
+	}
+	pairings := newSecondaryPairings(workers)
+	done := make(chan error, 1)
+	go func() { done <- pairings.enable(context.Background(), "https://secondary.example", true) }()
+	waitSignal(t, entered)
+	if err := workers.Disable("https://secondary.example"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("stale enable succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("enable did not cancel")
+	}
+	state := registry.snapshot()
+	if state.Connections[1].Enabled || state.Connections[1].SyncConsent {
+		t.Fatal("disable left secondary authorized")
+	}
+	if err := workers.StartEnabled("https://secondary.example"); err == nil {
+		t.Fatal("disabled worker restarted")
+	}
+}
+
+type failSecondCredentialLoad struct{ loads atomic.Int32 }
+
+func (s *failSecondCredentialLoad) Load(context.Context) (string, error) {
+	if s.loads.Add(1) > 1 {
+		return "", errors.New("load failed")
+	}
+	return "approved", nil
+}
+func (*failSecondCredentialLoad) Save(context.Context, string) error { return nil }
+func (*failSecondCredentialLoad) Delete(context.Context) error       { return nil }
+
+func TestSecondaryEnableReportsStartFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COSLASH_V4_SYNC", "1")
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addSecondary("https://secondary.example"); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workers.StopAll()
+	store := &failSecondCredentialLoad{}
+	workers.client = func(c hubConnection, _ bool) (*hubclient.Client, error) {
+		base, _ := url.Parse(c.Origin)
+		return &hubclient.Client{BaseURL: base, Credentials: store}, nil
+	}
+	if err := newSecondaryPairings(workers).enable(context.Background(), "https://secondary.example", true); err == nil {
+		t.Fatal("enable reported success when worker start failed")
+	}
+	status := workers.statuses()
+	if len(status) != 2 || !status[1].Enabled || status[1].State != "start_failed" {
+		t.Fatalf("status after failed start: %+v", status)
+	}
+}
+
+func TestSecondaryControlsDoNotCancelPrimaryStart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COSLASH_V4_SYNC", "1")
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workers.StopAll()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	slot := workers.slot("https://primary.example")
+	slot.startMu.Lock()
+	slot.startCancel = cancel
+	slot.startMu.Unlock()
+	if err := workers.Disable("https://primary.example"); err == nil {
+		t.Fatal("primary disable accepted")
+	}
+	if err := newSecondaryPairings(workers).enable(context.Background(), "https://primary.example", true); err == nil {
+		t.Fatal("primary secondary-enable accepted")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("secondary control cancelled primary start")
+	}
+	if err := workers.Disable("https://unknown.example"); err == nil {
+		t.Fatal("unknown disable accepted")
+	}
+	workers.mu.Lock()
+	_, created := workers.slots["https://unknown.example"]
+	workers.mu.Unlock()
+	if created {
+		t.Fatal("unknown control created worker slot")
 	}
 }

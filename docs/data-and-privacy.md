@@ -176,9 +176,8 @@ OpenCode, Cursor, Grok, and Pi sessions under the Hub policy and Local settings.
 Pairing a secondary Hub requires explicit Local consent and approval in the Hub,
 and leaves sync disabled. A separate consent action enables the destination and
 authorizes automatic upload of eligible parsed records, which can contain prompts,
-commands and source snippets. That authorization persists across restarts and
-future updates. Secondary worker activation is not yet available. This does not
-authorize workspace sharing.
+commands and source snippets. Enabling starts sync and that authorization
+persists across restarts. This does not authorize workspace sharing.
 Eligible activity can upload without a separate preview or approval for each
 session. Sync starts by default after pairing or startup with a stored
 credential, but uploads require a compatible Hub import plan.

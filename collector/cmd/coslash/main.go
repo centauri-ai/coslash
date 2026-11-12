@@ -381,6 +381,33 @@ func main() {
 	} else {
 		onboardings.setSyncHooks(primaryRuntime)
 		hubWorkers = primaryRuntime.workers
+		hubWorkers.pause = func() bool { return os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused }
+		hubWorkers.backup = sessionbackupproducer.Options{CollectorVersion: version, Synthesis: mgr}
+		hubWorkers.runner = func() *syncv4.Runner {
+			runner := &syncv4.Runner{
+				Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+				Conditions: syncv4.LocalConditions,
+			}
+			if fingerprints != nil {
+				runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
+					return discoverLocalBatches(ctx, fingerprints, runner.Queue, visit)
+				}
+			}
+			return runner
+		}
+		if fingerprints != nil {
+			hubWorkers.prepare = func(ctx context.Context, runner *syncv4.Runner, queue *syncv4.Queue, client *hubclient.Client, wake chan struct{}) chan struct{} {
+				tracker := &inventory.Tracker{}
+				runner.InventoryProgress = func() (int64, bool) { return tracker.FilesSoFar(), tracker.Running() }
+				requests := make(chan struct{}, 1)
+				go runInventoryWithRequests(ctx, fingerprints, queue, wake, tracker, func(ctx context.Context) bool {
+					credential, err := client.Credentials.Load(ctx)
+					return err == nil && credential != ""
+				}, requests)
+				return requests
+			}
+		}
+		hubWorkers.primaryOnly = false
 	}
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	shutdownRequests := make(chan struct{}, 1)
@@ -457,6 +484,18 @@ func main() {
 	readyContext, cancelReady := context.WithCancel(context.Background())
 	defer cancelReady()
 	close(runtimeReadySignal)
+	if hubWorkers != nil && hubclient.V4SyncEnabled() {
+		state := primaryRuntime.registry.snapshot()
+		for _, connection := range state.Connections {
+			if connection.Origin != state.Primary && connection.Enabled && connection.SyncConsent {
+				go func(origin string) {
+					if err := hubWorkers.StartEnabled(origin); err != nil {
+						log.Print("secondary Hub worker could not start")
+					}
+				}(connection.Origin)
+			}
+		}
+	}
 	go func() {
 		if queue := controller.Queue(); queue != nil && !primaryMismatch {
 			if err := waitForUpdateHandoff(readyContext, queue, collectorVersion); err != nil {
