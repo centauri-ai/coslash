@@ -155,7 +155,7 @@ func (s *hubWorkerSupervisor) slot(origin string) *hubWorkerSlot {
 func (s *hubWorkerSupervisor) enabled(origin string) (hubConnection, bool, error) {
 	state := s.registry.snapshot()
 	for _, connection := range state.Connections {
-		if connection.Origin == origin && connection.Enabled {
+		if connection.Origin == origin && connection.Enabled && (origin == state.Primary || connection.SyncConsent) {
 			return connection, origin == state.Primary, nil
 		}
 	}

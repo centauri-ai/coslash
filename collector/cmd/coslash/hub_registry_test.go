@@ -36,7 +36,7 @@ func TestHubRegistryLegacyMigrationAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := hubRegistryState{Version: 1, Primary: "https://hub.coslash.io", Connections: []hubConnection{{Origin: "https://hub.coslash.io", Enabled: true, LegacyOrigin: legacy}}}
+	want := hubRegistryState{Version: hubRegistryVersion, Primary: "https://hub.coslash.io", Connections: []hubConnection{{Origin: "https://hub.coslash.io", Enabled: true, LegacyOrigin: legacy}}}
 	if got := r.snapshot(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("state = %+v", got)
 	}
@@ -120,6 +120,41 @@ func TestHubRegistrySecondaryRequiresExplicitEnableAndKeepsPrimaryAuthority(t *t
 	reopened, err = openHubRegistry(home, "", nil)
 	if err != nil || !reopened.snapshot().Connections[1].Enabled || reopened.snapshot().Primary != "https://hub.coslash.io" {
 		t.Fatalf("reopened = %+v %v", reopened, err)
+	}
+}
+
+func TestHubRegistryOldEnabledSecondaryRequiresSyncConsent(t *testing.T) {
+	home := t.TempDir()
+	r, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.addSecondary("https://secondary.example"); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"version":1,"primary":"https://primary.example","connections":[{"origin":"https://primary.example","enabled":true},{"origin":"https://secondary.example","enabled":true}]}`)
+	if _, err := writeHubRegistryFile(filepath.Join(home, "hub-connections"), legacy); err != nil {
+		t.Fatal(err)
+	}
+	r, err = openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := r.snapshot().Connections[1]; c.Enabled || c.SyncConsent {
+		t.Fatalf("old enabled entry remained authorized: %+v", c)
+	}
+	if err := r.setEnabled("https://secondary.example", true); err != nil {
+		t.Fatal(err)
+	}
+	r, err = openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := r.snapshot().Connections[1]; !c.Enabled || !c.SyncConsent {
+		t.Fatalf("explicit consent did not survive restart: %+v", c)
 	}
 }
 

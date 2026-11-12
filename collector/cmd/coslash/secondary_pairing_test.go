@@ -93,6 +93,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workers.primaryOnly = true
 	original := workers.client
 	var fail atomic.Bool
 	workers.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
@@ -224,7 +225,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	id = started.ID
 	response = httptest.NewRecorder()
 	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/pairings/"+id+"/poll", nil))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"paired"`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"paired_disabled"`) {
 		t.Fatalf("pairing API poll %d: %s", response.Code, response.Body.String())
 	}
 	reopened, err := openHubRegistry(home, "", nil)
@@ -232,8 +233,18 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := reopened.snapshot()
-	if state.Primary != "https://primary.example" || len(state.Connections) != 2 || !state.Connections[1].Enabled || state.Connections[1].Origin != hub.URL {
+	if state.Primary != "https://primary.example" || len(state.Connections) != 2 || state.Connections[1].Enabled || state.Connections[1].Origin != hub.URL {
 		t.Fatalf("restarted registry %+v", state)
+	}
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/enable", strings.NewReader(`{"origin":"`+hub.URL+`","consent":false}`)))
+	if response.Code != http.StatusConflict || registry.snapshot().Connections[1].Enabled {
+		t.Fatal("enabled without separate consent")
+	}
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/enable", strings.NewReader(`{"origin":"`+hub.URL+`","consent":true}`)))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "enabled_pending_activation") || !registry.snapshot().Connections[1].Enabled || workers.slot(hub.URL).controller != nil {
+		t.Fatal("explicit enable did not remain pending activation")
 	}
 	client, err := original(hubConnection{Origin: hub.URL}, false)
 	if err != nil {
@@ -271,6 +282,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	workers2.home = home2
+	workers2.primaryOnly = true
 	workers2.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
 		client, err := workers2.clientForConnection(c, primary)
 		if err == nil {
@@ -283,17 +295,12 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer2 := registry2.write
-	writes := 0
-	registry2.write = func(dir string, data []byte) (bool, error) {
-		writes++
-		if writes == 2 {
-			return false, errors.New("enable write failed")
-		}
-		return writer2(dir, data)
+	if state, err := second.poll(ctx, id); err != nil || state != "paired_disabled" {
+		t.Fatalf("pairing %q %v", state, err)
 	}
-	if state, err := second.poll(ctx, id); err != nil || state != "failed" {
-		t.Fatalf("enable failure %q %v", state, err)
+	registry2.write = func(string, []byte) (bool, error) { return false, errors.New("enable write failed") }
+	if err := second.enable(ctx, hub.URL, true); err == nil {
+		t.Fatal("enable write failure accepted")
 	}
 	reopened, err = openHubRegistry(home2, "", nil)
 	if err != nil {
@@ -303,6 +310,18 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	if len(state.Connections) != 2 || state.Connections[1].Enabled || state.Primary != "https://primary.example" {
 		t.Fatalf("failed enable after restart: %+v", state)
 	}
+	workers2.registry = reopened
+	second = newSecondaryPairings(workers2)
+	if err := second.enable(ctx, hub.URL, false); err == nil {
+		t.Fatal("recovery without consent accepted")
+	}
+	if err := second.enable(ctx, hub.URL, true); err != nil {
+		t.Fatalf("enable retry: %v", err)
+	}
+	reopened, err = openHubRegistry(home2, "", nil)
+	if err != nil || !reopened.snapshot().Connections[1].Enabled {
+		t.Fatal("enable retry was not durable")
+	}
 }
 
 func TestSecondaryPairingAPIRequiresConsent(t *testing.T) {
@@ -310,8 +329,13 @@ func TestSecondaryPairingAPIRequiresConsent(t *testing.T) {
 	registerSecondaryPairingRoutes(mux, nil)
 	response := httptest.NewRecorder()
 	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hubs/pairing-disclosure", nil))
-	if response.Code != 200 || !strings.Contains(response.Body.String(), "prompts, commands and source snippets") {
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "does not authorize") {
 		t.Fatalf("disclosure %d %s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hubs/enable-disclosure", nil))
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "future updates") || !strings.Contains(response.Body.String(), "prompts, commands and source snippets") {
+		t.Fatalf("enable disclosure %d %s", response.Code, response.Body.String())
 	}
 }
 
@@ -331,8 +355,12 @@ func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
 	defer server.Close()
 	writeTestRuntime(t, server.URL, "secret")
 	var out, errOut bytes.Buffer
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "prompts, commands and source snippets") {
+	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "does not authorize") {
 		t.Fatalf("disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	if code := runCLI(&out, &errOut, []string{"secondary-pair", "enable", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "future updates") {
+		t.Fatalf("enable disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
 	}
 	out.Reset()
 	if code := runCLI(&out, &errOut, []string{"secondary-pair", "https://secondary.example", "--consent"}); code != 0 || calls.Load() != 1 || !strings.Contains(out.String(), `"id":"attempt"`) {

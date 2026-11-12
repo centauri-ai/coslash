@@ -14,12 +14,13 @@ import (
 	"sync"
 )
 
-const hubRegistryVersion = 1
+const hubRegistryVersion = 2
 
 type hubConnection struct {
 	Origin       string `json:"origin"`
 	Enabled      bool   `json:"enabled"`
 	LegacyOrigin string `json:"legacyOrigin,omitempty"`
+	SyncConsent  bool   `json:"syncConsent,omitempty"`
 }
 
 type hubRegistryState struct {
@@ -35,6 +36,7 @@ type hubRegistryWire struct {
 		Origin       *string `json:"origin"`
 		Enabled      *bool   `json:"enabled"`
 		LegacyOrigin string  `json:"legacyOrigin,omitempty"`
+		SyncConsent  *bool   `json:"syncConsent,omitempty"`
 	} `json:"connections"`
 }
 
@@ -173,12 +175,20 @@ func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, e
 	if wire.Version == nil || wire.Primary == nil || wire.Connections == nil {
 		return nil, errors.New("invalid Hub connection registry")
 	}
-	r.state = hubRegistryState{Version: *wire.Version, Primary: *wire.Primary}
+	if *wire.Version != 1 && *wire.Version != hubRegistryVersion {
+		return nil, errors.New("invalid Hub connection registry")
+	}
+	r.state = hubRegistryState{Version: hubRegistryVersion, Primary: *wire.Primary}
 	for _, c := range wire.Connections {
-		if c.Origin == nil || c.Enabled == nil {
+		if c.Origin == nil || c.Enabled == nil || (*wire.Version == 1 && c.SyncConsent != nil) {
 			return nil, errors.New("invalid Hub connection registry")
 		}
-		r.state.Connections = append(r.state.Connections, hubConnection{Origin: *c.Origin, Enabled: *c.Enabled, LegacyOrigin: c.LegacyOrigin})
+		consent := c.SyncConsent != nil && *c.SyncConsent
+		enabled := *c.Enabled
+		if *c.Origin != *wire.Primary && !consent {
+			enabled = false
+		}
+		r.state.Connections = append(r.state.Connections, hubConnection{Origin: *c.Origin, Enabled: enabled, LegacyOrigin: c.LegacyOrigin, SyncConsent: consent})
 	}
 	if err := validateHubRegistry(r.state); err != nil {
 		return nil, err
@@ -348,6 +358,9 @@ func (r *hubRegistry) setEnabled(raw string, enabled bool) error {
 		for i := range state.Connections {
 			if state.Connections[i].Origin == origin {
 				state.Connections[i].Enabled = enabled
+				if origin != state.Primary {
+					state.Connections[i].SyncConsent = enabled
+				}
 				return state, nil
 			}
 		}

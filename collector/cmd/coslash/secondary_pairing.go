@@ -15,9 +15,29 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 )
 
-const secondaryDisclosure = "Adding this Hub allows eligible personal session records, including prompts, commands and source snippets, to sync automatically to this destination under its policy and Local privacy settings. Workspace sharing requires separate consent. Secondary sync is not active in this version."
+const secondaryDisclosure = "Pairing this Hub stores a device credential but does not authorize or start personal sync. Enabling sync requires separate consent. Workspace sharing requires separate consent."
+const secondaryEnableDisclosure = "Enabling this Hub authorizes automatic upload of eligible personal session records, including prompts, commands and source snippets, to this destination under its policy and Local privacy settings. Sync is not active in this version; this consent persists across restarts and future updates that activate enabled connections. Workspace sharing requires separate consent."
 
 func runSecondaryPairCLI(out io.Writer, args []string) error {
+	if len(args) == 2 && args[0] == "enable" {
+		fmt.Fprintln(out, secondaryEnableDisclosure)
+		fmt.Fprintf(out, "To enable %s, repeat with --consent.\n", args[1])
+		return nil
+	}
+	if len(args) == 3 && args[0] == "enable" && args[2] == "--consent" {
+		fmt.Fprintln(out, secondaryEnableDisclosure)
+		client, err := newLocalAPIClient()
+		if err != nil {
+			return err
+		}
+		data, _ := json.Marshal(map[string]any{"origin": args[1], "consent": true})
+		response, err := client.request(http.MethodPost, "/api/hubs/enable", bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, string(response))
+		return err
+	}
 	if len(args) == 1 {
 		fmt.Fprintln(out, secondaryDisclosure)
 		fmt.Fprintf(out, "To consent for %s, repeat with --consent.\n", args[0])
@@ -237,32 +257,84 @@ func (m *secondaryPairings) poll(ctx context.Context, id string) (string, error)
 		if err = m.workers.registry.addSecondary(attempt.origin); err != nil {
 			return "failed", nil
 		}
-		if ctx.Err() != nil || !time.Now().Before(attempt.pairing.ExpiresAt) {
-			return "expired", nil
-		}
-		if err = m.workers.registry.edit(func(state hubRegistryState) (hubRegistryState, error) {
-			if ctx.Err() != nil || !time.Now().Before(attempt.pairing.ExpiresAt) {
-				return state, errors.New("pairing expired")
-			}
-			for i := range state.Connections {
-				if state.Connections[i].Origin == attempt.origin {
-					state.Connections[i].Enabled = true
-					return state, nil
-				}
-			}
-			return state, errors.New("unknown Hub")
-		}); err != nil {
-			return "failed", nil
-		}
-		return "paired", nil
+		return "paired_disabled", nil
 	default:
 		return result.State, nil
 	}
 }
 
+// enable is serialized with the worker lifecycle. It is restricted to the
+// primary-only runtime until production can start the worker as part of enable.
+func (m *secondaryPairings) enable(ctx context.Context, raw string, consent bool) error {
+	if !consent {
+		return errors.New("explicit sync consent required")
+	}
+	origin, err := canonicalRegistryOrigin(raw)
+	if err != nil || !m.workers.primaryOnly {
+		return errors.New("secondary enable unavailable")
+	}
+	slot := m.workers.slot(origin)
+	return slot.execute(func() error {
+		state := m.workers.registry.snapshot()
+		found := false
+		for _, c := range state.Connections {
+			if c.Origin == origin && origin != state.Primary {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return errors.New("secondary Hub is not paired")
+		}
+		client, err := m.workers.client(hubConnection{Origin: origin}, false)
+		if err != nil || client == nil || client.BaseURL == nil || client.BaseURL.String() != origin || client.Credentials == nil {
+			return errors.New("secondary credential unavailable")
+		}
+		credential, err := client.Credentials.Load(ctx)
+		if err != nil || credential == "" {
+			return errors.New("secondary credential unavailable")
+		}
+		return m.workers.registry.edit(func(state hubRegistryState) (hubRegistryState, error) {
+			if err := ctx.Err(); err != nil {
+				return state, err
+			}
+			for i := range state.Connections {
+				if state.Connections[i].Origin == origin && origin != state.Primary {
+					state.Connections[i].Enabled = true
+					state.Connections[i].SyncConsent = true
+					return state, nil
+				}
+			}
+			return state, errors.New("secondary Hub is not paired")
+		})
+	})
+}
+
 func registerSecondaryPairingRoutes(api *http.ServeMux, pairings *secondaryPairings) {
 	api.HandleFunc("GET /api/hubs/pairing-disclosure", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]string{"disclosure": secondaryDisclosure})
+	})
+	api.HandleFunc("GET /api/hubs/enable-disclosure", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]string{"disclosure": secondaryEnableDisclosure})
+	})
+	api.HandleFunc("POST /api/hubs/enable", func(w http.ResponseWriter, r *http.Request) {
+		if pairings == nil {
+			http.Error(w, "secondary enable unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			Origin  string `json:"origin"`
+			Consent bool   `json:"consent"`
+		}
+		if decodeHubJSON(r.Body, &input) != nil {
+			http.Error(w, "invalid enable request", http.StatusBadRequest)
+			return
+		}
+		if err := pairings.enable(r.Context(), input.Origin, input.Consent); err != nil {
+			http.Error(w, "secondary Hub could not be enabled", http.StatusConflict)
+			return
+		}
+		writeJSON(w, map[string]string{"state": "enabled_pending_activation"})
 	})
 	api.HandleFunc("POST /api/hubs/pairings", func(w http.ResponseWriter, r *http.Request) {
 		if pairings == nil {

@@ -258,7 +258,7 @@ var cliCommandHelp = []struct {
 }{
 	{"service", "install login and URL handlers on macOS", "coslash service install"},
 	{"connect", "pair this Local with Hub", "coslash connect <code> --hub <origin> [--json]"},
-	{"secondary-pair", "consent to add another Hub", "coslash secondary-pair <origin> [--consent] | coslash secondary-pair poll <attempt-id>"},
+	{"secondary-pair", "pair and enable another Hub", "coslash secondary-pair <origin> [--consent] | coslash secondary-pair poll <attempt-id> | coslash secondary-pair enable <origin> [--consent]"},
 	{"sessions", "list local sessions as JSON", sessionsUsage()},
 	{"handoff", "print a session handoff", "coslash handoff <agent>:<session>"},
 	{"send", "start an agent with a session handoff", sendUsage()},
@@ -290,8 +290,9 @@ func printCLIHelp(w io.Writer) {
 
 func printCommandHelp(w io.Writer, name string) bool {
 	if name == "secondary-pair" {
-		fmt.Fprintln(w, "usage: coslash secondary-pair <origin> [--consent] | coslash secondary-pair poll <attempt-id>")
+		fmt.Fprintln(w, "usage: coslash secondary-pair <origin> [--consent] | coslash secondary-pair poll <attempt-id> | coslash secondary-pair enable <origin> [--consent]")
 		fmt.Fprintln(w, secondaryDisclosure)
+		fmt.Fprintln(w, secondaryEnableDisclosure)
 		return true
 	}
 	if name == "status" {
