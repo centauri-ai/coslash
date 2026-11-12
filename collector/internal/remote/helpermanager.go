@@ -207,9 +207,7 @@ func (manager *Manager) startHelperDiscoveryLocked() {
 	manager.helper = &status
 	config := *manager.cfg
 	autoUpdate := manager.helperVersion != "" && !manager.helperOwnershipCorrupt
-	if autoUpdate {
-		manager.helperAutoSetup = true
-	}
+	manager.helperAutoSetup = autoUpdate
 	manager.helperDiscoveryRun++
 	go manager.runHelperDiscovery(manager.lifeCtx, config, autoUpdate, manager.helperDiscoveryRun)
 }
