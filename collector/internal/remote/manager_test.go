@@ -565,6 +565,63 @@ func TestStaleHelperDiscoveryKeepsNewerAutoSetup(t *testing.T) {
 	})
 }
 
+func TestHelperVersionStoreFailureFallsBack(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	remote, _, content := lifecycleFixture(t)
+	root := filepath.Join(home, "remote-cache")
+	manager := NewManager(Options{
+		Cache: NewCache(root), Now: time.Now,
+		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "remotes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "remotes"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager.setupHelper(context.Background(), "", Consent{Install: true})
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.helperProbe != helperProbeFallback || manager.helperTarget != nil {
+		t.Fatalf("store failure probe=%q target=%#v", manager.helperProbe, manager.helperTarget)
+	}
+}
+
+func TestUninstallHelperFallsBack(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	remote, _, content := lifecycleFixture(t)
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")), Now: time.Now,
+		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+	if err := manager.UninstallHelper(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.helperProbe != helperProbeFallback || manager.helperTarget != nil {
+		t.Fatalf("uninstall probe=%q target=%#v", manager.helperProbe, manager.helperTarget)
+	}
+}
+
 func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)

@@ -416,6 +416,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
 			manager.helper = &status
 			manager.helperTarget = nil
+			manager.helperProbe = helperProbeFallback
 			health := manager.healthLocked(manager.lastRequestedMs)
 			manager.mu.Unlock()
 			LogSSHFailure("ssh.install", err)
@@ -524,6 +525,7 @@ func (manager *Manager) UninstallHelper(ctx context.Context) error {
 		manager.helperVersion = ""
 		status := HelperStatus{State: LifecycleSFTP, Fallback: true, Reason: reasonPtr(ReasonHelperMissing)}
 		manager.helper = &status
+		manager.helperProbe = helperProbeFallback
 	}
 	return nil
 }
