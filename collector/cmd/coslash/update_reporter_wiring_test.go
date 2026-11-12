@@ -348,34 +348,38 @@ func TestRevokedCleanupOutlivesAnOrdinaryDeadlineButNotTheFlushBound(t *testing.
 	}
 }
 
-// main.go has no behavior a unit test can reach, so this pins its one reporter
-// call: the loop must run inside runWithUpdateReporter, and the reporter must not
-// be started on its own without being waited for or pinned to its binding.
+// Production loops must enter the shared worker, whose primary path owns the
+// binding-pinned reporter and waits for it before shutdown completes.
 func TestMainRunsTheSyncLoopThroughTheUpdateReporterWiring(t *testing.T) {
-	file, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	calls := map[string]int{}
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
+	for _, wiring := range []struct{ file, entry string }{
+		{"main.go", "runWorker"},
+		{"hub_workers.go", "runWithUpdateReporter"},
+	} {
+		file, err := parser.ParseFile(token.NewFileSet(), wiring.file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls := map[string]int{}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch fn := call.Fun.(type) {
+			case *ast.Ident:
+				calls[fn.Name]++
+			case *ast.SelectorExpr:
+				calls[fn.Sel.Name]++
+			}
 			return true
+		})
+		if calls[wiring.entry] != 1 {
+			t.Fatalf("%s calls %s %d times, want 1", wiring.file, wiring.entry, calls[wiring.entry])
 		}
-		switch fn := call.Fun.(type) {
-		case *ast.Ident:
-			calls[fn.Name]++
-		case *ast.SelectorExpr:
-			calls[fn.Sel.Name]++
-		}
-		return true
-	})
-	if calls["runWithUpdateReporter"] != 1 {
-		t.Fatalf("main.go calls runWithUpdateReporter %d times, want 1", calls["runWithUpdateReporter"])
-	}
-	for _, name := range []string{"runUpdateReporter", "updateReporter"} {
-		if calls[name] != 0 {
-			t.Fatalf("main.go calls %s itself; it must go through runWithUpdateReporter", name)
+		for _, name := range []string{"runUpdateReporter", "updateReporter"} {
+			if calls[name] != 0 {
+				t.Fatalf("%s calls %s itself; it must go through runWithUpdateReporter", wiring.file, name)
+			}
 		}
 	}
 }

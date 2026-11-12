@@ -78,17 +78,8 @@ func newPrimaryHubRuntime(client *hubclient.Client, controller *syncController, 
 	}
 	state := r.snapshot()
 	if state.Primary != "" {
-		var primary hubConnection
-		for _, c := range state.Connections {
-			if c.Origin == state.Primary {
-				primary = c
-				break
-			}
-		}
-		expected := primary.Origin
-		if primary.LegacyOrigin != "" {
-			expected = primary.LegacyOrigin
-		}
+		primary, _ := state.connection(state.Primary)
+		expected := primary.clientOrigin()
 		if client != nil {
 			if client.BaseURL == nil {
 				return nil, nil, errPrimaryHubMismatch
@@ -196,20 +187,11 @@ func (s *primaryPairingCredential) DeleteIfMatches(ctx context.Context, credenti
 func (p *primaryHubRuntime) checkPrimaryTarget(origin string) error {
 	state := p.registry.snapshot()
 	if state.Primary != "" {
-		for _, connection := range state.Connections {
-			if connection.Origin != state.Primary {
-				continue
-			}
-			expected := connection.Origin
-			if connection.LegacyOrigin != "" {
-				expected = connection.LegacyOrigin
-			}
-			if origin != expected {
-				return errPrimaryHubMismatch
-			}
-			return nil
+		primary, ok := state.connection(state.Primary)
+		if !ok || origin != primary.clientOrigin() {
+			return errPrimaryHubMismatch
 		}
-		return errPrimaryHubMismatch
+		return nil
 	}
 	if p.controller.Queue() != nil {
 		binding, _ := p.controller.Queue().DiscoveryCursor()
@@ -235,51 +217,34 @@ func (p *primaryHubRuntime) adopt(origin string) error {
 // supervisor slot once pairing has been verified and committed.
 func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 	state := p.registry.snapshot()
-	if client == nil || client.BaseURL == nil || client.Credentials == nil {
-		if state.Primary == "" {
-			return p.controller.Ensure(client)
-		}
-		slot := p.workers.slot(state.Primary)
-		return slot.execute(func() error { return p.controller.ensure(context.Background(), client) })
-	}
-	if state.Primary != "" {
-		for _, c := range state.Connections {
-			if c.Origin != state.Primary {
-				continue
-			}
-			expected := c.Origin
-			if c.LegacyOrigin != "" {
-				expected = c.LegacyOrigin
-			}
-			if client.BaseURL.String() != expected {
-				return errPrimaryHubMismatch
-			}
+	validClient := client != nil && client.BaseURL != nil && client.Credentials != nil
+	if validClient && state.Primary != "" {
+		if err := p.checkPrimaryTarget(client.BaseURL.String()); err != nil {
+			return err
 		}
 	}
-	if !hubclient.V4SyncEnabled() {
-		if state.Primary == "" {
-			return p.controller.Ensure(client)
-		}
-		slot := p.workers.slot(state.Primary)
-		return slot.execute(func() error { return p.controller.ensure(context.Background(), client) })
-	}
-	paired, err := verifyPrimaryBinding(client, p.controller)
-	if err != nil {
-		if errors.Is(err, errPrimaryHubMismatch) {
-			if state.Primary != "" {
-				_ = p.workers.Stop(state.Primary)
-			} else {
-				p.controller.Stop()
+	paired := false
+	if validClient && hubclient.V4SyncEnabled() {
+		var err error
+		paired, err = verifyPrimaryBinding(client, p.controller)
+		if err != nil {
+			if errors.Is(err, errPrimaryHubMismatch) {
+				if state.Primary != "" {
+					_ = p.workers.Stop(state.Primary)
+				} else {
+					p.controller.Stop()
+				}
 			}
+			return err
 		}
-		return err
 	}
 	if !paired {
 		if state.Primary == "" {
 			return p.controller.Ensure(client)
 		}
-		slot := p.workers.slot(state.Primary)
-		return slot.execute(func() error { return p.controller.ensure(context.Background(), client) })
+		return p.workers.slot(state.Primary).execute(func() error {
+			return p.controller.ensure(context.Background(), client)
+		})
 	}
 	origin, err := canonicalRegistryOrigin(client.BaseURL.String())
 	if err != nil {
@@ -294,26 +259,13 @@ func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 	if state.Primary != origin {
 		return errPrimaryHubMismatch
 	}
-	for _, c := range state.Connections {
-		if c.Origin != origin {
-			continue
-		}
-		expected := c.Origin
-		if c.LegacyOrigin != "" {
-			expected = c.LegacyOrigin
-		}
-		if client.BaseURL.String() != expected {
-			return errPrimaryHubMismatch
-		}
-		if !c.Enabled {
-			return errors.New("primary Hub is disabled")
-		}
-		if err := p.adopt(origin); err != nil {
-			return err
-		}
-		return p.workers.StartEnabled(origin)
+	if err := p.checkPrimaryTarget(client.BaseURL.String()); err != nil {
+		return err
 	}
-	return errPrimaryHubMismatch
+	if err := p.adopt(origin); err != nil {
+		return err
+	}
+	return p.workers.StartEnabled(origin)
 }
 
 func (p *primaryHubRuntime) RequestPass(reason string) { p.controller.RequestPass(reason) }

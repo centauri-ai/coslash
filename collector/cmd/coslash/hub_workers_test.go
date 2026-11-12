@@ -25,6 +25,21 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
+func requireHubTestOK(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func workerTestRegistry(t *testing.T, home, primary string) *hubRegistry {
+	t.Helper()
+	r, err := openHubRegistry(home, "", nil)
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, r.addPrimary(primary))
+	return r
+}
+
 type workerTestHub struct {
 	server             *httptest.Server
 	credential         string
@@ -280,46 +295,26 @@ func seedWorkerQueue(t *testing.T, root, spool string, client *hubclient.Client,
 	t.Helper()
 	fixture := filepath.Join("..", "..", "sessionbackup", "v1", "testdata", "fixtures", "valid", "family")
 	data, err := os.ReadFile(filepath.Join(fixture, "manifest.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	var manifest struct {
 		ID string `json:"completeBackupSha256"`
 	}
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.CopyFS(filepath.Join(spool, manifest.ID), os.DirFS(fixture)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, json.Unmarshal(data, &manifest))
+	requireHubTestOK(t, os.CopyFS(filepath.Join(spool, manifest.ID), os.DirFS(fixture)))
 	backup := sessionbackupproducer.New(sessionbackupproducer.Options{Root: spool})
 	defer backup.Close()
 	prepared, err := backup.Open(manifest.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	q, err := syncv4.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	binding, err := client.V4Binding(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := q.Rebind(binding); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, q.Rebind(binding))
 	encoded, err := json.Marshal(cursor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := q.SaveDiscoveryCursor(binding, encoded); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, q.SaveDiscoveryCursor(binding, encoded))
 	entry := syncv4.Entry{Key: "synthetic-key", Selection: prepared.Selection, Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: "synthetic-key", Agent: "codex", Title: "Synthetic"}, Activity: now.UnixMilli(), BundleID: manifest.ID}
-	if err := q.Merge([]syncv4.Entry{entry}, now); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, q.Merge([]syncv4.Entry{entry}, now))
 	return q.InstallID(), manifest.ID
 }
 
@@ -340,16 +335,8 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 	var releaseUploads sync.Once
 	release := func() { releaseUploads.Do(func() { close(uploadGate) }) }
 	defer release()
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.addPrimary(primary.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.addSecondary(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, primary.server.URL)
+	requireHubTestOK(t, registry.addSecondary(secondary.server.URL))
 	var paused atomic.Bool
 	var sharedEffects atomic.Int32
 	paused.Store(true)
@@ -373,9 +360,7 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 	s, err := newHubWorkerSupervisor(registry, "1.2.3", pause, sessionbackupproducer.Options{}, func() *syncv4.Runner {
 		return &syncv4.Runner{Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }, Conditions: func(context.Context) (bool, int, error) { return false, -1, nil }, Now: func() time.Time { return now }, Command: func(context.Context, hubclient.V4Command) error { sharedEffects.Add(1); return nil }, ReconcileSSHHosts: func([]hubclient.V4SSHHost) error { sharedEffects.Add(1); return nil }}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	s.poll = func(context.Context, *syncLoopControl) {}
 	credentials := map[string]*workerTestCredentials{
 		primary.server.URL:   {syncTestCredentials: &syncTestCredentials{value: primary.credential}, revoked: make(chan struct{}, 1)},
@@ -392,9 +377,7 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 	if err := s.StartEnabled(secondary.server.URL); err == nil {
 		t.Fatal("disabled secondary started")
 	}
-	if err := registry.setEnabled(secondary.server.URL, true); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, registry.setEnabled(secondary.server.URL, true))
 	primaryClient, _ := s.client(hubConnection{Origin: primary.server.URL}, true)
 	secondaryClient, _ := s.client(hubConnection{Origin: secondary.server.URL}, false)
 	secondaryRoot := filepath.Join(home, "hub-connections", fmt.Sprintf("%x", sha256.Sum256([]byte(secondary.server.URL))))
@@ -403,22 +386,14 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 	if idA == idB || bundleA != bundleB {
 		t.Fatal("incorrect fixture identities")
 	}
-	if err := s.StartEnabled(primary.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.StartEnabled(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.StartEnabled(primary.server.URL))
+	requireHubTestOK(t, s.StartEnabled(secondary.server.URL))
 	t.Cleanup(func() { _ = s.Stop(primary.server.URL); _ = s.Stop(secondary.server.URL) })
 	waitSignal(t, pauseReached)
 	waitSignal(t, pauseReached)
 	unblockPause()
-	if err := s.Stop(primary.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Stop(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.Stop(primary.server.URL))
+	requireHubTestOK(t, s.Stop(secondary.server.URL))
 	for _, hub := range []*workerTestHub{primary, secondary} {
 		hub.mu.Lock()
 		if hub.creates != 0 {
@@ -427,12 +402,8 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 		hub.mu.Unlock()
 	}
 	paused.Store(false)
-	if err := s.StartEnabled(primary.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.StartEnabled(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.StartEnabled(primary.server.URL))
+	requireHubTestOK(t, s.StartEnabled(secondary.server.URL))
 	waitSignal(t, uploadStarted)
 	waitSignal(t, uploadStarted)
 	release()
@@ -471,16 +442,10 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("secondary command results not acknowledged")
 	}
-	if err := s.Stop(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.Stop(secondary.server.URL))
 	secondarySlot := s.slot(secondary.server.URL)
-	if err := secondarySlot.execute(func() error { secondarySlot.controller = nil; return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.StartEnabled(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, secondarySlot.execute(func() error { secondarySlot.controller = nil; return nil }))
+	requireHubTestOK(t, s.StartEnabled(secondary.server.URL))
 	drainWorkerSignals(secondary.checkins)
 	if !s.Retry(secondary.server.URL) {
 		t.Fatal("secondary retry unavailable after restart")
@@ -509,11 +474,19 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 		t.Fatal("secondary recovery unavailable")
 	}
 	waitSignal(t, secondary.checkins)
+	secondaryController := s.slot(secondary.server.URL).controller
+	secondaryController.mu.RLock()
+	secondaryDone := secondaryController.done
+	secondaryController.mu.RUnlock()
 	secondary.mode.Store(2)
 	if !s.Retry(secondary.server.URL) {
 		t.Fatal("secondary revocation retry unavailable")
 	}
 	waitSignal(t, credentials[secondary.server.URL].revoked)
+	waitSignal(t, secondaryDone)
+	if s.Retry(secondary.server.URL) {
+		t.Fatal("revoked secondary worker remained active")
+	}
 	if credentials[primary.server.URL].deletedCount() != 0 {
 		t.Fatal("revocation deleted primary credential")
 	}
@@ -522,23 +495,17 @@ func TestHubWorkerSupervisorTwoHubs(t *testing.T) {
 		t.Fatal("primary stopped after secondary revocation")
 	}
 	waitSignal(t, primary.checkins)
-	if err := s.Disable(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.Disable(secondary.server.URL))
 	if err := s.StartEnabled(secondary.server.URL); err == nil {
 		t.Fatal("disabled secondary restarted")
 	}
 	sentinel := strings.Repeat("a", 64)
 	for _, root := range []string{filepath.Join(home, "session-backups", "prepared"), filepath.Join(secondaryRoot, "prepared")} {
-		if err := os.MkdirAll(filepath.Join(root, sentinel), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		requireHubTestOK(t, os.MkdirAll(filepath.Join(root, sentinel), 0o700))
 	}
 	secondaryBackup := sessionbackupproducer.New(sessionbackupproducer.Options{Root: filepath.Join(secondaryRoot, "prepared")})
 	defer secondaryBackup.Close()
-	if err := secondaryBackup.Discard(sentinel); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, secondaryBackup.Discard(sentinel))
 	if _, err := os.Stat(filepath.Join(home, "session-backups", "prepared", sentinel)); err != nil {
 		t.Fatalf("primary spool removed: %v", err)
 	}
@@ -566,46 +533,26 @@ func TestHubWorkerSupervisorStopsStaleBindingWithoutRebindingQueue(t *testing.T)
 	}))
 	t.Cleanup(server.Close)
 	t.Cleanup(func() { close(release) })
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.addPrimary(server.URL); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, server.URL)
 	credentials := &syncTestCredentials{value: "old"}
 	base, _ := url.Parse(server.URL)
 	client := &hubclient.Client{BaseURL: base, HTTP: server.Client(), Credentials: credentials, CollectorVersion: "1.2.3"}
 	q, err := syncv4.Open(filepath.Join(home, "sync-v4"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	binding, err := client.V4Binding(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := q.Rebind(binding); err != nil {
-		t.Fatal(err)
-	}
-	if err := q.Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1}}, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, q.Rebind(binding))
+	requireHubTestOK(t, q.Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1}}, time.Unix(1, 0)))
 	s, err := newHubWorkerSupervisor(registry, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner {
 		return &syncv4.Runner{Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	s.poll = func(context.Context, *syncLoopControl) {}
 	s.client = func(hubConnection, bool) (*hubclient.Client, error) { return client, nil }
-	if err := s.StartEnabled(server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.StartEnabled(server.URL))
 	t.Cleanup(func() { _ = s.Stop(server.URL) })
 	waitSignal(t, checkin)
-	if err := credentials.Save(context.Background(), "replacement"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, credentials.Save(context.Background(), "replacement"))
 	if err := s.StartEnabled(server.URL); err == nil {
 		t.Fatal("replaced credential silently rebound the old queue")
 	}
@@ -616,9 +563,7 @@ func TestHubWorkerSupervisorStopsStaleBindingWithoutRebindingQueue(t *testing.T)
 		t.Fatal("stale worker remained active")
 	}
 	reopened, err := syncv4.Open(filepath.Join(home, "sync-v4"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	stored, _ := reopened.DiscoveryCursor()
 	if stored != binding || len(reopened.Entries()) != 1 || reopened.Entries()[0].Key != "pending" {
 		t.Fatal("pending primary work was changed")
@@ -632,25 +577,13 @@ func TestHubWorkerSupervisorSlowStartDoesNotBlockAnotherHub(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
 	primary, secondary := newWorkerTestHub(t, "first"), newWorkerTestHub(t, "second")
-	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.addPrimary(primary.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.addSecondary(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.setEnabled(secondary.server.URL, true); err != nil {
-		t.Fatal(err)
-	}
+	r := workerTestRegistry(t, home, primary.server.URL)
+	requireHubTestOK(t, r.addSecondary(secondary.server.URL))
+	requireHubTestOK(t, r.setEnabled(secondary.server.URL, true))
 	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner {
 		return &syncv4.Runner{Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	s.poll = func(context.Context, *syncLoopControl) {}
 	started, release, primaryDone := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	var releaseOnce sync.Once
@@ -672,35 +605,23 @@ func TestHubWorkerSupervisorSlowStartDoesNotBlockAnotherHub(t *testing.T) {
 	waitSignal(t, started)
 	defer s.StopAll()
 	defer releaseStart()
-	if err := s.StartEnabled(secondary.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.StartEnabled(secondary.server.URL))
 	waitSignal(t, secondary.checkins)
 	releaseStart()
-	if err := <-primaryDone; err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, <-primaryDone)
 }
 
 func TestHubWorkerSecondaryCredentialsAreOriginScoped(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	first, err := s.clientForConnection(hubConnection{Origin: "https://hub.example"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	second, err := s.clientForConnection(hubConnection{Origin: "https://hub.example:8443"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if runtime.GOOS == "linux" {
 		a, okA := first.Credentials.(hubclient.FileCredentialStore)
 		b, okB := second.Credentials.(hubclient.FileCredentialStore)
@@ -719,23 +640,11 @@ func TestHubWorkerSecondaryCredentialsAreOriginScoped(t *testing.T) {
 func TestHubWorkerRejectsWrongOriginClient(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
-	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.addSecondary("https://secondary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.setEnabled("https://secondary.example", true); err != nil {
-		t.Fatal(err)
-	}
+	r := workerTestRegistry(t, home, "https://primary.example")
+	requireHubTestOK(t, r.addSecondary("https://secondary.example"))
+	requireHubTestOK(t, r.setEnabled("https://secondary.example", true))
 	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	s.client = func(hubConnection, bool) (*hubclient.Client, error) {
 		base, _ := url.Parse("https://primary.example")
 		return &hubclient.Client{BaseURL: base, Credentials: &syncTestCredentials{value: "primary"}}, nil
@@ -753,17 +662,9 @@ func TestHubWorkerStopCancelsPendingCredentialLoad(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
-	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.addPrimary("https://hub.example"); err != nil {
-		t.Fatal(err)
-	}
+	r := workerTestRegistry(t, home, "https://hub.example")
 	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	started := make(chan struct{})
 	s.client = func(connection hubConnection, _ bool) (*hubclient.Client, error) {
 		base, _ := url.Parse(connection.Origin)
@@ -772,9 +673,7 @@ func TestHubWorkerStopCancelsPendingCredentialLoad(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.StartEnabled("https://hub.example") }()
 	waitSignal(t, started)
-	if err := s.Stop("https://hub.example"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, s.Stop("https://hub.example"))
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("pending start error = %v", err)
 	}
@@ -790,19 +689,9 @@ func TestHubWorkerDisableCancelsStartAfterEnabledCheck(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
 	hub := newWorkerTestHub(t, "secondary")
-	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.addSecondary(hub.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.setEnabled(hub.server.URL, true); err != nil {
-		t.Fatal(err)
-	}
+	r := workerTestRegistry(t, home, "https://primary.example")
+	requireHubTestOK(t, r.addSecondary(hub.server.URL))
+	requireHubTestOK(t, r.setEnabled(hub.server.URL, true))
 	store := &racingWorkerCredentials{syncTestCredentials: &syncTestCredentials{value: hub.credential}, entered: make(chan struct{}), canceled: make(chan struct{}), release: make(chan struct{})}
 	base, _ := url.Parse(hub.server.URL)
 	seedClient := &hubclient.Client{BaseURL: base, HTTP: hub.server.Client(), Credentials: store.syncTestCredentials, CollectorVersion: "1.2.3"}
@@ -811,9 +700,7 @@ func TestHubWorkerDisableCancelsStartAfterEnabledCheck(t *testing.T) {
 	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner {
 		return &syncv4.Runner{Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	s.poll = func(context.Context, *syncLoopControl) {}
 	s.client = func(hubConnection, bool) (*hubclient.Client, error) {
 		return &hubclient.Client{BaseURL: base, HTTP: hub.server.Client(), Credentials: store, CollectorVersion: "1.2.3"}, nil
@@ -827,9 +714,7 @@ func TestHubWorkerDisableCancelsStartAfterEnabledCheck(t *testing.T) {
 	if err := <-startDone; !errors.Is(err, context.Canceled) {
 		t.Fatalf("stale start error = %v", err)
 	}
-	if err := <-disableDone; err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, <-disableDone)
 	if s.Retry(hub.server.URL) {
 		t.Fatal("disabled worker was running")
 	}
@@ -842,9 +727,7 @@ func TestHubWorkerDisableCancelsStartAfterEnabledCheck(t *testing.T) {
 	default:
 	}
 	q, err := syncv4.Open(filepath.Join(root, "sync-v4"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if q.InstallID() != id || len(q.Entries()) != 1 || q.Entries()[0].BundleID != bundle {
 		t.Fatal("pending work changed during disable")
 	}
@@ -859,20 +742,10 @@ func TestSecondaryEnableCancelledByDisable(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addSecondary("https://secondary.example"); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, "https://primary.example")
+	requireHubTestOK(t, registry.addSecondary("https://secondary.example"))
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	defer workers.StopAll()
 	entered := make(chan struct{})
 	workers.client = func(c hubConnection, _ bool) (*hubclient.Client, error) {
@@ -883,9 +756,7 @@ func TestSecondaryEnableCancelledByDisable(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- pairings.enable(context.Background(), "https://secondary.example", true) }()
 	waitSignal(t, entered)
-	if err := workers.Disable("https://secondary.example"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, workers.Disable("https://secondary.example"))
 	select {
 	case err := <-done:
 		if err == nil {
@@ -920,20 +791,10 @@ func TestSecondaryEnableReportsStartFailure(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addSecondary("https://secondary.example"); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, "https://primary.example")
+	requireHubTestOK(t, registry.addSecondary("https://secondary.example"))
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	defer workers.StopAll()
 	store := &failSecondCredentialLoad{}
 	workers.client = func(c hubConnection, _ bool) (*hubclient.Client, error) {
@@ -955,17 +816,9 @@ func TestSecondaryControlsDoNotCancelPrimaryStart(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, "https://primary.example")
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	defer workers.StopAll()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -999,26 +852,14 @@ func TestSecondaryDisableWaitsForInventory(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, "https://primary.example")
 	hub := newWorkerTestHub(t, "secondary-secret")
-	if err = registry.addSecondary(hub.server.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.setEnabled(hub.server.URL, true); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, registry.addSecondary(hub.server.URL))
+	requireHubTestOK(t, registry.setEnabled(hub.server.URL, true))
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner {
 		return &syncv4.Runner{Discover: func(context.Context) ([]*session.Session, error) { return nil, nil }}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	store := &syncTestCredentials{value: hub.credential}
 	workers.client = func(c hubConnection, _ bool) (*hubclient.Client, error) {
 		base, _ := url.Parse(c.Origin)
@@ -1034,9 +875,7 @@ func TestSecondaryDisableWaitsForInventory(t *testing.T) {
 		go func() { defer close(done); close(entered); <-ctx.Done(); close(cancelled); <-release }()
 		return nil, func() { <-done }
 	}
-	if err := workers.StartEnabled(hub.server.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, workers.StartEnabled(hub.server.URL))
 	waitSignal(t, entered)
 	disabled := make(chan error, 1)
 	go func() { disabled <- workers.Disable(hub.server.URL) }()
@@ -1049,9 +888,7 @@ func TestSecondaryDisableWaitsForInventory(t *testing.T) {
 	unblock()
 	select {
 	case err := <-disabled:
-		if err != nil {
-			t.Fatal(err)
-		}
+		requireHubTestOK(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("disable did not complete")
 	}
@@ -1062,28 +899,14 @@ func TestHubWorkerStatusIncludesContactFailure(t *testing.T) {
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addSecondary("https://secondary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.setEnabled("https://secondary.example", true); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, "https://primary.example")
+	requireHubTestOK(t, registry.addSecondary("https://secondary.example"))
+	requireHubTestOK(t, registry.setEnabled("https://secondary.example", true))
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	defer workers.StopAll()
 	queue, err := syncv4.Open(filepath.Join(home, "test-queue"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if _, err = queue.RecordHubContact(time.Now(), hubclient.V4Problem{Code: "server_error", HTTPStatus: http.StatusServiceUnavailable}); err != nil {
 		t.Fatal(err)
 	}

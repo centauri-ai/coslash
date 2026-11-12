@@ -308,57 +308,20 @@ func main() {
 			log.Printf("could not open coSlash Local (%v); %s", err, startupAccessInstructions())
 		}
 	}
-	inventoryTracker := &inventory.Tracker{}
 	runtimeReadySignal := make(chan struct{})
 	var controller *syncController
+	var hubWorkers *hubWorkerSupervisor
 	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retryWake chan struct{}) {
 		select {
 		case <-syncContext.Done():
 			return
 		case <-runtimeReadySignal:
 		}
-		controller.mu.RLock()
-		binding := controller.binding
-		controller.mu.RUnlock()
-		pinned := bindingPinnedClient(client, binding)
-		var inventoryRequest chan struct{}
-		if fingerprints != nil {
-			inventoryRequest = make(chan struct{}, 1)
-			go runInventoryWithRequests(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
-				if pinned.Credentials == nil {
-					return false
-				}
-				credential, err := pinned.Credentials.Load(ctx)
-				return err == nil && credential != ""
-			}, inventoryRequest)
-		}
-		syncHub := currentHubTransport{current: func() *hubclient.Client { return pinned }, queue: queue}
-		runner := &syncv4.Runner{
-			Version: collectorVersion,
-			Queue:   queue, Backup: backupManager, Hub: syncHub,
-			RequireImportPlan:  true,
-			Discover:           func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
-			InventoryProgress:  func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
-			Conditions:         syncv4.LocalConditions,
-			LocalPause:         func() bool { return settingsStore.State().Config.SyncPaused },
-			Command:            v4CommandRunner(queue, settingsStore, remoteManager),
-			CommandContext:     syncContext,
-			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
-			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
-		}
-		if fingerprints != nil {
-			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
-				return discoverLocalBatches(ctx, fingerprints, queue, visit)
-			}
-		}
-		loopControl := newSyncLoopControl(func() bool {
-			_, config, _ := queue.Policy()
-			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
-		})
-		go runActivePoller(syncContext, "", loopControl)
-		controller.runWithUpdateReporter(syncContext, collectorVersion, queue, client, func() {
-			runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, controller.observedWait(syncHub.V4Wait, client), loopControl, wake, retryWake, inventoryRequest)
-		})
+		runner := hubWorkers.runner()
+		runner.Command = v4CommandRunner(queue, settingsStore, remoteManager)
+		runner.ReconcileSSHHosts = reconcileSSHHosts(settingsStore, remoteManager)
+		runner.CleanupRemoteCache = func() { remoteManager.CleanupRemovedSources(settingsStore) }
+		hubWorkers.runWorker(syncContext, controller, queue, client, wake, retryWake, runner, backupManager, true)
 	}, func() bool { return settingsStore.State().Config.SyncPaused })
 	if err != nil {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
@@ -375,7 +338,6 @@ func main() {
 		hub = selectedHub
 	}
 	onboardings.SetV4SyncActive(controller.Queue() != nil)
-	var hubWorkers *hubWorkerSupervisor
 	if primaryMismatch {
 		onboardings.setSyncHooks(blockedPrimarySync{})
 	} else {

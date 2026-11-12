@@ -36,17 +36,9 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, "https://primary.example")
 	primary := filepath.Join(home, "hub-url")
-	if err = os.WriteFile(primary, []byte("primary data"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.WriteFile(primary, []byte("primary data"), 0600))
 	primaryFiles := map[string]string{
 		"hub-credentials/primary.example": "primary credential",
 		"sync-v4/queue.json":              "pending primary queue",
@@ -54,12 +46,8 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	for name, contents := range primaryFiles {
 		path := filepath.Join(home, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
-			t.Fatal(err)
-		}
+		requireHubTestOK(t, os.MkdirAll(filepath.Dir(path), 0700))
+		requireHubTestOK(t, os.WriteFile(path, []byte(contents), 0600))
 	}
 	var mode atomic.Int32
 	var requests atomic.Int32
@@ -91,9 +79,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}))
 	defer hub.Close()
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	t.Cleanup(workers.StopAll)
 	original := workers.client
 	var fail atomic.Bool
@@ -121,9 +107,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	mode.Store(1)
 	id, _, err := pairings.begin(ctx, hub.URL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := pairings.poll(ctx, id); err != nil || state != "declined" {
 		t.Fatalf("decline %q %v", state, err)
 	}
@@ -132,9 +116,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	mode.Store(2)
 	id, _, err = pairings.begin(ctx, hub.URL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if _, _, err = pairings.begin(ctx, hub.URL, true); err == nil {
 		t.Fatal("concurrent attempt accepted")
 	}
@@ -156,9 +138,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	mode.Store(3)
 	id, _, err = pairings.begin(ctx, hub.URL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	pollCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { _, _ = pairings.poll(pollCtx, id); close(done) }()
@@ -175,9 +155,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	pollStarted, releasePoll = make(chan struct{}, 1), make(chan struct{})
 	id, _, err = pairings.begin(ctx, hub.URL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	result := make(chan string, 1)
 	go func() { state, _ := pairings.poll(ctx, id); result <- state }()
 	<-pollStarted
@@ -192,9 +170,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	mode.Store(0)
 	fail.Store(true)
 	id, _, err = pairings.begin(ctx, hub.URL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := pairings.poll(ctx, id); err != nil || state != "failed" {
 		t.Fatalf("save failure %q %v", state, err)
 	}
@@ -203,9 +179,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	fail.Store(false)
 	id, _, err = pairings.begin(ctx, hub.URL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	writer := registry.write
 	registry.write = func(string, []byte) (bool, error) { return false, errors.New("write failed") }
 	if state, err := pairings.poll(ctx, id); err != nil || state != "failed" {
@@ -230,9 +204,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		t.Fatalf("pairing API poll %d: %s", response.Code, response.Body.String())
 	}
 	reopened, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	state := reopened.snapshot()
 	if state.Primary != "https://primary.example" || len(state.Connections) != 2 || state.Connections[1].Enabled || state.Connections[1].Origin != hub.URL {
 		t.Fatalf("restarted registry %+v", state)
@@ -248,9 +220,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		t.Fatal("explicit enable did not start worker")
 	}
 	client, err := original(hubConnection{Origin: hub.URL}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	credential, err := client.Credentials.Load(ctx)
 	if err != nil || credential != "secondary-secret" {
 		t.Fatalf("worker credential %q %v", credential, err)
@@ -272,16 +242,10 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	home2 := t.TempDir()
 	registry2, err := openHubRegistry(home2, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry2.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, registry2.addPrimary("https://primary.example"))
 	workers2, err := newHubWorkerSupervisor(registry2, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	workers2.home = home2
 	t.Cleanup(workers2.StopAll)
 	workers2.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
@@ -293,9 +257,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 	}
 	second := newSecondaryPairings(workers2)
 	id, _, err = second.begin(ctx, hub.URL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := second.poll(ctx, id); err != nil || state != "paired_disabled" {
 		t.Fatalf("pairing %q %v", state, err)
 	}
@@ -304,9 +266,7 @@ func TestSecondaryPairingConsentApprovalAndRestart(t *testing.T) {
 		t.Fatal("enable write failure accepted")
 	}
 	reopened, err = openHubRegistry(home2, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	state = reopened.snapshot()
 	if len(state.Connections) != 2 || state.Connections[1].Enabled || state.Primary != "https://primary.example" {
 		t.Fatalf("failed enable after restart: %+v", state)
@@ -375,5 +335,37 @@ func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
 	out.Reset()
 	if code := runCLI(&out, &errOut, []string{"secondary-pair", "recover", "https://secondary.example", "--consent", "--new-binding-consent"}); code != 0 || calls.Load() != 2 || !strings.Contains(out.String(), "another account") {
 		t.Fatalf("new-binding consent exit=%d output=%s error=%s", code, out.String(), errOut.String())
+	}
+}
+
+func TestSecondaryActionsRejectMisplacedConsentFields(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	registry := workerTestRegistry(t, home, "https://primary.example")
+	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	requireHubTestOK(t, err)
+	t.Cleanup(workers.StopAll)
+	workers.client = func(hubConnection, bool) (*hubclient.Client, error) {
+		t.Fatal("invalid action contacted a Hub")
+		return nil, nil
+	}
+	mux := http.NewServeMux()
+	registerSecondaryPairingRoutes(mux, newSecondaryPairings(workers))
+	for _, action := range []string{"pairings", "enable", "disable", "retry"} {
+		t.Run(action, func(t *testing.T) {
+			body := `{"origin":"https://secondary.example","newBindingConsent":true}`
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/"+action, strings.NewReader(body)))
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("misplaced consent: %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+	for _, action := range []string{"pairings", "re-pairings", "enable"} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hubs/"+action, strings.NewReader(`{"origin":"https://secondary.example"}`)))
+		if response.Code != http.StatusConflict {
+			t.Fatalf("%s without consent: %d %s", action, response.Code, response.Body.String())
+		}
 	}
 }

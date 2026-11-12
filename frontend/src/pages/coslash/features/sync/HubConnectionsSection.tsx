@@ -12,6 +12,20 @@ type Hub = {
 };
 type Flow = { kind: 'add' | 'recover' | 'enable'; origin: string };
 type Pairing = { id: string; code: string; url: string; state: string };
+type HubAction = 'retry' | 'disable' | 'enable' | 'recover';
+const actionLabels: Record<HubAction, string> = {
+  retry: 'Retry',
+  disable: 'Disable',
+  enable: 'Enable',
+  recover: 'Recover pairing',
+};
+
+function hubActions(hub: Hub): HubAction[] {
+  const actions: HubAction[] = hub.enabled ? ['retry', 'disable'] : ['enable'];
+  if (!hub.enabled || ['disconnected', 'not_connected', 'start_failed'].includes(hub.state))
+    actions.push('recover');
+  return actions;
+}
 
 const statusLabels: Record<string, string> = {
   disabled: 'Sync disabled',
@@ -122,7 +136,6 @@ export function HubConnectionsSection() {
   const busyRef = useRef(false);
   const operation = useRef<AbortController | null>(null);
   const statusRequest = useRef<AbortController | null>(null);
-  const generation = useRef(0);
   const alive = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -151,7 +164,6 @@ export function HubConnectionsSection() {
     }, 10_000);
     return () => {
       alive.current = false;
-      generation.current += 1;
       operation.current?.abort();
       statusRequest.current?.abort();
       window.clearInterval(interval);
@@ -180,12 +192,11 @@ export function HubConnectionsSection() {
     return () => controller.abort();
   }, [flow, disclosureRetry]);
 
-  const openFlow = (kind: Flow['kind'], origin = '') => {
-    generation.current += 1;
+  const changeFlow = (next: Flow | null) => {
     operation.current?.abort();
-    setFlow({ kind, origin });
+    setFlow(next);
     setDisclosure(null);
-    setOriginInput(origin);
+    setOriginInput(next?.origin ?? '');
     setConsent(false);
     setNewBindingConsent(false);
     setPairing(null);
@@ -194,19 +205,10 @@ export function HubConnectionsSection() {
     setBusy(false);
     busyRef.current = false;
   };
-  const closeFlow = () => {
-    generation.current += 1;
-    operation.current?.abort();
-    setFlow(null);
-    setPairing(null);
-    setMessage(null);
-    setError(null);
-    setBusy(false);
-    busyRef.current = false;
-  };
+  const openFlow = (kind: Flow['kind'], origin = '') => changeFlow({ kind, origin });
+  const closeFlow = () => changeFlow(null);
   const perform = async (path: string, body: unknown, done: (value: unknown) => void) => {
     if (busyRef.current) return;
-    const attempt = generation.current;
     const controller = new AbortController();
     operation.current = controller;
     busyRef.current = true;
@@ -214,15 +216,15 @@ export function HubConnectionsSection() {
     setError(null);
     try {
       const value = await request(path, post(body, controller.signal));
-      if (!alive.current || controller.signal.aborted || attempt !== generation.current) return;
+      if (!alive.current || controller.signal.aborted) return;
       done(value);
       void refresh();
     } catch (e) {
-      if (!alive.current || controller.signal.aborted || attempt !== generation.current) return;
+      if (!alive.current || controller.signal.aborted) return;
       setError(e instanceof Error ? e.message : 'Hub request failed.');
       void refresh();
     } finally {
-      if (alive.current && !controller.signal.aborted && attempt === generation.current) {
+      if (alive.current && !controller.signal.aborted) {
         busyRef.current = false;
         setBusy(false);
       }
@@ -347,52 +349,22 @@ export function HubConnectionsSection() {
           </div>
           {!hub.primary && (
             <div className="flex flex-wrap gap-2">
-              {hub.enabled ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy || loadError != null}
-                    aria-label={`Retry ${hub.origin}`}
-                    onClick={() => control('retry', hub.origin)}
-                  >
-                    Retry
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy || loadError != null}
-                    aria-label={`Disable ${hub.origin}`}
-                    onClick={() => control('disable', hub.origin)}
-                  >
-                    Disable
-                  </Button>
-                </>
-              ) : (
+              {hubActions(hub).map((action) => (
                 <Button
+                  key={action}
                   type="button"
                   variant="outline"
                   disabled={busy || loadError != null}
-                  aria-label={`Enable ${hub.origin}`}
-                  onClick={() => openFlow('enable', hub.origin)}
+                  aria-label={`${action === 'recover' ? 'Recover' : actionLabels[action]} ${hub.origin}`}
+                  onClick={() =>
+                    action === 'enable' || action === 'recover'
+                      ? openFlow(action, hub.origin)
+                      : control(action, hub.origin)
+                  }
                 >
-                  Enable
+                  {actionLabels[action]}
                 </Button>
-              )}
-              {(hub.state === 'disconnected' ||
-                hub.state === 'not_connected' ||
-                hub.state === 'start_failed' ||
-                !hub.enabled) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy || loadError != null}
-                  aria-label={`Recover ${hub.origin}`}
-                  onClick={() => openFlow('recover', hub.origin)}
-                >
-                  Recover pairing
-                </Button>
-              )}
+              ))}
             </div>
           )}
         </div>

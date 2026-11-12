@@ -30,13 +30,9 @@ func primaryRuntimeFixture(t *testing.T, credential string) (*hubclient.Client, 
 	hubCredentialStore = func(string) hubclient.CredentialStore { return store }
 	t.Cleanup(func() { hubCredentialStore = previous })
 	const origin = "https://hub.coslash.io"
-	if err := writeStoredHubURL(origin); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, writeStoredHubURL(origin))
 	client, err := hubClientFromEnvironment("1.2.3")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	return client, store
 }
 
@@ -47,9 +43,7 @@ func primaryRuntimeController(t *testing.T, started, stopped chan struct{}) *syn
 		<-ctx.Done()
 		stopped <- struct{}{}
 	}, func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	t.Cleanup(c.Stop)
 	return c
 }
@@ -59,36 +53,20 @@ func TestPrimaryHubRuntimeMigratesAndRestartsWithPendingWork(t *testing.T) {
 	started, stopped := make(chan struct{}, 2), make(chan struct{}, 2)
 	first := primaryRuntimeController(t, started, stopped)
 	binding, err := client.V4Binding(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := first.Queue().Rebind(binding); err != nil {
-		t.Fatal(err)
-	}
-	if err := first.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, BundleID: "pending-bundle"}}, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
-	if err := first.Queue().SaveDiscoveryCursor(binding, []byte(`{"legacy":true}`)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, first.Queue().Rebind(binding))
+	requireHubTestOK(t, first.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, BundleID: "pending-bundle"}}, time.Unix(1, 0)))
+	requireHubTestOK(t, first.Queue().SaveDiscoveryCursor(binding, []byte(`{"legacy":true}`)))
 	spool := filepath.Join(os.Getenv("COSLASH_HOME"), "session-backups", "prepared", "pending-bundle")
-	if err := os.MkdirAll(spool, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(spool, "fixture"), []byte("pending"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.MkdirAll(spool, 0o700))
+	requireHubTestOK(t, os.WriteFile(filepath.Join(spool, "fixture"), []byte("pending"), 0o600))
 	installID := first.Queue().InstallID()
 	runtime, selected, err := newPrimaryHubRuntime(client, first, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if selected != client {
 		t.Fatal("primary client changed")
 	}
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, runtime.Ensure(selected))
 	waitSignal(t, started)
 	slot := runtime.workers.slot(runtime.registry.snapshot().Primary)
 	if slot.controller != first || slot.controller.Queue() != first.Queue() {
@@ -98,12 +76,8 @@ func TestPrimaryHubRuntimeMigratesAndRestartsWithPendingWork(t *testing.T) {
 	waitSignal(t, stopped)
 	second := primaryRuntimeController(t, started, stopped)
 	restarted, selected, err := newPrimaryHubRuntime(client, second, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := restarted.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, restarted.Ensure(selected))
 	waitSignal(t, started)
 	if second.Queue().InstallID() != installID || len(second.Queue().Entries()) != 1 || second.Queue().Entries()[0].BundleID != "pending-bundle" {
 		t.Fatal("primary pending queue changed on restart")
@@ -123,18 +97,10 @@ func TestPrimaryHubRuntimeRejectsMismatchedLegacyBinding(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	binding, err := client.V4Binding(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Queue().Rebind(binding); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1}}, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Save(context.Background(), "different"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, c.Queue().Rebind(binding))
+	requireHubTestOK(t, c.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1}}, time.Unix(1, 0)))
+	requireHubTestOK(t, store.Save(context.Background(), "different"))
 	if _, _, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false }); !errors.Is(err, errPrimaryHubMismatch) {
 		t.Fatalf("mismatch error = %v", err)
 	}
@@ -152,21 +118,13 @@ func TestPrimaryHubRuntimeFreshAndUnpairedThenPaired(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	runtime, selected, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if runtime.registry.snapshot().Primary != "" {
 		t.Fatal("unpaired selector migrated")
 	}
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Save(context.Background(), "approved"); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, runtime.Ensure(selected))
+	requireHubTestOK(t, store.Save(context.Background(), "approved"))
+	requireHubTestOK(t, runtime.Ensure(selected))
 	waitSignal(t, started)
 	if runtime.registry.snapshot().Primary != "https://hub.coslash.io" {
 		t.Fatal("approved primary not registered")
@@ -177,23 +135,15 @@ func TestPrimaryHubRuntimeFreshAndUnpairedThenPaired(t *testing.T) {
 
 func TestPrimaryHubRuntimeEnvironmentAndKillSwitch(t *testing.T) {
 	client, _ := primaryRuntimeFixture(t, "credential")
-	if err := os.Remove(filepath.Join(os.Getenv("COSLASH_HOME"), storedHubURLFilename)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.Remove(filepath.Join(os.Getenv("COSLASH_HOME"), storedHubURLFilename)))
 	t.Setenv("COSLASH_HUB_URL", "https://hub.coslash.io")
 	client, err := hubClientFromEnvironment("1.2.3")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	runtime, selected, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, runtime.Ensure(selected))
 	waitSignal(t, started)
 	if runtime.registry.snapshot().Primary != "https://hub.coslash.io" {
 		t.Fatal("environment primary not registered")
@@ -209,12 +159,8 @@ func TestPrimaryHubRuntimeEnvironmentAndKillSwitch(t *testing.T) {
 		t.Fatal("kill switch opened a queue")
 	}
 	disabled, selected, err := newPrimaryHubRuntime(client, killed, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := disabled.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, disabled.Ensure(selected))
 	if killed.Status().State != "auto_sync_off" {
 		t.Fatalf("kill switch status = %s", killed.Status().State)
 	}
@@ -223,18 +169,14 @@ func TestPrimaryHubRuntimeEnvironmentAndKillSwitch(t *testing.T) {
 
 func TestPrimaryHubRuntimeEmptyInstallDoesNotCommit(t *testing.T) {
 	_, _ = primaryRuntimeFixture(t, "")
-	if err := os.Remove(filepath.Join(os.Getenv("COSLASH_HOME"), storedHubURLFilename)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.Remove(filepath.Join(os.Getenv("COSLASH_HOME"), storedHubURLFilename)))
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	runtime, selected, err := newPrimaryHubRuntime(nil, c, "1.2.3", func() bool { return false })
 	if err != nil || selected != nil {
 		t.Fatalf("empty runtime = %v, %v", selected, err)
 	}
-	if err := runtime.Ensure(nil); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, runtime.Ensure(nil))
 	if c.Status().State != "not_connected" || runtime.registry.snapshot().Primary != "" {
 		t.Fatal("empty install became paired")
 	}
@@ -250,12 +192,8 @@ func TestPrimaryHubRuntimeEmptyCredentialIsUnpaired(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	runtime, selected, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, runtime.Ensure(selected))
 	if runtime.registry.snapshot().Primary != "" {
 		t.Fatal("empty credential was migrated")
 	}
@@ -267,19 +205,11 @@ func TestPrimaryHubRuntimeDoesNotStartSecondary(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	runtime, selected, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, runtime.Ensure(selected))
 	waitSignal(t, started)
-	if err := runtime.registry.addSecondary("https://beta.coslash.io"); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.registry.setEnabled("https://beta.coslash.io", true); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, runtime.registry.addSecondary("https://beta.coslash.io"))
+	requireHubTestOK(t, runtime.registry.setEnabled("https://beta.coslash.io", true))
 	if err := runtime.workers.StartEnabled("https://beta.coslash.io"); err == nil {
 		t.Fatal("primary-only runtime started secondary")
 	}
@@ -295,17 +225,11 @@ func TestPrimaryHubRuntimeStopsChangedCredentialWithoutRebinding(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	runtime, selected, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, runtime.Ensure(selected))
 	waitSignal(t, started)
 	old, _ := c.Queue().DiscoveryCursor()
-	if err := store.Save(context.Background(), "replacement"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, store.Save(context.Background(), "replacement"))
 	if err := runtime.Ensure(selected); !errors.Is(err, errPrimaryHubMismatch) {
 		t.Fatalf("replacement error = %v", err)
 	}
@@ -324,16 +248,12 @@ func TestPrimaryHubRuntimeRefusesForeignLegacySwitch(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
 	runtime, selected, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	manager := newOnboardingManager("1.2.3")
 	t.Cleanup(manager.Close)
 	manager.setHubClient(selected)
 	manager.setSyncHooks(runtime)
-	if err := runtime.Ensure(selected); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, runtime.Ensure(selected))
 	waitSignal(t, started)
 	if err := manager.StartPairing("https://beta.coslash.io", switchAttemptID, strings.Repeat("A", 43)); !errors.Is(err, errHubSwitchPending) {
 		t.Fatalf("foreign request = %v", err)
@@ -355,13 +275,9 @@ func TestPrimaryHubRuntimeUnpairedBoundQueueCannotChangeSelector(t *testing.T) {
 	client, _ := primaryRuntimeFixture(t, "")
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	c := primaryRuntimeController(t, started, stopped)
-	if err := c.Queue().Rebind(strings.Repeat("a", 64)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, c.Queue().Rebind(strings.Repeat("a", 64)))
 	runtime, _, err := newPrimaryHubRuntime(client, c, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	manager := newOnboardingManager("1.2.3")
 	t.Cleanup(manager.Close)
 	manager.setSyncHooks(runtime)
@@ -382,12 +298,8 @@ func TestUnknownSignalDoesNotAdoptUnregisteredPrimary(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	controller := primaryRuntimeController(t, started, stopped)
 	runtime, _, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Save(context.Background(), "orphan-credential"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, store.Save(context.Background(), "orphan-credential"))
 	manager := newOnboardingManager("1.2.3")
 	defer manager.Close()
 	manager.setSyncHooks(runtime)
@@ -412,19 +324,11 @@ func TestPrimaryPairingCannotReplaceBoundCredential(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	controller := primaryRuntimeController(t, started, stopped)
 	binding, err := client.V4Binding(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := controller.Queue().Rebind(binding); err != nil {
-		t.Fatal(err)
-	}
-	if err := controller.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, BundleID: "pending-bundle"}}, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, controller.Queue().Rebind(binding))
+	requireHubTestOK(t, controller.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, BundleID: "pending-bundle"}}, time.Unix(1, 0)))
 	runtime, client, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	manager := newOnboardingManager("1.2.3")
 	manager.setSyncHooks(runtime)
 	manager.setHubClient(client)
@@ -446,13 +350,9 @@ func TestPrimaryPairingCannotReplaceBoundCredential(t *testing.T) {
 	t.Setenv("COSLASH_V4_SYNC", "0")
 	killed := primaryRuntimeController(t, started, stopped)
 	killRuntime, _, err := newPrimaryHubRuntime(client, killed, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	plainClient, err := hubClientForURL("1.2.3", "https://hub.coslash.io")
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	killRuntime.guardPairingCredential(plainClient)
 	if err := plainClient.Credentials.Save(context.Background(), "replacement"); !errors.Is(err, errPrimaryHubMismatch) {
 		t.Fatalf("kill switch replacement: %v", err)
@@ -481,19 +381,11 @@ func TestPrimaryPairingAPIPreservesBoundCredential(t *testing.T) {
 	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
 	controller := primaryRuntimeController(t, started, stopped)
 	binding, err := client.V4Binding(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := controller.Queue().Rebind(binding); err != nil {
-		t.Fatal(err)
-	}
-	if err := controller.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1}}, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, controller.Queue().Rebind(binding))
+	requireHubTestOK(t, controller.Queue().Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1}}, time.Unix(1, 0)))
 	runtime, client, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	manager := newOnboardingManager("1.2.3")
 	manager.setSyncHooks(runtime)
 	mux := http.NewServeMux()
@@ -528,9 +420,7 @@ func TestPrimaryPairingWithDisabledSyncAndFreshQueue(t *testing.T) {
 	t.Setenv("COSLASH_V4_SYNC", "0")
 	controller := primaryRuntimeController(t, started, stopped)
 	runtime, client, err := newPrimaryHubRuntime(client, controller, "1.2.3", func() bool { return false })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	runtime.guardPairingCredential(client)
 	if err := client.Credentials.Save(context.Background(), "first-credential"); err != nil {
 		t.Fatalf("first credential: %v", err)
@@ -538,9 +428,7 @@ func TestPrimaryPairingWithDisabledSyncAndFreshQueue(t *testing.T) {
 	if got, err := store.Load(context.Background()); err != nil || got != "first-credential" {
 		t.Fatalf("credential = %q, %v", got, err)
 	}
-	if err := os.WriteFile(filepath.Join(os.Getenv("COSLASH_HOME"), "sync-v4", "queue.json"), []byte("corrupt"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.WriteFile(filepath.Join(os.Getenv("COSLASH_HOME"), "sync-v4", "queue.json"), []byte("corrupt"), 0o600))
 	if err := client.Credentials.Save(context.Background(), "replacement"); err == nil {
 		t.Fatal("corrupt queue accepted replacement credential")
 	}

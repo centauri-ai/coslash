@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -18,8 +19,7 @@ import (
 
 type hubWorkerSlot struct {
 	mu          sync.Mutex
-	pending     []hubWorkerOperation
-	running     bool
+	pending     atomic.Int32
 	startMu     sync.Mutex
 	startCancel context.CancelFunc
 	disabling   bool
@@ -28,53 +28,35 @@ type hubWorkerSlot struct {
 	lastError   string
 }
 
-type hubWorkerOperation struct {
-	run  func() error
-	done chan error
-}
-
 func (slot *hubWorkerSlot) execute(run func() error) error {
-	return slot.enqueue(run, false)
-}
-
-func (slot *hubWorkerSlot) executeControl(run func() error) error {
-	return slot.enqueue(run, true)
-}
-
-func (slot *hubWorkerSlot) enqueue(run func() error, control bool) error {
-	op := hubWorkerOperation{run: run, done: make(chan error, 1)}
-	slot.mu.Lock()
-	if len(slot.pending) >= 128 && !control {
-		slot.mu.Unlock()
+	defer slot.pending.Add(-1)
+	if slot.pending.Add(1) > 128 {
 		return errors.New("too many pending Hub worker operations")
 	}
-	if control {
-		slot.pending = append([]hubWorkerOperation{op}, slot.pending...)
-	} else {
-		slot.pending = append(slot.pending, op)
-	}
-	if !slot.running {
-		slot.running = true
-		go slot.runOperations()
-	}
-	slot.mu.Unlock()
-	return <-op.done
+	return slot.executeControl(run)
 }
 
-func (slot *hubWorkerSlot) runOperations() {
-	for {
-		slot.mu.Lock()
-		if len(slot.pending) == 0 {
-			slot.running = false
-			slot.mu.Unlock()
-			return
-		}
-		op := slot.pending[0]
-		slot.pending[0] = hubWorkerOperation{}
-		slot.pending = slot.pending[1:]
-		slot.mu.Unlock()
-		op.done <- op.run()
+// Stop and disable bypass admission so a full lifecycle lane can still stop.
+func (slot *hubWorkerSlot) executeControl(run func() error) error {
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	return run()
+}
+
+func (slot *hubWorkerSlot) withStart(ctx context.Context, run func(context.Context) error) error {
+	slot.startMu.Lock()
+	if slot.disabling {
+		slot.startMu.Unlock()
+		return errors.New("Hub is being disabled")
 	}
+	if slot.startCancel != nil {
+		slot.startCancel()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	slot.startCancel = cancel
+	slot.startMu.Unlock()
+	defer cancel()
+	return slot.execute(func() error { return run(ctx) })
 }
 
 func (slot *hubWorkerSlot) cancelStart() {
@@ -124,10 +106,7 @@ func newHubWorkerSupervisor(registry *hubRegistry, version string, pause func() 
 }
 
 func (s *hubWorkerSupervisor) clientForConnection(connection hubConnection, primary bool) (*hubclient.Client, error) {
-	origin := connection.Origin
-	if primary && connection.LegacyOrigin != "" {
-		origin = connection.LegacyOrigin
-	}
+	origin := connection.clientOrigin()
 	client, err := hubClientForURL(s.version, origin)
 	if err != nil {
 		return nil, err
@@ -153,6 +132,17 @@ func (s *hubWorkerSupervisor) clientForConnection(connection hubConnection, prim
 	return client, nil
 }
 
+func (s *hubWorkerSupervisor) checkedClient(connection hubConnection, primary bool) (*hubclient.Client, error) {
+	client, err := s.client(connection, primary)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil || client.BaseURL == nil || client.BaseURL.String() != connection.clientOrigin() || client.Credentials == nil {
+		return nil, errors.New("Hub worker client origin mismatch")
+	}
+	return client, nil
+}
+
 func (s *hubWorkerSupervisor) secondaryRoot(connection hubConnection) string {
 	root := filepath.Join(s.home, "hub-connections", fmt.Sprintf("%x", sha256.Sum256([]byte(connection.Origin))))
 	if connection.Generation != "" {
@@ -172,12 +162,12 @@ func (s *hubWorkerSupervisor) slot(origin string) *hubWorkerSlot {
 
 func (s *hubWorkerSupervisor) enabled(origin string) (hubConnection, bool, error) {
 	state := s.registry.snapshot()
-	for _, connection := range state.Connections {
-		if connection.Origin == origin && connection.Enabled && (origin == state.Primary || connection.SyncConsent) {
-			return connection, origin == state.Primary, nil
-		}
+	connection, ok := state.connection(origin)
+	primary := origin == state.Primary
+	if !ok || !connection.Enabled || !primary && !connection.SyncConsent {
+		return hubConnection{}, false, errors.New("Hub connection is not enabled")
 	}
-	return hubConnection{}, false, errors.New("Hub connection is not enabled")
+	return connection, primary, nil
 }
 
 // StartEnabled starts only an already enabled registry entry. Pairing and the
@@ -192,41 +182,19 @@ func (s *hubWorkerSupervisor) StartEnabled(raw string) error {
 	} else if s.primaryOnly && !primary {
 		return errors.New("secondary Hub workers are not available")
 	}
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return errors.New("Hub supervisor stopped")
-	}
-	slot := s.slots[origin]
-	if slot == nil {
-		slot = &hubWorkerSlot{}
-		s.slots[origin] = slot
-	}
-	s.mu.Unlock()
-	slot.startMu.Lock()
-	if slot.disabling {
-		slot.startMu.Unlock()
-		return errors.New("Hub is being disabled")
-	}
-	if slot.startCancel != nil {
-		slot.startCancel()
-	}
-	startContext, cancelStart := context.WithCancel(context.Background())
-	slot.startCancel = cancelStart
-	slot.startMu.Unlock()
-	defer cancelStart()
-	return slot.execute(func() error {
-		err := s.start(slot, origin, startContext)
-		if err != nil {
-			slot.lastError = "start_failed"
-		} else {
-			slot.lastError = ""
-		}
-		return err
+	slot := s.slot(origin)
+	return slot.withStart(context.Background(), func(ctx context.Context) error {
+		return s.start(slot, origin, ctx)
 	})
 }
 
-func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startContext context.Context) error {
+func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startContext context.Context) (err error) {
+	defer func() {
+		slot.lastError = ""
+		if err != nil {
+			slot.lastError = "start_failed"
+		}
+	}()
 	if err := startContext.Err(); err != nil {
 		return err
 	}
@@ -243,16 +211,9 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 	if !primary && !hubclient.V4SyncEnabled() {
 		return errors.New("secondary sync is disabled")
 	}
-	client, err := s.client(connection, primary)
+	client, err := s.checkedClient(connection, primary)
 	if err != nil {
 		return err
-	}
-	expected := origin
-	if primary && connection.LegacyOrigin != "" {
-		expected = connection.LegacyOrigin
-	}
-	if client == nil || client.BaseURL == nil || client.BaseURL.String() != expected || client.Credentials == nil {
-		return errors.New("Hub worker client origin mismatch")
 	}
 	ctx, cancel := context.WithTimeout(startContext, 5*time.Second)
 	binding, err := client.V4Binding(ctx)
@@ -279,8 +240,6 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 	if slot.controller == nil {
 		var controller *syncController
 		controller, err = newSyncControllerAt(queueRoot, func(ctx context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retry chan struct{}) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
 			options := s.backup
 			options.Root, options.Lifecycle = spoolRoot, ctx
 			if !primary {
@@ -288,31 +247,7 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 			}
 			backup := sessionbackupproducer.New(options)
 			defer backup.Close()
-			runner := s.runner()
-			runner.Version, runner.Queue, runner.Backup, runner.Hub = s.version, queue, backup, currentHubTransport{current: func() *hubclient.Client { return client }, queue: queue}
-			runner.NoSharedAuthority, runner.LocalPause, runner.CommandContext = !primary, s.pause, ctx
-			runner.RequireImportPlan = true
-			var inventoryRequest chan struct{}
-			if s.prepare != nil {
-				var waitInventory func()
-				inventoryRequest, waitInventory = s.prepare(ctx, runner, queue, client, wake)
-				defer func() {
-					cancel()
-					if waitInventory != nil {
-						waitInventory()
-					}
-				}()
-			}
-			control := newSyncLoopControl(func() bool { _, policy, _ := queue.Policy(); return policy.Paused || policy.DeviceOff || s.pause() })
-			go s.poll(ctx, control)
-			loop := func() {
-				runV4SyncLoopWithControl(ctx, controller.observed(runner, client), queue, controller.observedWait(client.V4Wait, client), control, wake, retry, inventoryRequest)
-			}
-			if primary {
-				controller.runWithUpdateReporter(ctx, s.version, queue, client, loop)
-			} else {
-				loop()
-			}
+			s.runWorker(ctx, controller, queue, client, wake, retry, s.runner(), backup, primary)
 		}, s.pause)
 		if err != nil {
 			return err
@@ -352,6 +287,43 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 		return err
 	}
 	return nil
+}
+
+func (s *hubWorkerSupervisor) runWorker(ctx context.Context, controller *syncController, queue *syncv4.Queue, client *hubclient.Client, wake, retry chan struct{}, runner *syncv4.Runner, backup *sessionbackupproducer.Manager, primary bool) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	controller.mu.RLock()
+	binding := controller.binding
+	controller.mu.RUnlock()
+	pinned := bindingPinnedClient(client, binding)
+	transport := currentHubTransport{current: func() *hubclient.Client { return pinned }, queue: queue}
+	runner.Version, runner.Queue, runner.Backup, runner.Hub = s.version, queue, backup, transport
+	runner.NoSharedAuthority, runner.LocalPause, runner.CommandContext = !primary, s.pause, ctx
+	runner.RequireImportPlan = true
+	var inventoryRequest chan struct{}
+	if s.prepare != nil {
+		var waitInventory func()
+		inventoryRequest, waitInventory = s.prepare(ctx, runner, queue, pinned, wake)
+		defer func() {
+			cancel()
+			if waitInventory != nil {
+				waitInventory()
+			}
+		}()
+	}
+	control := newSyncLoopControl(func() bool {
+		_, policy, _ := queue.Policy()
+		return policy.Paused || policy.DeviceOff || s.pause()
+	})
+	go s.poll(ctx, control)
+	loop := func() {
+		runV4SyncLoopWithControl(ctx, controller.observed(runner, client), queue, controller.observedWait(transport.V4Wait, client), control, wake, retry, inventoryRequest)
+	}
+	if primary {
+		controller.runWithUpdateReporter(ctx, s.version, queue, client, loop)
+	} else {
+		loop()
+	}
 }
 
 func (s *hubWorkerSupervisor) Stop(raw string) error {
@@ -441,14 +413,7 @@ func (s *hubWorkerSupervisor) Disable(raw string) error {
 	if origin == state.Primary {
 		return errors.New("cannot disable primary Hub")
 	}
-	found := false
-	for _, c := range state.Connections {
-		if c.Origin == origin {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if _, found := state.connection(origin); !found {
 		return errors.New("unknown Hub")
 	}
 	slot := s.slot(origin)
@@ -464,20 +429,6 @@ func (s *hubWorkerSupervisor) Disable(raw string) error {
 	slot.startMu.Unlock()
 	defer func() { slot.startMu.Lock(); slot.disabling = false; slot.startMu.Unlock() }()
 	return slot.executeControl(func() error {
-		state := s.registry.snapshot()
-		if origin == state.Primary {
-			return errors.New("cannot disable primary Hub")
-		}
-		found := false
-		for _, c := range state.Connections {
-			if c.Origin == origin {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return errors.New("unknown Hub")
-		}
 		slot.stopWorker()
 		slot.lastError = ""
 		return s.registry.setEnabled(origin, false)

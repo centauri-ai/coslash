@@ -46,23 +46,11 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer hub.Close()
-	registry, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addPrimary("https://primary.example"); err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.addSecondary(hub.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err = registry.setEnabled(hub.URL, true); err != nil {
-		t.Fatal(err)
-	}
+	registry := workerTestRegistry(t, home, "https://primary.example")
+	requireHubTestOK(t, registry.addSecondary(hub.URL))
+	requireHubTestOK(t, registry.setEnabled(hub.URL, true))
 	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	defer workers.StopAll()
 	original := workers.client
 	workers.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
@@ -73,42 +61,22 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 		return client, err
 	}
 	client, err := original(hubConnection{Origin: hub.URL}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = client.Credentials.Save(context.Background(), "original"); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, client.Credentials.Save(context.Background(), "original"))
 	binding, err := client.V4Binding(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	root := filepath.Join(home, "hub-connections", fmt.Sprintf("%x", sha256.Sum256([]byte(hub.URL))))
 	q, err := syncv4.Open(filepath.Join(root, "sync-v4"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = q.Rebind(binding); err != nil {
-		t.Fatal(err)
-	}
-	if err = q.Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, BundleID: "pending-bundle"}}, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
-	if err = q.SaveDiscoveryCursor(binding, []byte(`{"pending":true}`)); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, q.Rebind(binding))
+	requireHubTestOK(t, q.Merge([]syncv4.Entry{{Key: "pending", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, BundleID: "pending-bundle"}}, time.Unix(1, 0)))
+	requireHubTestOK(t, q.SaveDiscoveryCursor(binding, []byte(`{"pending":true}`)))
 	queuePath := filepath.Join(root, "sync-v4", "queue.json")
 	before, err := os.ReadFile(queuePath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	spool := filepath.Join(root, "prepared", "pending-bundle", "fixture")
-	if err = os.MkdirAll(filepath.Dir(spool), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(spool, []byte("pending"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.MkdirAll(filepath.Dir(spool), 0700))
+	requireHubTestOK(t, os.WriteFile(spool, []byte("pending"), 0600))
 	manager := newSecondaryPairings(workers)
 	ctx := context.Background()
 	if _, _, err = manager.beginAttempt(ctx, hub.URL, false, true); err == nil || requests.Load() != 0 {
@@ -123,13 +91,9 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 	if _, _, err = manager.beginAttempt(ctx, "https://unknown.example", true, true); err == nil {
 		t.Fatal("unknown recovery accepted")
 	}
-	if err = client.Credentials.Delete(ctx); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, client.Credentials.Delete(ctx))
 	id, _, err := manager.beginAttempt(ctx, hub.URL, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := manager.poll(ctx, id); err != nil || state != "binding_mismatch" {
 		t.Fatalf("replacement outcome %q %v", state, err)
 	}
@@ -147,34 +111,24 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 		t.Fatal("mismatched recovery enabled sync")
 	}
 	backupPath := queuePath + ".backup"
-	if err := os.Rename(queuePath, backupPath); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.Rename(queuePath, backupPath))
 	id, _, err = manager.beginAttempt(ctx, hub.URL, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := manager.poll(ctx, id); err != nil || state != "binding_unknown" {
 		t.Fatalf("missing queue outcome %q %v", state, err)
 	}
 	if _, err := client.Credentials.Load(ctx); !errors.Is(err, hubclient.ErrNotPaired) {
 		t.Fatal("unknown binding accepted credential")
 	}
-	if err := os.Rename(backupPath, queuePath); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, os.Rename(backupPath, queuePath))
 	reopened, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	workers.registry = reopened
 	registry = reopened
 	manager = newSecondaryPairings(workers)
 	credential.Store("original")
 	id, _, err = manager.beginAttempt(ctx, hub.URL, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := manager.poll(ctx, id); err != nil || state != "recovered_disabled" {
 		t.Fatalf("matching recovery %q %v", state, err)
 	}
@@ -194,14 +148,10 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 	}
 	// A rotated credential is accepted only with additional consent. A failed
 	// registry publication leaves the old generation selected and untouched.
-	if err := client.Credentials.Delete(ctx); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, client.Credentials.Delete(ctx))
 	credential.Store("replacement")
 	id, _, err = manager.beginAttemptWithNewBinding(ctx, hub.URL, true, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	clientFactory := workers.client
 	workers.client = func(c hubConnection, primary bool) (*hubclient.Client, error) {
 		candidate, err := clientFactory(c, primary)
@@ -218,9 +168,7 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 		t.Fatalf("credential failure changed selection: %+v", c)
 	}
 	id, _, err = manager.beginAttemptWithNewBinding(ctx, hub.URL, true, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	write := registry.write
 	registry.write = func(string, []byte) (bool, error) { return false, errors.New("injected registry failure") }
 	if state, err := manager.poll(ctx, id); err != nil || state != "failed" {
@@ -234,22 +182,16 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 		t.Fatal("failed publication changed old queue")
 	}
 	reopened, err = openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	workers.registry, registry = reopened, reopened
 	manager = newSecondaryPairings(workers)
 	id, _, err = manager.beginAttemptWithNewBinding(ctx, hub.URL, true, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := manager.poll(ctx, id); err != nil || state != "recovered_new_binding_disabled" {
 		t.Fatalf("rotated outcome %q %v", state, err)
 	}
 	reopened, err = openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	connection := reopened.snapshot().Connections[1]
 	if !validHubGeneration(connection.Generation) || len(connection.Quarantined) != 1 || connection.Quarantined[0] != "legacy" || connection.Enabled || connection.SyncConsent {
 		t.Fatalf("new generation state: %+v", connection)
@@ -260,9 +202,7 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 	}
 	connection = reopened.snapshot().Connections[1]
 	newClient, err := original(connection, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	got, err = newClient.Credentials.Load(ctx)
 	if err != nil || got != "replacement" {
 		t.Fatal("new generation credential missing")
@@ -283,9 +223,7 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 	if err := manager.enable(ctx, hub.URL, true); err != nil {
 		t.Fatalf("enable new generation: %v", err)
 	}
-	if err := workers.Stop(hub.URL); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, workers.Stop(hub.URL))
 	slot := workers.slot(hub.URL)
 	if err := slot.execute(func() error {
 		if slot.controller == nil || slot.controller.Queue() == nil || slot.controller.Queue().InstallID() == q.InstallID() || len(slot.controller.Queue().Entries()) != 0 {
@@ -303,19 +241,13 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 	}
 	generationQueuePath := filepath.Join(newRoot, "sync-v4", "queue.json")
 	generationQueue, err := os.ReadFile(generationQueuePath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	// If a write reports an error after rename, reopening may select the new
 	// generation, but it must remain disabled and retain both prior roots.
-	if err := newClient.Credentials.Delete(ctx); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, newClient.Credentials.Delete(ctx))
 	credential.Store("third-account")
 	id, _, err = manager.beginAttemptWithNewBinding(ctx, hub.URL, true, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	write = registry.write
 	registry.write = func(dir string, data []byte) (bool, error) {
 		committed, err := write(dir, data)
@@ -329,9 +261,7 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 	}
 	registry.write = write
 	reopened, err = openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	latest := reopened.snapshot().Connections[1]
 	if latest.Enabled || latest.SyncConsent || latest.Generation == connection.Generation || len(latest.Quarantined) != 2 || latest.Quarantined[0] != "legacy" || latest.Quarantined[1] != connection.Generation {
 		t.Fatalf("post-publication restart: %+v", latest)
@@ -352,17 +282,11 @@ func TestSecondaryRecoveryKeepsBoundPendingWork(t *testing.T) {
 	// An interrupted generation with no queue and a missing credential can be
 	// retried with new-binding consent without touching older quarantines.
 	latestClient, err := original(latest, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := latestClient.Credentials.Delete(ctx); err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
+	requireHubTestOK(t, latestClient.Credentials.Delete(ctx))
 	credential.Store("fourth-account")
 	id, _, err = manager.beginAttemptWithNewBinding(ctx, hub.URL, true, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireHubTestOK(t, err)
 	if state, err := manager.poll(ctx, id); err != nil || state != "recovered_new_binding_disabled" {
 		t.Fatalf("interrupted generation retry %q %v", state, err)
 	}

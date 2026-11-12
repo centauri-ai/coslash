@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { HubConnectionsSection } from './HubConnectionsSection';
 
 const primary = {
@@ -51,13 +51,30 @@ function checkbox(index: number) {
   return item;
 }
 
-afterEach(() => {
+let unmount: (() => Promise<void>) | undefined;
+beforeEach(() => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+});
+async function renderConnections() {
+  const mount = document.createElement('div');
+  document.body.append(mount);
+  const root = createRoot(mount);
+  unmount = async () => {
+    await act(async () => root.unmount());
+    mount.remove();
+    unmount = undefined;
+  };
+  await act(async () => root.render(<HubConnectionsSection />));
+  await settle();
+}
+
+afterEach(async () => {
+  await unmount?.();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 
 it('requires separate consent, shows pending and declined states, and manages each secondary', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let hubs = [primary];
   let poll = 0;
   let starts = 0;
@@ -96,13 +113,7 @@ it('requires separate consent, shows pending and declined states, and manages ea
     throw new Error(`Unexpected ${path}`);
   });
   vi.stubGlobal('fetch', fetchMock);
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
-  await settle();
+  await renderConnections();
   expect(document.body.textContent).toContain('https://primary.example');
   expect(document.body.textContent).toContain('(Primary)');
   await click(button('Add Hub'));
@@ -161,12 +172,10 @@ it('requires separate consent, shows pending and declined states, and manages ea
   expect(actions).toEqual(['enable', '/api/hubs/retry', '/api/hubs/disable']);
   expect(document.body.textContent).toContain('Sync disabled');
   expect(document.querySelector('[aria-label="Enable https://secondary.example"]')).not.toBeNull();
-  await act(async () => root.unmount());
-  mount.remove();
+  await unmount?.();
 });
 
 it('requires explicit new-binding consent, preserves errors and ignores closed attempts', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let resolvePoll: ((value: Response) => void) | undefined;
   let pollSignal: AbortSignal | null | undefined;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -196,13 +205,7 @@ it('requires explicit new-binding consent, preserves errors and ignores closed a
     throw new Error(`Unexpected ${path}`);
   });
   vi.stubGlobal('fetch', fetchMock);
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
-  await settle();
+  await renderConnections();
   await click(button('Recover pairing'));
   await settle();
   expect(document.body.textContent).toContain('will not be sent to the new account');
@@ -212,8 +215,7 @@ it('requires explicit new-binding consent, preserves errors and ignores closed a
   await click(button('Start recovery'));
   await settle();
   await click(button('Check approval'));
-  await act(async () => root.unmount());
-  mount.remove();
+  await unmount?.();
   expect(pollSignal?.aborted).toBe(true);
   await act(async () => {
     resolvePoll?.(response({ state: 'recovered_new_binding_disabled' }));
@@ -223,7 +225,6 @@ it('requires explicit new-binding consent, preserves errors and ignores closed a
 });
 
 it('shows server errors and allows status loading to be retried', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let fail = true;
   vi.stubGlobal(
     'fetch',
@@ -233,25 +234,17 @@ it('shows server errors and allows status loading to be retried', async () => {
       return response([primary]);
     }),
   );
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
-  await settle();
+  await renderConnections();
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('Hub status unavailable');
   expect(button('Add Hub').disabled).toBe(true);
   fail = false;
   await click(button('Retry loading'));
   await settle();
   expect(button('Add Hub').disabled).toBe(false);
-  await act(async () => root.unmount());
-  mount.remove();
+  await unmount?.();
 });
 
 it('shows new-binding recovery as disabled and surfaces an enable failure', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let quarantined = 0;
   let enableCalls = 0;
   vi.stubGlobal(
@@ -290,13 +283,7 @@ it('shows new-binding recovery as disabled and surfaces an enable failure', asyn
       throw new Error(`Unexpected ${path}`);
     }),
   );
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
-  await settle();
+  await renderConnections();
   await click(button('Recover pairing'));
   await settle();
   await click(checkbox(0));
@@ -319,12 +306,10 @@ it('shows new-binding recovery as disabled and surfaces an enable failure', asyn
   );
   expect(enableCalls).toBe(1);
   expect(button('Enable sync')).not.toBeNull();
-  await act(async () => root.unmount());
-  mount.remove();
+  await unmount?.();
 });
 
 it('does not offer an approval link to a different origin', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -342,13 +327,7 @@ it('does not offer an approval link to a different origin', async () => {
       throw new Error(`Unexpected ${path}`);
     }),
   );
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
-  await settle();
+  await renderConnections();
   await click(button('Add Hub'));
   await settle();
   await act(async () => {
@@ -359,12 +338,10 @@ it('does not offer an approval link to a different origin', async () => {
   await settle();
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('Invalid Hub approval link');
   expect(document.querySelector('a')).toBeNull();
-  await act(async () => root.unmount());
-  mount.remove();
+  await unmount?.();
 });
 
 it('shows an origin-scoped connection failure instead of claiming the Hub is connected', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async () =>
@@ -379,22 +356,14 @@ it('shows an origin-scoped connection failure instead of claiming the Hub is con
       ]),
     ),
   );
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => {
-    root.render(<HubConnectionsSection />);
-  });
-  await settle();
+  await renderConnections();
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('Hub is temporarily unavailable');
   expect(document.body.textContent).toContain('Connection issue');
   expect(document.querySelector('[aria-label="Retry https://secondary.example"]')).not.toBeNull();
-  await act(async () => root.unmount());
-  mount.remove();
+  await unmount?.();
 });
 
 it('clears the old disclosure when changing flows and ignores its late response', async () => {
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let resolveRecovery: ((value: Response) => void) | undefined;
   let resolveEnable: ((value: Response) => void) | undefined;
   vi.stubGlobal(
@@ -413,11 +382,7 @@ it('clears the old disclosure when changing flows and ignores its late response'
       throw new Error(`Unexpected ${path}`);
     }),
   );
-  const mount = document.createElement('div');
-  document.body.append(mount);
-  const root = createRoot(mount);
-  await act(async () => root.render(<HubConnectionsSection />));
-  await settle();
+  await renderConnections();
   await click(button('Recover pairing'));
   await click(button('Enable'));
   expect(button('Enable sync').disabled).toBe(true);
@@ -434,6 +399,5 @@ it('clears the old disclosure when changing flows and ignores its late response'
   await click(button('Recover pairing'));
   expect(document.body.textContent).not.toContain('Enable disclosure');
   expect(button('Start recovery').disabled).toBe(true);
-  await act(async () => root.unmount());
-  mount.remove();
+  await unmount?.();
 });

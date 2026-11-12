@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 const hubRegistryVersion = 3
@@ -25,10 +26,26 @@ type hubConnection struct {
 	Quarantined  []string `json:"quarantined,omitempty"`
 }
 
+func (c hubConnection) clientOrigin() string {
+	if c.LegacyOrigin != "" {
+		return c.LegacyOrigin
+	}
+	return c.Origin
+}
+
 type hubRegistryState struct {
 	Version     int             `json:"version"`
 	Primary     string          `json:"primary"`
 	Connections []hubConnection `json:"connections"`
+}
+
+func (state hubRegistryState) connection(origin string) (hubConnection, bool) {
+	for _, c := range state.Connections {
+		if c.Origin == origin {
+			return c, true
+		}
+	}
+	return hubConnection{}, false
 }
 
 type hubRegistryWire struct {
@@ -46,16 +63,11 @@ type hubRegistryWire struct {
 
 type hubRegistry struct {
 	mu      sync.Mutex
-	pending []hubRegistryEdit
-	writing bool
+	writeMu sync.Mutex
+	pending atomic.Int32
 	dir     string
 	state   hubRegistryState
 	write   func(string, []byte) (bool, error)
-}
-
-type hubRegistryEdit struct {
-	apply func(hubRegistryState) (hubRegistryState, error)
-	done  chan error
 }
 
 // canonicalRegistryOrigin normalizes the origin while retaining non-default ports.
@@ -411,53 +423,26 @@ func (r *hubRegistry) setEnabled(raw string, enabled bool) error {
 }
 
 func (r *hubRegistry) edit(apply func(hubRegistryState) (hubRegistryState, error)) error {
-	request := hubRegistryEdit{apply: apply, done: make(chan error, 1)}
-	r.mu.Lock()
-	if len(r.pending) >= 128 {
-		r.mu.Unlock()
+	defer r.pending.Add(-1)
+	if r.pending.Add(1) > 128 {
 		return errors.New("too many pending Hub registry changes")
 	}
-	r.pending = append(r.pending, request)
-	if !r.writing {
-		r.writing = true
-		go r.runEdits()
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+	next, err := apply(r.snapshot())
+	if err != nil {
+		return err
 	}
-	r.mu.Unlock()
-	return <-request.done
-}
-
-func (r *hubRegistry) runEdits() {
-	for {
+	if err := validateHubRegistry(next); err != nil {
+		return err
+	}
+	committed, err := r.save(next)
+	if committed {
 		r.mu.Lock()
-		if len(r.pending) == 0 {
-			r.writing = false
-			r.mu.Unlock()
-			return
-		}
-		request := r.pending[0]
-		r.pending[0] = hubRegistryEdit{}
-		r.pending = r.pending[1:]
-		state := r.state
-		state.Connections = append([]hubConnection(nil), state.Connections...)
-		for i := range state.Connections {
-			state.Connections[i].Quarantined = append([]string(nil), state.Connections[i].Quarantined...)
-		}
+		r.state = next
 		r.mu.Unlock()
-		next, err := request.apply(state)
-		if err == nil {
-			err = validateHubRegistry(next)
-		}
-		if err == nil {
-			var committed bool
-			committed, err = r.save(next)
-			if committed {
-				r.mu.Lock()
-				r.state = next
-				r.mu.Unlock()
-			}
-		}
-		request.done <- err
 	}
+	return err
 }
 
 func (r *hubRegistry) save(state hubRegistryState) (bool, error) {
