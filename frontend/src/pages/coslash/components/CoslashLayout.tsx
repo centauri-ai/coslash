@@ -213,57 +213,55 @@ function rangeStart(range: SessionRange): number | null {
   return Date.now() - (range === 'week' ? 7 : 30) * DAY;
 }
 
-/** The collector reports only a basename for a local-only repository, merging same-named folders. */
-function localRepositoryRoot(cwd: string, repo: string): string {
-  const parts = cwd.trim().split('/');
-  const depth = parts.lastIndexOf(repo.trim());
-  return depth === -1 ? cwd.trim() || repo : parts.slice(0, depth + 1).join('/');
+/** Codex's dated task folders group under the `Documents/Codex` folder that holds them. */
+const AGENT_TASK_FOLDER = /^(.*?(?:^|\/)Documents\/Codex)\/\d{4}-\d{2}-\d{2}\/[^/]+(?:\/|$)/;
+
+/**
+ * The folder a session without a remote groups under, the same rule as the Hub's personal groups: an
+ * agent task folder's parent, else the working directory cut at the local repository's name.
+ */
+function folderRoot(cwd: string, repo: string): string {
+  const agentFolder = AGENT_TASK_FOLDER.exec(cwd)?.[1];
+  if (agentFolder) return agentFolder;
+  const parts = cwd.split('/');
+  const depth = repo ? parts.lastIndexOf(repo) : -1;
+  return depth === -1 ? cwd : parts.slice(0, depth + 1).join('/');
 }
 
-function remoteWorkingDirectoryLabel(cwd: string): string {
-  const parts = cwd.trim().split('/').filter(Boolean);
-  if (parts[0] === 'home' || parts[0] === 'Users') return parts.slice(2).join('/') || '~';
+function homeRelativeLabel(path: string): string {
+  const parts = path.split('/').filter(Boolean);
+  const drive = /^[A-Za-z]:$/.test(parts[0] ?? '');
+  if (
+    drive
+      ? parts[1]?.toLowerCase() === 'users' && parts.length > 2
+      : parts[0] === 'home' || parts[0] === 'Users'
+  ) {
+    return parts.slice(drive ? 3 : 2).join('/') || '~';
+  }
   if (parts[0] === 'root') return parts.slice(1).join('/') || '~';
-  return cwd.trim();
+  return path;
 }
 
 function detectedGroup(session: Session): Group {
-  if (session.repo?.trim() && !session.repoLocalOnly) {
-    const label = session.repo.split('/').filter(Boolean).at(-1) ?? session.repo;
+  const repo = session.repo?.trim() ?? '';
+  if (repo && !session.repoLocalOnly) {
+    const label = repo.split('/').filter(Boolean).at(-1) ?? repo;
     return {
-      id: `repo:${session.repo.toLowerCase()}`,
+      id: `repo:${repo.toLowerCase()}`,
       label,
       kind: 'Repository',
-      basis: session.repo,
+      basis: repo,
     };
   }
-  if (session.repo?.trim()) {
-    const root = localRepositoryRoot(session.cwd, session.repo);
+  const cwd = session.cwd.trim().replaceAll('\\', '/');
+  const root = cwd ? folderRoot(cwd, repo) : repo;
+  if (root) {
+    const label = homeRelativeLabel(root);
     return {
-      id: `folder:${session.sourceId}:${root.toLowerCase()}`,
-      label: root.split('/').filter(Boolean).slice(-2).join('/'),
+      id: `folder:${session.sourceId}:${isLocalSession(session) ? root.toLowerCase() : root}`,
+      label,
       kind: 'Folder',
-      basis: root,
-    };
-  }
-  const cwd = session.cwd.trim();
-  if (cwd) {
-    if (!isLocalSession(session)) {
-      const label = remoteWorkingDirectoryLabel(cwd);
-      return {
-        id: `folder:${session.sourceId}:${cwd}`,
-        label,
-        kind: 'Folder',
-        basis: label,
-      };
-    }
-    const parts = cwd.split('/').filter(Boolean);
-    const parent = parts.slice(0, -1).join('/') || parts.join('/');
-    return {
-      id: `folder:${session.sourceId}:${parent}`,
-      label: `${session.sourceLabel} · ${parts.at(-2) ?? parts.at(-1) ?? 'Folder'}`,
-      kind: 'Folder',
-      basis: parent ? `/${parent}` : cwd,
+      basis: label,
     };
   }
   return {

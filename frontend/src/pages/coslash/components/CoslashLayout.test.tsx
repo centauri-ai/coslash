@@ -515,12 +515,36 @@ describe('CoslashLayout', () => {
       }) as Session;
 
     const markup = renderLayout({
-      sessions: [folder('client', '/work/client/app'), folder('server', '/work/server/app/src')],
+      sessions: [folder('client', '/home/milan/client/app'), folder('server', '/home/milan/server/app/src')],
       range: 'today',
     });
 
     expect(markup).toContain('>client/app<');
     expect(markup).toContain('>server/app<');
+  });
+
+  it('labels local folders by their full path and groups Codex task folders together', () => {
+    const local = (id: string, cwd: string, repo: string | null) =>
+      session({ id, sourceId: 'local', repo, repoLocalOnly: true, cwd });
+
+    const markup = renderLayout({
+      sessions: [
+        local('nested', '/home/milan/.codex/worktrees/0040/coslash', 'coslash'),
+        local('outside', '/tmp/smoke/app', 'app'),
+        local('task-1', '/Users/milan/Documents/Codex/2026-10-21/can-x20', 'can-x20'),
+        local('task-2', '/Users/milan/Documents/Codex/2026-10-22/other/src', 'other'),
+        local('no-repo', '/home/milan/codex_work', null),
+        local('windows', 'C:\\Users\\milan\\work\\api', 'api'),
+      ],
+      range: 'all',
+    });
+
+    for (const label of ['.codex/worktrees/0040/coslash', '/tmp/smoke/app', 'codex_work', 'work/api']) {
+      expect(markup).toContain(`>${label}<`);
+    }
+    expect(markup).toContain('>Documents/Codex<');
+    expect(markup).not.toMatch(/>[^<]*Codex\/2026-/);
+    expect(markup).not.toContain('>Local · ');
   });
 
   it.each([{ repo: 'org/coslash' }, { cwd: '/workspace/coslash' }])(
