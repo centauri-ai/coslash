@@ -1,0 +1,359 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+const hubRegistryVersion = 1
+
+type hubConnection struct {
+	Origin       string `json:"origin"`
+	Enabled      bool   `json:"enabled"`
+	LegacyOrigin string `json:"legacyOrigin,omitempty"`
+}
+
+type hubRegistryState struct {
+	Version     int             `json:"version"`
+	Primary     string          `json:"primary"`
+	Connections []hubConnection `json:"connections"`
+}
+
+type hubRegistryWire struct {
+	Version     *int    `json:"version"`
+	Primary     *string `json:"primary"`
+	Connections []struct {
+		Origin       *string `json:"origin"`
+		Enabled      *bool   `json:"enabled"`
+		LegacyOrigin string  `json:"legacyOrigin,omitempty"`
+	} `json:"connections"`
+}
+
+type hubRegistry struct {
+	mu    sync.Mutex
+	dir   string
+	state hubRegistryState
+	write func(string, []byte) (bool, error)
+}
+
+// canonicalRegistryOrigin normalizes the origin while retaining non-default ports.
+// The exact legacy origin is stored separately for the old credential and binding.
+func canonicalRegistryOrigin(raw string) (string, error) {
+	origin, err := hubOrigin(raw)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return "", err
+	}
+	host, port := strings.TrimSuffix(strings.ToLower(u.Hostname()), "."), u.Port()
+	if host == "" || len(host) > 253 {
+		return "", errors.New("invalid Hub origin")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	} else {
+		for _, label := range strings.Split(host, ".") {
+			if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+				return "", errors.New("invalid Hub host")
+			}
+			for _, c := range label {
+				if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+					return "", errors.New("invalid Hub host")
+				}
+			}
+		}
+	}
+	if port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return "", errors.New("invalid Hub port")
+		}
+		port = strconv.Itoa(n)
+	}
+	if u.Scheme == "https" && port == "443" || u.Scheme == "http" && port == "80" {
+		port = ""
+	}
+	if port != "" {
+		u.Host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		u.Host = "[" + host + "]"
+	} else {
+		u.Host = host
+	}
+	return u.String(), nil
+}
+
+// openHubRegistry is owned by the single Local runtime. All mutations must use
+// the returned instance. It migrates only a legacy origin whose pairing is verified by
+// paired. An unpaired legacy selector is not a committed connection. No file
+// is created in that case, so a later completed legacy pairing can be migrated.
+func openHubRegistry(home, legacy string, paired func(string) (bool, error)) (*hubRegistry, error) {
+	return openHubRegistryWithWriter(home, legacy, paired, writeHubRegistryFile)
+}
+
+func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, error), write func(string, []byte) (bool, error)) (*hubRegistry, error) {
+	if home == "" || write == nil {
+		return nil, errors.New("invalid Hub registry configuration")
+	}
+	dir := filepath.Join(home, "hub-connections")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := syncHubRegistryParent(home); err != nil {
+		return nil, err
+	}
+	if err := protectHubRegistryDirectory(dir); err != nil {
+		return nil, err
+	}
+	r := &hubRegistry{dir: dir, write: write, state: hubRegistryState{Version: hubRegistryVersion, Connections: []hubConnection{}}}
+	f, err := os.Open(filepath.Join(dir, "registry.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		if legacy == "" {
+			return r, nil
+		}
+		origin, err := canonicalRegistryOrigin(legacy)
+		if err != nil {
+			return nil, err
+		}
+		if paired == nil {
+			return nil, errors.New("legacy pairing verification required")
+		}
+		ok, err := paired(legacy)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return r, nil
+		}
+		r.state.Primary = origin
+		r.state.Connections = []hubConnection{{Origin: origin, Enabled: true, LegacyOrigin: legacy}}
+		if _, err := r.save(r.state); err != nil {
+			return nil, err
+		}
+		return r, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(data) > 1<<20 || rejectDuplicateJSONKeys(data) != nil {
+		return nil, errors.New("invalid Hub connection registry")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var wire hubRegistryWire
+	if err := decoder.Decode(&wire); err != nil {
+		return nil, errors.New("invalid Hub connection registry")
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, errors.New("invalid Hub connection registry")
+	}
+	if wire.Version == nil || wire.Primary == nil || wire.Connections == nil {
+		return nil, errors.New("invalid Hub connection registry")
+	}
+	r.state = hubRegistryState{Version: *wire.Version, Primary: *wire.Primary}
+	for _, c := range wire.Connections {
+		if c.Origin == nil || c.Enabled == nil {
+			return nil, errors.New("invalid Hub connection registry")
+		}
+		r.state.Connections = append(r.state.Connections, hubConnection{Origin: *c.Origin, Enabled: *c.Enabled, LegacyOrigin: c.LegacyOrigin})
+	}
+	if err := validateHubRegistry(r.state); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// JSON's ordinary decoder accepts duplicate keys, including duplicate consent
+// fields. Reject them before decoding so the registry has one interpretation.
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	var readValue func() error
+	readValue = func() error {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			if token == nil {
+				return errors.New("null registry value")
+			}
+			return nil
+		}
+		switch delim {
+		case '{':
+			seen := map[string]bool{}
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok || seen[key] {
+					return errors.New("duplicate JSON key")
+				}
+				seen[key] = true
+				if err := readValue(); err != nil {
+					return err
+				}
+			}
+		case '[':
+			for decoder.More() {
+				if err := readValue(); err != nil {
+					return err
+				}
+			}
+		default:
+			return errors.New("invalid JSON delimiter")
+		}
+		_, err = decoder.Token()
+		return err
+	}
+	if err := readValue(); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return errors.New("trailing JSON")
+	}
+	return nil
+}
+
+func validateHubRegistry(state hubRegistryState) error {
+	invalid := errors.New("invalid Hub connection registry")
+	if state.Version != hubRegistryVersion || state.Primary == "" || len(state.Connections) == 0 || len(state.Connections) > 100 {
+		return invalid
+	}
+	seen := make(map[string]bool, len(state.Connections))
+	for _, c := range state.Connections {
+		origin, err := canonicalRegistryOrigin(c.Origin)
+		if err != nil || origin != c.Origin || seen[origin] {
+			return invalid
+		}
+		if c.LegacyOrigin != "" {
+			legacy, err := canonicalRegistryOrigin(c.LegacyOrigin)
+			if err != nil || legacy != c.Origin || c.Origin != state.Primary {
+				return invalid
+			}
+		}
+		if c.LegacyOrigin == "" && !strings.HasPrefix(c.Origin, "https://") {
+			return invalid
+		}
+		seen[origin] = true
+	}
+	if !seen[state.Primary] {
+		return invalid
+	}
+	return nil
+}
+
+func (r *hubRegistry) snapshot() hubRegistryState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.state
+	state.Connections = append([]hubConnection(nil), state.Connections...)
+	return state
+}
+
+// addPrimary is for an explicitly approved and successfully paired first Hub.
+// Authority never moves to another connection automatically.
+func (r *hubRegistry) addPrimary(raw string) error {
+	origin, err := canonicalRegistryOrigin(raw)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(origin, "https://") {
+		return errors.New("new Hub requires HTTPS")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.state.Primary != "" {
+		return errors.New("primary Hub already exists")
+	}
+	return r.publish(hubRegistryState{Version: hubRegistryVersion, Primary: origin, Connections: []hubConnection{{Origin: origin, Enabled: true}}})
+}
+
+// addSecondary records a destination disabled; it does not authorize sync.
+func (r *hubRegistry) addSecondary(raw string) error {
+	origin, err := canonicalRegistryOrigin(raw)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(origin, "https://") {
+		return errors.New("secondary Hub requires HTTPS")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.state.Primary == "" {
+		return errors.New("primary Hub required")
+	}
+	for _, c := range r.state.Connections {
+		if c.Origin == origin {
+			return errors.New("Hub already exists")
+		}
+	}
+	next := r.state
+	next.Connections = append(append([]hubConnection(nil), r.state.Connections...), hubConnection{Origin: origin})
+	return r.publish(next)
+}
+
+// setEnabled records an explicit user action; the caller must also verify
+// pairing and consent before passing true. It never changes primary authority.
+func (r *hubRegistry) setEnabled(raw string, enabled bool) error {
+	origin, err := canonicalRegistryOrigin(raw)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	next := r.state
+	next.Connections = append([]hubConnection(nil), r.state.Connections...)
+	for i := range next.Connections {
+		if next.Connections[i].Origin == origin {
+			next.Connections[i].Enabled = enabled
+			return r.publish(next)
+		}
+	}
+	return errors.New("unknown Hub")
+}
+
+func (r *hubRegistry) publish(next hubRegistryState) error {
+	if err := validateHubRegistry(next); err != nil {
+		return err
+	}
+	committed, err := r.save(next)
+	if committed {
+		r.state = next
+	}
+	return err
+}
+
+func (r *hubRegistry) save(state hubRegistryState) (bool, error) {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return false, err
+	}
+	committed, err := r.write(r.dir, data)
+	if !committed && err == nil {
+		return false, errors.New("Hub registry was not committed")
+	}
+	return committed, err
+}
