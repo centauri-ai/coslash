@@ -10,8 +10,10 @@ export function useDirectedHandoffs() {
   const refresh = useCallback(async () => {
     const current = ++requestId.current;
     inFlight.current += 1;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await apiFetch('/api/directed-handoffs', { signal: AbortSignal.timeout(10_000) });
+      const response = await apiFetch('/api/directed-handoffs', { signal: controller.signal });
       if (!response.ok) throw new Error(`Could not load handoffs (${response.status})`);
       const body = (await response.json()) as { handoffs: DirectedHandoff[] };
       if (current === requestId.current) {
@@ -19,9 +21,11 @@ export function useDirectedHandoffs() {
         setError(null);
       }
     } catch (failure) {
-      if (current === requestId.current)
-        setError(failure instanceof Error ? failure.message : String(failure));
+      if (current !== requestId.current) return;
+      if (controller.signal.aborted) setError('Could not load handoffs (timed out)');
+      else setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
+      clearTimeout(timeout);
       inFlight.current -= 1;
     }
   }, []);
