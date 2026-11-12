@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
 import { waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
@@ -287,6 +287,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const foregroundKey = useRef<string | null>(null);
   const [sessionsVersion, setSessionsVersion] = useState(0);
   const [synthesisCostVersion, setSynthesisCostVersion] = useState<string | null>(null);
 
@@ -294,6 +296,9 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     const controller = new AbortController();
     let authenticationFailed = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    // A programmatic refresh reloads in the background, so a failure keeps the
+    // last good list. A new time window or an explicit retry is a foreground load.
+    const key = `${localWindow}|${remoteWindow}|${retryCount}`;
 
     const scheduleRefresh = (delay = REFRESH_INTERVAL_MS) => {
       refreshTimer = setTimeout(() => load(true), delay);
@@ -318,6 +323,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         })
         .then((payload) => {
           if (controller.signal.aborted) return;
+          foregroundKey.current = key;
           setSessions(payload.sessions);
           setMachines(payload.machines);
           setSynthesisCostVersion(payload.synthesisCostVersion);
@@ -350,12 +356,12 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         });
     };
 
-    load(false);
+    load(key === foregroundKey.current);
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
       controller.abort();
     };
-  }, [localWindow, remoteWindow, retryCount]);
+  }, [localWindow, remoteWindow, retryCount, refreshCount]);
 
   const remoteRefreshing = remoteRefreshInProgress(machines);
 
@@ -370,7 +376,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         );
         // Remote collection has reached a final state, so reload its sessions
         // rather than waiting for the normal background refresh.
-        setRetryCount((count) => count + 1);
+        setRefreshCount((count) => count + 1);
       })
       .catch(() => {});
     return () => {
@@ -384,7 +390,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     setRetryCount((key) => key + 1);
   };
 
-  const refreshSessions = () => setRetryCount((key) => key + 1);
+  const refreshSessions = () => setRefreshCount((count) => count + 1);
 
   const refreshSessionsNow = async (): Promise<Session[]> => {
     const response = await apiFetch(
