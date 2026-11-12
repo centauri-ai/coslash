@@ -34,6 +34,8 @@ import {
   initialSettingsDraft,
   requiresFirstRunConsent,
   shouldPromptForSynthesisConsent,
+  type CoslashSettings,
+  type RemoteOwnershipAction,
 } from '@/pages/coslash/lib/settings';
 import type { TimeWindow } from '@/pages/coslash/lib/time-window';
 
@@ -248,10 +250,10 @@ export function CoslashPage() {
     if (diagnosticsOpen) refreshDiagnostics();
   };
 
-  const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
-    const ok = await settingsState.save(...args);
+  const saveSettings = async (settings: CoslashSettings, remoteOwnershipAction?: RemoteOwnershipAction) => {
+    const ok = await settingsState.save(settings, remoteOwnershipAction);
     if (ok) {
-      if (args[0].remote?.enabled) handleRemoteRetry();
+      if (settings.remote?.enabled) handleRemoteRetry();
       else handleRemoteConnectionVerified();
     }
     return ok;

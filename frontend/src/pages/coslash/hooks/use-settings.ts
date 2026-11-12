@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/pages/coslash/lib/api';
 import {
   decodeSettingsResponse,
@@ -19,6 +19,16 @@ export function useSettings() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // Saves run one at a time, so a queued save builds on the newest response.
+  const responseRef = useRef<SettingsResponse | null>(null);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingSaves = useRef(0);
+  const saveAttempt = useRef(0);
+
+  const commitResponse = (next: SettingsResponse | null) => {
+    responseRef.current = next;
+    setResponse(next);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -29,7 +39,7 @@ export function useSettings() {
       })
       .then((loaded) => {
         if (controller.signal.aborted) return;
-        setResponse(loaded);
+        commitResponse(loaded);
         setIsLoading(false);
       })
       .catch((error: unknown) => {
@@ -51,7 +61,7 @@ export function useSettings() {
         const loaded = decodeSettingsResponse(await result.json());
         if (controller.signal.aborted) return;
         // A discovery response must never overwrite a save completed in the meantime.
-        setResponse((current) => current && { ...current, options: loaded.options });
+        commitResponse(responseRef.current && { ...responseRef.current, options: loaded.options });
         if (!loaded.options.refreshing) return;
       } catch {
         if (controller.signal.aborted) return;
@@ -65,27 +75,39 @@ export function useSettings() {
     };
   }, [response?.options.refreshing]);
 
-  const save = async (
-    settings: CoslashSettings,
+  const save = (
+    next: CoslashSettings | ((current: SettingsResponse) => CoslashSettings),
     remoteOwnershipAction?: RemoteOwnershipAction,
   ): Promise<boolean> => {
+    const attempt = ++saveAttempt.current;
+    pendingSaves.current += 1;
     setIsSaving(true);
     setSaveError(null);
-    try {
-      const result = await apiFetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: settingsForSave(settings), remoteOwnershipAction }),
-      });
-      if (!result.ok) throw new Error(await readError(result));
-      setResponse(decodeSettingsResponse(await result.json()));
-      setIsSaving(false);
-      return true;
-    } catch (error: unknown) {
-      setSaveError(error instanceof Error ? error.message : String(error));
-      setIsSaving(false);
-      return false;
-    }
+    const run = async () => {
+      try {
+        const current = responseRef.current;
+        if (!current) throw new Error('Settings are not loaded.');
+        const settings = typeof next === 'function' ? next(current) : next;
+        const result = await apiFetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings: settingsForSave(settings), remoteOwnershipAction }),
+        });
+        if (!result.ok) throw new Error(await readError(result));
+        commitResponse(decodeSettingsResponse(await result.json()));
+        return true;
+      } catch (error: unknown) {
+        if (attempt === saveAttempt.current)
+          setSaveError(error instanceof Error ? error.message : String(error));
+        return false;
+      } finally {
+        pendingSaves.current -= 1;
+        if (pendingSaves.current === 0) setIsSaving(false);
+      }
+    };
+    const result = saveQueue.current.then(run);
+    saveQueue.current = result;
+    return result;
   };
 
   return { response, isLoading, loadError, saveError, isSaving, save };

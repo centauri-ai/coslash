@@ -123,3 +123,57 @@ it('aborts and ignores an in-flight poll when unmounted', async () => {
   expect(apiFetch).toHaveBeenCalledTimes(2);
   root = createRoot(document.createElement('div'));
 });
+
+it('runs overlapping saves one at a time and stays saving until both end', async () => {
+  const first = deferred();
+  const second = deferred();
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(settings(false)))
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  await mount();
+  const base = settings(false).settings;
+  let saves: Promise<boolean>[] = [];
+  await act(async () => {
+    saves = [state.save(base), state.save(base)];
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+  expect(state.isSaving).toBe(true);
+  await act(async () => first.resolve(response(settings(false))));
+  expect(apiFetch).toHaveBeenCalledTimes(3);
+  expect(state.isSaving).toBe(true);
+  await act(async () => second.resolve(response(settings(false))));
+  expect(state.isSaving).toBe(false);
+  await expect(Promise.all(saves)).resolves.toEqual([true, true]);
+});
+
+it('gives a queued updater the response of the save before it', async () => {
+  const enabled = settings(false);
+  enabled.settings.synthesis.enabled = true;
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(settings(false)))
+    .mockResolvedValueOnce(response(enabled))
+    .mockResolvedValueOnce(response(enabled));
+  await mount();
+  await act(async () => {
+    void state.save(enabled.settings);
+    await state.save((current) => ({ ...current.settings, appearance: { theme: 'dark' } }));
+  });
+  const body = JSON.parse(vi.mocked(apiFetch).mock.calls[2][1]?.body as string);
+  expect(body.settings.synthesis.enabled).toBe(true);
+  expect(body.settings.appearance.theme).toBe('dark');
+});
+
+it('reports a save error only for the newest save', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(settings(false)))
+    .mockResolvedValueOnce(new Response('disk full', { status: 500 }))
+    .mockResolvedValueOnce(response(settings(false)));
+  await mount();
+  const base = settings(false).settings;
+  await act(async () => {
+    expect(await Promise.all([state.save(base), state.save(base)])).toEqual([false, true]);
+  });
+  expect(state.saveError).toBeNull();
+  expect(state.isSaving).toBe(false);
+});

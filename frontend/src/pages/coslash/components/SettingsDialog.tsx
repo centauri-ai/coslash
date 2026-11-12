@@ -212,7 +212,6 @@ export function SettingsDialog({
   const synthesisSelectionEdited = useRef(false);
   const discoveryReconciled = useRef(false);
   const openAttempt = useRef(0);
-  const saveChain = useRef(Promise.resolve());
   const draftRef = useRef(draft);
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent';
@@ -252,18 +251,6 @@ export function SettingsDialog({
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
   const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
 
-  const saveSettings = useCallback(
-    (next: CoslashSettings, ownershipAction?: RemoteOwnershipAction) => {
-      const pending = saveChain.current.then(() => onSave(next, ownershipAction));
-      saveChain.current = pending.then(
-        () => undefined,
-        () => undefined,
-      );
-      return pending;
-    },
-    [onSave],
-  );
-
   useEffect(() => {
     if (
       !firstRunDraftAwaitingDiscovery.current ||
@@ -288,13 +275,13 @@ export function SettingsDialog({
       synthesis: { ...current.synthesis, backend: availableBackend.id, model },
     };
     updateDraft(next);
-    if (response.persisted) void saveSettings(next);
-  }, [isSaving, response, saveSettings, updateDraft]);
+    if (response.persisted) void onSave(next);
+  }, [isSaving, onSave, response, updateDraft]);
 
   const save = async () => {
     if (!draft || !synthesisBackendAvailable) return;
     const attempt = openAttempt.current;
-    if ((await saveSettings(draft)) && attempt === openAttempt.current) {
+    if ((await onSave(draft)) && attempt === openAttempt.current) {
       setTheme(draft.appearance.theme);
       onOpenChange(false);
     }
@@ -304,18 +291,18 @@ export function SettingsDialog({
     (next: CoslashSettings) => {
       updateDraft(next);
       if (requiresConsent) return;
-      void saveSettings(next).then((saved) => {
+      void onSave(next).then((saved) => {
         if (saved) setTheme(next.appearance.theme);
       });
     },
-    [requiresConsent, saveSettings, updateDraft],
+    [onSave, requiresConsent, updateDraft],
   );
 
   const addRemoteHost = async (sshAlias: string) => {
     const currentDraft = draftRef.current;
     if (!currentDraft) return false;
     const next = { ...currentDraft, remote: { sshAlias, enabled: true } };
-    const saved = await saveSettings(next);
+    const saved = await onSave(next);
     if (saved) updateDraft(next);
     return saved;
   };
@@ -325,7 +312,7 @@ export function SettingsDialog({
     if (!currentDraft) return false;
     const { remote: _removed, ...next } = currentDraft;
     const nextDraft = { ...next, remote: null };
-    const saved = await saveSettings(nextDraft, 'release');
+    const saved = await onSave(nextDraft, 'release');
     if (saved) updateDraft(nextDraft);
     return saved;
   };

@@ -70,7 +70,6 @@ it('keeps first-run settings usable when discovery remains in progress', async (
       }),
       syncPaused: true,
     }),
-    undefined,
   );
 
   await act(async () =>
@@ -83,7 +82,6 @@ it('keeps first-run settings usable when discovery remains in progress', async (
         model: 'gpt-6-luna',
       }),
     }),
-    undefined,
   );
 
   await act(async () => root.unmount());
