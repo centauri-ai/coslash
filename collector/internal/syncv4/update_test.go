@@ -281,6 +281,31 @@ func TestConfirmUpdateHandoffRefusesFailed(t *testing.T) {
 	}
 }
 
+func TestReconcileUpdateClearsReportedFailedLegacyAttempt(t *testing.T) {
+	now := time.Now().UTC()
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "10000000-0000-4000-8000-000000000001"
+	acceptTestUpdate(t, q, id, "1.2.4", now.Add(-time.Hour), now, true)
+	if err = q.SetUpdateStage(id, "failed", "update_failed"); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.ReconcileUpdate("1.2.4", nil, []hubclient.V4CommandResult{{CommandID: id, Result: "failed"}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if q.PendingUpdate() == nil {
+		t.Fatal("cleared a failed legacy attempt before an update-aware Hub accepted its report")
+	}
+	if err = q.ReconcileUpdate("1.2.4", nil, []hubclient.V4CommandResult{{CommandID: id, Result: "failed"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.PendingUpdate(); got != nil {
+		t.Fatalf("reported failed legacy attempt kept: %+v", got)
+	}
+}
+
 func failedUpdateQueue(t *testing.T, now time.Time, expiry time.Time) *Queue {
 	t.Helper()
 	q, err := Open(t.TempDir())

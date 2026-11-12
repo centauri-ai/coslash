@@ -214,7 +214,7 @@ func (q *Queue) ReconcileUpdate(current string, delivered []hubclient.V4Command,
 	if u.Stage == "failed" && (!failureSent || !updateAware) {
 		return nil
 	}
-	if u.LegacySettlement && (!u.HandoffReady || !completionSent || !updateAware) {
+	if u.LegacySettlement && u.Stage != "failed" && (!u.HandoffReady || !completionSent || !updateAware) {
 		return nil
 	}
 	if u.Stage != "failed" && current == u.TargetVersion && (!u.HandoffReady || !completionSent || !updateAware) {
