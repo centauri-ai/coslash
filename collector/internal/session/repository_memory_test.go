@@ -68,3 +68,17 @@ func TestRemovedFolderKeepsRememberedRepository(t *testing.T) {
 		t.Fatalf("memory off: %q localOnly = %v", name, localOnly)
 	}
 }
+
+func TestNullRepositoryMemoryInitializesMap(t *testing.T) {
+	t.Cleanup(func() { UseRepositoryMemory("") })
+	path := filepath.Join(t.TempDir(), "repositories.json")
+	if err := os.WriteFile(path, []byte("null"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	UseRepositoryMemory(path)
+	RememberRepository("/worktree", "github.com/acme/coslash")
+	if got := RememberedRepository("/worktree"); got != "github.com/acme/coslash" {
+		t.Fatalf("remembered repository = %q", got)
+	}
+}

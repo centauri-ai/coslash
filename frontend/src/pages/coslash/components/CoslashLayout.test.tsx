@@ -547,6 +547,29 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('>Local · ');
   });
 
+  it('keeps saved task-folder filters active after grouping Codex tasks together', () => {
+    const stored = JSON.stringify({
+      groupFilters: ['folder:local:/users/milan/documents/codex/2026-10-21/can-x20'],
+    });
+    vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
+    const local = (id: string, name: string, cwd: string, repo: string) =>
+      session({ id, name, sourceId: 'local', cwd, repo, repoLocalOnly: true });
+
+    const markup = renderLayout({
+      sessions: [
+        local('task-1', 'Task One', '/Users/milan/Documents/Codex/2026-10-21/can-x20', 'can-x20'),
+        local('task-2', 'Task Two', '/Users/milan/Documents/Codex/2026-10-22/other/src', 'other'),
+        local('outside', 'Other Project', '/Users/milan/work/app', 'app'),
+      ],
+      range: 'all',
+    });
+
+    expect(markup).toContain('Task One');
+    expect(markup).toContain('Task Two');
+    expect(markup).not.toContain('Other Project');
+    expect(markup).toContain('>~/Documents/Codex<');
+  });
+
   it.each([{ repo: 'org/coslash' }, { cwd: '/workspace/coslash' }])(
     'shows the table location as text without a group-filter button: %j',
     (location) => {

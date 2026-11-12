@@ -55,7 +55,7 @@ func (target sshTarget) gitFacts(ctx context.Context, cwds []string) map[string]
 // One line because csh and tcsh reject a newline inside the quotes for sh -c.
 // Stripping control characters, tabs included, from the URL and branch stops
 // one checkout from forging another index's record.
-const originProbeScript = `set +e; export GIT_TERMINAL_PROMPT=0; i=0; while IFS= read -r cwd || [ -n "$cwd" ]; do url=$(git -C "$cwd" remote get-url origin 2>/dev/null | tr -d "[:cntrl:]"); branch=$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null | tr -d "[:cntrl:]"); printf "%s\t%s\t%s\n" "$i" "$url" "$branch"; i=$((i + 1)); done`
+const originProbeScript = `set +e; export GIT_TERMINAL_PROMPT=0 LC_ALL=C; i=0; while IFS= read -r cwd || [ -n "$cwd" ]; do url=$(git -C "$cwd" remote get-url origin 2>/dev/null | tr -d "[:cntrl:]"); branch=$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null | head -c 281 | tr -d "[:cntrl:]"); if [ "${#branch}" -gt 280 ]; then branch=; fi; printf "%s\t%s\t%s\n" "$i" "$url" "$branch"; i=$((i + 1)); done`
 
 func parseOriginProbeOutput(cwds []string, output string) map[string]remoteGit {
 	found := map[string]remoteGit{}
@@ -114,22 +114,33 @@ func (target sshTarget) run(ctx context.Context, remoteCommand string, limit int
 	return string(buf), nil
 }
 
-// repairRemoteDisplay fills a missing repository and branch from Git on the
-// host, else the repository last read for that source and directory. It copies
-// sessions before editing so a failed validation leaves the cached family
-// unchanged.
+// repairRemoteDisplay fills missing repositories and refreshes branch facts
+// from Git on the host, else the repository last read for that source and
+// directory. It copies sessions before editing so a failed validation leaves
+// the cached family unchanged.
 func repairRemoteDisplay(ctx context.Context, snapshot *CachedSnapshotV2, sourceID string, lookup func(context.Context, []string) map[string]remoteGit) {
 	cwds := []string{}
+	refresh := []string{}
 	seen := map[string]bool{}
 	for _, family := range snapshot.Families {
 		for _, item := range family.Facts.Sessions {
 			cwd := item.Display.WorkingDirectory
-			if cwd == "" || (hasRepository(item.Display) && hasBranchName(item)) || seen[cwd] {
+			if cwd == "" || seen[cwd] {
 				continue
 			}
 			seen[cwd] = true
-			cwds = append(cwds, cwd)
+			if hasRepository(item.Display) && hasBranchName(item) {
+				refresh = append(refresh, cwd)
+			} else {
+				cwds = append(cwds, cwd)
+			}
 		}
+	}
+	if len(cwds) < maxOriginProbes {
+		cwds = append(cwds, refresh[:min(len(refresh), maxOriginProbes-len(cwds))]...)
+	}
+	if len(cwds) > maxOriginProbes {
+		cwds = cwds[:maxOriginProbes]
 	}
 	if len(cwds) == 0 {
 		return
@@ -148,7 +159,7 @@ func repairRemoteDisplay(ctx context.Context, snapshot *CachedSnapshotV2, source
 				facts.origin = session.RememberedRepository(sourceID + "\x00" + cwd)
 			}
 			setRepository := facts.origin != "" && !hasRepository(item.Display)
-			setBranch := facts.branch != "" && !hasBranchName(item)
+			setBranch := facts.branch != "" && item.Branch != facts.branch
 			if !setRepository && !setBranch {
 				continue
 			}
