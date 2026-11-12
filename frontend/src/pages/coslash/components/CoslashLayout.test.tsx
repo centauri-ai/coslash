@@ -549,7 +549,7 @@ describe('CoslashLayout', () => {
 
   it('keeps saved task-folder filters active after grouping Codex tasks together', () => {
     const stored = JSON.stringify({
-      groupFilters: ['folder:local:/users/milan/documents/codex/2026-10-21/can-x20'],
+      groupFilters: ['folder:local:/users/milan/documents/codex/2026-10-22/other'],
     });
     vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
     const local = (id: string, name: string, cwd: string, repo: string) =>
@@ -559,6 +559,7 @@ describe('CoslashLayout', () => {
       sessions: [
         local('task-1', 'Task One', '/Users/milan/Documents/Codex/2026-10-21/can-x20', 'can-x20'),
         local('task-2', 'Task Two', '/Users/milan/Documents/Codex/2026-10-22/other/src', 'other'),
+        local('task-3', 'Task Three', '/Users/milan/Documents/Codex/2026-10-23/another', 'another'),
         local('outside', 'Other Project', '/Users/milan/work/app', 'app'),
       ],
       range: 'all',
@@ -566,6 +567,7 @@ describe('CoslashLayout', () => {
 
     expect(markup).toContain('Task One');
     expect(markup).toContain('Task Two');
+    expect(markup).toContain('Task Three');
     expect(markup).not.toContain('Other Project');
     expect(markup).toContain('>~/Documents/Codex<');
   });

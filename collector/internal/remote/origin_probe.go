@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	maxOriginProbes     = 64
-	maxOriginProbeBytes = 32 << 10
-	sshProbeTimeout     = 15 * time.Second
+	maxOriginProbes          = 64
+	maxOriginProbeBytes      = 32 << 10
+	maxOriginProbeEntryBytes = maxOriginProbeBytes / maxOriginProbes
+	sshProbeTimeout          = 15 * time.Second
 )
 
 func probeableGitCwd(cwd string) bool {
@@ -45,7 +46,7 @@ func (target sshTarget) gitFacts(ctx context.Context, cwds []string) map[string]
 	if len(safe) == 0 {
 		return map[string]remoteGit{}
 	}
-	output, err := target.run(ctx, "sh -c "+shellQuote(originProbeScript), maxOriginProbeBytes, strings.Join(safe, "\n")+"\n")
+	output, err := target.run(ctx, "sh -c "+shellQuote(originProbeScript()), maxOriginProbeBytes, strings.Join(safe, "\n")+"\n")
 	if err != nil {
 		return map[string]remoteGit{}
 	}
@@ -54,8 +55,11 @@ func (target sshTarget) gitFacts(ctx context.Context, cwds []string) map[string]
 
 // One line because csh and tcsh reject a newline inside the quotes for sh -c.
 // Stripping control characters, tabs included, from the URL and branch stops
-// one checkout from forging another index's record.
-const originProbeScript = `set +e; export GIT_TERMINAL_PROMPT=0 LC_ALL=C; i=0; while IFS= read -r cwd || [ -n "$cwd" ]; do url=$(git -C "$cwd" remote get-url origin 2>/dev/null | tr -d "[:cntrl:]"); branch=$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null | head -c 281 | tr -d "[:cntrl:]"); if [ "${#branch}" -gt 280 ]; then branch=; fi; printf "%s\t%s\t%s\n" "$i" "$url" "$branch"; i=$((i + 1)); done`
+// one checkout from forging another index's record. Each framed row gets one
+// share of the response ceiling, with branch output yielding to the origin.
+func originProbeScript() string {
+	return `set +e; export GIT_TERMINAL_PROMPT=0 LC_ALL=C; entry_budget=` + strconv.Itoa(maxOriginProbeEntryBytes) + `; i=0; while IFS= read -r cwd || [ -n "$cwd" ]; do url=$(git -C "$cwd" remote get-url origin 2>/dev/null | tr -d "[:cntrl:]" | head -c "$((entry_budget + 1))"); if [ "${#url}" -gt "$entry_budget" ]; then url=; fi; branch=$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null | head -c 281 | tr -d "[:cntrl:]"); if [ "${#branch}" -gt 280 ]; then branch=; fi; entry_limit=$((entry_budget - ${#i} - 3)); if [ "${#url}" -gt "$entry_limit" ]; then url=; fi; branch_limit=$((entry_limit - ${#url})); if [ "${#branch}" -gt "$branch_limit" ]; then branch=; fi; printf "%s\t%s\t%s\n" "$i" "$url" "$branch"; i=$((i + 1)); done`
+}
 
 func parseOriginProbeOutput(cwds []string, output string) map[string]remoteGit {
 	found := map[string]remoteGit{}

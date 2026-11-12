@@ -83,7 +83,7 @@ func TestOriginProbeScriptDropsInjectedRecords(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(payload), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "-c", originProbeScript)
+	cmd := exec.Command("sh", "-c", originProbeScript())
 	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd.Stdin = strings.NewReader("/home/dev/my repo\n/home/dev/other\n")
 	output, err := cmd.Output()
@@ -125,7 +125,7 @@ esac
 	for i := range cwds {
 		cwds[i] = "/home/dev/repo-" + strconv.Itoa(i)
 	}
-	cmd := exec.Command("sh", "-c", originProbeScript)
+	cmd := exec.Command("sh", "-c", originProbeScript())
 	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd.Stdin = strings.NewReader(strings.Join(cwds, "\n") + "\n")
 	output, err := cmd.Output()
@@ -140,6 +140,77 @@ esac
 		if found[cwd].origin != "github.com/o/r" || found[cwd].branch != "" {
 			t.Fatalf("facts[%q] = %#v", cwd, found[cwd])
 		}
+	}
+}
+
+func TestOriginProbeScriptBoundsAggregateOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("validates a script executed by the remote POSIX shell")
+	}
+	url := "https://github.com/o/" + strings.Repeat("r", 240-len("https://github.com/o/"))
+	branch := strings.Repeat("x", 280)
+	bin := t.TempDir()
+	fake := filepath.Join(bin, "git")
+	payload := "#!/bin/sh\ncase \"$*\" in\n  *\"remote get-url\"*) printf '%s\\n' '" + url + "' ;;\n  *\"symbolic-ref\"*) printf '%s\\n' '" + branch + "' ;;\nesac\n"
+	if err := os.WriteFile(fake, []byte(payload), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cwds := make([]string, maxOriginProbes)
+	for i := range cwds {
+		cwds[i] = "/home/dev/repo-" + strconv.Itoa(i)
+	}
+	cmd := exec.Command("sh", "-c", originProbeScript())
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Stdin = strings.NewReader(strings.Join(cwds, "\n") + "\n")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBytes := 0
+	for i := range cwds {
+		wantBytes += len(strconv.Itoa(i)) + len(url) + 3
+	}
+	if len(output) != wantBytes || len(output) > maxOriginProbeBytes {
+		t.Fatalf("output length=%d, want %d and at most %d", len(output), wantBytes, maxOriginProbeBytes)
+	}
+	found := parseOriginProbeOutput(cwds, string(output))
+	wantOrigin := session.CanonicalOriginURL(url)
+	if len(found) != len(cwds) {
+		t.Fatalf("facts=%d, want %d", len(found), len(cwds))
+	}
+	for _, cwd := range cwds {
+		facts := found[cwd]
+		if facts.origin != wantOrigin || facts.branch != "" {
+			t.Fatalf("facts[%q] = %#v", cwd, facts)
+		}
+	}
+}
+
+func TestOriginProbeScriptIncludesBranchWithinBudget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("validates a script executed by the remote POSIX shell")
+	}
+	bin := t.TempDir()
+	fake := filepath.Join(bin, "git")
+	payload := `#!/bin/sh
+case "$*" in
+  *"remote get-url"*) printf 'https://github.com/o/r\n' ;;
+  *"symbolic-ref"*) printf 'codex/test\n' ;;
+esac
+`
+	if err := os.WriteFile(fake, []byte(payload), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cwd := "/home/dev/repo"
+	cmd := exec.Command("sh", "-c", originProbeScript())
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Stdin = strings.NewReader(cwd + "\n")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parseOriginProbeOutput([]string{cwd}, string(output))[cwd]; got != (remoteGit{"github.com/o/r", "codex/test"}) {
+		t.Fatalf("facts = %#v", got)
 	}
 }
 
