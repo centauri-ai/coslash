@@ -52,7 +52,7 @@ Package and directory level only. Each line names what the unit owns.
 
 - `components/ui` - shared UI primitives (Radix and shadcn based).
 - `lib` - app-wide helpers (theme, class names).
-- `pages/coslash` - the coSlash app: `components` for views and dialogs, `features/sharing` and `features/full-sharing` for share flows, `hooks` for data loading, and `lib` for product logic (identity, grouping, search, API client).
+- `pages/coslash` - the coSlash app: `components` for views and dialogs, `features/sync` for Hub sync status, `hooks` for data loading, and `lib` for product logic (identity, grouping, search, API client).
 - `styles` - base stylesheet and design tokens.
 
 ### Plugins (`plugins/coslash`)
