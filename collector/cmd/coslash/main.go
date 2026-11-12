@@ -363,8 +363,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
 	}
+	primaryRuntime, selectedHub, err := newPrimaryHubRuntime(hub, controller, collectorVersion, func() bool { return settingsStore.State().Config.SyncPaused })
+	if err != nil {
+		log.Fatalf("coslash: initialize primary Hub: %v", err)
+	}
+	hub = selectedHub
 	onboardings.SetV4SyncActive(controller.Queue() != nil)
-	onboardings.setSyncHooks(controller)
+	onboardings.setSyncHooks(primaryRuntime)
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	shutdownRequests := make(chan struct{}, 1)
 	updateRequests := make(chan struct{}, 1)
@@ -372,7 +377,7 @@ func main() {
 	settingsOptions := newSettingsOptionsCache()
 	defer settingsOptions.close()
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests, updateRequests: updateRequests})
+		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, hubWorkers: primaryRuntime.workers, shutdown: shutdownRequests, updateRequests: updateRequests})
 	onboardings.ensureSync(hub)
 	shutdownComplete := make(chan error, 1)
 	var shutdownOnce sync.Once
@@ -736,6 +741,7 @@ type serverServices struct {
 	directedStore   *directedhandoff.Store
 	onboardings     *onboardingManager
 	syncController  *syncController
+	hubWorkers      *hubWorkerSupervisor
 	shutdown        chan struct{}
 	updateRequests  chan struct{}
 	settingsOptions *settingsOptionsCache
@@ -774,9 +780,19 @@ func newServer(
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
 	server.RegisterOnShutdown(stopSends)
-	server.RegisterOnShutdown(service.onboardings.Close)
-	if service.syncController != nil {
-		server.RegisterOnShutdown(service.syncController.Stop)
+	if service.hubWorkers != nil {
+		server.RegisterOnShutdown(func() {
+			service.onboardings.Close()
+			service.hubWorkers.StopAll()
+			if service.syncController != nil {
+				service.syncController.Stop()
+			}
+		})
+	} else {
+		server.RegisterOnShutdown(service.onboardings.Close)
+		if service.syncController != nil {
+			server.RegisterOnShutdown(service.syncController.Stop)
+		}
 	}
 	if service.directedStore != nil {
 		server.RegisterOnShutdown(service.directedStore.Shutdown)
@@ -876,7 +892,11 @@ func routesWithOnboarding(
 		wasPaused := settingsStore.State().Config.SyncPaused
 		handleSaveSettings(w, r, settingsStore, mgr, remoteManager, service.settingsOptions)
 		if service.syncController != nil && wasPaused != settingsStore.State().Config.SyncPaused {
-			service.syncController.RequestPass("settings")
+			if service.hubWorkers != nil {
+				service.hubWorkers.WakeAll()
+			} else {
+				service.syncController.RequestPass("settings")
+			}
 		}
 	})
 	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {

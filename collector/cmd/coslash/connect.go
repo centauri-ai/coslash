@@ -367,6 +367,9 @@ func (m *onboardingManager) StartConnectCode(rawHubURL, code string) (string, er
 			origin = current.BaseURL.String()
 		}
 	}
+	if err := m.checkPrimaryTarget(origin); err != nil {
+		return "", err
+	}
 	hubURL, _ := url.Parse(origin)
 	client, err := hubClientForURL(m.version, hubURL.String())
 	if err != nil {

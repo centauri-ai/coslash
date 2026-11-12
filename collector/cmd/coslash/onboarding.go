@@ -96,6 +96,9 @@ func (m *onboardingManager) StartPairing(rawHubURL, attemptID, launchIntent stri
 }
 
 func (m *onboardingManager) startPairing(origin, attemptID, launchIntent string) error {
+	if err := m.checkPrimaryTarget(origin); err != nil {
+		return err
+	}
 	hubURL, _ := url.Parse(origin)
 	client, err := hubClientForURL(m.version, hubURL.String())
 	if err != nil {
@@ -306,6 +309,9 @@ func (m *onboardingManager) RetryCheckIn(rawHubURL string) error {
 }
 
 func (m *onboardingManager) checkIn(origin string) error {
+	if err := m.checkPrimaryTarget(origin); err != nil {
+		return err
+	}
 	hubURL, _ := url.Parse(origin)
 	client, err := hubClientForURL(m.version, hubURL.String())
 	if err != nil {
@@ -339,6 +345,16 @@ func (m *onboardingManager) checkIn(origin string) error {
 		return errors.New("Local could not check in with Hub")
 	}
 	m.startLegacyCheckIns(client)
+	return nil
+}
+
+func (m *onboardingManager) checkPrimaryTarget(origin string) error {
+	m.mu.Lock()
+	hooks := m.syncHooks
+	m.mu.Unlock()
+	if guard, ok := hooks.(interface{ checkPrimaryTarget(string) error }); ok {
+		return guard.checkPrimaryTarget(origin)
+	}
 	return nil
 }
 

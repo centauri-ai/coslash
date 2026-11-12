@@ -299,6 +299,21 @@ func (r *hubRegistry) addPrimary(raw string) error {
 	})
 }
 
+// adoptLegacyPrimary is called only after verifying the legacy credential and
+// the existing queue binding. It keeps the exact origin used by that binding.
+func (r *hubRegistry) adoptLegacyPrimary(raw string) error {
+	origin, err := canonicalRegistryOrigin(raw)
+	if err != nil {
+		return err
+	}
+	return r.edit(func(state hubRegistryState) (hubRegistryState, error) {
+		if state.Primary != "" {
+			return state, errors.New("primary Hub already exists")
+		}
+		return hubRegistryState{Version: hubRegistryVersion, Primary: origin, Connections: []hubConnection{{Origin: origin, Enabled: true, LegacyOrigin: raw}}}, nil
+	})
+}
+
 // addSecondary records a destination disabled; it does not authorize sync.
 func (r *hubRegistry) addSecondary(raw string) error {
 	origin, err := canonicalRegistryOrigin(raw)

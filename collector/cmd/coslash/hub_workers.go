@@ -95,17 +95,18 @@ func (slot *hubWorkerSlot) stopWorker() {
 // hubWorkerSupervisor has one independently serialized lifecycle per origin.
 // Its map lock only protects the map, never credentials, queue I/O or waits.
 type hubWorkerSupervisor struct {
-	mu       sync.Mutex
-	slots    map[string]*hubWorkerSlot
-	closed   bool
-	registry *hubRegistry
-	home     string
-	version  string
-	pause    func() bool
-	backup   sessionbackupproducer.Options
-	runner   func() *syncv4.Runner
-	client   func(hubConnection, bool) (*hubclient.Client, error)
-	poll     func(context.Context, *syncLoopControl)
+	mu          sync.Mutex
+	slots       map[string]*hubWorkerSlot
+	closed      bool
+	primaryOnly bool
+	registry    *hubRegistry
+	home        string
+	version     string
+	pause       func() bool
+	backup      sessionbackupproducer.Options
+	runner      func() *syncv4.Runner
+	client      func(hubConnection, bool) (*hubclient.Client, error)
+	poll        func(context.Context, *syncLoopControl)
 }
 
 func newHubWorkerSupervisor(registry *hubRegistry, version string, pause func() bool, backup sessionbackupproducer.Options, runner func() *syncv4.Runner) (*hubWorkerSupervisor, error) {
@@ -168,8 +169,10 @@ func (s *hubWorkerSupervisor) StartEnabled(raw string) error {
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.enabled(origin); err != nil {
+	if _, primary, err := s.enabled(origin); err != nil {
 		return err
+	} else if s.primaryOnly && !primary {
+		return errors.New("secondary Hub workers are not available")
 	}
 	s.mu.Lock()
 	if s.closed {
@@ -232,6 +235,9 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 	queueRoot, spoolRoot := filepath.Join(root, "sync-v4"), filepath.Join(root, "prepared")
 	if primary {
 		queueRoot, spoolRoot = filepath.Join(s.home, "sync-v4"), filepath.Join(s.home, "session-backups", "prepared")
+	}
+	if s.primaryOnly && slot.controller == nil {
+		return errors.New("primary worker was not adopted")
 	}
 	if slot.controller == nil {
 		var controller *syncController
