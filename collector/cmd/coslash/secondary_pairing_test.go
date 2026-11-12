@@ -361,7 +361,7 @@ func TestSecondaryPairCLIShowsDisclosureBeforeConsent(t *testing.T) {
 		t.Fatalf("disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
 	}
 	out.Reset()
-	if code := runCLI(&out, &errOut, []string{"secondary-pair", "recover", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "matches the existing queue binding") {
+	if code := runCLI(&out, &errOut, []string{"secondary-pair", "recover", "https://secondary.example"}); code != 0 || calls.Load() != 0 || !strings.Contains(out.String(), "matches the previous one") {
 		t.Fatalf("recovery disclosure exit=%d output=%s error=%s", code, out.String(), errOut.String())
 	}
 	out.Reset()

@@ -21,12 +21,12 @@ import (
 
 const secondaryDisclosure = "Pairing this Hub stores a device credential but does not authorize or start personal sync. Enabling sync requires separate consent. Workspace sharing requires separate consent."
 const secondaryEnableDisclosure = "Enabling this Hub starts sync and authorizes automatic upload of eligible personal session records, including prompts, commands and source snippets, to this destination under its policy and Local privacy settings. This consent persists across restarts. Workspace sharing requires separate consent."
-const secondaryRecoveryDisclosure = "Recovery stops this secondary and preserves its pending queue and prepared data. An approved credential that matches the existing queue binding restores it. With separate new-binding consent, a different credential may belong to another account: the old queue and spool remain quarantined on this computer and are not replayed. A fresh queue may discover eligible sessions after separately enabling sync. If the result is uncertain, check Hub status for the selected generation and quarantine count."
+const secondaryRecoveryDisclosure = "Recovery stops sync and keeps pending data on this computer. If the approved connection matches the previous one, its pending data can resume. A different connection may belong to another account. If you choose to connect it, old pending data stays on this computer and will not be sent to that account. After you separately enable sync, eligible sessions may be uploaded to the new account. If recovery is uncertain, check Hub status before trying again."
 
 func runSecondaryPairCLI(out io.Writer, args []string) error {
 	if len(args) == 2 && args[0] == "recover" {
 		fmt.Fprintln(out, secondaryRecoveryDisclosure)
-		fmt.Fprintf(out, "To recover %s, repeat with --consent. Add --new-binding-consent to quarantine old work if the binding differs.\n", args[1])
+		fmt.Fprintf(out, "To recover %s, repeat with --consent. Add --new-binding-consent to keep old pending data here and allow a different connection.\n", args[1])
 		return nil
 	}
 	if (len(args) == 3 || len(args) == 4) && args[0] == "recover" && args[2] == "--consent" && (len(args) == 3 || args[3] == "--new-binding-consent") {

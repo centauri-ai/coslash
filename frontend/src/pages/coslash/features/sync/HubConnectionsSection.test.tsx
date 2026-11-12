@@ -173,7 +173,9 @@ it('requires explicit new-binding consent, preserves errors and ignores closed a
     const path = String(input);
     if (path === '/api/hubs/status') return response([primary, { ...secondary, state: 'disconnected' }]);
     if (path === '/api/hubs/recovery-disclosure')
-      return response({ disclosure: 'The old queue and spool are quarantined and never replayed.' });
+      return response({
+        disclosure: 'Old pending data stays on this computer and will not be sent to the new account.',
+      });
     if (path === '/api/hubs/re-pairings') {
       expect(JSON.parse(String(init?.body))).toEqual({
         origin: secondary.origin,
@@ -203,7 +205,7 @@ it('requires explicit new-binding consent, preserves errors and ignores closed a
   await settle();
   await click(button('Recover pairing'));
   await settle();
-  expect(document.body.textContent).toContain('quarantined and never replayed');
+  expect(document.body.textContent).toContain('will not be sent to the new account');
   expect(button('Start recovery').disabled).toBe(true);
   await click(checkbox(0));
   await click(checkbox(1));
@@ -259,7 +261,10 @@ it('shows new-binding recovery as disabled and surfaces an enable failure', asyn
       if (path === '/api/hubs/status')
         return response([primary, { ...secondary, state: 'disconnected', quarantined }]);
       if (path.endsWith('-disclosure'))
-        return response({ disclosure: 'Old work stays quarantined; enabling sends eligible sessions.' });
+        return response({
+          disclosure:
+            'Old pending data stays on this computer; eligible sessions may upload after you enable sync.',
+        });
       if (path === '/api/hubs/re-pairings') {
         expect(JSON.parse(String(init?.body))).toEqual({
           origin: secondary.origin,
@@ -300,8 +305,8 @@ it('shows new-binding recovery as disabled and surfaces an enable failure', asyn
   await settle();
   await click(button('Check approval'));
   await settle();
-  expect(document.body.textContent).toContain('Previous work remains on this computer; sync is disabled');
-  expect(document.body.textContent).toContain('1 quarantined generation');
+  expect(document.body.textContent).toContain('Old pending data stays on this computer; sync is disabled');
+  expect(document.body.textContent).toContain('Old pending data kept on this computer (1)');
   expect(enableCalls).toBe(0);
   await click(button('Close'));
   await click(button('Enable'));

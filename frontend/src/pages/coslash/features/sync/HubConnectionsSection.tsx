@@ -36,12 +36,13 @@ const resultLabels: Record<string, string> = {
   paired_disabled: 'Paired. Sync is disabled until you separately enable it.',
   recovered_disabled: 'Recovered. Sync is disabled until you separately enable it.',
   recovered_new_binding_disabled:
-    'Recovered with a new binding. Previous work remains on this computer; sync is disabled.',
+    'Connected with a new credential. Old pending data stays on this computer; sync is disabled.',
   binding_mismatch:
-    'The approved credential does not match the saved queue. Recover again with new-binding consent to keep the old work quarantined.',
-  binding_unknown: 'The saved queue binding could not be verified. Its data has been preserved.',
-  recovery_status_unknown: 'Recovery publication is uncertain. Check the Hub status before retrying.',
-  quarantine_limit: 'The quarantine limit was reached. Existing data has been preserved.',
+    'This connection does not match the previous one and may belong to a different account. Recover again and choose to keep old pending data on this computer if you want to connect it.',
+  binding_unknown: 'The previous account could not be verified. Pending data remains on this computer.',
+  recovery_status_unknown: 'Recovery is uncertain. Check Hub status before trying again.',
+  quarantine_limit:
+    'No more old pending data can be retained for this Hub. Existing data remains on this computer.',
 };
 
 function canonicalOrigin(raw: string): string | null {
@@ -338,8 +339,7 @@ export function HubConnectionsSection() {
             <span className="font-semibold break-all">{hub.origin}</span> {hub.primary && '(Primary)'}
             <div>
               {hub.failure ? 'Connection issue' : (statusLabels[hub.state] ?? 'Unknown status')}
-              {hub.quarantined > 0 &&
-                ` · ${hub.quarantined} quarantined generation${hub.quarantined === 1 ? '' : 's'}`}
+              {hub.quarantined > 0 && ` · Old pending data kept on this computer (${hub.quarantined})`}
             </div>
             {hub.failure && <div role="alert">{hub.failure}</div>}
           </div>
@@ -486,7 +486,8 @@ export function HubConnectionsSection() {
                     checked={newBindingConsent}
                     onChange={(event) => setNewBindingConsent(event.target.checked)}
                   />
-                  Allow a different binding and quarantine the old queue and spool locally.
+                  Keep the old pending data on this computer and allow a different connection, which may
+                  belong to another account.
                 </label>
               )}
               <div className="flex flex-wrap gap-2">
