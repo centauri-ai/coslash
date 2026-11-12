@@ -125,8 +125,8 @@ func newHubWorkerSupervisor(registry *hubRegistry, version string, pause func() 
 
 func (s *hubWorkerSupervisor) clientForConnection(connection hubConnection, primary bool) (*hubclient.Client, error) {
 	origin := connection.Origin
-	if primary && connection.LegacyOrigin != "" {
-		origin = connection.LegacyOrigin
+	if primary {
+		origin = connection.clientOrigin()
 	}
 	client, err := hubClientForURL(s.version, origin)
 	if err != nil {
@@ -172,10 +172,9 @@ func (s *hubWorkerSupervisor) slot(origin string) *hubWorkerSlot {
 
 func (s *hubWorkerSupervisor) enabled(origin string) (hubConnection, bool, error) {
 	state := s.registry.snapshot()
-	for _, connection := range state.Connections {
-		if connection.Origin == origin && connection.Enabled && (origin == state.Primary || connection.SyncConsent) {
-			return connection, origin == state.Primary, nil
-		}
+	connection, ok := state.connection(origin)
+	if ok && connection.Enabled && (origin == state.Primary || connection.SyncConsent) {
+		return connection, origin == state.Primary, nil
 	}
 	return hubConnection{}, false, errors.New("Hub connection is not enabled")
 }
@@ -248,8 +247,8 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 		return err
 	}
 	expected := origin
-	if primary && connection.LegacyOrigin != "" {
-		expected = connection.LegacyOrigin
+	if primary {
+		expected = connection.clientOrigin()
 	}
 	if client == nil || client.BaseURL == nil || client.BaseURL.String() != expected || client.Credentials == nil {
 		return errors.New("Hub worker client origin mismatch")
@@ -304,15 +303,11 @@ func (s *hubWorkerSupervisor) start(slot *hubWorkerSlot, origin string, startCon
 				}()
 			}
 			control := newSyncLoopControl(func() bool { _, policy, _ := queue.Policy(); return policy.Paused || policy.DeviceOff || s.pause() })
-			go s.poll(ctx, control)
-			loop := func() {
-				runV4SyncLoopWithControl(ctx, controller.observed(runner, client), queue, controller.observedWait(client.V4Wait, client), control, wake, retry, inventoryRequest)
-			}
-			if primary {
-				controller.runWithUpdateReporter(ctx, s.version, queue, client, loop)
-			} else {
-				loop()
-			}
+			controller.runHubSyncLoop(ctx, hubSyncLoop{
+				runner: runner, queue: queue, client: client, wait: client.V4Wait,
+				control: control, poll: s.poll, wake: wake, retry: retry, inventory: inventoryRequest,
+				primary: primary, version: s.version,
+			})
 		}, s.pause)
 		if err != nil {
 			return err

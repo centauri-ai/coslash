@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -9,7 +8,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -95,106 +93,42 @@ func TestPrimaryMismatchProcessRecovery(t *testing.T) {
 	if err := store.Save(context.Background(), "wrong"); err != nil {
 		t.Fatal(err)
 	}
-	start := func() (*exec.Cmd, *bytes.Buffer, runtimeDescriptor, string) {
-		t.Helper()
-		cmd := exec.Command(os.Args[0], "-test.run=^TestPrimaryMismatchProcessRecovery$")
-		cmd.Env = append(os.Environ(), "COSLASH_TEST_MISMATCH_CHILD=1")
-		output := &bytes.Buffer{}
-		cmd.Stdout = output
-		cmd.Stderr = output
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if cmd.ProcessState == nil {
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
-			}
-		})
-		deadline := time.Now().Add(20 * time.Second)
-		for time.Now().Before(deadline) {
-			data, e1 := os.ReadFile(filepath.Join(home, "runtime.json"))
-			token, e2 := os.ReadFile(filepath.Join(home, "token"))
-			var desc runtimeDescriptor
-			if e1 == nil && e2 == nil && json.Unmarshal(data, &desc) == nil && desc.BaseURL != "" {
-				return cmd, output, desc, strings.TrimSpace(string(token))
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		t.Fatalf("Local did not start: %s", output.String())
-		return nil, nil, runtimeDescriptor{}, ""
+	start := func() *localTestProcess {
+		return startLocalTestProcess(t, home, "COSLASH_TEST_MISMATCH_CHILD", "TestPrimaryMismatchProcessRecovery")
 	}
-	request := func(desc runtimeDescriptor, token, method, path string) (int, []byte) {
-		t.Helper()
-		req, err := http.NewRequest(method, desc.BaseURL+path, strings.NewReader("{}"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("X-Coslash-Token", token)
-		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return resp.StatusCode, data
-	}
-	stop := func(cmd *exec.Cmd, output *bytes.Buffer, desc runtimeDescriptor, token string) {
-		t.Helper()
-		status, _ := request(desc, token, http.MethodPost, "/api/shutdown")
-		if status != http.StatusAccepted {
-			t.Fatalf("shutdown status %d", status)
-		}
-		done := make(chan error, 1)
-		go func() { done <- cmd.Wait() }()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("Local exit: %v: %s", err, output.String())
-			}
-		case <-time.After(20 * time.Second):
-			_ = cmd.Process.Kill()
-			<-done
-			t.Fatal("Local did not shut down")
-		}
-	}
-	cmd, output, desc, token := start()
-	status, body := request(desc, token, http.MethodGet, "/api/sync/status")
+	request := func(p *localTestProcess, method, path string) (int, []byte) { return p.request(t, method, path, "{}") }
+	p := start()
+	status, body := request(p, http.MethodGet, "/api/sync/status")
 	var syncState syncStatus
 	if status != 200 || json.Unmarshal(body, &syncState) != nil || syncState.State != "binding_mismatch" {
 		t.Fatalf("status %d: %s", status, body)
 	}
-	if status, _ := request(desc, token, http.MethodGet, "/api/sessions"); status != 200 {
+	if status, _ := request(p, http.MethodGet, "/api/sessions"); status != 200 {
 		t.Fatalf("collection status %d", status)
 	}
 	wantUIStatus := http.StatusOK
 	if _, err := web.Handler(); err != nil {
 		wantUIStatus = http.StatusServiceUnavailable
 	}
-	if status, _ := request(desc, token, http.MethodGet, "/"); status != wantUIStatus {
+	if status, _ := request(p, http.MethodGet, "/"); status != wantUIStatus {
 		t.Fatalf("UI status %d, want %d", status, wantUIStatus)
 	}
-	if status, _ := request(desc, token, http.MethodPost, "/api/sync/retry"); status != 409 {
+	if status, _ := request(p, http.MethodPost, "/api/sync/retry"); status != 409 {
 		t.Fatalf("retry status %d", status)
 	}
-	if status, _ := request(desc, token, http.MethodPost, "/api/hub/update"); status != 409 {
+	if status, _ := request(p, http.MethodPost, "/api/hub/update"); status != 409 {
 		t.Fatalf("update request status %d", status)
 	}
-	if status, _ := request(desc, token, http.MethodPost, "/api/hub/pairings"); status != 409 {
+	if status, _ := request(p, http.MethodPost, "/api/hub/pairings"); status != 409 {
 		t.Fatalf("pairing request status %d", status)
 	}
-	if status, body := request(desc, token, http.MethodGet, "/api/hub/v4-update"); status != 200 || strings.Contains(string(body), `"available":true`) {
+	if status, body := request(p, http.MethodGet, "/api/hub/v4-update"); status != 200 || strings.Contains(string(body), `"available":true`) {
 		t.Fatalf("update status %d: %s", status, body)
 	}
 	if contacts.Load() != 0 {
 		t.Fatal("mismatched process contacted Hub")
 	}
-	stop(cmd, output, desc, token)
+	p.stop(t)
 	q, err := syncv4.Open(filepath.Join(home, "sync-v4"))
 	if err != nil {
 		t.Fatal(err)
@@ -209,18 +143,18 @@ func TestPrimaryMismatchProcessRecovery(t *testing.T) {
 	if err := store.Save(context.Background(), "original"); err != nil {
 		t.Fatal(err)
 	}
-	cmd, output, desc, token = start()
+	p = start()
 	select {
 	case <-checked:
 	case <-time.After(20 * time.Second):
-		stop(cmd, output, desc, token)
-		t.Fatalf("restored process did not check in: %s", output.String())
+		p.stop(t)
+		t.Fatalf("restored process did not check in: %s", p.output.String())
 	}
-	status, body = request(desc, token, http.MethodGet, "/api/sync/status")
+	status, body = request(p, http.MethodGet, "/api/sync/status")
 	if status != 200 || json.Unmarshal(body, &syncState) != nil || syncState.State == "binding_mismatch" {
 		t.Fatalf("recovery status %d: %s", status, body)
 	}
-	stop(cmd, output, desc, token)
+	p.stop(t)
 	q, err = syncv4.Open(filepath.Join(home, "sync-v4"))
 	if err != nil {
 		t.Fatal(err)
@@ -239,12 +173,12 @@ func TestPrimaryMismatchProcessRecovery(t *testing.T) {
 	}))
 	defer wrongHub.Close()
 	t.Setenv("COSLASH_HUB_URL", wrongHub.URL)
-	cmd, output, desc, token = start()
-	status, body = request(desc, token, http.MethodGet, "/api/sync/status")
+	p = start()
+	status, body = request(p, http.MethodGet, "/api/sync/status")
 	if status != 200 || json.Unmarshal(body, &syncState) != nil || syncState.State != "binding_mismatch" {
 		t.Fatalf("origin mismatch status %d: %s", status, body)
 	}
-	stop(cmd, output, desc, token)
+	p.stop(t)
 	if wrongContacts.Load() != 0 {
 		t.Fatal("origin mismatch contacted the wrong Hub")
 	}
@@ -261,14 +195,14 @@ func TestPrimaryMismatchProcessRecovery(t *testing.T) {
 	default:
 	}
 	t.Setenv("COSLASH_HUB_URL", "")
-	cmd, output, desc, token = start()
+	p = start()
 	select {
 	case <-checked:
 	case <-time.After(20 * time.Second):
-		stop(cmd, output, desc, token)
-		t.Fatalf("restored origin did not check in: %s", output.String())
+		p.stop(t)
+		t.Fatalf("restored origin did not check in: %s", p.output.String())
 	}
-	stop(cmd, output, desc, token)
+	p.stop(t)
 	q, err = syncv4.Open(filepath.Join(home, "sync-v4"))
 	if err != nil {
 		t.Fatal(err)

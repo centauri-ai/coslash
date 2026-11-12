@@ -78,17 +78,11 @@ func newPrimaryHubRuntime(client *hubclient.Client, controller *syncController, 
 	}
 	state := r.snapshot()
 	if state.Primary != "" {
-		var primary hubConnection
-		for _, c := range state.Connections {
-			if c.Origin == state.Primary {
-				primary = c
-				break
-			}
+		primary, ok := state.connection(state.Primary)
+		if !ok {
+			return nil, nil, errPrimaryHubMismatch
 		}
-		expected := primary.Origin
-		if primary.LegacyOrigin != "" {
-			expected = primary.LegacyOrigin
-		}
+		expected := primary.clientOrigin()
 		if client != nil {
 			if client.BaseURL == nil {
 				return nil, nil, errPrimaryHubMismatch
@@ -196,20 +190,11 @@ func (s *primaryPairingCredential) DeleteIfMatches(ctx context.Context, credenti
 func (p *primaryHubRuntime) checkPrimaryTarget(origin string) error {
 	state := p.registry.snapshot()
 	if state.Primary != "" {
-		for _, connection := range state.Connections {
-			if connection.Origin != state.Primary {
-				continue
-			}
-			expected := connection.Origin
-			if connection.LegacyOrigin != "" {
-				expected = connection.LegacyOrigin
-			}
-			if origin != expected {
-				return errPrimaryHubMismatch
-			}
-			return nil
+		connection, ok := state.connection(state.Primary)
+		if !ok || origin != connection.clientOrigin() {
+			return errPrimaryHubMismatch
 		}
-		return errPrimaryHubMismatch
+		return nil
 	}
 	if p.controller.Queue() != nil {
 		binding, _ := p.controller.Queue().DiscoveryCursor()
@@ -247,17 +232,9 @@ func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 		return ensureLegacy()
 	}
 	if state.Primary != "" {
-		for _, c := range state.Connections {
-			if c.Origin != state.Primary {
-				continue
-			}
-			expected := c.Origin
-			if c.LegacyOrigin != "" {
-				expected = c.LegacyOrigin
-			}
-			if client.BaseURL.String() != expected {
-				return errPrimaryHubMismatch
-			}
+		connection, ok := state.connection(state.Primary)
+		if !ok || client.BaseURL.String() != connection.clientOrigin() {
+			return errPrimaryHubMismatch
 		}
 	}
 	if !hubclient.V4SyncEnabled() {
@@ -290,26 +267,17 @@ func (p *primaryHubRuntime) Ensure(client *hubclient.Client) error {
 	if state.Primary != origin {
 		return errPrimaryHubMismatch
 	}
-	for _, c := range state.Connections {
-		if c.Origin != origin {
-			continue
-		}
-		expected := c.Origin
-		if c.LegacyOrigin != "" {
-			expected = c.LegacyOrigin
-		}
-		if client.BaseURL.String() != expected {
-			return errPrimaryHubMismatch
-		}
-		if !c.Enabled {
-			return errors.New("primary Hub is disabled")
-		}
-		if err := p.adopt(origin); err != nil {
-			return err
-		}
-		return p.workers.StartEnabled(origin)
+	connection, ok := state.connection(origin)
+	if !ok || client.BaseURL.String() != connection.clientOrigin() {
+		return errPrimaryHubMismatch
 	}
-	return errPrimaryHubMismatch
+	if !connection.Enabled {
+		return errors.New("primary Hub is disabled")
+	}
+	if err := p.adopt(origin); err != nil {
+		return err
+	}
+	return p.workers.StartEnabled(origin)
 }
 
 func (p *primaryHubRuntime) RequestPass(reason string) { p.controller.RequestPass(reason) }
@@ -326,12 +294,8 @@ func (p *primaryHubRuntime) hubSignalTarget(raw string, includePrimary bool) (bo
 	if origin == state.Primary && !includePrimary {
 		return false, false, origin
 	}
-	for _, connection := range state.Connections {
-		if connection.Origin == origin {
-			return true, connection.Enabled && (origin == state.Primary || connection.SyncConsent), origin
-		}
-	}
-	return true, false, origin
+	connection, ok := state.connection(origin)
+	return true, ok && connection.Enabled && (origin == state.Primary || connection.SyncConsent), origin
 }
 
 func (p *primaryHubRuntime) signalHub(origin string) bool { return p.workers.Retry(origin) }

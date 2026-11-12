@@ -7,11 +7,9 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -68,80 +66,13 @@ func TestTwoHubProductionProcess(t *testing.T) {
 	if idA == idB {
 		t.Fatal("shared install ID")
 	}
-	type process struct {
-		cmd    *exec.Cmd
-		output *bytes.Buffer
-		desc   runtimeDescriptor
-		token  string
+	start := func() *localTestProcess {
+		return startLocalTestProcess(t, home, "COSLASH_TEST_TWO_HUB_CHILD", "TestTwoHubProductionProcess")
 	}
-	start := func() *process {
-		t.Helper()
-		p := &process{output: &bytes.Buffer{}}
-		p.cmd = exec.Command(os.Args[0], "-test.run=^TestTwoHubProductionProcess$")
-		p.cmd.Env = append(os.Environ(), "COSLASH_TEST_TWO_HUB_CHILD=1")
-		p.cmd.Stdout = p.output
-		p.cmd.Stderr = p.output
-		if err := p.cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if p.cmd.ProcessState == nil {
-				_ = p.cmd.Process.Kill()
-				_ = p.cmd.Wait()
-			}
-		})
-		deadline := time.Now().Add(20 * time.Second)
-		for time.Now().Before(deadline) {
-			data, e := os.ReadFile(filepath.Join(home, "runtime.json"))
-			token, te := os.ReadFile(filepath.Join(home, "token"))
-			if e == nil && te == nil && json.Unmarshal(data, &p.desc) == nil && p.desc.BaseURL != "" {
-				p.token = strings.TrimSpace(string(token))
-				return p
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		_ = p.cmd.Process.Kill()
-		_ = p.cmd.Wait()
-		t.Fatalf("Local did not start: %s", p.output.String())
-		return nil
+	request := func(p *localTestProcess, method, path, body string) (int, []byte) {
+		return p.request(t, method, path, body)
 	}
-	request := func(p *process, method, path, body string) (int, []byte) {
-		t.Helper()
-		req, err := http.NewRequest(method, p.desc.BaseURL+path, strings.NewReader(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("X-Coslash-Token", p.token)
-		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return resp.StatusCode, data
-	}
-	stop := func(p *process) {
-		t.Helper()
-		code, data := request(p, http.MethodPost, "/api/shutdown", "{}")
-		if code != http.StatusAccepted {
-			t.Fatalf("shutdown %d %s", code, data)
-		}
-		done := make(chan error, 1)
-		go func() { done <- p.cmd.Wait() }()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("exit %v: %s", err, p.output.String())
-			}
-		case <-time.After(20 * time.Second):
-			_ = p.cmd.Process.Kill()
-			<-done
-			t.Fatal("shutdown timeout")
-		}
-	}
+	stop := func(p *localTestProcess) { p.stop(t) }
 	wait := func(label string, ch <-chan struct{}) {
 		t.Helper()
 		select {
@@ -150,7 +81,7 @@ func TestTwoHubProductionProcess(t *testing.T) {
 			t.Fatalf("timeout waiting for %s", label)
 		}
 	}
-	post := func(p *process, path string, body any) []byte {
+	post := func(p *localTestProcess, path string, body any) []byte {
 		t.Helper()
 		raw, _ := json.Marshal(body)
 		code, data := request(p, http.MethodPost, path, string(raw))

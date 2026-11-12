@@ -348,34 +348,39 @@ func TestRevokedCleanupOutlivesAnOrdinaryDeadlineButNotTheFlushBound(t *testing.
 	}
 }
 
-// main.go has no behavior a unit test can reach, so this pins its one reporter
-// call: the loop must run inside runWithUpdateReporter, and the reporter must not
-// be started on its own without being waited for or pinned to its binding.
+// Startup must use the shared loop, which runs primary update reporting.
 func TestMainRunsTheSyncLoopThroughTheUpdateReporterWiring(t *testing.T) {
-	file, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	calls := map[string]int{}
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
+	for _, test := range []struct{ file, want string }{
+		{"main.go", "runHubSyncLoop"},
+		{"sync_controller.go", "runWithUpdateReporter"},
+	} {
+		file, err := parser.ParseFile(token.NewFileSet(), test.file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls := 0
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name := ""
+			switch fn := call.Fun.(type) {
+			case *ast.Ident:
+				name = fn.Name
+			case *ast.SelectorExpr:
+				name = fn.Sel.Name
+			}
+			if name == test.want {
+				calls++
+			}
+			if test.file == "main.go" && (name == "runUpdateReporter" || name == "updateReporter") {
+				t.Fatal("main.go bypasses the shared update reporter")
+			}
 			return true
-		}
-		switch fn := call.Fun.(type) {
-		case *ast.Ident:
-			calls[fn.Name]++
-		case *ast.SelectorExpr:
-			calls[fn.Sel.Name]++
-		}
-		return true
-	})
-	if calls["runWithUpdateReporter"] != 1 {
-		t.Fatalf("main.go calls runWithUpdateReporter %d times, want 1", calls["runWithUpdateReporter"])
-	}
-	for _, name := range []string{"runUpdateReporter", "updateReporter"} {
-		if calls[name] != 0 {
-			t.Fatalf("main.go calls %s itself; it must go through runWithUpdateReporter", name)
+		})
+		if calls != 1 {
+			t.Fatalf("%s calls %s %d times, want 1", test.file, test.want, calls)
 		}
 	}
 }

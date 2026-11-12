@@ -31,6 +31,22 @@ type hubRegistryState struct {
 	Connections []hubConnection `json:"connections"`
 }
 
+func (state hubRegistryState) connection(origin string) (hubConnection, bool) {
+	for _, connection := range state.Connections {
+		if connection.Origin == origin {
+			return connection, true
+		}
+	}
+	return hubConnection{}, false
+}
+
+func (connection hubConnection) clientOrigin() string {
+	if connection.LegacyOrigin != "" {
+		return connection.LegacyOrigin
+	}
+	return connection.Origin
+}
+
 type hubRegistryWire struct {
 	Version     *int    `json:"version"`
 	Primary     *string `json:"primary"`
@@ -45,17 +61,12 @@ type hubRegistryWire struct {
 }
 
 type hubRegistry struct {
-	mu      sync.Mutex
-	pending []hubRegistryEdit
-	writing bool
-	dir     string
-	state   hubRegistryState
-	write   func(string, []byte) (bool, error)
-}
-
-type hubRegistryEdit struct {
-	apply func(hubRegistryState) (hubRegistryState, error)
-	done  chan error
+	mu        sync.Mutex
+	editMu    sync.Mutex
+	editSlots chan struct{}
+	dir       string
+	state     hubRegistryState
+	write     func(string, []byte) (bool, error)
 }
 
 // canonicalRegistryOrigin normalizes the origin while retaining non-default ports.
@@ -129,7 +140,7 @@ func openHubRegistryWithWriter(home, legacy string, paired func(string) (bool, e
 	if err := protectHubRegistryDirectory(dir); err != nil {
 		return nil, err
 	}
-	r := &hubRegistry{dir: dir, write: write, state: hubRegistryState{Version: hubRegistryVersion, Connections: []hubConnection{}}}
+	r := &hubRegistry{dir: dir, write: write, editSlots: make(chan struct{}, 129), state: hubRegistryState{Version: hubRegistryVersion, Connections: []hubConnection{}}}
 	f, err := os.Open(filepath.Join(dir, "registry.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		if legacy == "" {
@@ -411,53 +422,29 @@ func (r *hubRegistry) setEnabled(raw string, enabled bool) error {
 }
 
 func (r *hubRegistry) edit(apply func(hubRegistryState) (hubRegistryState, error)) error {
-	request := hubRegistryEdit{apply: apply, done: make(chan error, 1)}
-	r.mu.Lock()
-	if len(r.pending) >= 128 {
-		r.mu.Unlock()
+	select {
+	case r.editSlots <- struct{}{}:
+		defer func() { <-r.editSlots }()
+	default:
 		return errors.New("too many pending Hub registry changes")
 	}
-	r.pending = append(r.pending, request)
-	if !r.writing {
-		r.writing = true
-		go r.runEdits()
+	r.editMu.Lock()
+	defer r.editMu.Unlock()
+	state := r.snapshot()
+	next, err := apply(state)
+	if err != nil {
+		return err
 	}
-	r.mu.Unlock()
-	return <-request.done
-}
-
-func (r *hubRegistry) runEdits() {
-	for {
+	if err := validateHubRegistry(next); err != nil {
+		return err
+	}
+	committed, err := r.save(next)
+	if committed {
 		r.mu.Lock()
-		if len(r.pending) == 0 {
-			r.writing = false
-			r.mu.Unlock()
-			return
-		}
-		request := r.pending[0]
-		r.pending[0] = hubRegistryEdit{}
-		r.pending = r.pending[1:]
-		state := r.state
-		state.Connections = append([]hubConnection(nil), state.Connections...)
-		for i := range state.Connections {
-			state.Connections[i].Quarantined = append([]string(nil), state.Connections[i].Quarantined...)
-		}
+		r.state = next
 		r.mu.Unlock()
-		next, err := request.apply(state)
-		if err == nil {
-			err = validateHubRegistry(next)
-		}
-		if err == nil {
-			var committed bool
-			committed, err = r.save(next)
-			if committed {
-				r.mu.Lock()
-				r.state = next
-				r.mu.Unlock()
-			}
-		}
-		request.done <- err
 	}
+	return err
 }
 
 func (r *hubRegistry) save(state hubRegistryState) (bool, error) {

@@ -311,6 +311,18 @@ func main() {
 		}
 	}
 	inventoryTracker := &inventory.Tracker{}
+	newRunner := func() *syncv4.Runner {
+		runner := &syncv4.Runner{
+			Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+			Conditions: syncv4.LocalConditions,
+		}
+		if fingerprints != nil {
+			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
+				return discoverLocalBatches(ctx, fingerprints, runner.Queue, visit)
+			}
+		}
+		return runner
+	}
 	runtimeReadySignal := make(chan struct{})
 	var controller *syncController
 	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake, retryWake chan struct{}) {
@@ -335,31 +347,23 @@ func main() {
 			}, inventoryRequest)
 		}
 		syncHub := currentHubTransport{current: func() *hubclient.Client { return pinned }, queue: queue}
-		runner := &syncv4.Runner{
-			Version: collectorVersion,
-			Queue:   queue, Backup: backupManager, Hub: syncHub,
-			RequireImportPlan:  true,
-			Discover:           func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
-			InventoryProgress:  func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
-			Conditions:         syncv4.LocalConditions,
-			LocalPause:         func() bool { return settingsStore.State().Config.SyncPaused },
-			Command:            v4CommandRunner(queue, settingsStore, remoteManager),
-			CommandContext:     syncContext,
-			ReconcileSSHHosts:  reconcileSSHHosts(settingsStore, remoteManager),
-			CleanupRemoteCache: func() { remoteManager.CleanupRemovedSources(settingsStore) },
-		}
-		if fingerprints != nil {
-			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
-				return discoverLocalBatches(ctx, fingerprints, queue, visit)
-			}
-		}
+		runner := newRunner()
+		runner.Version, runner.Queue, runner.Backup, runner.Hub = collectorVersion, queue, backupManager, syncHub
+		runner.RequireImportPlan = true
+		runner.InventoryProgress = func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() }
+		runner.LocalPause = func() bool { return settingsStore.State().Config.SyncPaused }
+		runner.Command = v4CommandRunner(queue, settingsStore, remoteManager)
+		runner.CommandContext = syncContext
+		runner.ReconcileSSHHosts = reconcileSSHHosts(settingsStore, remoteManager)
+		runner.CleanupRemoteCache = func() { remoteManager.CleanupRemovedSources(settingsStore) }
 		loopControl := newSyncLoopControl(func() bool {
 			_, config, _ := queue.Policy()
 			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
 		})
-		go runActivePoller(syncContext, "", loopControl)
-		controller.runWithUpdateReporter(syncContext, collectorVersion, queue, client, func() {
-			runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, controller.observedWait(syncHub.V4Wait, client), loopControl, wake, retryWake, inventoryRequest)
+		controller.runHubSyncLoop(syncContext, hubSyncLoop{
+			runner: runner, queue: queue, client: client, wait: syncHub.V4Wait,
+			control: loopControl, poll: func(ctx context.Context, control *syncLoopControl) { runActivePoller(ctx, "", control) },
+			wake: wake, retry: retryWake, inventory: inventoryRequest, primary: true, version: collectorVersion,
 		})
 	}, func() bool { return settingsStore.State().Config.SyncPaused })
 	if err != nil {
@@ -385,18 +389,7 @@ func main() {
 		hubWorkers = primaryRuntime.workers
 		hubWorkers.pause = func() bool { return os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused }
 		hubWorkers.backup = sessionbackupproducer.Options{CollectorVersion: version, Synthesis: mgr}
-		hubWorkers.runner = func() *syncv4.Runner {
-			runner := &syncv4.Runner{
-				Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
-				Conditions: syncv4.LocalConditions,
-			}
-			if fingerprints != nil {
-				runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
-					return discoverLocalBatches(ctx, fingerprints, runner.Queue, visit)
-				}
-			}
-			return runner
-		}
+		hubWorkers.runner = newRunner
 		if fingerprints != nil {
 			hubWorkers.prepare = func(ctx context.Context, runner *syncv4.Runner, queue *syncv4.Queue, client *hubclient.Client, wake chan struct{}) (chan struct{}, func()) {
 				tracker := &inventory.Tracker{}

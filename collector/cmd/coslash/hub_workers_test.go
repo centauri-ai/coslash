@@ -682,17 +682,23 @@ func TestHubWorkerSupervisorSlowStartDoesNotBlockAnotherHub(t *testing.T) {
 	}
 }
 
+func testHubSupervisor(t *testing.T, home string) (*hubRegistry, *hubWorkerSupervisor) {
+	t.Helper()
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supervisor, err := newHubWorkerSupervisor(registry, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry, supervisor
+}
+
 func TestHubWorkerSecondaryCredentialsAreOriginScoped(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
-	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, s := testHubSupervisor(t, home)
 	first, err := s.clientForConnection(hubConnection{Origin: "https://hub.example"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -719,10 +725,7 @@ func TestHubWorkerSecondaryCredentialsAreOriginScoped(t *testing.T) {
 func TestHubWorkerRejectsWrongOriginClient(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
-	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	r, s := testHubSupervisor(t, home)
 	if err := r.addPrimary("https://primary.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -730,10 +733,6 @@ func TestHubWorkerRejectsWrongOriginClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := r.setEnabled("https://secondary.example", true); err != nil {
-		t.Fatal(err)
-	}
-	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
 		t.Fatal(err)
 	}
 	s.client = func(hubConnection, bool) (*hubclient.Client, error) {
@@ -753,15 +752,8 @@ func TestHubWorkerStopCancelsPendingCredentialLoad(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("COSLASH_V4_SYNC", "1")
-	r, err := openHubRegistry(home, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	r, s := testHubSupervisor(t, home)
 	if err := r.addPrimary("https://hub.example"); err != nil {
-		t.Fatal(err)
-	}
-	s, err := newHubWorkerSupervisor(r, "1.2.3", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
-	if err != nil {
 		t.Fatal(err)
 	}
 	started := make(chan struct{})

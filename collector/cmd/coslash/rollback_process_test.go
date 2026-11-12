@@ -6,12 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -110,59 +108,7 @@ func TestUnchangedPrimaryDowngradeAndReupgrade(t *testing.T) {
 
 	run := func(binary string, args ...string) {
 		t.Helper()
-		cmd := exec.Command(binary, args...)
-		cmd.Env = append(os.Environ(), "COSLASH_TEST_ROLLBACK_CHILD=1")
-		var output bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &output, &output
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if cmd.ProcessState == nil {
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
-			}
-		})
-		var desc runtimeDescriptor
-		var token []byte
-		deadline := time.Now().Add(20 * time.Second)
-		for time.Now().Before(deadline) {
-			data, e := os.ReadFile(filepath.Join(home, "runtime.json"))
-			token, err = os.ReadFile(filepath.Join(home, "token"))
-			if e == nil && err == nil && json.Unmarshal(data, &desc) == nil && desc.BaseURL != "" {
-				break
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		if desc.BaseURL == "" {
-			t.Fatal("Local did not start")
-		}
-		req, err := http.NewRequest(http.MethodPost, desc.BaseURL+"/api/shutdown", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("X-Coslash-Token", strings.TrimSpace(string(token)))
-		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusAccepted {
-			t.Fatalf("shutdown status %d", resp.StatusCode)
-		}
-		done := make(chan error, 1)
-		go func() { done <- cmd.Wait() }()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("Local exit: %v: %s", err, output.String())
-			}
-		case <-time.After(20 * time.Second):
-			_ = cmd.Process.Kill()
-			<-done
-			t.Fatal("Local did not stop")
-		}
+		startLocalTestCommand(t, home, "COSLASH_TEST_ROLLBACK_CHILD", binary, args...).stop(t)
 	}
 	run(os.Args[0], "-test.run=^TestUnchangedPrimaryDowngradeAndReupgrade$")
 	run(oldBinary, "--no-open", "--port", "0")

@@ -13,6 +13,30 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
+type hubSyncLoop struct {
+	runner                 *syncv4.Runner
+	queue                  *syncv4.Queue
+	client                 *hubclient.Client
+	wait                   func(context.Context, int64) (hubclient.V4Wait, error)
+	control                *syncLoopControl
+	poll                   func(context.Context, *syncLoopControl)
+	wake, retry, inventory chan struct{}
+	primary                bool
+	version                string
+}
+
+func (c *syncController) runHubSyncLoop(ctx context.Context, worker hubSyncLoop) {
+	go worker.poll(ctx, worker.control)
+	run := func() {
+		runV4SyncLoopWithControl(ctx, c.observed(worker.runner, worker.client), worker.queue, c.observedWait(worker.wait, worker.client), worker.control, worker.wake, worker.retry, worker.inventory)
+	}
+	if worker.primary {
+		c.runWithUpdateReporter(ctx, worker.version, worker.queue, worker.client, run)
+	} else {
+		run()
+	}
+}
+
 type syncLoopStarter func(context.Context, *syncv4.Queue, *hubclient.Client, chan struct{}, chan struct{})
 
 type syncStatus struct {
