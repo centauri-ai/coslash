@@ -297,9 +297,11 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 		}
 	}
 	if err != nil {
-		if _, current := m.runnerSnapshot(); current == generation {
+		m.runnerMu.RLock()
+		if m.runnerGeneration == generation {
 			m.recordFailure(agent, id, revision, err)
 		}
+		m.runnerMu.RUnlock()
 		log.Printf("synthesize session %s: failed", id)
 	}
 	if roundID != "" && !accountingFailed {
