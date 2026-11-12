@@ -34,6 +34,8 @@ type workerTestHub struct {
 	checkins           chan struct{}
 	offline            chan struct{}
 	finished           chan struct{}
+	piFinished         chan struct{}
+	currentAgent       string
 	results            chan []hubclient.V4CommandResult
 	commands           bool
 	minVersion         string
@@ -101,7 +103,7 @@ func drainWorkerSignals(ch <-chan struct{}) {
 
 func newWorkerTestHub(t *testing.T, credential string) *workerTestHub {
 	t.Helper()
-	h := &workerTestHub{credential: credential, checkins: make(chan struct{}, 20), offline: make(chan struct{}, 20), finished: make(chan struct{}, 20), results: make(chan []hubclient.V4CommandResult, 20)}
+	h := &workerTestHub{credential: credential, checkins: make(chan struct{}, 20), offline: make(chan struct{}, 20), finished: make(chan struct{}, 20), piFinished: make(chan struct{}, 20), results: make(chan []hubclient.V4CommandResult, 20)}
 	h.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/device-authorizations" {
 			w.WriteHeader(http.StatusCreated)
@@ -200,6 +202,7 @@ func newWorkerTestHub(t *testing.T, credential string) *workerTestHub {
 				return
 			}
 			h.creates++
+			h.currentAgent = input.Session.Agent
 			h.installID = input.Session.InstallID
 			h.manifest = input.Manifest
 			h.missing = nil
@@ -261,6 +264,9 @@ func newWorkerTestHub(t *testing.T, credential string) *workerTestHub {
 			}
 			_ = json.NewEncoder(w).Encode(hubclient.V4Status{UploadID: "upload", SessionID: "session", State: "completed", RevisionID: "revision"})
 			h.finished <- struct{}{}
+			if h.currentAgent == "pi" {
+				h.piFinished <- struct{}{}
+			}
 		default:
 			t.Errorf("unexpected Hub request: %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)

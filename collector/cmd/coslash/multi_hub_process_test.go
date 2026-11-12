@@ -34,11 +34,14 @@ func TestTwoHubProductionProcess(t *testing.T) {
 	for k, v := range map[string]string{
 		"COSLASH_HOME": home, "HOME": home, "USERPROFILE": home, "PATH": home,
 		"XDG_CONFIG_HOME": home, "XDG_DATA_HOME": home, "PI_CODING_AGENT_DIR": filepath.Join(home, "empty"),
-		"COSLASH_PI_SESSION_ROOTS": "", "PI_CODING_AGENT_SESSION_DIR": "", "GROK_HOME": filepath.Join(home, "grok"), "OPENCODE_DB": filepath.Join(home, "missing.db"),
+		"COSLASH_PI_SESSION_ROOTS": filepath.Join(home, "pi-sessions"), "PI_CODING_AGENT_SESSION_DIR": "", "GROK_HOME": filepath.Join(home, "grok"), "OPENCODE_DB": filepath.Join(home, "missing.db"),
 		"COSLASH_V4_SYNC": "1", "COSLASH_SCALE_IMPORT": "1", "COSLASH_SYNC_PAUSED": "", "COSLASH_SYNC_METERED": "", "COSLASH_SYNC_OFFLINE": "", "COSLASH_SYNC_BATTERY_PERCENT": "100",
 		"HTTP_PROXY": "", "HTTPS_PROXY": "", "ALL_PROXY": "", "http_proxy": "", "https_proxy": "", "all_proxy": "",
 	} {
 		t.Setenv(k, v)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "pi-sessions"), 0700); err != nil {
+		t.Fatal(err)
 	}
 	primary, secondary := newWorkerTestHub(t, "primary-secret"), newWorkerTestHub(t, "secondary-secret")
 	primary.minVersion, secondary.minVersion = "0.0.0", "0.0.0"
@@ -192,6 +195,17 @@ func TestTwoHubProductionProcess(t *testing.T) {
 	p = start()
 	wait("primary upload", primary.finished)
 	wait("secondary upload", secondary.finished)
+	// Start with no transcript and add one after both collectors are running.
+	// This exercises discovery, capture, preparation and upload for each Hub.
+	transcript := filepath.Join(home, "pi-sessions", "fresh.jsonl")
+	fixture := `{"type":"session","version":3,"id":"fresh-synthetic-pi","cwd":"/tmp","timestamp":"2026-10-01T12:00:00Z"}` + "\n" + `{"type":"message","id":"u","timestamp":"2026-10-01T12:00:01Z","message":{"role":"user","content":"synthetic test"}}` + "\n"
+	if err := os.WriteFile(transcript, []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	post(p, "/api/sync/retry", map[string]any{})
+	post(p, "/api/hubs/retry", map[string]string{"origin": secondary.server.URL})
+	wait("fresh primary transcript upload", primary.piFinished)
+	wait("fresh secondary transcript upload", secondary.piFinished)
 	post(p, "/api/hubs/retry", map[string]string{"origin": secondary.server.URL})
 	select {
 	case results := <-secondary.results:
