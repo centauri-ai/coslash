@@ -149,7 +149,7 @@ export function MachinesSettingsSection({
           }
         })
         .catch(() => {
-          if (!cancelled) setMachineResult(null);
+          if (!cancelled) timer = setTimeout(poll, 2000);
         });
     };
     poll();
