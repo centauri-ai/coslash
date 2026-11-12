@@ -6,6 +6,7 @@ import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { MachinesSettingsSection } from '@/pages/coslash/components/MachinesSettingsSection';
 import type { SyncStatus, SyncStatusLoad } from '@/pages/coslash/features/sync/api';
+import { HubConnectionsSection } from '@/pages/coslash/features/sync/HubConnectionsSection';
 import { SyncSettingsSection } from '@/pages/coslash/features/sync/SyncSettingsSection';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
@@ -526,6 +527,8 @@ export function SettingsDialog({
                   onPauseChange={(syncPaused) => saveChange({ ...draft, syncPaused })}
                 />
               )}
+
+              {open && mode === 'full-settings' && <HubConnectionsSection />}
 
               {mode === 'full-settings' && (
                 <div className="flex flex-col gap-2">

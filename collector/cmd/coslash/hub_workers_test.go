@@ -1050,3 +1050,53 @@ func TestSecondaryDisableWaitsForInventory(t *testing.T) {
 		t.Fatal("disable did not complete")
 	}
 }
+
+func TestHubWorkerStatusIncludesContactFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	registry, err := openHubRegistry(home, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addPrimary("https://primary.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.addSecondary("https://secondary.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err = registry.setEnabled("https://secondary.example", true); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := newHubWorkerSupervisor(registry, "1.0.0", func() bool { return false }, sessionbackupproducer.Options{}, func() *syncv4.Runner { return &syncv4.Runner{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workers.StopAll()
+	queue, err := syncv4.Open(filepath.Join(home, "test-queue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = queue.RecordHubContact(time.Now(), hubclient.V4Problem{Code: "server_error", HTTPStatus: http.StatusServiceUnavailable}); err != nil {
+		t.Fatal(err)
+	}
+	base, _ := url.Parse("https://secondary.example")
+	slot := workers.slot(base.String())
+	if err := slot.execute(func() error {
+		slot.controller = &syncController{queue: queue, client: &hubclient.Client{BaseURL: base}, connected: true}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status := workers.statuses()
+	if len(status) != 2 || !strings.Contains(status[1].Failure, "temporarily unavailable") || status[0].Failure != "" {
+		t.Fatalf("status = %+v", status)
+	}
+	if _, err = queue.RecordHubContact(time.Now(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if status = workers.statuses(); status[1].Failure != "" {
+		t.Fatalf("stale failure = %+v", status)
+	}
+}

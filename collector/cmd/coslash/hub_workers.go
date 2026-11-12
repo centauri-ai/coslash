@@ -401,6 +401,7 @@ type hubWorkerStatus struct {
 	State       string `json:"state"`
 	Quarantined int    `json:"quarantined"`
 	Generation  string `json:"generation,omitempty"`
+	Failure     string `json:"failure,omitempty"`
 }
 
 func (s *hubWorkerSupervisor) statuses() []hubWorkerStatus {
@@ -415,7 +416,11 @@ func (s *hubWorkerSupervisor) statuses() []hubWorkerStatus {
 				if slot.lastError != "" {
 					status.State = slot.lastError
 				} else if slot.controller != nil {
-					status.State = slot.controller.Status().State
+					view := slot.controller.Status()
+					status.State = view.State
+					if view.LastFailure != nil {
+						status.Failure = view.LastFailure.Sentence
+					}
 				}
 				return nil
 			})
