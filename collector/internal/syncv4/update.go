@@ -92,7 +92,11 @@ func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now ti
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if previous := q.state.Update; previous != nil {
+	previous := q.state.Update
+	if previous != nil && previous.Stage == "failed" && !now.Before(previous.ExpiresAt) && previous.ID != command.ID {
+		previous = nil // The Hub no longer waits for this report.
+	}
+	if previous != nil {
 		if previous.ID == command.ID && previous.TargetVersion == payload.TargetVersion && previous.ExpiresAt.Equal(payload.ExpiresAt) && previous.LegacySettlement == payload.LegacySettlement {
 			return nil
 		}
@@ -114,9 +118,10 @@ func (q *Queue) AcceptUpdate(command hubclient.V4Command, current string, now ti
 	if payload.LegacySettlement {
 		stage = "finalizing"
 	}
+	prior := q.state.Update
 	q.state.Update = &UpdateAttempt{ID: command.ID, TargetVersion: payload.TargetVersion, ExpiresAt: payload.ExpiresAt, Stage: stage, LegacySettlement: payload.LegacySettlement}
 	if err := q.save(); err != nil {
-		q.state.Update = nil
+		q.state.Update = prior
 		return err
 	}
 	return nil
