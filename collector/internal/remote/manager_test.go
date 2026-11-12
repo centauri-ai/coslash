@@ -491,6 +491,80 @@ func (release fixedHelperRelease) LoadArtifact(context.Context, Artifact) ([]byt
 	return release.content, nil
 }
 
+type gatedHelperRelease struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (provider gatedHelperRelease) LoadMetadata(ctx context.Context) (SignedReleaseMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return SignedReleaseMetadata{}, err
+	}
+	provider.started <- struct{}{}
+	<-provider.release
+	return SignedReleaseMetadata{}, errHelperReleaseUnavailable
+}
+
+func (gatedHelperRelease) LoadArtifact(context.Context, Artifact) ([]byte, error) {
+	return nil, errHelperReleaseUnavailable
+}
+
+func TestStaleHelperDiscoveryKeepsNewerAutoSetup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	cache := NewCache(filepath.Join(home, "remote-cache"))
+	config := settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := cache.StoreHelperVersion(config.ID, "v1", config.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	provider := gatedHelperRelease{started: make(chan struct{}), release: make(chan struct{})}
+	manager := NewManager(Options{
+		Cache: cache, Now: time.Now,
+		ReleaseProvider:             provider,
+		LifecycleFactory:            func(string) (Lifecycle, error) { return Lifecycle{}, nil },
+		HelperInstallationAvailable: true,
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			return refreshOutcome{}, nil
+		},
+	})
+	if err := manager.ApplySettings(&config); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	manager.startHelperDiscoveryLocked()
+	staleCtx, staleRun := manager.lifeCtx, manager.helperDiscoveryRun
+	manager.mu.Unlock()
+	<-provider.started
+
+	disabled := config
+	disabled.Enabled = false
+	if err := manager.ApplySettings(&disabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(&config); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+	// The newer run waits to send on started, so only the stale run receives this.
+	provider.release <- struct{}{}
+	<-provider.started
+
+	// Replay the stale completion synchronously, because the stale goroutine has no completion signal.
+	manager.runHelperDiscovery(staleCtx, config, true, staleRun)
+	manager.mu.Lock()
+	autoSetup := manager.helperAutoSetup
+	manager.mu.Unlock()
+	if !autoSetup {
+		t.Fatal("stale discovery cleared the newer auto-setup flag")
+	}
+	close(provider.release)
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return !manager.helperAutoSetup && !manager.refreshing
+	})
+}
+
 func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)

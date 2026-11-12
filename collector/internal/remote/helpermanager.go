@@ -210,7 +210,8 @@ func (manager *Manager) startHelperDiscoveryLocked() {
 	if autoUpdate {
 		manager.helperAutoSetup = true
 	}
-	go manager.runHelperDiscovery(manager.lifeCtx, config, autoUpdate)
+	manager.helperDiscoveryRun++
+	go manager.runHelperDiscovery(manager.lifeCtx, config, autoUpdate, manager.helperDiscoveryRun)
 }
 
 // InspectHelper starts (or reports) the background helper check for the setup
@@ -224,11 +225,13 @@ func (manager *Manager) InspectHelper() Health {
 	return manager.healthLocked(manager.lastRequestedMs)
 }
 
-func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.RemoteSettings, autoUpdate bool) {
+func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.RemoteSettings, autoUpdate bool, run uint64) {
 	if autoUpdate {
 		defer func() {
 			manager.mu.Lock()
-			manager.helperAutoSetup = false
+			if manager.helperDiscoveryRun == run {
+				manager.helperAutoSetup = false
+			}
 			manager.mu.Unlock()
 		}()
 	}

@@ -134,6 +134,7 @@ type Manager struct {
 	helperSetup            bool
 	removingHubHost        bool
 	helperAutoSetup        bool
+	helperDiscoveryRun     uint64
 	helperVersion          string
 	helperOwnershipCorrupt bool
 	helperProbe            helperProbeState
