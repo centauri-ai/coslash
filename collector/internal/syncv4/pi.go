@@ -191,7 +191,7 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 		if old, known := stored[entry.Key]; known {
 			if old.SourceRevision == revision && (old.SourceBlocked || !reflect.DeepEqual(old.Session, entry.Session) || old.Live != entry.Live) {
 				old.Session, old.Live = entry.Session, entry.Live
-				old.Excluded = old.ServerLeftOut || leftOut(old.Session, r.config.LeaveOut)
+				setExcluded(&old, old.ServerLeftOut || leftOut(old.Session, r.config.LeaveOut))
 				if old.SourceBlocked {
 					old.SourceBlocked = false
 					old.ParkedVersion, old.FailureCode = "", ""

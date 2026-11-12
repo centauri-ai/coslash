@@ -550,16 +550,23 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	return errors.Join(sourceErr, firstErr)
 }
 
+// setExcluded releases a park on include. Discovery owns the release of a
+// SourceBlocked park.
+func setExcluded(entry *Entry, excluded bool) {
+	if entry.Excluded && !excluded && !entry.SourceBlocked {
+		entry.ParkedVersion, entry.BackoffAttempt, entry.RetryAt = "", 0, time.Time{}
+	}
+	entry.Excluded = excluded
+}
+
 func (r *Runner) applyExclusions() error {
 	for _, entry := range r.Queue.Entries() {
 		excluded := entry.ServerLeftOut || leftOut(entry.Session, r.config.LeaveOut)
 		if entry.Excluded == excluded {
 			continue
 		}
-		entry.Excluded, entry.FailureCode = excluded, ""
-		if !excluded && !entry.SourceBlocked {
-			entry.ParkedVersion, entry.BackoffAttempt, entry.RetryAt = "", 0, time.Time{}
-		}
+		setExcluded(&entry, excluded)
+		entry.FailureCode = ""
 		if err := r.Queue.Update(entry); err != nil {
 			return err
 		}

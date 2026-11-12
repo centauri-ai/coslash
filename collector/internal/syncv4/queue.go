@@ -493,7 +493,7 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 			}
 			entry.ServerLeftOut = false
 			entry.ListRejected = false
-			entry.Excluded = leftOut(entry.Session, result.Config.LeaveOut)
+			setExcluded(entry, leftOut(entry.Session, result.Config.LeaveOut))
 			if entry.Excluded {
 				q.exclude(entry)
 			}

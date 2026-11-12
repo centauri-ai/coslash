@@ -933,8 +933,14 @@ func excludedParkedQueue(t *testing.T, sourceBlocked bool) *Queue {
 	if err := queue.Merge([]Entry{{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex", Repo: "owner/private"}}}, now); err != nil {
 		t.Fatal(err)
 	}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: []string{"owner/private"}}}, now); err != nil {
+		t.Fatal(err)
+	}
 	entry := queue.Entries()[0]
-	entry.Excluded, entry.SourceBlocked = true, sourceBlocked
+	if !entry.Excluded {
+		t.Fatal("leave-out rule did not exclude the entry")
+	}
+	entry.SourceBlocked = sourceBlocked
 	entry.ParkedVersion, entry.BackoffAttempt, entry.RetryAt = "1.0.0", 2, now.Add(time.Hour)
 	if err := queue.Update(entry); err != nil {
 		t.Fatal(err)
@@ -942,26 +948,34 @@ func excludedParkedQueue(t *testing.T, sourceBlocked bool) *Queue {
 	return queue
 }
 
-func TestApplyExclusionsReleasesParkOnInclude(t *testing.T) {
-	queue := excludedParkedQueue(t, false)
+func includeWithoutLeaveOut(t *testing.T, queue *Queue, viaPolicy bool) Entry {
+	t.Helper()
+	if viaPolicy {
+		if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 2, Config: hubclient.V4Config{LeaveOut: []string{}}}, time.Date(2026, 11, 12, 12, 1, 0, 0, time.UTC)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	runner := Runner{Queue: queue}
 	if err := runner.applyExclusions(); err != nil {
 		t.Fatal(err)
 	}
-	got := queue.Entries()[0]
-	if got.Excluded || got.ParkedVersion != "" || got.BackoffAttempt != 0 || !got.RetryAt.IsZero() {
-		t.Fatalf("included entry kept park state: %+v", got)
+	return queue.Entries()[0]
+}
+
+func TestApplyExclusionsReleasesParkOnInclude(t *testing.T) {
+	for _, viaPolicy := range []bool{false, true} {
+		got := includeWithoutLeaveOut(t, excludedParkedQueue(t, false), viaPolicy)
+		if got.Excluded || got.ParkedVersion != "" || got.BackoffAttempt != 0 || !got.RetryAt.IsZero() {
+			t.Fatalf("viaPolicy=%v: included entry kept park state: %+v", viaPolicy, got)
+		}
 	}
 }
 
 func TestApplyExclusionsKeepsSourceBlockedPark(t *testing.T) {
-	queue := excludedParkedQueue(t, true)
-	runner := Runner{Queue: queue}
-	if err := runner.applyExclusions(); err != nil {
-		t.Fatal(err)
-	}
-	got := queue.Entries()[0]
-	if got.Excluded || got.ParkedVersion != "1.0.0" || !got.SourceBlocked {
-		t.Fatalf("source-blocked park released: %+v", got)
+	for _, viaPolicy := range []bool{false, true} {
+		got := includeWithoutLeaveOut(t, excludedParkedQueue(t, true), viaPolicy)
+		if got.Excluded || got.ParkedVersion != "1.0.0" || !got.SourceBlocked {
+			t.Fatalf("viaPolicy=%v: source-blocked park released: %+v", viaPolicy, got)
+		}
 	}
 }
