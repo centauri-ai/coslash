@@ -392,23 +392,6 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
 
   const refreshSessions = () => setRefreshCount((count) => count + 1);
 
-  const refreshSessionsNow = async (): Promise<Session[]> => {
-    const response = await apiFetch(
-      sessionsRequestPath({
-        localSince: timeWindowStart(localWindow),
-        remoteSince: timeWindowStart(remoteWindow),
-      }),
-    );
-    if (!response.ok) throw new Error(`Sessions request failed (${response.status})`);
-    const payload = decodeSessionsResponse(await response.json());
-    setSessions(payload.sessions);
-    setMachines(payload.machines);
-    setSessionsVersion((version) => version + 1);
-    setIsLoading(false);
-    setLoadError(null);
-    return payload.sessions;
-  };
-
   return {
     sessions,
     machines,
@@ -418,6 +401,5 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     synthesisCostVersion,
     retrySessions,
     refreshSessions,
-    refreshSessionsNow,
   };
 }
