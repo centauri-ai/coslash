@@ -135,7 +135,10 @@ type Transport interface {
 type Runner struct {
 	// Version is this Local's version. A failure it parks is retried by any
 	// other version, which may read the source differently.
-	Version             string
+	Version string
+	// NoSharedAuthority denies Hub-directed changes to shared machine state.
+	// The zero value preserves the existing primary worker behavior.
+	NoSharedAuthority   bool
 	Queue               *Queue
 	Backup              *sessionbackupproducer.Manager
 	Hub                 Transport
@@ -963,6 +966,11 @@ func truncate(value string, max int) string {
 }
 
 func (r *Runner) refreshConsent(ctx context.Context) error {
+	if r.NoSharedAuthority {
+		if err := r.Queue.denySharedUpdate(); err != nil {
+			return err
+		}
+	}
 	if until := r.checkInRetryUntil.Load(); until > r.now().UnixNano() {
 		return fmt.Errorf("%w: %w", ErrStaleConsent, hubclient.V4Problem{
 			Code: "rate_limited", RetryAfter: time.Duration(until - r.now().UnixNano()),
@@ -1001,7 +1009,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		}
 	}
 	progress.LocalDiagnostics = r.Queue.localDiagnostics(r.now())
-	if r.CleanupRemoteCache != nil {
+	if !r.NoSharedAuthority && r.CleanupRemoteCache != nil {
 		r.CleanupRemoteCache()
 	}
 	result, err := r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), lines)
@@ -1020,7 +1028,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", ErrStaleConsent, err)
 	}
 	r.resetCheckInBackoff()
-	if result.SSHHosts != nil && r.ReconcileSSHHosts != nil {
+	if !r.NoSharedAuthority && result.SSHHosts != nil && r.ReconcileSSHHosts != nil {
 		if err := r.ReconcileSSHHosts(result.SSHHosts); err != nil {
 			return err
 		}
@@ -1032,7 +1040,12 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		}
 		r.logRejectedUntil = time.Time{}
 	}
-	if err := r.Queue.ApplyPolicyAt(result, r.now()); err != nil {
+	policyResult := result
+	if r.NoSharedAuthority {
+		policyResult.MinVersion, policyResult.RecommendedVersion, policyResult.RecommendedDownloadURL = "", "", ""
+		policyResult.UpdateRequired, policyResult.RecommendedUpdate = false, false
+	}
+	if err := r.Queue.ApplyPolicyAt(policyResult, r.now()); err != nil {
 		return err
 	}
 	if progress.Import != nil {
@@ -1058,6 +1071,25 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	r.checkedAt = r.now()
 	for _, command := range result.Commands {
 		if command.ID == "" || len(command.ID) > 64 {
+			continue
+		}
+		if r.NoSharedAuthority && (command.Type == "update" || command.Type == "ssh.test" || command.Type == "ssh.install") {
+			if update := r.Queue.PendingUpdate(); command.Type == "update" && update != nil && update.ID == command.ID {
+				continue
+			}
+			started, err := r.Queue.StartCommand(command.ID)
+			if err != nil {
+				return err
+			}
+			if started {
+				code := "command_unavailable"
+				if command.Type == "update" {
+					code = "update_unavailable"
+				}
+				if err := r.Queue.FinishCommand(hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: code}); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if command.Type == "update" {

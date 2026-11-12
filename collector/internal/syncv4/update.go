@@ -30,6 +30,9 @@ func (r *Runner) CheckInForUpdate(ctx context.Context) error { return r.refreshC
 // ReportUpdate sends only the update receipt, without running the upload pass
 // or changing its retry deadlines or backoff.
 func (r *Runner) ReportUpdate(ctx context.Context) error {
+	if r.NoSharedAuthority {
+		return errors.New("update reporting unavailable")
+	}
 	update := r.Queue.PendingUpdate()
 	if update == nil {
 		return nil
@@ -61,6 +64,30 @@ func (r *Runner) ReportUpdate(ctx context.Context) error {
 		return nil
 	}
 	return r.Queue.ReconcileUpdate(r.Version, nil, results, true)
+}
+
+// denySharedUpdate invalidates stale prompts and fails an already journaled
+// attempt before a secondary sends any check-in results.
+func (q *Queue) denySharedUpdate() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.Update == nil && q.state.MinVersion == "" && q.state.RecommendedVersion == "" && q.state.RecommendedDownloadURL == "" && !q.state.UpdateRequired && !q.state.RecommendedUpdate {
+		return nil
+	}
+	prior := q.state
+	if q.state.Update != nil {
+		copy := *q.state.Update
+		q.state.Update = &copy
+		q.state.Update.Stage, q.state.Update.Error, q.state.Update.HandoffReady = "failed", "update_unavailable", false
+		q.state.Update.LegacySettlement = false
+	}
+	q.state.MinVersion, q.state.RecommendedVersion, q.state.RecommendedDownloadURL = "", "", ""
+	q.state.UpdateRequired, q.state.RecommendedUpdate = false, false
+	if err := q.save(); err != nil {
+		q.state = prior
+		return err
+	}
+	return nil
 }
 
 // UpdateAttempt is persisted with the paired queue before any update starts.

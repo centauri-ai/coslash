@@ -25,6 +25,15 @@ preferences; unsupported installation channels report failure. The Hub
 verifies completion from a fresh check-in rather than a command result alone.
 Receipt reporting does not run uploads or consume policy or other commands.
 
+A worker configured with `NoSharedAuthority` rejects SSH test/install and update
+commands with persisted failures, ignores SSH host reconciliation and update
+prompts, and fails a stale update attempt before sending check-in results.
+Worker owners must use a separate queue for each Hub and must never attach a
+secondary queue to the global updater, update receipt reporter, update deep
+links, or shared-machine maintenance. Authority is fixed for the worker lifetime;
+stop the worker and its consumers before changing it. The existing single-Hub
+worker retains authority.
+
 For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed
 content revision schedules a fresh capture even when activity time is equal.
