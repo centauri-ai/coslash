@@ -307,6 +307,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     const load = (background: boolean) => {
       if (authenticationFailed) return;
       if (!background) {
+        foregroundKey.current = null;
         setIsLoading(true);
         setLoadError(null);
       }
