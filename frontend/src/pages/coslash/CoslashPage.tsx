@@ -103,6 +103,7 @@ export function CoslashPage() {
     refresh: refreshDiagnostics,
   } = useDiagnostics(diagnosticsEnabled);
   const remoteRetryPromise = useRef<Promise<MachineFact | undefined> | null>(null);
+  const themeAttempt = useRef(0);
   const settingsState = useSettings();
   const syncStatusState = useSyncStatus();
   const syncStatus = syncStatusState.status;
@@ -262,11 +263,17 @@ export function CoslashPage() {
   const handleThemeChange = (theme: Theme) => {
     const response = settingsState.response;
     if (response == null || response.settings.appearance.theme === theme) return;
-    const previousTheme = response.settings.appearance.theme;
+    const attempt = ++themeAttempt.current;
+    let persistedTheme = response.settings.appearance.theme;
     setTheme(theme);
-    void settingsState.save({ ...initialSettingsDraft(response), appearance: { theme } }).then((saved) => {
-      if (!saved) setTheme(previousTheme);
-    });
+    void settingsState
+      .save((current) => {
+        persistedTheme = current.settings.appearance.theme;
+        return { ...initialSettingsDraft(current), appearance: { theme } };
+      })
+      .then((saved) => {
+        if (!saved && attempt === themeAttempt.current) setTheme(persistedTheme);
+      });
   };
 
   const settingsBanner =
