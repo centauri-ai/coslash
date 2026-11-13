@@ -98,8 +98,9 @@ Dev builds, branch builds, and custom data homes never install the shared login
 agent, even through `coslash service install`. A custom `COSLASH_HOME` skips URL
 registration and keeps separate Hub credentials.
 Closing the browser does not stop the sync worker. The macOS login agent restarts
-Local if its process exits. On Windows, pairing registers Local to start at the
-next sign-in; on Linux, see
+Local if its process exits. On Windows, pairing adds the executable to the
+current user's Run key without `COSLASH_HOME`; for a custom home, this starts
+the default-home copy at sign-in. On Linux, see
 [Linux](#linux). Hub asks running
 Locals to check in when My space opens and shows whether they are reachable.
 When uninstalling a paired Windows copy, remove its login entry with
@@ -236,22 +237,36 @@ copy keeps its own device credential, sync queue, settings, and logs, and both
 read the same agent sessions.
 
 In the second Hub, open **Devices → Add device** and copy the connect command.
-Run it with a separate data home:
+On macOS and Linux, prefix the connect command and every later command for this
+copy with its separate data home:
 
 ```sh
 COSLASH_HOME="$HOME/.coslash-second" coslash connect K7QX-29PD --hub https://hub.coslash.io
+COSLASH_HOME="$HOME/.coslash-second" coslash status
+COSLASH_HOME="$HOME/.coslash-second" coslash ui-url
 ```
 
-Always add the `COSLASH_HOME` prefix. Without it, the command reaches your
-existing Local and points it at the new Hub. Use the same prefix for every
-command meant for the second copy, such as `coslash status` or
-`coslash ui-url`.
+In PowerShell, set the variable for the current session before running the
+connect command and later commands. Repeat this assignment in each new session:
+
+```powershell
+$env:COSLASH_HOME = Join-Path $HOME '.coslash-second'
+coslash connect K7QX-29PD --hub https://hub.coslash.io
+coslash status
+coslash ui-url
+```
+
+Without the separate `COSLASH_HOME`, the connect command reaches your existing
+Local and points it at the new Hub.
 
 On Linux, connecting starts the second copy as its own systemd user service
 (or `crontab` entry) and prints its name; it listens on a free loopback port
-when 8787 is taken. On macOS and Windows, a custom data home gets no login
-entry, so start the second copy after each sign-in with `coslash --background`
-and the same `COSLASH_HOME`.
+when 8787 is taken. On macOS, a custom data home gets no login entry, so start
+the second copy after each sign-in with `COSLASH_HOME="$HOME/.coslash-second"
+coslash --background`. On Windows, pairing still registers a Run entry, but
+that entry does not include the custom `COSLASH_HOME` and starts the default-home
+Local at sign-in. In PowerShell, start the second copy after each sign-in by
+setting the same `COSLASH_HOME` as above and running `coslash --background`.
 
 Limits:
 

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-13
-- Source: `collector/cmd/coslash/hub_api.go` (`deviceCredentialStore`), `collector/cmd/coslash/connect.go` (`StartConnectCode`), `collector/cmd/coslash/background_login_linux.go` (`backgroundProfileSuffix`), `TestDeviceCredentialsAreIsolatedByHome`, `TestBackgroundProfilesHaveIndependentStartup`
+- Source: `collector/cmd/coslash/hub_api.go` (`deviceCredentialStore`), `collector/cmd/coslash/connect.go` (`StartConnectCode`), `collector/cmd/coslash/background_login_darwin.go`, `collector/cmd/coslash/background_login_linux.go` (`backgroundProfileSuffix`), `collector/cmd/coslash/background_login_windows.go`, `collector/cmd/coslash/onboarding.go` (`ensureSync`), `TestDeviceCredentialsAreIsolatedByHome`, `TestBackgroundProfilesHaveIndependentStartup`
 
 ## Decision
 
@@ -23,5 +23,5 @@ Sending session data to two Hub accounts is a rare need. Supporting it inside on
 
 - Both copies scan the same agent sessions, and each runs synthesis if enabled in its own settings.
 - Hub-initiated `coslash:` links, **Open coSlash Local** and **Update now** reach only the copy that owns the link handler; custom homes never register one.
-- On macOS and Windows a custom home gets no login entry, so the second copy must be started after sign-in.
+- On macOS a custom home gets no login entry. On Windows pairing writes the executable to the current user's Run key without `COSLASH_HOME`, so sign-in starts the default-home copy; the second copy must be started with its custom home after sign-in.
 - `StartConnectCode` saves the new Hub address before the claim, so a connect command run without the second `COSLASH_HOME` repoints the existing copy.
