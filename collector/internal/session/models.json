@@ -2928,6 +2928,12 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000012
   },
+  "azure_ai/deepseek-v4.1-flash-1017": {
+    "cache_read_input_token_cost": 6E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000012
+  },
   "azure_ai/gpt-5.4": {
     "cache_read_input_token_cost": 2.5E-7,
     "input_cost_per_token": 0.0000025,
@@ -5620,11 +5626,12 @@
     "output_cost_per_token": 0.00005000002
   },
   "databricks/databricks-claude-fable-5-2": {
-    "cache_creation_input_token_cost": 0.000008,
-    "cache_read_input_token_cost": 0.000008,
-    "input_cost_per_token": 0.000008,
+    "cache_creation_input_token_cost": 0.00000999999,
+    "cache_creation_input_token_cost_above_1hr": 0.00001599997,
+    "cache_read_input_token_cost": 1.9999E-7,
+    "input_cost_per_token": 0.00000800002,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.00004
+    "output_cost_per_token": 0.00004000003
   },
   "databricks/databricks-claude-haiku-4-5": {
     "cache_creation_input_token_cost": 0.00000124999,
@@ -6158,11 +6165,12 @@
     "output_cost_per_token": 0.00000220003
   },
   "databricks/system.ai.claude-fable-5-2": {
-    "cache_creation_input_token_cost": 0.000008,
-    "cache_read_input_token_cost": 0.000008,
-    "input_cost_per_token": 0.000008,
+    "cache_creation_input_token_cost": 0.00000999999,
+    "cache_creation_input_token_cost_above_1hr": 0.00001599997,
+    "cache_read_input_token_cost": 1.9999E-7,
+    "input_cost_per_token": 0.00000800002,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.00004
+    "output_cost_per_token": 0.00004000003
   },
   "databricks/system.ai.gemini-4-carbon": {
     "cache_creation_input_token_cost": 0.000002,
@@ -9870,6 +9878,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.00001
   },
+  "gemini/gemini-4-hydrogen": {
+    "cache_read_input_token_cost": 7.5E-8,
+    "input_cost_per_token": 0.0000015,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000075
+  },
   "gemini/gemini-exp-1114": {
     "input_cost_per_token": 0,
     "max_input_tokens": 1048576,
@@ -10839,6 +10853,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.00001
   },
+  "gmi/google/gemini-4-carbon": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00001
+  },
   "gmi/google/gemma-4-26b-a4b-it": {
     "input_cost_per_token": 1.3E-7,
     "max_input_tokens": 256000,
@@ -11086,6 +11106,12 @@
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 2000000,
+    "output_cost_per_token": 0.000006
+  },
+  "gmi/xai/grok4.7": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 500000,
     "output_cost_per_token": 0.000006
   },
   "gmi/zai-org/GLM-4.5-Air-FP8": {
@@ -15479,6 +15505,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 1e-05
   },
+  "opencode/gemini-4-hydrogen": {
+    "cache_read_input_token_cost": 7.5e-08,
+    "input_cost_per_token": 1.5e-06,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 7.5e-06
+  },
   "opencode/glm-4.6": {
     "cache_read_input_token_cost": 1.0000000000000001e-07,
     "input_cost_per_token": 6e-07,
@@ -16359,6 +16391,11 @@
     "input_cost_per_token": 0.00001,
     "output_cost_per_token": 0.00005
   },
+  "perplexity/anthropic/claude-fable-5-2": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000008,
+    "output_cost_per_token": 0.00004
+  },
   "perplexity/anthropic/claude-haiku-4-5": {
     "cache_read_input_token_cost": 1E-7,
     "input_cost_per_token": 0.000001,
@@ -16470,6 +16507,11 @@
     "output_cost_per_token": 0.00000375
   },
   "perplexity/google/gemini-4-argon": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.00001
+  },
+  "perplexity/google/gemini-4-carbon": {
     "cache_read_input_token_cost": 1E-7,
     "input_cost_per_token": 0.000002,
     "output_cost_per_token": 0.00001
@@ -20118,6 +20160,12 @@
     "input_cost_per_token": 0.000004,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.00002
+  },
+  "vertex_ai/gemini-4-hydrogen": {
+    "cache_read_input_token_cost": 7.5E-8,
+    "input_cost_per_token": 0.0000015,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000075
   },
   "vertex_ai/gemini-omni-1.1-flash": {
     "input_cost_per_token": 0.0000015,
