@@ -550,12 +550,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	return errors.Join(sourceErr, firstErr)
 }
 
-// setExcluded releases a park on include. Discovery owns the release of a
-// SourceBlocked park.
+// setExcluded only changes eligibility; source changes, Hub retries, and Local
+// version changes own failure-park release.
 func setExcluded(entry *Entry, excluded bool) {
-	if entry.Excluded && !excluded && !entry.SourceBlocked {
-		entry.ParkedVersion, entry.BackoffAttempt, entry.RetryAt = "", 0, time.Time{}
-	}
 	entry.Excluded = excluded
 }
 
@@ -566,7 +563,9 @@ func (r *Runner) applyExclusions() error {
 			continue
 		}
 		setExcluded(&entry, excluded)
-		entry.FailureCode = ""
+		if entry.ParkedVersion == "" {
+			entry.FailureCode = ""
+		}
 		if err := r.Queue.Update(entry); err != nil {
 			return err
 		}

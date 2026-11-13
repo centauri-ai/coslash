@@ -941,7 +941,8 @@ func excludedParkedQueue(t *testing.T, sourceBlocked bool) *Queue {
 		t.Fatal("leave-out rule did not exclude the entry")
 	}
 	entry.SourceBlocked = sourceBlocked
-	entry.ParkedVersion, entry.BackoffAttempt, entry.RetryAt = "1.0.0", 2, now.Add(time.Hour)
+	entry.ParkedVersion, entry.FailureCode = "1.0.0", "idempotency_conflict"
+	entry.BackoffAttempt, entry.RetryAt = 2, now.Add(time.Hour)
 	if err := queue.Update(entry); err != nil {
 		t.Fatal(err)
 	}
@@ -962,10 +963,12 @@ func includeWithoutLeaveOut(t *testing.T, queue *Queue, viaPolicy bool) Entry {
 	return queue.Entries()[0]
 }
 
-func TestApplyExclusionsReleasesParkOnInclude(t *testing.T) {
+func TestApplyExclusionsPreservesParkOnInclude(t *testing.T) {
+	retryAt := time.Date(2026, 11, 12, 13, 0, 0, 0, time.UTC)
 	for _, viaPolicy := range []bool{false, true} {
 		got := includeWithoutLeaveOut(t, excludedParkedQueue(t, false), viaPolicy)
-		if got.Excluded || got.ParkedVersion != "" || got.BackoffAttempt != 0 || !got.RetryAt.IsZero() {
+		if got.Excluded || got.ParkedVersion != "1.0.0" || got.FailureCode != "idempotency_conflict" ||
+			got.BackoffAttempt != 2 || !got.RetryAt.Equal(retryAt) {
 			t.Fatalf("viaPolicy=%v: included entry kept park state: %+v", viaPolicy, got)
 		}
 	}
