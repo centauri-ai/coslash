@@ -90,8 +90,8 @@ def setup(monkeypatch, cases, replies=None, mode="normal"):
     return fake, model
 
 
-async def execute(fake, task, seconds=100):
-    deadline = datetime.now(UTC) + timedelta(seconds=seconds)
+async def execute(fake, task, seconds=100, *, deadline=None):
+    deadline = deadline or datetime.now(UTC) + timedelta(seconds=seconds)
     async with MCPClient(
         "http://fake/mcp",
         "synthetic-token",

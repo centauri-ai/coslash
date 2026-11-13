@@ -1,6 +1,8 @@
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import coslash_agents.kinds.ask as ask
+import coslash_agents.mcp.client as mcp_client
 from coslash_agents.kinds.ask.copy import FAILED, TIMEOUT
 
 from .conftest import called, calls, execute, final, setup
@@ -64,7 +66,11 @@ async def test_budget_timeout_near_expiry_still_replies(monkeypatch, cases, ask_
 async def test_budget_floor_when_reserve_exceeds_remaining(monkeypatch, cases, ask_task):
     fake, _ = setup(monkeypatch, cases)
     durations = budget_timeout(monkeypatch)
-    await execute(fake, ask_task, 3)
+    now = datetime(2025, 1, 1, tzinfo=UTC)
+    clock = SimpleNamespace(now=lambda *_: now)
+    monkeypatch.setattr(ask, "datetime", clock)
+    monkeypatch.setattr(mcp_client, "datetime", clock)
+    await execute(fake, ask_task, deadline=now + timedelta(seconds=3))
     assert durations == [0.001]
     assert called(fake, "coslash_reply_in_thread")[0]["answer"] == {
         "text": TIMEOUT,
