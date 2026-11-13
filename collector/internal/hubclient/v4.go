@@ -244,6 +244,9 @@ type v4CheckInRequest struct {
 	Queue                V4Queue           `json:"queue"`
 	Results              []V4CommandResult `json:"results,omitempty"`
 	Log                  []V4LogEntry      `json:"log,omitempty"`
+	InstallID            string            `json:"installId,omitempty"`
+	MachineID            string            `json:"machineId,omitempty"`
+	DeviceName           string            `json:"deviceName,omitempty"`
 }
 
 func (result *V4CheckIn) UnmarshalJSON(data []byte) error {
@@ -394,11 +397,19 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 		ClientVersion: version, Capabilities: localCapabilities(), OS: runtime.GOOS,
 		InstallChannel: normalizedInstallChannel(c.InstallChannel), AppliedConfigVersion: appliedConfigVersion,
 		AgentsFound: agentsFound, Queue: queue, Results: results, Log: log,
+		InstallID: c.reportedInstallID(), MachineID: c.reportedMachineID(), DeviceName: reportedDeviceName(c.DeviceName),
 	}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
 	var problem V4Problem
+	// An older Hub rejects unknown JSON fields. Drop diagnostics first, then the
+	// computer ids, so a Hub that only rejects diagnostics still records identity.
 	if input.Queue.LocalDiagnostics != nil && errors.As(err, &problem) && problem.HTTPStatus == http.StatusBadRequest && problem.Code == "invalid_query" {
 		input.Queue.LocalDiagnostics = nil
+		err = c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
+	}
+	if errors.As(err, &problem) && problem.HTTPStatus == http.StatusBadRequest && problem.Code == "invalid_query" &&
+		(input.InstallID != "" || input.MachineID != "" || input.DeviceName != "") {
+		input.InstallID, input.MachineID, input.DeviceName = "", "", ""
 		err = c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
 	}
 	// Version 0 is the owner's default policy before any settings save, and

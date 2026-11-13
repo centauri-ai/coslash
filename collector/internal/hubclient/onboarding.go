@@ -328,6 +328,9 @@ type checkInRequest struct {
 	AppliedConfigVersion int64        `json:"appliedConfigVersion"`
 	AgentsFound          []string     `json:"agentsFound"`
 	Queue                checkInQueue `json:"queue"`
+	InstallID            string       `json:"installId,omitempty"`
+	MachineID            string       `json:"machineId,omitempty"`
+	DeviceName           string       `json:"deviceName,omitempty"`
 }
 
 type checkInQueue struct {
@@ -353,45 +356,33 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 	}
 	input := checkInRequest{ClientVersion: version, Capabilities: localCapabilities(), OS: runtime.GOOS,
 		InstallChannel: normalizedInstallChannel(c.InstallChannel),
-		AgentsFound:    []string{}, Queue: checkInQueue{}}
+		AgentsFound:    []string{}, Queue: checkInQueue{},
+		InstallID: c.reportedInstallID(), MachineID: c.reportedMachineID(), DeviceName: reportedDeviceName(c.DeviceName)}
 	input.Queue.FirstSync.HistoryState = "not_started"
-	body, err := json.Marshal(input)
+	response, err := c.postCheckIn(ctx, credential, input)
 	if err != nil {
-		return 0, errors.New("could not prepare Hub check-in")
+		return 0, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("/v4/devices/me/check-in"), bytes.NewReader(body))
-	if err != nil {
-		return 0, errors.New("could not prepare Hub check-in")
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Device "+credential)
-	response, err := c.httpClient().Do(request)
-	if err != nil {
-		return 0, errors.New("Local could not reach Hub for its first check-in")
-	}
-	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		problem := readProblem(response)
-		if problem.Code == "device_revoked" {
-			revoked := V4Problem{Code: problem.Code, HTTPStatus: response.StatusCode}
-			cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-			defer cancelCleanup()
-			var deleteErr error
-			if deleter, ok := c.Credentials.(ConditionalCredentialDeleter); ok {
-				_, deleteErr = deleter.DeleteIfMatches(cleanupCtx, credential)
-			} else {
-				deleteErr = c.Credentials.Delete(cleanupCtx)
+		_ = response.Body.Close()
+		// An older Hub rejects unknown JSON fields, so one retry omits the computer ids.
+		if problem.Code == "invalid_query" && (input.InstallID != "" || input.MachineID != "" || input.DeviceName != "") {
+			input.InstallID, input.MachineID, input.DeviceName = "", "", ""
+			response, err = c.postCheckIn(ctx, credential, input)
+			if err != nil {
+				return 0, err
 			}
-			if deleteErr != nil {
-				return 0, errors.Join(revoked, fmt.Errorf("delete revoked Hub credential: %w", deleteErr))
+			if response.StatusCode != http.StatusOK {
+				problem = readProblem(response)
+				_ = response.Body.Close()
+				return c.finishCheckIn(ctx, credential, response.StatusCode, problem)
 			}
-			return 0, revoked
+		} else {
+			return c.finishCheckIn(ctx, credential, response.StatusCode, problem)
 		}
-		if problem.Code == "invalid_query" && strings.Contains(problem.Detail, "clientVersion") {
-			return 0, errors.Join(ErrClientVersionRejected, problem)
-		}
-		return 0, fmt.Errorf("Hub check-in failed: %s", problem.Code)
 	}
+	defer response.Body.Close()
 	// Hub answers with its full v4 check-in, so decode the shared contract
 	// type: a narrower struct would reject the policy fields it always sends.
 	var result V4CheckIn
@@ -399,4 +390,44 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 		return 0, errors.New("Hub returned an invalid check-in response")
 	}
 	return time.Duration(result.NextCheckInSeconds) * time.Second, nil
+}
+
+func (c *Client) postCheckIn(ctx context.Context, credential string, input checkInRequest) (*http.Response, error) {
+	body, err := json.Marshal(input)
+	if err != nil {
+		return nil, errors.New("could not prepare Hub check-in")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("/v4/devices/me/check-in"), bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.New("could not prepare Hub check-in")
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Device "+credential)
+	response, err := c.httpClient().Do(request)
+	if err != nil {
+		return nil, errors.New("Local could not reach Hub for its first check-in")
+	}
+	return response, nil
+}
+
+func (c *Client) finishCheckIn(ctx context.Context, credential string, status int, problem Problem) (time.Duration, error) {
+	if problem.Code == "device_revoked" {
+		revoked := V4Problem{Code: problem.Code, HTTPStatus: status}
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancelCleanup()
+		var deleteErr error
+		if deleter, ok := c.Credentials.(ConditionalCredentialDeleter); ok {
+			_, deleteErr = deleter.DeleteIfMatches(cleanupCtx, credential)
+		} else {
+			deleteErr = c.Credentials.Delete(cleanupCtx)
+		}
+		if deleteErr != nil {
+			return 0, errors.Join(revoked, fmt.Errorf("delete revoked Hub credential: %w", deleteErr))
+		}
+		return 0, revoked
+	}
+	if problem.Code == "invalid_query" && strings.Contains(problem.Detail, "clientVersion") {
+		return 0, errors.Join(ErrClientVersionRejected, problem)
+	}
+	return 0, fmt.Errorf("Hub check-in failed: %s", problem.Code)
 }
