@@ -7,6 +7,7 @@ Choose Hub setup for a connected device, or install coSlash Local without a Hub 
 - [Install coSlash Local separately](#install-coslash-local-separately)
 - [First run](#first-run)
 - [Linux sessions over SSH](#linux-sessions-over-ssh)
+- [Sync to two Hubs](#sync-to-two-hubs)
 - [Install from a release archive](#install-from-a-release-archive)
 
 ## Supported agents and platforms
@@ -226,6 +227,42 @@ When Pi is installed, coSlash manages an extension for live status. Restart runn
 In **Settings → Machines**, choose **Add remote host** and enter an alias from your OpenSSH configuration or a `user@host` destination. coSlash uses the system `ssh` client and never edits your SSH configuration. After you approve it, coSlash installs a small read-only helper in `~/.coslash/helpers` on the host. If the helper cannot run, coSlash falls back to SFTP.
 
 Remote Claude Code and Codex sessions support **Resume** and **Start fresh with handoff** while the host is connected. Cached sessions stay readable while the host is offline. Synthesis and Commands are local-only. For setup errors, see [Troubleshooting](troubleshooting.md#sessions-are-missing).
+
+## Sync to two Hubs
+
+One coSlash Local data home pairs with one Hub. To sync the same sessions to a
+second Hub or account, run a second Local with its own `COSLASH_HOME`. Each
+copy keeps its own device credential, sync queue, settings, and logs, and both
+read the same agent sessions.
+
+In the second Hub, open **Devices → Add device** and copy the connect command.
+Run it with a separate data home:
+
+```sh
+COSLASH_HOME="$HOME/.coslash-second" coslash connect K7QX-29PD --hub https://hub.coslash.io
+```
+
+Always add the `COSLASH_HOME` prefix. Without it, the command reaches your
+existing Local and points it at the new Hub. Use the same prefix for every
+command meant for the second copy, such as `coslash status` or
+`coslash ui-url`.
+
+On Linux, connecting starts the second copy as its own systemd user service
+(or `crontab` entry) and prints its name; it listens on a free loopback port
+when 8787 is taken. On macOS and Windows, a custom data home gets no login
+entry, so start the second copy after each sign-in with `coslash --background`
+and the same `COSLASH_HOME`.
+
+Limits:
+
+- Hub's **Open coSlash Local** and **Update now** reach only the copy that owns
+  the `coslash:` link handler, normally the one in `~/.coslash`.
+- Each copy scans sessions on its own. Synthesis is off in a new data home
+  until you turn it on there.
+
+To stop syncing to the second Hub, stop that copy (on Linux, remove its service
+as described in [Linux](#linux)), delete its data home, and revoke the device
+in that Hub.
 
 ## Install from a release archive
 
