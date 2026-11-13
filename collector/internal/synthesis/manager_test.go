@@ -306,6 +306,40 @@ func TestReplacedRunnerFailureIsIgnored(t *testing.T) {
 	}
 }
 
+func TestReplacedRunnerCacheFailureIsRecorded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	old := &accountingRunner{vendor: "codex", model: "old", run: func(context.Context, string) (RunResult, error) {
+		close(started)
+		<-release
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "ready"}}, nil
+	}}
+	replacement := &accountingRunner{vendor: "claude", model: "new", run: func(context.Context, string) (RunResult, error) {
+		return RunResult{}, nil
+	}}
+	manager := NewManager(old, nil)
+	s := &session.Session{Agent: "codex", ID: "cache-failure", SessionDetails: session.SessionDetails{Turns: 6}}
+	if !manager.Ensure(s, 42) {
+		t.Fatal("not started")
+	}
+	<-started
+	manager.SetRunner(replacement)
+	if err := os.WriteFile(SummariesDir(), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	manager.workers.Wait()
+	if !manager.InCooldown(s.Agent, s.ID, 42) || manager.Failure(s.Agent, s.ID, 42) == "" {
+		t.Fatal("cache persistence failure did not record a cooldown")
+	}
+	if manager.Ensure(s, 42) {
+		manager.workers.Wait()
+		t.Fatal("synthesis was restarted before the cache failure cooldown")
+	}
+}
+
 func TestManagerShutdownKeepsPaidCancellationWithoutPublishingSummary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)

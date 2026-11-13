@@ -294,14 +294,17 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 		if err == nil {
 			m.failures.Delete(failureKey{agent: agent, id: id, revision: revision})
 			m.cliMissingUntil.Store(0)
+		} else {
+			m.recordFailure(agent, id, revision, err)
 		}
-	}
-	if err != nil {
+	} else {
 		m.runnerMu.RLock()
 		if m.runnerGeneration == generation {
 			m.recordFailure(agent, id, revision, err)
 		}
 		m.runnerMu.RUnlock()
+	}
+	if err != nil {
 		log.Printf("synthesize session %s: failed", id)
 	}
 	if roundID != "" && !accountingFailed {
