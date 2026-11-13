@@ -36,6 +36,8 @@ type Client struct {
 	HTTP              *http.Client
 	Credentials       CredentialStore
 	DeviceName        string
+	InstallID         string
+	MachineID         string
 	CollectorVersion  string
 	InstallChannel    string
 	LoadSession       SessionLoader
@@ -131,15 +133,11 @@ func (c *Client) BeginPairing(ctx context.Context) (PairingResult, error) {
 	if !c.configured() {
 		return PairingResult{}, errors.New("Hub server is not configured")
 	}
-	body, _ := json.Marshal(map[string]string{"deviceName": c.DeviceName})
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("/v1/device-authorizations"), bytes.NewReader(body))
+	fields := map[string]string{"deviceName": c.DeviceName}
+	c.addPairIdentity(fields)
+	response, err := c.postPairingJSON(ctx, "/v1/device-authorizations", fields, "begin Hub pairing")
 	if err != nil {
 		return PairingResult{}, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.httpClient().Do(request)
-	if err != nil {
-		return PairingResult{}, fmt.Errorf("begin Hub pairing: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
@@ -183,31 +181,29 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 		c.forgetPairing(pairingID)
 		return PairingResult{State: "expired"}, nil
 	}
-	body, _ := json.Marshal(map[string]string{"deviceCode": secret.deviceCode})
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("/v1/device-authorizations/token"), bytes.NewReader(body))
-	if err != nil {
-		return PairingResult{}, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.httpClient().Do(request)
+	fields := map[string]string{"deviceCode": secret.deviceCode}
+	c.addPairIdentity(fields)
+	response, err := c.postJSON(ctx, "/v1/device-authorizations/token", fields)
 	if err != nil {
 		return PairingResult{}, fmt.Errorf("poll Hub pairing: %w", err)
 	}
+	if response.StatusCode == http.StatusBadRequest && (fields["installId"] != "" || fields["machineId"] != "") {
+		problem := readProblem(response)
+		_ = response.Body.Close()
+		if problem.Code == "invalid_request" {
+			delete(fields, "installId")
+			delete(fields, "machineId")
+			response, err = c.postJSON(ctx, "/v1/device-authorizations/token", fields)
+			if err != nil {
+				return PairingResult{}, fmt.Errorf("poll Hub pairing: %w", err)
+			}
+		} else {
+			return c.pairingPollResult(pairingID, response.StatusCode, problem)
+		}
+	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		problem := readProblem(response)
-		if problem.Code == "pairing_pending" {
-			return PairingResult{State: "pending", PairingID: pairingID}, nil
-		}
-		if problem.Code == "onboarding_declined" {
-			c.forgetPairing(pairingID)
-			return PairingResult{State: "declined"}, nil
-		}
-		if problem.Code == "pairing_expired" || response.StatusCode == http.StatusGone {
-			c.forgetPairing(pairingID)
-			return PairingResult{State: "expired"}, nil
-		}
-		return PairingResult{}, problem
+		return c.pairingPollResult(pairingID, response.StatusCode, readProblem(response))
 	}
 	var token struct {
 		DeviceID   string `json:"deviceId"`
@@ -229,6 +225,21 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 	c.pairings[pairingID] = secret
 	c.pairingMu.Unlock()
 	return c.savePairingCredential(ctx, pairingID, token.Credential)
+}
+
+func (c *Client) pairingPollResult(pairingID string, status int, problem Problem) (PairingResult, error) {
+	if problem.Code == "pairing_pending" {
+		return PairingResult{State: "pending", PairingID: pairingID}, nil
+	}
+	if problem.Code == "onboarding_declined" {
+		c.forgetPairing(pairingID)
+		return PairingResult{State: "declined"}, nil
+	}
+	if problem.Code == "pairing_expired" || status == http.StatusGone {
+		c.forgetPairing(pairingID)
+		return PairingResult{State: "expired"}, nil
+	}
+	return PairingResult{}, problem
 }
 
 func (c *Client) savePairingCredential(ctx context.Context, pairingID, credential string) (PairingResult, error) {
