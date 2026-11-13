@@ -16,9 +16,11 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/machineid"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -51,10 +53,20 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 		BaseURL:          baseURL,
 		Credentials:      hubCredentialStore(baseURL.Scheme + "://" + baseURL.Host),
 		DeviceName:       deviceName,
+		InstallID:        localInstallID(),
+		MachineID:        machineid.Current(),
 		CollectorVersion: collectorVersion,
 		InstallChannel:   detectedInstallChannel(),
 		LoadSession:      collector.GetSessionForPreview,
 	}, nil
+}
+
+func localInstallID() string {
+	health, err := syncv4.ReadHealth("")
+	if err != nil {
+		return ""
+	}
+	return health.InstallID
 }
 
 func deviceCredentialStore(goos, origin string) hubclient.CredentialStore {
