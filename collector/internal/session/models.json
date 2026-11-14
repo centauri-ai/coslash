@@ -6438,6 +6438,12 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000003
   },
+  "deepinfra/XiaomiMiMo/MiMo-V2.6-Flash": {
+    "cache_read_input_token_cost": 2.8E-9,
+    "input_cost_per_token": 1.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.8E-7
+  },
   "deepinfra/allenai/olmOCR-7B-0725-FP8": {
     "input_cost_per_token": 2.7E-7,
     "max_input_tokens": 16384,
@@ -6830,6 +6836,12 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 1.6E-7
   },
+  "deepinfra/nvidia/NVIDIA-Nemotron-3.5-Super-VL": {
+    "cache_read_input_token_cost": 2E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 5E-7
+  },
   "deepinfra/nvidia/NVIDIA-Nemotron-Nano-9B-v2": {
     "input_cost_per_token": 4E-8,
     "max_input_tokens": 131072,
@@ -6877,6 +6889,12 @@
     "input_cost_per_token": 1.4E-7,
     "max_input_tokens": 262144,
     "output_cost_per_token": 5.8E-7
+  },
+  "deepinfra/tencent/Hy4-preview": {
+    "cache_read_input_token_cost": 4.2E-8,
+    "input_cost_per_token": 8.34E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000002501
   },
   "deepinfra/thinkingmachines/Inkling": {
     "cache_read_input_token_cost": 1.6E-7,
@@ -6930,6 +6948,12 @@
     "input_cost_per_token": 7.5E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000024
+  },
+  "deepinfra/zai-org/GLM-5.3-Flash": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
   },
   "deepseek-chat": {
     "cache_read_input_token_cost": 2.8E-8,
@@ -10120,6 +10144,12 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.00001
+  },
+  "github_copilot/gemini-4-hydrogen": {
+    "cache_read_input_token_cost": 7.5E-8,
+    "input_cost_per_token": 0.0000015,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.0000075
   },
   "github_copilot/gpt-5-mini": {
     "cache_read_input_token_cost": 2.5E-8,
@@ -16516,6 +16546,11 @@
     "input_cost_per_token": 0.000002,
     "output_cost_per_token": 0.00001
   },
+  "perplexity/google/gemini-4-hydrogen": {
+    "cache_read_input_token_cost": 7.5E-8,
+    "input_cost_per_token": 0.0000015,
+    "output_cost_per_token": 0.0000075
+  },
   "perplexity/llama-2-70b-chat": {
     "input_cost_per_token": 7E-7,
     "max_input_tokens": 4096,
@@ -18587,6 +18622,12 @@
     "max_input_tokens": 524288,
     "output_cost_per_token": 0.00000405
   },
+  "together_ai/thinkingmachines/Inkling-2-Small": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000001
+  },
   "together_ai/together/Tev1-4B-experimental": {
     "input_cost_per_token": 4.2E-8,
     "max_input_tokens": 32768,
@@ -20027,6 +20068,11 @@
     "input_cost_per_token": 2E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 6E-7
+  },
+  "vertex_ai/deep-research-preview-04-2026": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.000012
   },
   "vertex_ai/deep-research-pro-preview-12-2025": {
     "cache_read_input_token_cost": 2E-7,
