@@ -362,6 +362,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
 	}
+	setHubClientInstallID(hub, controller.Queue())
 	onboardings.SetV4SyncActive(controller.Queue() != nil)
 	onboardings.setSyncHooks(controller)
 	onboardings.setBackgroundRegistration(registerBackgroundLogin)

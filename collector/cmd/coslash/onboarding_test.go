@@ -65,6 +65,29 @@ func TestHubClientFromEnvironmentAllowsExplicitHTTPSHubHosts(t *testing.T) {
 	}
 }
 
+func TestHubClientInstallIDUsesInitializedQueue(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("COSLASH_HUB_URL", "https://hub.staging.example")
+	t.Setenv("COSLASH_V4_SYNC", "1")
+	client, err := hubClientFromEnvironment("0.1.0")
+	if err != nil || client == nil || client.InstallID != "" {
+		t.Fatalf("initial Hub client=%#v error=%v; want no ID before queue creation", client, err)
+	}
+	controller, err := newSyncController(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(controller.Stop)
+	queue := controller.Queue()
+	if queue == nil {
+		t.Fatal("sync queue was not initialized")
+	}
+	setHubClientInstallID(client, queue)
+	if client.InstallID != queue.InstallID() {
+		t.Fatalf("Hub client install ID=%q, want queue install ID %q", client.InstallID, queue.InstallID())
+	}
+}
+
 func TestOnboardingUpdatesHubDestinationRouteClient(t *testing.T) {
 	baseURL, err := url.Parse("https://hub.coslash.io")
 	if err != nil {

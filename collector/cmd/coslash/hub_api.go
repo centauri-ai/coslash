@@ -69,6 +69,12 @@ func localInstallID() string {
 	return health.InstallID
 }
 
+func setHubClientInstallID(client *hubclient.Client, queue *syncv4.Queue) {
+	if client != nil && queue != nil {
+		client.InstallID = queue.InstallID()
+	}
+}
+
 func deviceCredentialStore(goos, origin string) hubclient.CredentialStore {
 	_, host, hasScheme := strings.Cut(origin, "://")
 	if !hasScheme {
