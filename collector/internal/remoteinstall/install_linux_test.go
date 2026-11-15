@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestInstallKeepsOpenedVersionDirectoryAcrossIntermediateSwap(t *testing.T) {
 	home := t.TempDir()
+	if err := os.Chmod(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	versionDir := filepath.Join(home, ".coslash", "helpers", "v1")
 	// All components exist before the operation begins, just as they do in the
 	// replacement attack.
@@ -60,5 +64,41 @@ func TestInstallKeepsOpenedVersionDirectoryAcrossIntermediateSwap(t *testing.T) 
 	}
 	if _, err := os.Stat(filepath.Join(attacker, "v1", fileName)); !os.IsNotExist(err) {
 		t.Fatalf("attacker tree received helper: %v", err)
+	}
+}
+
+func TestInstallRejectsGroupOrWorldWritableHome(t *testing.T) {
+	content := []byte("verified static helper bytes")
+	digest := fmt.Sprintf("%x", sha256.Sum256(content))
+	sourcePath := filepath.Join(t.TempDir(), "source")
+	if err := os.WriteFile(sourcePath, content, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []os.FileMode{0o775, 0o757} {
+		home := t.TempDir()
+		if err := os.Chmod(home, mode); err != nil {
+			t.Fatal(err)
+		}
+		source, err := os.Open(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		installErr := install(source, home, "v1", digest, nil)
+		source.Close()
+		if installErr == nil || !strings.Contains(installErr.Error(), "verify helper home: unsafe helper directory") {
+			t.Fatalf("mode %#o: install error = %v, want unsafe helper directory", mode, installErr)
+		}
+	}
+	home := t.TempDir()
+	if err := os.Chmod(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	if err := install(source, home, "v1", digest, nil); err != nil {
+		t.Fatalf("mode 0755: install error = %v", err)
 	}
 }
