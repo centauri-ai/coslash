@@ -21,7 +21,9 @@ in the working directory or above it. Claude Code also ignores `AGENTS.override.
 
 ## Keep changes small
 
+- Before implementing a multi-package feature or rewrite, compare the smallest design that satisfies the core user journey (reusing existing boundaries, processes, or configuration where feasible) against any broader alternative, with rough production and test line ranges separated. Keep product, compatibility, and data-retention tradeoffs explicit; never change product semantics or discard pending local data merely to reduce code.
 - Before handoff, inspect `git diff --stat` and `git diff --numstat`. If a small request produced a large net line increase, simplify it before declaring the work done.
+- When simplifying code or working against a size target, report before/after line counts by area with production and test lines separated. State plainly whether a requested target was met, missed, or unmeasured; when missed, name the invariants or scope choices that set the floor instead of framing a minor trim as meeting the target.
 - Every added line should have a durable purpose. Remove temporary comparison code, generated artifacts, duplicate rules, and scaffolding after verification.
 - Do not add excessive inline comments. Use an inline comment only for a non-obvious edge case or constraint that cannot be made clear by the code and is not already covered by authoritative documentation; never narrate what the code already says.
 - Recheck `git status` before and after long-running tools. Preserve concurrent or unrelated changes, do not attribute them to your work, and do not clean them up without authorization.
@@ -36,4 +38,5 @@ in the working directory or above it. Claude Code also ignores `AGENTS.override.
 
 - Do not delete or weaken an existing test to make a change pass. When a test pins behavior you are replacing, port its assertion to the new code path and say so in the pull request; if the pinned behavior is genuinely wrong, state why rather than removing the test quietly.
 - A rewrite must carry over the invariants the replaced code guarded, not just its visible output. Name those invariants before starting, then check each one against the new implementation.
-- Tests must not depend on the developer's machine, installed agent CLIs, network access, wall-clock timing, or map iteration order.
+- When consolidating or rewriting tests, map each removed or merged scenario to the retained test and assertion that still guards its invariant, or to an explicit, approved behavior change. Call out tests that skip by default and how to exercise them, and reproduce unexpected failures or timeouts against the baseline commit before treating them as pre-existing or flaky.
+- Tests must not depend on the developer's machine, shell `umask`, installed agent CLIs, network access, wall-clock timing, or map iteration order.
