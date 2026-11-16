@@ -659,6 +659,21 @@ func TestOversizedRawArtifactPreservesTooLargeCause(t *testing.T) {
 	}
 }
 
+func TestMissingCodexFamilyIsDefinitive(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	selection := localSelection()
+	selection.SessionID = "22222222-3333-4444-a555-666666666666"
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	_, err := manager.Prepare(t.Context(), selection)
+	var failure *PreparationError
+	if !errors.As(err, &failure) || !failure.SourceMissing || len(failure.Coverage.Problems) != 1 ||
+		failure.Coverage.Problems[0].Retryable || failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnavailable {
+		t.Fatalf("missing family failure = %#v, %v", failure, err)
+	}
+}
+
 func TestBoundedWriterStopsBeforePersistingOverflow(t *testing.T) {
 	var output bytes.Buffer
 	writer := &boundedWriter{writer: &output, remaining: 3}

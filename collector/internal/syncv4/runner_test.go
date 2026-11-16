@@ -890,6 +890,48 @@ func TestDeterministicFailuresParkUntilLocalChanges(t *testing.T) {
 	}
 }
 
+func TestConfirmedMissingSourceForgetsLocalEntryAndBundle(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{
+		Key: "codex-removed", Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: "codex", SessionID: "gone"},
+		Session: hubclient.V4Session{Agent: "codex"}, Activity: now.UnixMilli(),
+		BundleID: strings.Repeat("a", 64), RevisionID: "accepted-hub-revision", SessionID: "ses_accepted",
+	}
+	if err := queue.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry = queue.Entries()[0]
+	runner := Runner{Queue: queue}
+	err = runner.recordFailure(&entry, &sessionbackupproducer.PreparationError{SourceMissing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Entries(); len(got) != 0 {
+		t.Fatalf("queue still has missing source entry: %+v", got)
+	}
+	if got := queue.Discards(); len(got) != 1 || got[0] != entry.BundleID {
+		t.Fatalf("local bundle cleanup queue = %v", got)
+	}
+	transient := Entry{Key: "codex-temporarily-unavailable", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}}
+	if err := queue.Merge([]Entry{transient}, now); err != nil {
+		t.Fatal(err)
+	}
+	transient = queue.Entries()[0]
+	failure := &sessionbackupproducer.PreparationError{Coverage: sessionbackupproducer.Coverage{
+		Problems: []sessionbackupv1.CaptureProblem{{Code: sessionbackupv1.ProblemUnavailable, Retryable: true}},
+	}}
+	if err := runner.recordFailure(&transient, failure); err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Entries(); len(got) != 1 || got[0].BackoffAttempt == 0 {
+		t.Fatalf("transient source failure was forgotten instead of retried: %+v", got)
+	}
+}
+
 func TestDiscardAbandonedDeletesPreparedBundles(t *testing.T) {
 	now := time.Now().UTC()
 	queue, err := Open(t.TempDir())

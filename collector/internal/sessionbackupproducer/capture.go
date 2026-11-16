@@ -146,10 +146,11 @@ func (manager *Manager) publish(ctx context.Context, staging string, selection S
 }
 
 type captureError struct {
-	code      string
-	kind      string
-	retryable bool
-	tooLarge  bool
+	code          string
+	kind          string
+	retryable     bool
+	tooLarge      bool
+	sourceMissing bool
 }
 
 var errArtifactTooLarge = fmt.Errorf("%w: size limit exceeded", sessionbackupv1.ErrInvalid)
@@ -158,6 +159,10 @@ func (err *captureError) Error() string { return err.code }
 
 func captureFailure(code, kind string, retryable bool) error {
 	return &captureError{code: code, kind: kind, retryable: retryable}
+}
+
+func sourceMissing(kind string) error {
+	return &captureError{code: sessionbackupv1.ProblemUnavailable, kind: kind, sourceMissing: true}
 }
 
 func captureTooLarge(kind string) error {
@@ -224,7 +229,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		}
 	}
 	if len(familyFiles) == 0 {
-		return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
+		return nil, sourceMissing(sessionbackupv1.KindRawTranscript)
 	}
 	sort.Slice(familyFiles, func(i, j int) bool {
 		left, right := headers[familyFiles[i]].SessionID, headers[familyFiles[j]].SessionID

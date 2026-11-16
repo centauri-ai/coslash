@@ -723,6 +723,10 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 }
 
 func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure bool) error {
+	var preparation *sessionbackupproducer.PreparationError
+	if errors.As(failure, &preparation) && preparation.SourceMissing {
+		return r.Queue.ForgetMissingSource(*entry)
+	}
 	if !sourceFailure && capPreparationUnstable(*entry, failure) {
 		return r.Queue.capUnstable(entry, r.now())
 	}

@@ -83,6 +83,10 @@ type operation struct {
 type PreparationError struct {
 	Coverage Coverage
 	TooLarge bool
+	// SourceMissing means a complete family lookup found no source files for
+	// the selected session. Sync may forget the local queue entry; this does
+	// not request deletion of any Hub data.
+	SourceMissing bool
 }
 
 func (err *PreparationError) Error() string {
@@ -351,6 +355,7 @@ func captureProblem(selection Selection, failure *captureError) (*Prepared, erro
 	_, err := problem(selection, failure.code, failure.kind, failure.retryable)
 	if prepared, ok := err.(*PreparationError); ok {
 		prepared.TooLarge = failure.tooLarge
+		prepared.SourceMissing = failure.sourceMissing
 	}
 	return nil, err
 }
