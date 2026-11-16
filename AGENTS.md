@@ -21,8 +21,9 @@ in the working directory or above it. Claude Code also ignores `AGENTS.override.
 
 ## Keep changes small
 
-- Before handoff, inspect `git diff --stat` and `git diff --numstat`. If a small request produced a large net line increase, simplify it before declaring the work done.
-- Every added line should have a durable purpose. Remove temporary comparison code, generated artifacts, duplicate rules, and scaffolding after verification.
+- Start with the smallest change in the existing component that owns the requested behavior. Keep the change scoped to the current requirement and its necessary safety cases.
+- Add a new subsystem, persistent state, configuration option, or reusable abstraction only when the current requirement cannot be met clearly with existing code. Be able to explain why each new concept is needed.
+- After the behavior and tests pass, inspect the complete diff with `git diff --stat` and `git diff --numstat`. Remove duplicate logic, temporary code, and speculative flexibility. If the change is substantially larger than the request suggests, simplify it before handoff or explain the necessary complexity.
 - Do not add excessive inline comments. Use an inline comment only for a non-obvious edge case or constraint that cannot be made clear by the code and is not already covered by authoritative documentation; never narrate what the code already says.
 - Recheck `git status` before and after long-running tools. Preserve concurrent or unrelated changes, do not attribute them to your work, and do not clean them up without authorization.
 
