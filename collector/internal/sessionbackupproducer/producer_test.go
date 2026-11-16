@@ -659,6 +659,59 @@ func TestOversizedRawArtifactPreservesTooLargeCause(t *testing.T) {
 	}
 }
 
+func TestMissingCodexFamilyIsDefinitive(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	selection := localSelection()
+	selection.SessionID = "22222222-3333-4444-a555-666666666666"
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	_, err := manager.Prepare(t.Context(), selection)
+	var failure *PreparationError
+	if !errors.As(err, &failure) || !failure.SourceMissing || len(failure.Coverage.Problems) != 1 ||
+		failure.Coverage.Problems[0].Retryable || failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnavailable {
+		t.Fatalf("missing family failure = %#v, %v", failure, err)
+	}
+}
+
+func TestUnreadableCodexHeaderDoesNotProveMissingFamily(t *testing.T) {
+	home := t.TempDir()
+	file := filepath.Join(codex.SessionsRoot(home), "2026", "11", "16", "bad.jsonl")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("not json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selection := localSelection()
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	_, err := manager.Prepare(t.Context(), selection)
+	var failure *PreparationError
+	if !errors.As(err, &failure) || failure.SourceMissing || len(failure.Coverage.Problems) != 1 ||
+		!failure.Coverage.Problems[0].Retryable {
+		t.Fatalf("unreadable header failure = %#v, %v", failure, err)
+	}
+	if missing, err := manager.MissingLocalFamilies(t.Context(), []Selection{selection}); err == nil || missing != nil {
+		t.Fatalf("unreadable header inventory = %v, %v", missing, err)
+	}
+}
+
+func TestLocalFamilyInventoryKeepsCrossDirectoryCodexFamily(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	present := localSelection()
+	missing := present
+	missing.SessionID = "22222222-3333-4444-a555-666666666666"
+	manager := New(Options{OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	result, err := manager.MissingLocalFamilies(t.Context(), []Selection{present, missing})
+	if err != nil || result[present] || !result[missing] || len(result) != 1 {
+		t.Fatalf("family inventory = %v, %v", result, err)
+	}
+}
+
 func TestBoundedWriterStopsBeforePersistingOverflow(t *testing.T) {
 	var output bytes.Buffer
 	writer := &boundedWriter{writer: &output, remaining: 3}

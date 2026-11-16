@@ -742,6 +742,35 @@ func (q *Queue) Entries() []Entry {
 	return entries
 }
 
+// ForgetMissingSource drops only the matching local queue entry after a
+// complete source-family lookup confirmed that its local files are gone.
+// Removing the entry never requests deletion of its Hub session.
+func (q *Queue) ForgetMissingSource(expected Entry) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for i, stored := range q.state.Entries {
+		if stored.Key != expected.Key {
+			continue
+		}
+		if stored.Selection != expected.Selection || stored.Activity != expected.Activity ||
+			stored.SourceRevision != expected.SourceRevision || stored.SourceEpoch != expected.SourceEpoch ||
+			stored.Attempt != expected.Attempt || stored.BundleID != expected.BundleID || stored.UploadID != expected.UploadID {
+			return nil
+		}
+		previousEntries := slices.Clone(q.state.Entries)
+		previousDiscards := slices.Clone(q.state.DiscardBundles)
+		q.abandon(stored.BundleID)
+		q.state.Entries = slices.Delete(q.state.Entries, i, i+1)
+		if err := q.save(); err != nil {
+			q.state.Entries = previousEntries
+			q.state.DiscardBundles = previousDiscards
+			return err
+		}
+		return nil
+	}
+	return nil
+}
+
 func (q *Queue) LogSequence() int64 {
 	q.mu.Lock()
 	defer q.mu.Unlock()

@@ -240,6 +240,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.DiscoverBatches != nil && (r.config.ImportPlan != nil || r.scaleEnabled) {
 		listedOnce, unlistedSince := false, 0
 		var sourceErr error
+		seen := make(map[string]bool)
 		discoveryRequest := r.discoveryRequests.Load()
 		planVersion := int64(0)
 		if r.config.ImportPlan != nil {
@@ -292,6 +293,11 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			return transferErr
 		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
+			for _, item := range batch.Sessions {
+				if item != nil {
+					seen[item.Agent+"\x00"+item.ID] = true
+				}
+			}
 			grokRevisions := make(map[string]string, len(batch.GrokFamilies))
 			failures := map[string]error{}
 			for _, family := range batch.GrokFamilies {
@@ -367,6 +373,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			return nil
 		}); err != nil {
 			return errors.Join(transferErr, sourceErr, err)
+		}
+		if err := r.forgetMissingLocalSources(ctx, seen); err != nil {
+			return err
 		}
 		// A retry outside the discovery window cannot verify a replacement.
 		for _, entry := range r.Queue.Entries() {
@@ -728,7 +737,36 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	return r.recordFailureState(entry, failure, false)
 }
 
+func (r *Runner) forgetMissingLocalSources(ctx context.Context, seen map[string]bool) error {
+	entries := r.Queue.Entries()
+	selections := make([]sessionbackupproducer.Selection, 0, len(entries))
+	for _, entry := range entries {
+		if !pending(entry) && !seen[entry.Selection.Agent+"\x00"+entry.Selection.SessionID] {
+			selections = append(selections, entry.Selection)
+		}
+	}
+	missing, err := r.Backup.MissingLocalFamilies(ctx, selections)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return nil
+	}
+	for _, entry := range entries {
+		if !pending(entry) && !seen[entry.Selection.Agent+"\x00"+entry.Selection.SessionID] && missing[entry.Selection] {
+			if err := r.Queue.ForgetMissingSource(entry); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure bool) error {
+	var preparation *sessionbackupproducer.PreparationError
+	if errors.As(failure, &preparation) && preparation.SourceMissing {
+		return r.Queue.ForgetMissingSource(*entry)
+	}
 	if !sourceFailure && capPreparationUnstable(*entry, failure) {
 		return r.Queue.capUnstable(entry, r.now())
 	}

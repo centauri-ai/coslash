@@ -34,7 +34,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
 	}
 	if len(files) == 0 {
-		return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
+		return nil, sourceMissing(sessionbackupv1.KindRawTranscript)
 	}
 	sort.Strings(files)
 	inputs := make([]claudeInput, 0, len(files)*2)
