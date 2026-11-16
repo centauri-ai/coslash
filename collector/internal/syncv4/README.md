@@ -56,6 +56,13 @@ source hash succeeds, including after restart or a Hub retry. A Hub retry clears
 its prior failure outcome and wakes discovery before the command can settle.
 If the source cannot be rediscovered within the active window, the retry fails
 with `unreadable_source` and retains the last verified capture.
+After completed streamed discovery, one complete source scan per agent also
+checks already synced Codex and Claude families absent from discovery.
+When no source files remain, Local removes the queue entry and schedules its
+private bundle for local cleanup. It sends no Hub deletion request, so an
+accepted Hub revision remains stored. Incomplete scans and read failures do
+not prove absence. A capture that independently confirms absence has the same
+local cleanup behavior.
 Existing failure codes and logs report the blocked source. No empty source hash admits a root.
 Pi discovery and queued-source verification share one source plan and runtime
 snapshot per refresh. `sessionbackupproducer.PiSourceSnapshot` derives the

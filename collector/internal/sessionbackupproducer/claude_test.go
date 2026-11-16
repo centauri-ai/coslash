@@ -140,6 +140,17 @@ func TestClaudeCompleteLocalFamilyRevisionAndLastGood(t *testing.T) {
 	}
 }
 
+func TestMissingClaudeFamilyIsDefinitive(t *testing.T) {
+	home, _, _, selection := claudeFixture(t)
+	selection.SessionID = "22222222-3333-4444-a555-666666666666"
+	_, err := claudeManager(t.TempDir(), home, nil).Prepare(t.Context(), selection)
+	var failure *PreparationError
+	if !errors.As(err, &failure) || !failure.SourceMissing || len(failure.Coverage.Problems) != 1 ||
+		failure.Coverage.Problems[0].Retryable || failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnavailable {
+		t.Fatalf("missing family failure = %#v, %v", failure, err)
+	}
+}
+
 func TestClaudeSSHRemainsUnsupported(t *testing.T) {
 	manager := New(Options{Root: t.TempDir()})
 	prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceSSH, SourceID: "remote", Agent: vendors.AgentClaude, SessionID: "id"})
