@@ -4,14 +4,16 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
   DetailLoadError,
+  SnapshotRefreshStatus,
+  SnapshotStalenessNotice,
+  SummaryOnlyBanner,
+} from '@/pages/coslash/components/session-inspector/DetailStatus';
+import {
   DigestSection,
   GrokFreshSessionControl,
   inspectorWidthForKey,
   SessionInspectorTitle,
   SessionModelUsage,
-  SnapshotRefreshStatus,
-  SnapshotStalenessNotice,
-  SummaryOnlyBanner,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
