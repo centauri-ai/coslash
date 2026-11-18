@@ -526,7 +526,7 @@ func TestGrokStatusIsBusyOnlyForLivePidInOpenTurn(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(home, "active_sessions.json"), []byte(active), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		parsed, metadata, err := grok.CollectContext(context.Background(), 0)
+		parsed, metadata, err := grok.Collect(context.Background(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}

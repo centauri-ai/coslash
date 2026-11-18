@@ -32,23 +32,23 @@ type FamilyRef struct {
 	memberIDs    []string
 }
 
-// PlanFamiliesContext indexes only the supplied directories, once per pass.
+// PlanFamilies indexes only the supplied directories, once per pass.
 // An unreadable summary returns an error with any independently verified families.
 // Duplicate IDs, conflicting parents and cycles fail rather than choose a source.
-func PlanFamiliesContext(ctx context.Context, dirs []string) ([]FamilyRef, error) {
-	refs, _, err := planFamiliesContext(ctx, dirs, nil, 0, nil)
+func PlanFamilies(ctx context.Context, dirs []string) ([]FamilyRef, error) {
+	refs, _, err := planFamilies(ctx, dirs, nil, 0, nil)
 	return refs, err
 }
 
-// PlanFamiliesContextWithTranscriptLimit avoids lineage recovery scans of
+// PlanFamiliesWithTranscriptLimit avoids lineage recovery scans of
 // transcripts beyond the supplied byte limit and reports affected member IDs.
-func PlanFamiliesContextWithTranscriptLimit(ctx context.Context, dirs []string, maxTranscriptBytes int64) ([]FamilyRef, map[string]bool, error) {
+func PlanFamiliesWithTranscriptLimit(ctx context.Context, dirs []string, maxTranscriptBytes int64) ([]FamilyRef, map[string]bool, error) {
 	oversizedMembers := map[string]bool{}
-	refs, _, err := planFamiliesContext(ctx, dirs, nil, maxTranscriptBytes, oversizedMembers)
+	refs, _, err := planFamilies(ctx, dirs, nil, maxTranscriptBytes, oversizedMembers)
 	return refs, oversizedMembers, err
 }
 
-func planFamiliesContext(ctx context.Context, dirs []string, nonChildren map[string]bool, maxTranscriptBytes int64, oversizedMembers map[string]bool) ([]FamilyRef, map[string]string, error) {
+func planFamilies(ctx context.Context, dirs []string, nonChildren map[string]bool, maxTranscriptBytes int64, oversizedMembers map[string]bool) ([]FamilyRef, map[string]string, error) {
 	byID := map[string]string{}
 	summaries := map[string]*summaryFile{}
 	seenDirs := map[string]bool{}
@@ -244,15 +244,9 @@ func markOversizedLineage(oversizedMembers, blocked map[string]bool, parentID, p
 	}
 }
 
-// ParseDirsContext verifies a standalone set of directories without a root scan.
-// For batches selected from a larger plan, use ParseFamiliesContext.
-func ParseDirsContext(ctx context.Context, dirs []string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	return parseDirsContext(ctx, dirs, nil)
-}
-
-// ParseFamiliesContext retains verified non-child references across selected batches.
-// Pass the unchanged refs returned by PlanFamiliesContext; this never scans the root.
-func ParseFamiliesContext(ctx context.Context, families []FamilyRef) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+// ParseFamilies retains verified non-child references across selected batches.
+// Pass the unchanged refs returned by PlanFamilies; this never scans the root.
+func ParseFamilies(ctx context.Context, families []FamilyRef) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	dirs := []string{}
 	nonChildren := map[string]bool{}
 	for _, family := range families {
@@ -264,20 +258,20 @@ func ParseFamiliesContext(ctx context.Context, families []FamilyRef) ([]*vendors
 			nonChildren[id] = true
 		}
 	}
-	return parseDirsContext(ctx, dirs, nonChildren)
+	return parseDirs(ctx, dirs, nonChildren)
 }
 
-func parseDirsContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	parsed, err := parseFamilyDirsContext(ctx, dirs, nonChildren)
+func parseDirs(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	parsed, err := parseFamilyDirs(ctx, dirs, nonChildren)
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata, err := loadMetadataContext(ctx)
+	metadata, err := loadMetadata(ctx)
 	return parsed, metadata, err
 }
 
-func parseFamilyDirsContext(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, error) {
-	refs, parents, err := planFamiliesContext(ctx, dirs, nonChildren, 0, nil)
+func parseFamilyDirs(ctx context.Context, dirs []string, nonChildren map[string]bool) ([]*vendors.ParsedSession, error) {
+	refs, parents, err := planFamilies(ctx, dirs, nonChildren, 0, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +279,7 @@ func parseFamilyDirsContext(ctx context.Context, dirs []string, nonChildren map[
 	metas := map[string][]subagentMeta{}
 	for _, ref := range refs {
 		for _, dir := range ref.Dirs {
-			item, err := parseSessionContext(ctx, dir)
+			item, err := parseSession(ctx, dir)
 			if err != nil {
 				return nil, err
 			}
@@ -304,6 +298,8 @@ func parseFamilyDirsContext(ctx context.Context, dirs []string, nonChildren map[
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	attachSubagents(parsed, metas)
+	if err := attachSubagents(ctx, parsed, metas); err != nil {
+		return nil, err
+	}
 	return parsed, nil
 }

@@ -17,7 +17,7 @@ func TestWindowsGrokDiagnosticsSourceStates(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("GROK_HOME", home)
 	state := func() SourceState {
-		return collectSource(context.Background(), home, grok.Health(), false).State
+		return collectSource(context.Background(), home, grok.Health(t.Context()), false).State
 	}
 	if got := state(); got != SourceMissing {
 		t.Fatalf("missing source = %q", got)

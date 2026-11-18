@@ -27,7 +27,7 @@ func TestFrozenFamilyUsesOnlyFrozenInputsAndClassification(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	refs, err := PlanFamiliesContext(t.Context(), []string{parent, child, fork})
+	refs, err := PlanFamilies(t.Context(), []string{parent, child, fork})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,23 +54,23 @@ func TestFrozenFamilyUsesOnlyFrozenInputsAndClassification(t *testing.T) {
 	if err := os.RemoveAll(live); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := ParseFrozenFamilyContext(t.Context(), family, frozenDirs, []string{filepath.Join(proof, "summary.json")})
+	parsed, err := ParseFrozenFamily(t.Context(), family, frozenDirs, []string{filepath.Join(proof, "summary.json")})
 	if err != nil || len(parsed) != 2 || parsed[0].Session.ID != "parent" || parsed[1].ParentID != "parent" {
 		t.Fatalf("frozen family=%+v %v", parsed, err)
 	}
-	if _, err := ParseFrozenFamilyContext(t.Context(), family, frozenDirs, nil); err == nil {
+	if _, err := ParseFrozenFamily(t.Context(), family, frozenDirs, nil); err == nil {
 		t.Fatal("missing non-child proof accepted")
 	}
 	writeSummary(t, proof, `{"info":{"id":"fork"},"chat_format_version":1,"session_kind":"subagent"}`)
-	if _, err := ParseFrozenFamilyContext(t.Context(), family, frozenDirs, []string{filepath.Join(proof, "summary.json")}); err == nil {
+	if _, err := ParseFrozenFamily(t.Context(), family, frozenDirs, []string{filepath.Join(proof, "summary.json")}); err == nil {
 		t.Fatal("child impersonated frozen fork")
 	}
-	if _, err := ParseFrozenFamilyContext(t.Context(), FamilyRef{ID: family.ID, Dirs: family.Dirs}, frozenDirs, nil); err == nil {
+	if _, err := ParseFrozenFamily(t.Context(), FamilyRef{ID: family.ID, Dirs: family.Dirs}, frozenDirs, nil); err == nil {
 		t.Fatal("fabricated family accepted")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := ParseFrozenFamilyContext(ctx, family, frozenDirs, nil); !errors.Is(err, context.Canceled) {
+	if _, err := ParseFrozenFamily(ctx, family, frozenDirs, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation=%v", err)
 	}
 }
@@ -89,7 +89,7 @@ func TestFrozenFamilyRejectsMalformedOptionalInput(t *testing.T) {
 		t.Run(input.name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeSummary(t, dir, `{"info":{"id":"root"},"chat_format_version":1}`)
-			refs, err := PlanFamiliesContext(t.Context(), []string{dir})
+			refs, err := PlanFamilies(t.Context(), []string{dir})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,7 +100,7 @@ func TestFrozenFamilyRejectsMalformedOptionalInput(t *testing.T) {
 			if err := os.WriteFile(file, []byte(input.body), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := ParseFrozenFamilyContext(t.Context(), refs[0], []string{dir}, nil); err == nil {
+			if _, err := ParseFrozenFamily(t.Context(), refs[0], []string{dir}, nil); err == nil {
 				t.Fatal("malformed optional input accepted")
 			}
 		})

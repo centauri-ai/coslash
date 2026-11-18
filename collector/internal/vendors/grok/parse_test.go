@@ -48,7 +48,7 @@ func TestCompletedAssistantChunksSettleDirectedHandoff(t *testing.T) {
 	appendUpdate("tool_call", "")
 	appendUpdate("agent_message_chunk", "coSlash handoff ")
 	appendUpdate("agent_message_chunk", "completed: "+record.ID+"\nWINDOWS_HANDOFF_OK")
-	parsed, err := parseSession(dir)
+	parsed, err := parseSession(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestCompletedAssistantChunksSettleDirectedHandoff(t *testing.T) {
 	appendUpdate("user_message_chunk", "Retry after the interrupted turn")
 	appendUpdate("agent_message_chunk", "Need clarification")
 	appendUpdate("turn_completed", "")
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestCompletedAssistantChunksSettleDirectedHandoff(t *testing.T) {
 	appendUpdate("agent_message_chunk", "coSlash handoff ")
 	appendUpdate("agent_message_chunk", "completed: "+record.ID+"\nWINDOWS_HANDOFF_OK")
 	appendUpdate("turn_completed", "")
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestCompletedAssistantChunksSettleDirectedHandoff(t *testing.T) {
 	}
 	appendUpdate("agent_message_chunk", strings.Repeat("界", fullsessionv1.MaxStringBytes/3+10))
 	appendUpdate("turn_completed", "")
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestCompletedAssistantChunksSettleDirectedHandoff(t *testing.T) {
 }
 
 func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) {
-	parsed, err := parseSession(filepath.Join("testdata", "finished"))
+	parsed, err := parseSession(t.Context(), filepath.Join("testdata", "finished"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) 
 }
 
 func TestParseFileEditCountsCompletedDiffOnce(t *testing.T) {
-	parsed, err := parseSession(filepath.Join("testdata", "finished"))
+	parsed, err := parseSession(t.Context(), filepath.Join("testdata", "finished"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,14 +160,14 @@ func TestReadTodosKeepsOrderDropsCancelledAndMarksOnlyCompletedDone(t *testing.T
 }
 
 func TestParseDeclaredGoalFromGoalState(t *testing.T) {
-	parsed, err := parseSession(filepath.Join("testdata", "plan"))
+	parsed, err := parseSession(t.Context(), filepath.Join("testdata", "plan"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := parsed.Session.DeclaredGoal; got == nil || *got != "Ship Grok" {
 		t.Fatalf("declared goal = %q, want Ship Grok", stringValue(got))
 	}
-	if parsed, err = parseSession(filepath.Join("testdata", "finished")); err != nil {
+	if parsed, err = parseSession(t.Context(), filepath.Join("testdata", "finished")); err != nil {
 		t.Fatal(err)
 	}
 	if got := parsed.Session.DeclaredGoal; got != nil {
@@ -176,7 +176,7 @@ func TestParseDeclaredGoalFromGoalState(t *testing.T) {
 }
 
 func TestParseCommandsCommitsAndPullRequestsSkipDryRunsAndFailures(t *testing.T) {
-	parsed, err := parseSession(filepath.Join("testdata", "commands"))
+	parsed, err := parseSession(t.Context(), filepath.Join("testdata", "commands"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestQuotedDryRunTextDoesNotHideACommit(t *testing.T) {
 }
 
 func TestParseCompactionSeedFromNewestCheckpoint(t *testing.T) {
-	parsed, err := parseSession(filepath.Join("testdata", "compacted"))
+	parsed, err := parseSession(t.Context(), filepath.Join("testdata", "compacted"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestParseCompactionSeedFromNewestCheckpoint(t *testing.T) {
 	if s.Compactions != 1 || !strings.Contains(s.CompactionSeed, "Earlier work") || strings.Contains(s.CompactionSeed, "Oldest work") {
 		t.Fatalf("compactions = %d, seed = %q", s.Compactions, s.CompactionSeed)
 	}
-	if parsed, err = parseSession(filepath.Join("testdata", "finished")); err != nil {
+	if parsed, err = parseSession(t.Context(), filepath.Join("testdata", "finished")); err != nil {
 		t.Fatal(err)
 	}
 	if parsed.Session.CompactionSeed != "" {
@@ -228,7 +228,7 @@ func TestParseCompactionSeedFromNewestCheckpoint(t *testing.T) {
 }
 
 func TestParseOpenTurnCountsToolCallsAndLeavesTokensUnknown(t *testing.T) {
-	parsed, err := parseSession(filepath.Join("testdata", "open"))
+	parsed, err := parseSession(t.Context(), filepath.Join("testdata", "open"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestParseOpenTurnCountsToolCallsAndLeavesTokensUnknown(t *testing.T) {
 }
 
 func TestParseFirstPromptSkipsSyntheticSystemReminder(t *testing.T) {
-	parsed, err := parseSession(filepath.Join("testdata", "open"))
+	parsed, err := parseSession(t.Context(), filepath.Join("testdata", "open"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestCollectSkipsSubagentsAndOtherChatFormats(t *testing.T) {
 	writeSummary(t, filepath.Join(root, "child"), `{"info":{"id":"child","cwd":"/work/repo"},"chat_format_version":1,"session_kind":"subagent","parent_session_id":"01a0f48a-42bb-7802-b584-f5def46d1e75"}`)
 	writeSummary(t, filepath.Join(root, "legacy"), `{"info":{"id":"legacy","cwd":"/work/repo"},"chat_format_version":0}`)
 
-	parsed, _, err := CollectContext(context.Background(), 0)
+	parsed, _, err := Collect(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,20 +286,20 @@ func TestCollectSkipsSubagentsAndOtherChatFormats(t *testing.T) {
 	if roots != 1 {
 		t.Fatalf("roots = %d, want 1", roots)
 	}
-	if health := Health(); health.Missing || health.Err != nil || health.Sessions != 1 || health.Entries != 3 {
+	if health := Health(t.Context()); health.Missing || health.Err != nil || health.Sessions != 1 || health.Entries != 3 {
 		t.Fatalf("health = %+v", health)
 	}
-	if facts, err := GetSessionFacts("01a0f48a-42bb-7802-b584-f5def46d1e75"); err != nil || facts == nil {
+	if facts, err := GetSessionFacts(t.Context(), "01a0f48a-42bb-7802-b584-f5def46d1e75"); err != nil || facts == nil {
 		t.Fatalf("facts = %v, err = %v", facts, err)
 	}
 }
 
 func TestHealthReportsMissingRoot(t *testing.T) {
 	t.Setenv("GROK_HOME", filepath.Join(t.TempDir(), "absent"))
-	if health := Health(); !health.Missing || health.Err != nil {
+	if health := Health(t.Context()); !health.Missing || health.Err != nil {
 		t.Fatalf("health = %+v", health)
 	}
-	parsed, _, err := CollectContext(context.Background(), 0)
+	parsed, _, err := Collect(context.Background(), 0)
 	if err != nil || len(parsed) != 0 {
 		t.Fatalf("parsed = %v, err = %v", parsed, err)
 	}
@@ -452,7 +452,7 @@ func TestCancelledCollectStopsBeforeParsing(t *testing.T) {
 	t.Setenv("GROK_HOME", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	parsed, _, err := CollectContext(ctx, 0)
+	parsed, _, err := Collect(ctx, 0)
 	if !errors.Is(err, context.Canceled) || parsed != nil {
 		t.Fatalf("parsed = %v, err = %v", parsed, err)
 	}
@@ -473,7 +473,7 @@ func TestSinceIncludesSignalAndUsageUpdates(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(dir, "usage.json"), now, now); err != nil {
 		t.Fatal(err)
 	}
-	parsed, _, err := CollectContext(context.Background(), now.Add(-time.Hour).UnixMilli())
+	parsed, _, err := Collect(context.Background(), now.Add(-time.Hour).UnixMilli())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,7 +519,7 @@ func TestSubagentLinksWhenChildSummaryOmitsParent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	facts, err := GetSessionFacts("parent")
+	facts, err := GetSessionFacts(t.Context(), "parent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestParseDurationAndOrdinaryDigest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("Ship the parser"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseSession(dir)
+	parsed, err := parseSession(t.Context(), dir)
 	if err != nil || parsed == nil || parsed.Session.DurationMs == nil || *parsed.Session.DurationMs != 304000 {
 		t.Fatalf("duration = %v, err = %v", parsed, err)
 	}
@@ -577,7 +577,7 @@ func TestParseDurationAndOrdinaryDigest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte(long), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil || parsed == nil {
 		t.Fatal(err)
 	}
@@ -591,13 +591,13 @@ func TestParseDurationAndOrdinaryDigest(t *testing.T) {
 func TestGrokEntrypointAndWaiting(t *testing.T) {
 	dir := t.TempDir()
 	writeSummary(t, dir, `{"info":{"id":"interactive","cwd":"/work"},"chat_format_version":1,"generated_title":"Review the login change"}`)
-	parsed, err := parseSession(dir)
+	parsed, err := parseSession(t.Context(), dir)
 	if err != nil || parsed == nil || stringValue(parsed.Session.Entrypoint) != "grok-cli" || parsed.Session.Status != nil {
 		t.Fatalf("interactive = %#v, err = %v", parsed, err)
 	}
 
 	writeSummary(t, dir, `{"info":{"id":"batch","cwd":"/work"},"chat_format_version":1,"session_kind":"headless"}`)
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-headless" {
 		t.Fatalf("headless = %s, err = %v", stringValue(parsed.Session.Entrypoint), err)
 	}
@@ -606,14 +606,14 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSummary(t, dir, `{"info":{"id":"prompt","cwd":"/work"},"chat_format_version":1}`)
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-headless" {
 		t.Fatalf("noninteractive = %s, err = %v", stringValue(parsed.Session.Entrypoint), err)
 	}
 
 	for _, kind := range []string{"subagent", "subagent_resume", "subagent_fork"} {
 		writeSummary(t, dir, `{"info":{"id":"child","cwd":"/work"},"chat_format_version":1,"session_kind":"`+kind+`"}`)
-		parsed, err = parseSession(dir)
+		parsed, err = parseSession(t.Context(), dir)
 		if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-subagent" {
 			t.Fatalf("%s = %s, err = %v", kind, stringValue(parsed.Session.Entrypoint), err)
 		}
@@ -623,7 +623,7 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plan_mode.json"), []byte(`{"state":"Inactive","awaiting_plan_approval":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil || parsed.Session.Status == nil || *parsed.Session.Status != "waiting" {
 		t.Fatalf("plan approval status = %#v, err = %v", parsed.Session.Status, err)
 	}
@@ -635,7 +635,7 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"ship it"}}}}`,
 		`{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"q1","title":"ask_user_question"}}}`,
 	})
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil || parsed.Session.Status == nil || *parsed.Session.Status != "waiting" {
 		t.Fatalf("question status = %#v, err = %v", parsed.Session.Status, err)
 	}
@@ -644,7 +644,7 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 		`{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_command","status":"pending"}}}`,
 		`{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1","title":"run_terminal_command","status":"in_progress"}}}`,
 	})
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil || parsed.Session.Status != nil {
 		t.Fatalf("running tool status = %#v, err = %v", parsed.Session.Status, err)
 	}
@@ -654,7 +654,7 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 		`{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1","status":"completed"}}}`,
 		`{"params":{"update":{"sessionUpdate":"turn_completed"}}}`,
 	})
-	parsed, err = parseSession(dir)
+	parsed, err = parseSession(t.Context(), dir)
 	if err != nil || parsed.Session.Status != nil {
 		t.Fatalf("settled status = %#v, err = %v", parsed.Session.Status, err)
 	}
@@ -679,7 +679,7 @@ func TestGrokToolPermissionMetadataStatus(t *testing.T) {
 			dir := t.TempDir()
 			writeSummary(t, dir, `{"info":{"id":"permission","cwd":"C:\\Work Repo"},"chat_format_version":1}`)
 			writeUpdates(t, dir, []string{pending, tt.update})
-			parsed, err := parseSession(dir)
+			parsed, err := parseSession(t.Context(), dir)
 			if err != nil || parsed == nil {
 				t.Fatalf("parseSession = %#v, err = %v", parsed, err)
 			}

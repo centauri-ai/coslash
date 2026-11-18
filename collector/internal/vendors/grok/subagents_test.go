@@ -68,7 +68,7 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, since := range []int64{0, time.Unix(2000, 0).UnixMilli()} {
-				parsed, _, err := CollectContext(context.Background(), since)
+				parsed, _, err := Collect(context.Background(), since)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -88,7 +88,7 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 					t.Fatalf("since=%d family size=%d", since, len(parsed))
 				}
 			}
-			parent, err := GetSessionFacts("parent")
+			parent, err := GetSessionFacts(t.Context(), "parent")
 			if err != nil || parent == nil {
 				t.Fatalf("parent=%v err=%v", parent, err)
 			}

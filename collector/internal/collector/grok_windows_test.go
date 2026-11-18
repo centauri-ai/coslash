@@ -42,7 +42,7 @@ func TestGrokWindowsWaitingAndEntrypoint(t *testing.T) {
 				}
 			}
 			writeGrokFile(t, filepath.Join(home, "active_sessions.json"), fmt.Sprintf(`[{"session_id":"session","pid":%d}]`, test.pid))
-			parsed, metadata, err := grok.CollectContext(context.Background(), 0)
+			parsed, metadata, err := grok.Collect(context.Background(), 0)
 			if err != nil {
 				t.Fatal(err)
 			}
