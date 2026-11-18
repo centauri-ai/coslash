@@ -57,6 +57,7 @@ import {
   type ReviewerOption,
   type ReviewIndex,
 } from '@/pages/coslash/lib/review';
+import { sessionMatchesSearch } from '@/pages/coslash/lib/search';
 import {
   boardStatusKey,
   getSessionCardSummary,
@@ -82,7 +83,6 @@ import {
   type BoardGroupBy,
   type BoardRowGroupBy,
 } from '@/pages/coslash/lib/session-grouping';
-import { ALL_REPOSITORIES, filterSessionLibrary } from '@/pages/coslash/lib/session-library';
 import {
   loadSessionViewPreferences,
   saveSessionViewPreferences,
@@ -303,31 +303,6 @@ function detectedGroup(session: Session): Group {
     basis: 'No repository or folder was recorded',
     legacyIds: [],
   };
-}
-
-function matchesSearch(session: Session, group: Group, query: string): boolean {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return true;
-  const vendor = getVendor(session.agent).label;
-  return words.every((word) => {
-    const prefix = word.match(/^(repo|group|machine|agent|status):(.+)$/);
-    if (!prefix) {
-      return (
-        filterSessionLibrary([session], {
-          search: word,
-          repository: ALL_REPOSITORIES,
-          source: 'all',
-          shareState: 'all',
-        }).length > 0
-      );
-    }
-    const [, kind, value] = prefix;
-    if (kind === 'repo') return (session.repo ?? '').toLowerCase().includes(value);
-    if (kind === 'group') return group.label.toLowerCase().includes(value);
-    if (kind === 'machine') return session.sourceLabel.toLowerCase().includes(value);
-    if (kind === 'agent') return vendor.toLowerCase().includes(value);
-    return STATUSES[boardStatusKey(session)].label.toLowerCase().includes(value);
-  });
 }
 
 function matchesFacets(
@@ -1163,7 +1138,7 @@ export function CoslashLayout({
       new Map(
         sessionsInRange.map((session) => [
           sessionKey(session),
-          matchesSearch(session, sessionGroups.get(sessionKey(session))!, preferences.query),
+          sessionMatchesSearch(session, sessionGroups.get(sessionKey(session))!.label, preferences.query),
         ]),
       ),
     [preferences.query, sessionGroups, sessionsInRange],
