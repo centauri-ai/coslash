@@ -61,7 +61,13 @@ import {
   type Session,
   type StatusKey,
 } from '@/pages/coslash/lib/session';
-import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
+import {
+  countFacets,
+  matchesFacets,
+  rangeStart,
+  sortSessions,
+  type FacetKey,
+} from '@/pages/coslash/lib/session-filter';
 import {
   BOARD_GROUP_BY_OPTIONS,
   BOARD_ROW_GROUP_BY_OPTIONS,
@@ -261,36 +267,15 @@ export function CoslashLayout({
       indexedRemote,
     ],
   );
-  // Each facet counts the sessions that pass search and every other facet.
-  const facetCounts = useMemo(() => {
-    const valueOf: Record<Exclude<FacetKey, 'group'>, (session: Session) => string> = {
-      status: (session) => boardStatusKey(session),
-      machine: (session) => session.sourceId,
-      agent: (session) => session.agent,
-    };
-    const counts = {} as Record<FacetKey, Map<string, number>>;
-    for (const facet of [...Object.keys(valueOf), 'group'] as FacetKey[]) {
-      const facetCount = new Map<string, number>();
-      for (const session of sessionsInRange) {
-        const group = sessionGroups.get(sessionKey(session))!;
-        if (!searchMatches.get(sessionKey(session)) || !matchesFacets(session, group, preferences, facet))
-          continue;
-        if (facet === 'group') {
-          const counted = new Set<string>();
-          for (const option of group.options) {
-            // A repository name alone doesn't verify that a session used its main checkout.
-            if (option.kind !== 'Repository') counted.add(locationChoiceId(option));
-          }
-          for (const id of counted) facetCount.set(id, (facetCount.get(id) ?? 0) + 1);
-        } else {
-          const value = valueOf[facet](session);
-          facetCount.set(value, (facetCount.get(value) ?? 0) + 1);
-        }
-      }
-      counts[facet] = facetCount;
-    }
-    return counts;
-  }, [preferences, searchMatches, sessionGroups, sessionsInRange]);
+  const facetCounts = useMemo(
+    () =>
+      countFacets(
+        sessionsInRange.filter((session) => searchMatches.get(sessionKey(session))),
+        (session) => sessionGroups.get(sessionKey(session))!,
+        preferences,
+      ),
+    [preferences, searchMatches, sessionGroups, sessionsInRange],
+  );
   const visibleSessions = useMemo(() => {
     const filtered = sessionsInRange.filter(
       (session) =>

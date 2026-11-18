@@ -1,4 +1,4 @@
-import { matchingLocation, type SessionGroups } from '@/pages/coslash/lib/detected-groups';
+import { locationChoiceId, matchingLocation, type SessionGroups } from '@/pages/coslash/lib/detected-groups';
 import { boardStatusKey, sessionCost, sessionDisplayTitle, type Session } from '@/pages/coslash/lib/session';
 import type {
   SessionRange,
@@ -38,6 +38,40 @@ export function matchesFacets(
     return false;
   if (skip !== 'agent' && agentFilters.length > 0 && !agentFilters.includes(session.agent)) return false;
   return true;
+}
+
+/** Each facet counts the sessions that pass every other facet. */
+export function countFacets(
+  sessions: Session[],
+  groupsOf: (session: Session) => SessionGroups,
+  preferences: SessionViewPreferences,
+): Record<FacetKey, Map<string, number>> {
+  const valueOf: Record<Exclude<FacetKey, 'group'>, (session: Session) => string> = {
+    status: (session) => boardStatusKey(session),
+    machine: (session) => session.sourceId,
+    agent: (session) => session.agent,
+  };
+  const counts = {} as Record<FacetKey, Map<string, number>>;
+  for (const facet of [...Object.keys(valueOf), 'group'] as FacetKey[]) {
+    const facetCount = new Map<string, number>();
+    for (const session of sessions) {
+      const groups = groupsOf(session);
+      if (!matchesFacets(session, groups, preferences, facet)) continue;
+      if (facet === 'group') {
+        const counted = new Set<string>();
+        for (const option of groups.options) {
+          // A repository name alone doesn't verify that a session used its main checkout.
+          if (option.kind !== 'Repository') counted.add(locationChoiceId(option));
+        }
+        for (const id of counted) facetCount.set(id, (facetCount.get(id) ?? 0) + 1);
+      } else {
+        const value = valueOf[facet](session);
+        facetCount.set(value, (facetCount.get(value) ?? 0) + 1);
+      }
+    }
+    counts[facet] = facetCount;
+  }
+  return counts;
 }
 
 export function sortSessions(sessions: Session[], sort: SessionSort): Session[] {
