@@ -1,4 +1,4 @@
-import type { ExactReadErrorKind, FileSelection } from '@/pages/coslash/hooks/use-sessions';
+import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   isLocalSession,
@@ -25,6 +25,8 @@ export type DetailResponse = {
   session: Partial<Session>;
 };
 
+export type ExactReadErrorKind = 'stale' | 'missing' | 'corrupt' | 'too_large' | 'other';
+
 export type DetailErrorKind = Exclude<ExactReadErrorKind, 'too_large'> | 'authentication';
 
 export type DetailError = {
@@ -40,22 +42,34 @@ export function needsSourceRefresh(kind: DetailErrorKind): boolean {
   return kind === 'stale' || kind === 'missing' || kind === 'corrupt';
 }
 
-export function detailFailure(status: number, code: string): DetailFailure {
-  return code === 'session_detail_stale'
-    ? {
-        kind: 'stale',
-        message:
-          'This session changed before its details loaded. Refresh sessions to inspect the latest revision.',
-      }
-    : code === 'session_detail_missing'
-      ? { kind: 'missing', message: 'Complete details for this session are unavailable.' }
-      : code === 'session_detail_corrupt'
-        ? {
-            kind: 'corrupt',
-            message:
-              'Cached session details could not be read. Refresh the source to restore a last-good copy.',
-          }
-        : { kind: 'other', message: `Could not load session details (${status}).` };
+/** The failure kind of an exact detail or diff read, from the API error code. */
+export function exactReadErrorKind(code: string | undefined): ExactReadErrorKind {
+  switch (code) {
+    case 'session_detail_stale':
+      return 'stale';
+    case 'session_detail_missing':
+    case 'session_change_missing':
+      return 'missing';
+    case 'session_detail_corrupt':
+      return 'corrupt';
+    case 'session_diff_too_large':
+      return 'too_large';
+    default:
+      return 'other';
+  }
+}
+
+const DETAIL_FAILURE_MESSAGES = {
+  stale: 'This session changed before its details loaded. Refresh sessions to inspect the latest revision.',
+  missing: 'Complete details for this session are unavailable.',
+  corrupt: 'Cached session details could not be read. Refresh the source to restore a last-good copy.',
+};
+
+export function detailFailure(status: number, code: string | undefined): DetailFailure {
+  const kind = exactReadErrorKind(code);
+  return kind === 'too_large' || kind === 'other'
+    ? { kind: 'other', message: `Could not load session details (${status}).` }
+    : { kind, message: DETAIL_FAILURE_MESSAGES[kind] };
 }
 
 export function filePanelOpen(

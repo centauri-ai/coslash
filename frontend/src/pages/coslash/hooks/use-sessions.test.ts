@@ -15,6 +15,7 @@ import {
 } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
+import { detailFailure } from '@/pages/coslash/lib/session-detail';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import type { SessionRange } from '@/pages/coslash/lib/session-range';
 
@@ -179,6 +180,17 @@ describe('exact diff failures', () => {
     ['session_diff_too_large', 'too_large'],
   ] as const)('preserves the structured %s failure as %s', (code, kind) => {
     expect(exactDiffFailure(409, code)).toMatchObject({ kind });
+  });
+
+  it('maps detail failures through the same codes and keeps diff-only kinds generic', () => {
+    expect(detailFailure(409, 'session_detail_stale').kind).toBe('stale');
+    expect(detailFailure(404, 'session_detail_missing').kind).toBe('missing');
+    expect(detailFailure(500, 'session_detail_corrupt').kind).toBe('corrupt');
+    expect(detailFailure(413, 'session_diff_too_large')).toEqual({
+      kind: 'other',
+      message: 'Could not load session details (413).',
+    });
+    expect(exactDiffFailure(500, undefined).kind).toBe('other');
   });
 
   it('retains the HTTP status in an unknown failure', () => {
