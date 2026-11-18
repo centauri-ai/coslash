@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
@@ -254,19 +255,7 @@ func writeAuthAttempt(attempt authAttempt) error {
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".auth-*")
-	if err != nil {
-		return err
-	}
-	_, err = temporary.Write(data)
-	if closeErr := temporary.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		_ = os.Remove(temporary.Name())
-		return err
-	}
-	return os.Rename(temporary.Name(), path)
+	return atomicfile.Write(path, data, 0o600, nil)
 }
 
 // RunAuthAttempt is the ssh-auth subcommand entry point. Its stdin and output
