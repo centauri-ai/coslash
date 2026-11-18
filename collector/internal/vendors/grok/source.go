@@ -134,13 +134,13 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 				recent = append(recent, dir)
 			}
 		}
-		dirs, _, err = vendors.LimitNewestFileFamiliesContext(ctx, recent, vendors.MaxCandidateFilesPerAgent,
+		dirs, _, err = vendors.LimitNewestFileFamilies(ctx, recent, vendors.MaxCandidateFilesPerAgent,
 			func(dir string) string { return families[dir] }, modifiedAt)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	parsed, err := vendors.ParseFilesContext(ctx, dirs, func(ctx context.Context, dir string) (*vendors.ParsedSession, error) {
+	parsed, err := vendors.ParseFiles(ctx, dirs, func(ctx context.Context, dir string) (*vendors.ParsedSession, error) {
 		return parseSessionContext(ctx, dir)
 	})
 	if err != nil {

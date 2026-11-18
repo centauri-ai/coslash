@@ -53,7 +53,7 @@ func parseTranscriptFragmentsSourceContext(ctx context.Context, source vendors.R
 		if !IsTranscript(fragment) || IDFromPath(fragment) != id {
 			return nil, fmt.Errorf("%w: invalid Cursor transcript fragment %q", vendors.ErrInvalidData, fragment)
 		}
-		fragmentRecords, err := vendors.ParseJSONLSourceContext[transcriptRecord](ctx, source, fragment)
+		fragmentRecords, err := vendors.ParseJSONLSource[transcriptRecord](ctx, source, fragment)
 		if err != nil {
 			return nil, err
 		}

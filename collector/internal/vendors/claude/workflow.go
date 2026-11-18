@@ -123,7 +123,7 @@ func WorkflowAgentsSourceContext(
 }
 
 func workflowJournalResultsSourceContext(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
-	entries, err := vendors.ParseJSONLSourceContext[workflowJournalEntry](ctx, source, path)
+	entries, err := vendors.ParseJSONLSource[workflowJournalEntry](ctx, source, path)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err

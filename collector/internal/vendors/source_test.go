@@ -77,7 +77,7 @@ func TestParseFilesStopsSchedulingAfterCancellation(t *testing.T) {
 	cancel()
 	var calls atomic.Int32
 
-	got, err := ParseFilesContext(ctx, []string{"a", "b"}, func(context.Context, string) (*string, error) {
+	got, err := ParseFiles(ctx, []string{"a", "b"}, func(context.Context, string) (*string, error) {
 		calls.Add(1)
 		value := "parsed"
 		return &value, nil
@@ -95,7 +95,7 @@ func TestParseJSONLStopsAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	got, err := ParseJSONLSourceContext[map[string]any](ctx, unopenedSource{}, "unused.jsonl")
+	got, err := ParseJSONLSource[map[string]any](ctx, unopenedSource{}, "unused.jsonl")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -109,7 +109,7 @@ func TestParseJSONLStopsDuringDecode(t *testing.T) {
 	ctx.remaining.Store(5)
 	data := bytes.Repeat([]byte("{\"value\":1}\n"), 100)
 
-	got, err := ParseJSONLSourceContext[map[string]any](ctx, bytesSource{data: data}, "sessions.jsonl")
+	got, err := ParseJSONLSource[map[string]any](ctx, bytesSource{data: data}, "sessions.jsonl")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -121,7 +121,7 @@ func TestParseJSONLStopsDuringDecode(t *testing.T) {
 func TestParseJSONLReturnsCancellationWhenDecodeReturnsEOF(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	got, err := ParseJSONLSourceContext[map[string]any](ctx, cancelingSource{cancel: cancel}, "sessions.jsonl")
+	got, err := ParseJSONLSource[map[string]any](ctx, cancelingSource{cancel: cancel}, "sessions.jsonl")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}

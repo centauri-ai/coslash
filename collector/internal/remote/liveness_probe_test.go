@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,13 +99,13 @@ func TestRefreshIncrementalRunsProbesOnSessionContext(t *testing.T) {
 	connection := &Session{source: source, ctx: sessionCtx, stderr: &cappedStderr{}}
 	connection.closeOnce.Do(func() {})
 	open := func(context.Context, string, OpenOptions) (*Session, error) { return connection, nil }
-	if _, err := refreshIncrementalWithOpen(context.Background(), "host", 0, time.Unix(2000, 0), CachedSnapshotV2{}, open); err != nil {
-		t.Fatal(err)
+	if _, err := refreshIncrementalWithOpen(context.Background(), "host", 0, time.Unix(2000, 0), CachedSnapshotV2{}, open); !errors.Is(err, context.Canceled) {
+		t.Fatalf("refresh after the SSH session ended: %v", err)
 	}
 }
 
 func TestCollectCodexVendorMarksLiveSessions(t *testing.T) {
-	outcome, _ := collectCodexVendor(newFakeSource(newFakeFS(), Limits{}), "r_0123456789abcdef", fakeHome, 0, nil, nil, map[string]struct{}{"session-1": {}})
+	outcome, _ := collectCodexVendor(t.Context(), newFakeSource(newFakeFS(), Limits{}), "r_0123456789abcdef", fakeHome, 0, nil, nil, map[string]struct{}{"session-1": {}})
 	if outcome.Err != nil || outcome.Metadata.LiveSessions()["session-1"] != "interactive" {
 		t.Fatalf("outcome = %#v", outcome)
 	}

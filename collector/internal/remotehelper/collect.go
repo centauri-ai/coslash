@@ -140,7 +140,7 @@ func collectVendor(
 	codexLiveSessions func() (map[string]struct{}, error),
 ) (vendorResult, error) {
 	started := time.Now()
-	scanned := scanVendor(vendor, source, home, request, now, alive, codexLiveSessions)
+	scanned := scanVendor(ctx, vendor, source, home, request, now, alive, codexLiveSessions)
 	if scanned == nil {
 		return vendorResult{}, nil
 	}
@@ -302,7 +302,7 @@ func publishChanged(
 	}
 	parser := time.Duration(0)
 	started := time.Now()
-	parsed, err := scanned.parse(familyFiles(changed))
+	parsed, err := scanned.parse(ctx, familyFiles(changed))
 	parser += time.Since(started)
 	byFamily := map[string][]*vendors.ParsedSession{}
 	if err == nil {
@@ -316,8 +316,11 @@ func publishChanged(
 		if err != nil {
 			// The batch could not be trusted, so this family is parsed alone.
 			retryStarted := time.Now()
-			single, singleErr := scanned.parse(item.files)
+			single, singleErr := scanned.parse(ctx, item.files)
 			parser += time.Since(retryStarted)
+			if ctx.Err() != nil {
+				return parser, nil
+			}
 			if singleErr != nil {
 				if skipErr := emitSkipped(
 					emitter, scanned.vendor, item.id,
@@ -356,13 +359,16 @@ func publishFamily(
 				emitter, scanned, item, counts, remotefacts.StaleReasonNoData,
 			)
 		}
-		if stable, reason := restabilize(scanned, item); !stable {
+		if stable, reason := restabilize(ctx, scanned, item); !stable {
 			if attempt >= UnstableRetries {
 				return parser, skipFamily(emitter, scanned, item, counts, reason)
 			}
 			started := time.Now()
-			reparsed, err := scanned.parse(item.files)
+			reparsed, err := scanned.parse(ctx, item.files)
 			parser += time.Since(started)
+			if ctx.Err() != nil {
+				return parser, nil
+			}
 			if err != nil {
 				return parser, skipFamily(
 					emitter, scanned, item, counts,
@@ -563,7 +569,7 @@ func familyFacts(
 // restabilize re-stats a family's files after the parse. Fingerprint equality is
 // an optimisation, not proof of immutability, so a file that moved under the
 // parser invalidates the facts just produced.
-func restabilize(scanned *vendorScan, item *family) (bool, string) {
+func restabilize(ctx context.Context, scanned *vendorScan, item *family) (bool, string) {
 	if item.identityUnstable {
 		return false, remotefacts.StaleReasonUnstableFile
 	}
@@ -593,7 +599,7 @@ func restabilize(scanned *vendorScan, item *family) (bool, string) {
 	if stable {
 		return true, ""
 	}
-	if scanned.vendor == vendors.AgentCodex && !codexHeadersStillMatch(scanned, item) {
+	if scanned.vendor == vendors.AgentCodex && !codexHeadersStillMatch(ctx, scanned, item) {
 		item.identityUnstable = true
 		return false, remotefacts.StaleReasonUnstableFile
 	}
@@ -601,12 +607,16 @@ func restabilize(scanned *vendorScan, item *family) (bool, string) {
 	return false, remotefacts.StaleReasonUnstableFile
 }
 
-func codexHeadersStillMatch(scanned *vendorScan, item *family) bool {
+func codexHeadersStillMatch(ctx context.Context, scanned *vendorScan, item *family) bool {
 	expected := make(map[string]remotefacts.HeaderMapping, len(item.headerMappings))
 	for _, mapping := range item.headerMappings {
 		expected[mapping.Key] = mapping
 	}
-	for file, header := range codex.HeadersSource(scanned.source, item.files) {
+	headers, err := codex.HeadersSourceContext(ctx, scanned.source, item.files)
+	if err != nil {
+		return false
+	}
+	for file, header := range headers {
 		fingerprint, ok := scanned.fileFacts[file]
 		mapping, mapped := expected[fingerprint.Key]
 		if !ok || !mapped || header.Err != nil || mapping.SessionID != header.SessionID ||
@@ -687,6 +697,7 @@ func groupByFamily(
 }
 
 func scanVendor(
+	ctx context.Context,
 	vendor string,
 	source *Source,
 	home string,
@@ -697,9 +708,9 @@ func scanVendor(
 ) *vendorScan {
 	switch vendor {
 	case vendors.AgentClaude:
-		return scanClaude(source, home, request.SinceMs, now, alive)
+		return scanClaude(ctx, source, home, request.SinceMs, now, alive)
 	case vendors.AgentCodex:
-		return scanCodex(source, home, request, codexLiveSessions)
+		return scanCodex(ctx, source, home, request, codexLiveSessions)
 	default:
 		return nil
 	}

@@ -157,10 +157,10 @@ func BuildRemoteFamilies(
 	if since > 0 {
 		files = FilesSinceSource(source, files, live, since)
 	}
-	files, truncated = vendors.LimitNewestSourceFileFamilies(
-		source, files, vendors.MaxCandidateFilesPerAgent, FamilyIDFromPath,
+	files, truncated, _ = vendors.LimitNewestSourceFileFamilies(
+		context.Background(), source, files, vendors.MaxCandidateFilesPerAgent, FamilyIDFromPath,
 	)
-	fingerprints, err := vendors.FingerprintSourceFiles(source, root, files)
+	fingerprints, err := vendors.FingerprintSourceFiles(context.Background(), source, root, files)
 	if err != nil {
 		return nil, nil, candidateFiles, skippedTotal, truncated, err
 	}
@@ -306,7 +306,7 @@ func parseFiles(files []string) []*vendors.ParsedSession {
 }
 
 func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
-	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files, parseSourceCachedContext)
+	parsed, err := vendors.ParseSourceFiles(ctx, vendors.LocalReadSource, files, parseSourceCachedContext)
 	if err != nil {
 		return nil, err
 	}
@@ -314,9 +314,7 @@ func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSe
 }
 
 func parseFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
-	parsed := vendors.ParseSourceFiles(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSourceCachedContext(context.Background(), source, path)
-	})
+	parsed, _ := vendors.ParseSourceFiles(context.Background(), source, files, parseSourceCachedContext)
 	return finalizeParsedFiles(source, parsed)
 }
 
@@ -324,7 +322,7 @@ func parseFilesSourceStrict(
 	source vendors.ReadSource,
 	files []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := vendors.ParseSourceFilesStrict(source, files, parseSource)
+	parsed, failures, err := vendors.ParseSourceFilesStrict(context.Background(), source, files, parseSourceContext)
 	return finalizeParsedFiles(source, parsed), failures, err
 }
 
