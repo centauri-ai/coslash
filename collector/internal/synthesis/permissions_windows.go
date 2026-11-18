@@ -14,10 +14,6 @@ func protectSynthesisFile(path string, file *os.File) error {
 	return windowsprivate.ProtectFile(path, file, "synthesis cache")
 }
 
-func readSynthesisFile(path string) ([]byte, error) {
-	return windowsprivate.ReadFile(path, "synthesis cache", "synthesis")
-}
-
 func readSynthesisFileInProtectedDirectory(path string) ([]byte, error) {
 	return windowsprivate.ReadFileInProtectedDirectory(path, "synthesis cache")
 }

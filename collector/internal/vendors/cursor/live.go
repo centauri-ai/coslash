@@ -93,11 +93,6 @@ func liveIDsFromLSOFContext(ctx context.Context, output, root, child, database s
 	return live, ctx.Err()
 }
 
-func cursorAgentPIDs(output string) []string {
-	pids, _ := cursorAgentPIDsContext(context.Background(), output)
-	return pids
-}
-
 func cursorAgentPIDsContext(ctx context.Context, output string) ([]string, error) {
 	var pids []string
 	for line := range strings.SplitSeq(output, "\n") {

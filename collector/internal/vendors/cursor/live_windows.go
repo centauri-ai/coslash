@@ -218,16 +218,6 @@ func newestCursorStores(stores []string, limit int) []string {
 	return result
 }
 
-func containsCursorAgentProcess(home string, pids []uint32) bool {
-	for _, pid := range pids {
-		path, err := cursorProcessExecutable(pid)
-		if err == nil && isCursorAgentExecutable(home, path) {
-			return true
-		}
-	}
-	return false
-}
-
 func isCursorAgentExecutable(home, path string) bool {
 	_, ok := cursorAgentExecutableRelative(home, path)
 	return ok
