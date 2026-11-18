@@ -86,6 +86,17 @@ type Request struct {
 	Limits        Limits        `json:"limits"`
 }
 
+// PageAfterFor returns the family ID after which the page for vendor starts,
+// or "" for the first page.
+func (request Request) PageAfterFor(vendor string) string {
+	for _, cursor := range request.PageAfter {
+		if cursor.Vendor == vendor {
+			return cursor.AfterFamilyID
+		}
+	}
+	return ""
+}
+
 // BuildRequest deterministically falls back to baseline_mode=none when the
 // complete known set cannot fit. It never sends a partial known baseline.
 func BuildRequest(request Request, known []KnownFamily) (Request, error) {

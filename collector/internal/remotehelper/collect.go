@@ -154,7 +154,7 @@ func collectVendor(
 		CandidateFiles:    scanned.scan.candidateFiles,
 		SelectedFiles:     scanned.scan.selectedFiles,
 	}
-	for _, item := range pageFamilies(scanned.scan.sortedFamilies(), pageAfter(request, vendor)) {
+	for _, item := range pageFamilies(scanned.scan.sortedFamilies(), request.PageAfterFor(vendor)) {
 		cached, isKnown := known[item.id]
 		switch {
 		case item.skipReason != "":
@@ -253,15 +253,6 @@ func collectVendor(
 	}
 	result.complete = true
 	return result, nil
-}
-
-func pageAfter(request remoteprotocol.Request, vendor string) string {
-	for _, cursor := range request.PageAfter {
-		if cursor.Vendor == vendor {
-			return cursor.AfterFamilyID
-		}
-	}
-	return ""
 }
 
 // pageFamilies starts just after the last family committed by the prior
@@ -394,7 +385,7 @@ func publishFamily(
 			if fullErr != nil && scanned.vendor == vendors.AgentCodex {
 				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
 			}
-			if fullErr == nil && !containsFullRecord(complete, item.id) {
+			if fullErr == nil && !slices.ContainsFunc(complete, func(record fullsessionv1.Record) bool { return record.SessionID == item.id }) {
 				delete(scanned.scan.families, item.id)
 				return parser, nil
 			}
@@ -538,15 +529,6 @@ func potentialTombstoneIDs(scanned *vendorScan, changed []*family, known map[str
 	}
 	sort.Strings(ids)
 	return ids
-}
-
-func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
-	for _, record := range records {
-		if record.SessionID == sessionID {
-			return true
-		}
-	}
-	return false
 }
 
 // familyFacts assembles one rooted family. Membership comes from the grouping
