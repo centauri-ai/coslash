@@ -4,7 +4,7 @@ import {
   sessionDetailRequestPath,
   synthesisRequestPath,
 } from '@/pages/coslash/hooks/use-sessions';
-import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
+import { ApiAuthenticationError, apiFetch, readApiError } from '@/pages/coslash/lib/api';
 import { isLocalSession, sessionKey, type Session, type SessionDetail } from '@/pages/coslash/lib/session';
 import {
   detailAttemptState,
@@ -71,13 +71,7 @@ export function useSessionDetail(
           signal: controller.signal,
         });
         if (!response.ok) {
-          let code = '';
-          try {
-            code = ((await response.json()) as { code?: string }).code ?? '';
-          } catch {
-            // The status remains enough to show an honest generic state.
-          }
-          throw detailFailure(response.status, code);
+          throw detailFailure(response.status, (await readApiError(response))?.code);
         }
         const body = (await response.json()) as DetailResponse;
         if (
