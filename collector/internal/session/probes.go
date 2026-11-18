@@ -15,7 +15,7 @@ import (
 	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
-func LatestFileModificationTimeContext(ctx context.Context, cwd string, fileEdits []FileEdit) *int64 {
+func LatestFileModificationTime(ctx context.Context, cwd string, fileEdits []FileEdit) *int64 {
 	var newest *int64
 	for _, edit := range fileEdits {
 		if ctx.Err() != nil {
@@ -51,14 +51,10 @@ func FileModificationTime(filePath string) int64 {
 	return info.ModTime().UnixMilli()
 }
 
-func CanonicalRepositoryName(cwd string) (string, bool) {
-	return CanonicalRepositoryNameContext(context.Background(), cwd)
-}
-
-// CanonicalRepositoryNameContext names the repository that holds cwd: its
+// CanonicalRepositoryName names the repository that holds cwd: its
 // canonical origin remote, else the remote last read for cwd when no
 // repository is found there now, else a local-only folder name.
-func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bool) {
+func CanonicalRepositoryName(ctx context.Context, cwd string) (string, bool) {
 	if cwd == "" {
 		return "", false
 	}
@@ -82,7 +78,7 @@ func repositoryRootForName(ctx context.Context, cwd string) string {
 	if err != nil {
 		return ""
 	}
-	return RepositoryRootContext(ctx, resolved)
+	return RepositoryRoot(ctx, resolved)
 }
 
 func repositoryName(ctx context.Context, cwd, root string) (string, bool) {
@@ -157,11 +153,7 @@ func CanonicalOriginURL(remote string) string {
 }
 
 // RepositoryRoot returns the enclosing Git worktree root when one exists.
-func RepositoryRoot(cwd string) string {
-	return RepositoryRootContext(context.Background(), cwd)
-}
-
-func RepositoryRootContext(ctx context.Context, cwd string) string {
+func RepositoryRoot(ctx context.Context, cwd string) string {
 	if !backgroundFilesystemProbeAllowed(cwd) {
 		return ""
 	}
@@ -183,7 +175,7 @@ func RepositoryRootContext(ctx context.Context, cwd string) string {
 	}
 }
 
-func CurrentBranchContext(ctx context.Context, cwd string) *string {
+func CurrentBranch(ctx context.Context, cwd string) *string {
 	// git -C "" stays in the process directory, which is not the session's.
 	if !backgroundFilesystemProbeAllowed(cwd) {
 		return nil
@@ -199,7 +191,7 @@ func CurrentBranchContext(ctx context.Context, cwd string) *string {
 	return &branch
 }
 
-func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string) *GitDrift {
+func BranchDrift(ctx context.Context, cwd string, recordedBranch *string) *GitDrift {
 	if !backgroundFilesystemProbeAllowed(cwd) || recordedBranch == nil {
 		return nil
 	}
@@ -211,7 +203,7 @@ func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string)
 	if err != nil || !info.IsDir() {
 		return nil
 	}
-	baseBranch, baseRef := findBaseBranchContext(ctx, cwd)
+	baseBranch, baseRef := findBaseBranch(ctx, cwd)
 	if baseBranch == "" || branch == baseBranch || branch == "refs/heads/"+baseBranch ||
 		branch == "refs/remotes/origin/"+baseBranch {
 		return nil
@@ -239,12 +231,12 @@ func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string)
 	return &GitDrift{BaseBranch: baseBranch, Ahead: ahead, Behind: behind}
 }
 
-func findBaseBranchContext(ctx context.Context, cwd string) (string, string) {
+func findBaseBranch(ctx context.Context, cwd string) (string, string) {
 	if out, err := backgroundexec.CommandContext(ctx,
 		"git", "-C", cwd, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD",
 	).Output(); err == nil {
 		ref := strings.TrimSpace(string(out))
-		if ref != "" && gitRefExistsContext(ctx, cwd, ref) {
+		if ref != "" && gitRefExists(ctx, cwd, ref) {
 			return filepath.Base(ref), ref
 		}
 	}
@@ -257,14 +249,14 @@ func findBaseBranchContext(ctx context.Context, cwd string) (string, string) {
 		{name: "main", ref: "refs/remotes/origin/main"},
 		{name: "master", ref: "refs/remotes/origin/master"},
 	} {
-		if gitRefExistsContext(ctx, cwd, candidate.ref) {
+		if gitRefExists(ctx, cwd, candidate.ref) {
 			return candidate.name, candidate.ref
 		}
 	}
 	return "", ""
 }
 
-func gitRefExistsContext(ctx context.Context, cwd, ref string) bool {
+func gitRefExists(ctx context.Context, cwd, ref string) bool {
 	if !backgroundFilesystemProbeAllowed(cwd) {
 		return false
 	}

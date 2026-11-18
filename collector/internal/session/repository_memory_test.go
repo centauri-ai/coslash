@@ -20,17 +20,17 @@ func TestRepositoryRootIgnoresEmptyGitDirectory(t *testing.T) {
 	home := t.TempDir()
 	mkdir(t, home, ".git")
 	project := mkdir(t, home, "codex_work")
-	if root := RepositoryRoot(project); root != "" {
+	if root := RepositoryRoot(t.Context(), project); root != "" {
 		t.Fatalf("root = %q; an empty .git directory is not a repository", root)
 	}
-	if name, localOnly := CanonicalRepositoryName(project); name != "codex_work" || !localOnly {
+	if name, localOnly := CanonicalRepositoryName(t.Context(), project); name != "codex_work" || !localOnly {
 		t.Fatalf("name = %q localOnly = %v", name, localOnly)
 	}
 	worktree := mkdir(t, home, "worktrees", "app")
 	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/app\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if root := RepositoryRoot(filepath.Join(worktree)); root != worktree {
+	if root := RepositoryRoot(t.Context(), filepath.Join(worktree)); root != worktree {
 		t.Fatalf("worktree root = %q; want %q", root, worktree)
 	}
 }
@@ -53,10 +53,10 @@ func TestRemovedFolderKeepsRememberedRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	UseRepositoryMemory(memory) // reload from disk, as a restart does
-	if name, localOnly := CanonicalRepositoryName(worktree); name != "github.com/acme/coslash" || localOnly {
+	if name, localOnly := CanonicalRepositoryName(t.Context(), worktree); name != "github.com/acme/coslash" || localOnly {
 		t.Fatalf("removed worktree = %q localOnly = %v", name, localOnly)
 	}
-	if name, localOnly := CanonicalRepositoryName(repository); name != "local-repo" || !localOnly {
+	if name, localOnly := CanonicalRepositoryName(t.Context(), repository); name != "local-repo" || !localOnly {
 		t.Fatalf("a repository without a remote must trust Git: %q localOnly = %v", name, localOnly)
 	}
 	if info, err := os.Stat(memory); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
@@ -64,7 +64,7 @@ func TestRemovedFolderKeepsRememberedRepository(t *testing.T) {
 	}
 
 	UseRepositoryMemory("")
-	if name, localOnly := CanonicalRepositoryName(worktree); name != "fix-sidebar" || !localOnly {
+	if name, localOnly := CanonicalRepositoryName(t.Context(), worktree); name != "fix-sidebar" || !localOnly {
 		t.Fatalf("memory off: %q localOnly = %v", name, localOnly)
 	}
 }

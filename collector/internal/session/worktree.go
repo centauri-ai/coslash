@@ -119,7 +119,7 @@ func ProbeCheckout(ctx context.Context, root, repo string) *CheckoutObservation 
 		treeKey += fmt.Sprintf(":%d", info.ModTime().UnixNano())
 	}
 	headKind, head := "unknown", ""
-	branch := CurrentBranchContext(ctx, root)
+	branch := CurrentBranch(ctx, root)
 	commit, err := backgroundexec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--verify", "HEAD").Output()
 	if branch != nil {
 		headKind, head = "branch", *branch
