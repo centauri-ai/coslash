@@ -20,7 +20,6 @@ import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { SearchDecisions } from '@/pages/coslash/components/SearchDecisions';
 import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
 import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
-import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
 import { MachineDot } from '@/pages/coslash/components/session-list/MachineDot';
 import { Rollup } from '@/pages/coslash/components/session-list/Rollup';
 import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
@@ -486,29 +485,24 @@ export function CoslashLayout({
             {facetSections.map((section) => (
               <SidebarSection
                 key={section.id}
-                section={section}
+                id={section.id}
+                label={section.label}
                 open={sideOpen[section.id]}
                 isLoading={isLoading}
                 onToggle={() => setSideOpen((state) => ({ ...state, [section.id]: !state[section.id] }))}
-              />
+              >
+                <FacetRows options={section.options} />
+              </SidebarSection>
             ))}
-            <div className="pb-3.5">
-              <div className="bg-coslash-surface sticky top-[-20px] z-20 pb-1">
-                <button
-                  className={styles.sideHeading}
-                  aria-expanded={sideOpen.group}
-                  aria-controls="coslash-group"
-                  onClick={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
-                >
-                  <ChevronRight
-                    className={cn('size-[13px] transition-transform', { 'rotate-90': sideOpen.group })}
-                  />
-                  <span className="flex flex-1 items-center justify-between">
-                    Locations
-                    {isLoading && <InlineSpinner />}
-                  </span>
-                </button>
-                {sideOpen.group && (
+            <SidebarSection
+              id="group"
+              label="Locations"
+              open={sideOpen.group}
+              isLoading={isLoading}
+              onToggle={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
+              headerClassName="bg-coslash-surface sticky top-[-20px] z-20 pb-1"
+              headerExtra={
+                sideOpen.group && (
                   <div className="border-coslash-line bg-coslash-bg text-coslash-muted focus-within:border-coslash-accent mx-2 mt-1 mb-1.5 flex items-center gap-1.5 rounded-[7px] border px-2 py-1.5 [&>svg]:size-3.5">
                     <Search />
                     <input
@@ -537,87 +531,84 @@ export function CoslashLayout({
                       </button>
                     )}
                   </div>
-                )}
-              </div>
-              {sideOpen.group && (
-                <div id="coslash-group">
-                  {choices.repositories.length > 0 && (
-                    <section>
-                      <h3 className={locationHeading}>Repositories</h3>
-                      {choices.repositories.map(({ group, worktrees, unknown }) => {
-                        const expanded = !!normalizedGroupQuery || !!expandedRepos[group.id];
-                        return (
-                          <div key={group.id}>
-                            <FacetRow {...locationOption(group)} />
-                            {unknown && (
+                )
+              }
+            >
+              {choices.repositories.length > 0 && (
+                <section>
+                  <h3 className={locationHeading}>Repositories</h3>
+                  {choices.repositories.map(({ group, worktrees, unknown }) => {
+                    const expanded = !!normalizedGroupQuery || !!expandedRepos[group.id];
+                    return (
+                      <div key={group.id}>
+                        <FacetRow {...locationOption(group)} />
+                        {unknown && (
+                          <div className="border-coslash-line ml-3 border-l pl-1">
+                            <FacetRow {...locationOption(unknown)} />
+                          </div>
+                        )}
+                        {worktrees.length > 0 && (
+                          <div className="border-coslash-line ml-3 border-l pl-1">
+                            <button
+                              type="button"
+                              aria-expanded={expanded}
+                              aria-label={'Worktrees in ' + group.label}
+                              disabled={!!normalizedGroupQuery}
+                              onClick={() =>
+                                setExpandedRepos((state) => ({ ...state, [group.id]: !state[group.id] }))
+                              }
+                              className="text-meta text-coslash-muted hover:text-coslash-ink flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1 font-medium disabled:cursor-default"
+                            >
+                              <ChevronRight
+                                className={cn('size-3 transition-transform', { 'rotate-90': expanded })}
+                              />
+                              Worktrees
+                            </button>
+                            {expanded && (
                               <div className="border-coslash-line ml-3 border-l pl-1">
-                                <FacetRow {...locationOption(unknown)} />
-                              </div>
-                            )}
-                            {worktrees.length > 0 && (
-                              <div className="border-coslash-line ml-3 border-l pl-1">
-                                <button
-                                  type="button"
-                                  aria-expanded={expanded}
-                                  aria-label={'Worktrees in ' + group.label}
-                                  disabled={!!normalizedGroupQuery}
-                                  onClick={() =>
-                                    setExpandedRepos((state) => ({ ...state, [group.id]: !state[group.id] }))
-                                  }
-                                  className="text-meta text-coslash-muted hover:text-coslash-ink flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1 font-medium disabled:cursor-default"
-                                >
-                                  <ChevronRight
-                                    className={cn('size-3 transition-transform', { 'rotate-90': expanded })}
-                                  />
-                                  Worktrees
-                                </button>
-                                {expanded && (
-                                  <div className="border-coslash-line ml-3 border-l pl-1">
-                                    <FacetRows options={worktrees.map(locationOption)} />
-                                  </div>
-                                )}
+                                <FacetRows options={worktrees.map(locationOption)} />
                               </div>
                             )}
                           </div>
-                        );
-                      })}
-                    </section>
-                  )}
-                  {choices.others.length > 0 && (
-                    <section>
-                      <h3 className={locationHeading}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span tabIndex={0} className="cursor-default">
-                              Other worktrees
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="coslash-shell max-w-64">
-                            These are verified worktrees. Their parent repository could not be identified.
-                          </TooltipContent>
-                        </Tooltip>
-                      </h3>
-                      <FacetRows options={choices.others.map(locationOption)} />
-                    </section>
-                  )}
-                  {choices.folders.length > 0 && (
-                    <section>
-                      <h3 className={locationHeading}>Folders</h3>
-                      <FacetRows options={choices.folders.map(locationOption)} />
-                    </section>
-                  )}
-                  <FacetRows options={choices.unlocated.map(locationOption)} />
-                  {!choices.repositories.length &&
-                    !choices.others.length &&
-                    !choices.folders.length &&
-                    !choices.unlocated.length && (
-                      <div className="text-coslash-muted px-2.5 py-2 text-xs">
-                        {normalizedGroupQuery ? 'No matching locations.' : 'No locations yet.'}
+                        )}
                       </div>
-                    )}
-                </div>
+                    );
+                  })}
+                </section>
               )}
-            </div>
+              {choices.others.length > 0 && (
+                <section>
+                  <h3 className={locationHeading}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span tabIndex={0} className="cursor-default">
+                          Other worktrees
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="coslash-shell max-w-64">
+                        These are verified worktrees. Their parent repository could not be identified.
+                      </TooltipContent>
+                    </Tooltip>
+                  </h3>
+                  <FacetRows options={choices.others.map(locationOption)} />
+                </section>
+              )}
+              {choices.folders.length > 0 && (
+                <section>
+                  <h3 className={locationHeading}>Folders</h3>
+                  <FacetRows options={choices.folders.map(locationOption)} />
+                </section>
+              )}
+              <FacetRows options={choices.unlocated.map(locationOption)} />
+              {!choices.repositories.length &&
+                !choices.others.length &&
+                !choices.folders.length &&
+                !choices.unlocated.length && (
+                  <div className="text-coslash-muted px-2.5 py-2 text-xs">
+                    {normalizedGroupQuery ? 'No matching locations.' : 'No locations yet.'}
+                  </div>
+                )}
+            </SidebarSection>
           </div>
 
           <div className={styles.main}>
