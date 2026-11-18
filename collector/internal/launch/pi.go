@@ -21,7 +21,7 @@ import (
 var ErrPiUnsupportedVersion = errors.New("launch: Pi requires a stable release at least " + pi.MinimumRuntimeVersion)
 var ErrPiExtension = errors.New("launch: managed Pi extension is unavailable")
 
-func piSupportedExecutable() (string, error) {
+func piSupportedExecutable(ctx context.Context) (string, error) {
 	if !vendors.PiSupported() {
 		return "", errors.New("launch: Pi support requires macOS or Windows")
 	}
@@ -29,7 +29,7 @@ func piSupportedExecutable() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	version, err := backgroundexec.CommandContext(ctx, cli, "--version").Output()
 	if err != nil || !pi.RuntimeSupported(strings.TrimSpace(string(version))) {
@@ -37,8 +37,8 @@ func piSupportedExecutable() (string, error) {
 	}
 	return cli, nil
 }
-func piExecutable() (string, error) {
-	cli, err := piSupportedExecutable()
+func piExecutable(ctx context.Context) (string, error) {
+	cli, err := piSupportedExecutable(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -120,4 +120,7 @@ func localHandoffScript(directory, command, path string, shells ...string) strin
 	return "if cd " + shellQuote(directory) + "; then " + withCleanup(command, path) + "; else ( coslash_cd_status=$?; rm -f " + shellQuote(path) + " " + shellQuote(path+".context") + "; exit \"$coslash_cd_status\" ); fi"
 }
 
-func PiAvailable() bool { _, err := piSupportedExecutable(); return err == nil }
+func PiAvailable(ctx context.Context) bool {
+	_, err := piSupportedExecutable(ctx)
+	return err == nil
+}

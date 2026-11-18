@@ -454,7 +454,7 @@ func TestGrokReviewerFindsInstalledExecutable(t *testing.T) {
 	if !ReviewerAvailable(vendors.AgentGrok) || grokcli.Executable() != path {
 		t.Fatal("installed Grok reviewer unavailable without PATH")
 	}
-	for _, option := range HandoffTargetOptions(context.Background()) {
+	for _, option := range HandoffTargetOptions(t.Context()) {
 		if option.Agent == vendors.AgentGrok && !option.Available {
 			t.Fatal("installed Grok handoff target unavailable")
 		}

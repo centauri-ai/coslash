@@ -221,13 +221,13 @@ func TestPiProviderErrorSurvivesExactLocalDetail(t *testing.T) {
 
 func TestPiHandoffChoicesMatchSupportedPlatform(t *testing.T) {
 	found := false
-	for _, option := range launch.HandoffTargetOptions(context.Background()) {
+	for _, option := range launch.HandoffTargetOptions(t.Context()) {
 		found = found || option.Agent == vendors.AgentPi
 	}
 	if found != vendors.PiSupported() {
 		t.Fatalf("Pi handoff choice %t differs from platform support", found)
 	}
-	if !vendors.PiSupported() && launch.PiAvailable() {
+	if !vendors.PiSupported() && launch.PiAvailable(t.Context()) {
 		t.Fatal("Pi launcher available on unsupported platform")
 	}
 }
