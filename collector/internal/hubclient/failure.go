@@ -29,15 +29,6 @@ type HubFailure struct {
 	Message  string
 }
 
-// ClassifyHubContact includes successful contact as the "ok" cause and
-// delegates failures to ClassifyHubFailure.
-func ClassifyHubContact(err error) (HubFailure, bool) {
-	if err == nil {
-		return HubFailure{Cause: FailureOK, Message: "Hub contact succeeded."}, true
-	}
-	return ClassifyHubFailure(err)
-}
-
 var (
 	hubURLPattern           = regexp.MustCompile(`(?i)https?://[^\s]+`)
 	hubAuthorizationPattern = regexp.MustCompile(`(?i)\bauthorization\b\s*[:=]\s*(?:(?:bearer|device)\s+)?[^\s,;]+`)
