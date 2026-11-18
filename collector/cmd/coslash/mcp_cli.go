@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -105,9 +107,6 @@ func setupMCP(ctx context.Context, output io.Writer, agent, endpoint string) err
 		if err != nil {
 			return err
 		}
-		if strings.HasSuffix(path, ".jsonc") {
-			return writeMCPJSONCConfig(path, endpoint)
-		}
 		return writeMCPConfig(path, "mcp", endpoint, true)
 	}
 	return errors.New(mcpUsage)
@@ -177,55 +176,22 @@ func opencodeMCPConfigPath() (string, error) {
 	return path, nil
 }
 
+// writeMCPConfig adds the coSlash server to a JSON or JSONC (by the .jsonc
+// suffix) agent config. It changes only the added member, so the key order,
+// comments, formatting, and file mode of an existing config stay as they were.
 func writeMCPConfig(path, key, endpoint string, opencode bool) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	root := map[string]json.RawMessage{}
-	info, err := os.Lstat(path)
-	if err == nil {
-		if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-			return errors.New("MCP config must be a regular file under 1 MiB")
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if json.Unmarshal(data, &root) != nil || root == nil {
-			return errors.New("MCP config is not a supported JSON object")
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	servers := map[string]json.RawMessage{}
-	if existing, ok := root[key]; ok {
-		if json.Unmarshal(existing, &servers) != nil || servers == nil {
-			return errors.New("MCP server settings are not a JSON object")
-		}
-	}
 	var server any = map[string]string{"url": endpoint}
 	if opencode {
 		server = map[string]any{"type": "remote", "url": endpoint, "enabled": true, "oauth": map[string]string{"scope": "mcp:read mcp:ask"}}
 	}
-	encodedServer, _ := json.Marshal(server)
-	if existing, ok := servers[mcpServerName]; ok {
-		var previous, desired any
-		if json.Unmarshal(existing, &previous) != nil || json.Unmarshal(encodedServer, &desired) != nil || !reflect.DeepEqual(previous, desired) {
-			return errors.New("coSlash MCP already has different settings; review that entry before setup")
-		}
-		return nil
-	}
-	servers[mcpServerName] = encodedServer
-	root[key], _ = json.Marshal(servers)
-	data, err := json.MarshalIndent(root, "", "  ")
-	if err != nil {
-		return err
-	}
-	return replaceMCPConfig(path, append(data, '\n'))
-}
-
-func writeMCPJSONCConfig(path, endpoint string) error {
 	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		data, _ := json.MarshalIndent(map[string]any{key: map[string]any{mcpServerName: server}}, "", "  ")
+		return atomicfile.Write(path, append(data, '\n'), 0o600, nil)
+	}
 	if err != nil {
 		return err
 	}
@@ -237,47 +203,73 @@ func writeMCPJSONCConfig(path, endpoint string) error {
 		return err
 	}
 	root, err := hujson.Parse(data)
-	if err != nil {
-		return fmt.Errorf("OpenCode config is not valid JSONC: %w", err)
+	if err != nil || !strings.HasSuffix(path, ".jsonc") && !root.IsStandard() {
+		return errors.New("MCP config is not a supported JSON object")
 	}
 	object, ok := root.Value.(*hujson.Object)
 	if !ok {
-		return errors.New("OpenCode config is not a JSONC object")
+		return errors.New("MCP config is not a supported JSON object")
 	}
-	server := map[string]any{"type": "remote", "url": endpoint, "enabled": true, "oauth": map[string]string{"scope": "mcp:read mcp:ask"}}
-	encodedServer, _ := json.Marshal(server)
-	member, err := hujson.Parse([]byte(`{"coslash":` + string(encodedServer) + `}`))
-	if err != nil {
-		return err
-	}
-	serverMember := member.Value.(*hujson.Object).Members[0]
-	settings := root.Find("/mcp")
-	if settings == nil {
-		member, err = hujson.Parse([]byte(`{"mcp":{"coslash":` + string(encodedServer) + `}}`))
-		if err != nil {
-			return err
-		}
-		object.Members = append(object.Members, member.Value.(*hujson.Object).Members[0])
-	} else {
+	parent, name, value := object, key, any(map[string]any{mcpServerName: server})
+	if settings := root.Find("/" + key); settings != nil {
 		servers, ok := settings.Value.(*hujson.Object)
 		if !ok {
 			return errors.New("MCP server settings are not a JSON object")
 		}
-		if existing := root.Find("/mcp/coslash"); existing != nil {
+		if existing := root.Find("/" + key + "/" + mcpServerName); existing != nil {
 			previous := existing.Clone()
 			previous.Standardize()
+			encodedServer, _ := json.Marshal(server)
 			var previousValue, desiredValue any
 			if json.Unmarshal(previous.Pack(), &previousValue) != nil || json.Unmarshal(encodedServer, &desiredValue) != nil || !reflect.DeepEqual(previousValue, desiredValue) {
 				return errors.New("coSlash MCP already has different settings; review that entry before setup")
 			}
 			return nil
 		}
-		servers.Members = append(servers.Members, serverMember)
+		parent, name, value = servers, mcpServerName, server
 	}
-	root.Format()
-	return replaceMCPConfig(path, root.Pack())
+	if err := appendMember(object, parent, name, value); err != nil {
+		return err
+	}
+	return atomicfile.Write(path, root.Pack(), info.Mode().Perm(), nil)
 }
 
-func replaceMCPConfig(path string, data []byte) error {
-	return atomicfile.Write(path, data, 0o600, nil)
+// appendMember adds name as the last member of parent. When the member before
+// it starts on its own line, the new member copies that indentation and the
+// trailing-comma style. Otherwise it is added in compact form.
+func appendMember(root, parent *hujson.Object, name string, value any) error {
+	lineIndent := func(member hujson.ObjectMember) (string, bool) {
+		i := bytes.LastIndexByte(member.Name.BeforeExtra, '\n')
+		return string(member.Name.BeforeExtra[i+1:]), i >= 0
+	}
+	encodedName, _ := json.Marshal(name)
+	separator, multiline, indent := []byte(":"), false, ""
+	if n := len(parent.Members); n > 0 {
+		indent, multiline = lineIndent(parent.Members[n-1])
+	}
+	encoded, err := json.Marshal(value)
+	if multiline {
+		separator = []byte(": ")
+		unit, ok := lineIndent(root.Members[0])
+		if !ok || unit == "" {
+			unit = "  "
+		}
+		encoded, err = json.MarshalIndent(value, indent, unit)
+	}
+	if err != nil {
+		return err
+	}
+	member, err := hujson.Parse(slices.Concat([]byte("{"), encodedName, separator, encoded, []byte("}")))
+	if err != nil {
+		return err
+	}
+	added := member.Value.(*hujson.Object).Members[0]
+	if multiline {
+		added.Name.BeforeExtra = hujson.Extra("\n" + indent)
+		if parent.Members[len(parent.Members)-1].Value.AfterExtra != nil {
+			added.Value.AfterExtra = hujson.Extra{}
+		}
+	}
+	parent.Members = append(parent.Members, added)
+	return nil
 }
