@@ -40,7 +40,7 @@ import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import { handoffLabel, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
-import { formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
+import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
   MACHINE_TONE_DOT,
   machineRetryable,
@@ -302,17 +302,6 @@ function detectedGroup(session: Session): Group {
     basis: 'No repository or folder was recorded',
     legacyIds: [],
   };
-}
-
-function formatTokens(value: number | null): string {
-  if (value == null || !Number.isFinite(value) || value < 0) return '—';
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
-  return String(value);
-}
-
-function formatTableCost(value: number | null): string {
-  return formatEstimatedCost(value).replace(/^≈/, '');
 }
 
 function matchesSearch(session: Session, group: Group, query: string): boolean {
@@ -788,7 +777,7 @@ function SessionRow({
       <td className={cn(cell, 'max-cost:hidden w-[94px] whitespace-nowrap tabular-nums')}>
         <div>
           <UnpricedModelWarning unpriced={session.unpricedModels}>
-            {formatTableCost(sessionCost(session))}
+            {formatEstimatedCost(sessionCost(session))}
           </UnpricedModelWarning>
         </div>
         <span className={cn('text-meta text-coslash-muted mt-0.5 block', hideWhenCompact)}>
@@ -1009,7 +998,7 @@ function SessionListView({
                   <span className="text-coslash-muted font-medium">{rows.length}</span>
                   <span className="text-coslash-muted ml-auto text-[11.5px] font-medium">
                     {formatTokens(tokenTotal(aggregate))} tokens ·{' '}
-                    {formatTableCost(sumKnown(aggregate.map(sessionCost)))}
+                    {formatEstimatedCost(sumKnown(aggregate.map(sessionCost)))}
                   </span>
                 </button>
               </th>
