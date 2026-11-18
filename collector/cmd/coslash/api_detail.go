@@ -74,7 +74,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 			writeDetailError(w, errCodeDetailMissing, http.StatusNotFound)
 			return
 		}
-		revision, err := localDetailRevision(*found)
+		revision, err := localDetailRevision(r.Context(), *found)
 		if err != nil {
 			logExactReadError("fingerprint local session detail", identity, err)
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
@@ -85,8 +85,13 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 			return
 		}
 		identity.Revision = revision
-		copy := withLocalChangeIDs(*found)
-		value = &copy
+		identified, err := session.WithLocalChangeIDs(r.Context(), *found)
+		if err != nil {
+			logExactReadError("identify local session changes", identity, err)
+			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
+			return
+		}
+		value = &identified
 	} else {
 		var record *fullsessionv1.Record
 		var err error
@@ -165,7 +170,7 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 			writeDetailError(w, errCodeDetailMissing, http.StatusNotFound)
 			return
 		}
-		revision, err := localDetailRevision(*found)
+		revision, err := localDetailRevision(r.Context(), *found)
 		if err != nil {
 			logExactReadError("fingerprint local session diff", identity, err)
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
@@ -175,7 +180,13 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 			writeDetailError(w, errCodeDetailStale, http.StatusConflict)
 			return
 		}
-		available := localChangesByID(withLocalChangeIDs(*found))
+		identified, err := session.WithLocalChangeIDs(r.Context(), *found)
+		if err != nil {
+			logExactReadError("identify local session changes", identity, err)
+			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
+			return
+		}
+		available := localChangesByID(identified)
 		for _, changeID := range changeIDs {
 			change, exists := available[changeID]
 			if !exists {
@@ -300,20 +311,16 @@ func validOpaqueIdentifier(value string) bool {
 	return true
 }
 
-func withLocalChangeIDs(value session.Session) session.Session {
-	return session.WithLocalChangeIDs(value)
-}
-
 // localDetailRevision fingerprints parsed content while excluding fields
 // refreshed from process, repository, and synthesis state. Those live facts
 // are overlaid from the session list in the inspector and must not make the
 // exact transcript/diff identity depend on which environment probes a reader
 // performs.
-func localDetailRevision(value session.Session) (string, error) {
+func localDetailRevision(ctx context.Context, value session.Session) (string, error) {
 	if value.DetailRevision != "" {
 		return value.DetailRevision, nil
 	}
-	return session.LocalDetailRevision(value)
+	return session.LocalDetailRevision(ctx, value)
 }
 
 func localChangesByID(value session.Session) map[string]session.FileChange {

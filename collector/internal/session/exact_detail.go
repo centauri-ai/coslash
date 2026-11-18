@@ -10,12 +10,7 @@ import (
 )
 
 // WithLocalChangeIDs binds each parsed change body to an opaque, stable ID.
-func WithLocalChangeIDs(value Session) Session {
-	result, _ := withLocalChangeIDsContext(context.Background(), value)
-	return result
-}
-
-func withLocalChangeIDsContext(ctx context.Context, value Session) (Session, error) {
+func WithLocalChangeIDs(ctx context.Context, value Session) (Session, error) {
 	value.FileEdits = append([]FileEdit(nil), value.FileEdits...)
 	occurrences := map[string]int{}
 	for editIndex := range value.FileEdits {
@@ -54,11 +49,7 @@ func withLocalChangeIDsContext(ctx context.Context, value Session) (Session, err
 
 // LocalDetailRevision fingerprints parsed content while excluding live facts
 // that are overlaid independently by the session list.
-func LocalDetailRevision(value Session) (string, error) {
-	return LocalDetailRevisionContext(context.Background(), value)
-}
-
-func LocalDetailRevisionContext(ctx context.Context, value Session) (string, error) {
+func LocalDetailRevision(ctx context.Context, value Session) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -94,7 +85,7 @@ func LocalDetailRevisionContext(ctx context.Context, value Session) (string, err
 		stable.Subagents[index].Status = ""
 	}
 	normalizeDetailCollections(stable)
-	identified, err := withLocalChangeIDsContext(ctx, *stable)
+	identified, err := WithLocalChangeIDs(ctx, *stable)
 	if err != nil {
 		return "", err
 	}

@@ -40,7 +40,7 @@ func exactDetailSession(body string) session.Session {
 
 func mustLocalDetailRevision(t *testing.T, value session.Session) string {
 	t.Helper()
-	revision, err := localDetailRevision(value)
+	revision, err := localDetailRevision(t.Context(), value)
 	if err != nil {
 		t.Fatal(err)
 	}

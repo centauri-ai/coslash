@@ -125,7 +125,7 @@ func TestParseCacheEntryWithoutOpeningPromptIsReparsed(t *testing.T) {
 			parsed.transcript.Session.FirstPrompt = ptr("Not now")
 			parsed.transcript.Session.Turns = 1
 			parsed.transcript.Session.Digest = nil
-			cachedRevision, err := session.LocalDetailRevision(*parsed.transcript.Session)
+			cachedRevision, err := session.LocalDetailRevision(t.Context(), *parsed.transcript.Session)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,7 +143,7 @@ func TestParseCacheEntryWithoutOpeningPromptIsReparsed(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				revision, err := session.LocalDetailRevision(*got.transcript.Session)
+				revision, err := session.LocalDetailRevision(t.Context(), *got.transcript.Session)
 				if err != nil || revision == cachedRevision || got.transcript.Session.LastActivityTime != parsed.transcript.Session.LastActivityTime {
 					t.Fatalf("reparsed content did not change revision at the same activity time: %v", err)
 				}

@@ -36,7 +36,11 @@ func TestLocalPiDetailAcceptsOpaqueIdentityButRemoteRefuses(t *testing.T) {
 			t.Fatalf("Pi detail = %d: %s", response.Code, response.Body.String())
 		}
 		query.Set("revision", mustLocalDetailRevision(t, value))
-		query.Add("change", session.WithLocalChangeIDs(value).FileEdits[0].ChangeIDs[0])
+		identified, err := session.WithLocalChangeIDs(t.Context(), value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		query.Add("change", identified.FileEdits[0].ChangeIDs[0])
 		response = httptest.NewRecorder()
 		handleExactDiff(response, httptest.NewRequest(http.MethodGet, "/api/diff?"+query.Encode(), nil), reader, nil)
 		if response.Code != http.StatusOK {

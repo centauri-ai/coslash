@@ -566,7 +566,7 @@ func manifestRepository(repository string) sessionbackupv1.RepositoryIdentity {
 
 func repositoryIdentity(ctx context.Context, sourceKind, workingDirectory string, frozen remote.BackupSessionEnrichment) (string, bool) {
 	if sourceKind == sessionbackupv1.SourceLocal {
-		return session.CanonicalRepositoryNameContext(ctx, workingDirectory)
+		return session.CanonicalRepositoryName(ctx, workingDirectory)
 	}
 	if frozen.Repository != nil && *frozen.Repository != "" {
 		return *frozen.Repository, frozen.RepositoryLocalOnly
@@ -585,7 +585,7 @@ func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessi
 		if err != nil {
 			return err
 		}
-		lastEditAtMs = session.LatestFileModificationTimeContext(ctx, value.WorkingDirectory, value.FileEdits)
+		lastEditAtMs = session.LatestFileModificationTime(ctx, value.WorkingDirectory, value.FileEdits)
 	}
 	records := []fullsessionv1.Record{record}
 	if err := sanitizeRecordFilePaths(records, home); err != nil {
@@ -629,10 +629,10 @@ func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessi
 	if sourceKind == sessionbackupv1.SourceLocal {
 		branch := record.Session.Branch
 		if branch == nil {
-			branch = session.CurrentBranchContext(ctx, record.Session.WorkingDirectory)
+			branch = session.CurrentBranch(ctx, record.Session.WorkingDirectory)
 			enrichment.FilesystemFallbackBranch = branch
 		}
-		if drift := session.BranchDriftContext(ctx, record.Session.WorkingDirectory, branch); drift != nil {
+		if drift := session.BranchDrift(ctx, record.Session.WorkingDirectory, branch); drift != nil {
 			enrichment.Git = &sessionbackupv1.GitDrift{BaseBranch: drift.BaseBranch, Ahead: drift.Ahead, Behind: drift.Behind}
 		}
 		enrichment.LastEditAtMs = lastEditAtMs

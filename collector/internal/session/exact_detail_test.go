@@ -26,7 +26,7 @@ func TestLocalDetailRevisionStopsDuringChangeHashing(t *testing.T) {
 	}
 	ctx := &cancelDetailContext{Context: context.Background(), remaining: 10}
 
-	revision, err := LocalDetailRevisionContext(ctx, Session{SessionDetails: SessionDetails{FileEdits: edits}})
+	revision, err := LocalDetailRevision(ctx, Session{SessionDetails: SessionDetails{FileEdits: edits}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -39,12 +39,12 @@ func TestPiRuntimeModalityDoesNotChangeExactRevision(t *testing.T) {
 	rpc, sdk := "pi-rpc", "pi-sdk"
 	for _, agent := range []string{"pi", "codex"} {
 		value := Session{Agent: agent, Entrypoint: &rpc}
-		original, err := LocalDetailRevision(value)
+		original, err := LocalDetailRevision(t.Context(), value)
 		if err != nil {
 			t.Fatal(err)
 		}
 		value.Entrypoint = &sdk
-		changed, err := LocalDetailRevision(value)
+		changed, err := LocalDetailRevision(t.Context(), value)
 		if err != nil {
 			t.Fatal(err)
 		}
