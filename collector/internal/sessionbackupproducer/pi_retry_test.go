@@ -79,7 +79,7 @@ func TestPiProjectionFailureClassifiesStableSource(t *testing.T) {
 						fired = true
 					}
 				case "restored malformed copy":
-					ctx.at = ".(*contextReader).Read"
+					ctx.at = ".ContextReader.Read"
 					ctx.hook = func() {
 						writeGrokInput(t, path, append(append([]byte(nil), original...), []byte("{invalid}\n")...))
 						ctx.at = ".(*piFrozen).project"

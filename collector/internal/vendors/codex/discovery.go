@@ -58,7 +58,7 @@ func readFileHeaderSourceContext(ctx context.Context, source vendors.ReadSource,
 	defer file.Close()
 	var row codexRow
 	reader := io.LimitReader(file, sessionbackupv1.MaxArtifactBytes)
-	if err := json.NewDecoder(contextReader{ctx: ctx, reader: reader}).Decode(&row); err != nil {
+	if err := json.NewDecoder(vendors.ContextReader{Ctx: ctx, Reader: reader}).Decode(&row); err != nil {
 		return FileHeader{}, fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
 	if err := ctx.Err(); err != nil {
