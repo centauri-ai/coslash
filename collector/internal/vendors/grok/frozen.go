@@ -25,9 +25,9 @@ func (family FamilyRef) NonChildSummaryPaths() []string {
 	return paths
 }
 
-// ParseFrozenFamilyContext reads only frozen directories and summary proofs.
+// ParseFrozenFamily reads only frozen directories and summary proofs.
 // family must be the intact planner result; its original paths are never opened.
-func ParseFrozenFamilyContext(ctx context.Context, family FamilyRef, dirs, proofs []string) ([]*vendors.ParsedSession, error) {
+func ParseFrozenFamily(ctx context.Context, family FamilyRef, dirs, proofs []string) ([]*vendors.ParsedSession, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func ParseFrozenFamilyContext(ctx context.Context, family FamilyRef, dirs, proof
 			return nil, err
 		}
 	}
-	parsed, err := parseFamilyDirsContext(ctx, dirs, exclusions)
+	parsed, err := parseFamilyDirs(ctx, dirs, exclusions)
 	if err != nil {
 		return nil, err
 	}

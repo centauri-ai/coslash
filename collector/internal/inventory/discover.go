@@ -287,7 +287,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 				dirs = append(dirs, file.FamilyID)
 			}
 		}
-		refs, err := grok.PlanFamiliesContext(ctx, dirs)
+		refs, err := grok.PlanFamilies(ctx, dirs)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -527,7 +527,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		metadata[vendors.AgentCursor] = mergeMetadata(plan.metadata[vendors.AgentCursor], batchMetadata)
 	}
 	if len(grokFamilies) > 0 {
-		items, grokMetadata, err := grok.ParseFamiliesContext(ctx, grokFamilies)
+		items, grokMetadata, err := grok.ParseFamilies(ctx, grokFamilies)
 		if err != nil {
 			return nil, err
 		}

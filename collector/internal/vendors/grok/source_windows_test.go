@@ -37,7 +37,7 @@ func TestWindowsStoreCollectsFinishedAndOpenSessions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "active_sessions.json"), []byte(active), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, metadata, err := CollectContext(context.Background(), 0)
+	parsed, metadata, err := Collect(context.Background(), 0)
 	if err != nil || len(parsed) != 2 {
 		t.Fatalf("sessions = %v, err = %v", parsed, err)
 	}
@@ -61,7 +61,7 @@ func TestWindowsStoreCollectsFinishedAndOpenSessions(t *testing.T) {
 	if !metadata.LivenessChecked || metadata.Lookup(openID).Live != "interactive" {
 		t.Fatalf("active metadata = %+v", metadata)
 	}
-	if health := Health(); health.Missing || health.Err != nil || health.Sessions != 2 {
+	if health := Health(t.Context()); health.Missing || health.Err != nil || health.Sessions != 2 {
 		t.Fatalf("health = %+v", health)
 	}
 }
@@ -79,7 +79,7 @@ func TestWindowsStoreNestsChildOnce(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(meta, "meta.json"), []byte(`{"child_session_id":"child","description":"Check Windows paths","status":"completed"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, _, err := CollectContext(context.Background(), 0)
+	parsed, _, err := Collect(context.Background(), 0)
 	if err != nil || len(parsed) != 2 {
 		t.Fatalf("sessions = %v, err = %v", parsed, err)
 	}
@@ -91,7 +91,7 @@ func TestWindowsStoreNestsChildOnce(t *testing.T) {
 			t.Fatalf("child = %+v", item)
 		}
 	}
-	parent, err := GetSessionFacts("parent")
+	parent, err := GetSessionFacts(t.Context(), "parent")
 	if err != nil || roots != 1 || parent == nil || len(parent.Session.Subagents) != 1 ||
 		parent.Session.Subagents[0].ID != "child" || parent.Session.Subagents[0].Status != session.SubagentReturned {
 		t.Fatalf("roots = %d, parent = %+v, err = %v", roots, parent, err)
