@@ -384,10 +384,6 @@ func finalizeSessionsSourceContext(
 	return composition.roots, nil
 }
 
-func promoteFamilyActivity(composition sessionComposition) {
-	_ = promoteFamilyActivityContext(context.Background(), composition)
-}
-
 func promoteFamilyActivityContext(ctx context.Context, composition sessionComposition) error {
 	parents := make(map[*vendors.ParsedSession]*vendors.ParsedSession, len(composition.children))
 	for _, link := range composition.children {
@@ -556,11 +552,6 @@ type sessionComposition struct {
 	children []childLink
 }
 
-func composeSessions(parsed []*vendors.ParsedSession) sessionComposition {
-	composition, _ := composeSessionsContext(context.Background(), parsed)
-	return composition
-}
-
 func composeSessionsContext(ctx context.Context, parsed []*vendors.ParsedSession) (sessionComposition, error) {
 	byID := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
 	for _, p := range parsed {
@@ -595,16 +586,6 @@ func composeSessionsContext(ctx context.Context, parsed []*vendors.ParsedSession
 		composition.children = append(composition.children, childLink{child: p, parent: parent})
 	}
 	return composition, nil
-}
-
-func enrichSubagents(
-	composition sessionComposition,
-	metadata map[string]*vendors.SessionMetadata,
-	claudeDynamicWorkflows map[string]*claude.WorkflowAgent,
-	preserveText bool,
-	useLiveStatus bool,
-) {
-	_ = enrichSubagentsContext(context.Background(), composition, metadata, claudeDynamicWorkflows, preserveText, useLiveStatus)
 }
 
 func enrichSubagentsContext(
@@ -682,17 +663,6 @@ func ListRemote(
 type PortableSession struct {
 	ParentSessionID string
 	Session         *session.Session
-}
-
-// ComposePortable returns every complete transcript-backed family member for
-// immutable records. Unlike ListRemote's display projection, child text is not
-// truncated and live status is not applied.
-func ComposePortable(
-	source vendors.ReadSource,
-	collections map[string]vendors.RemoteCollection,
-) []PortableSession {
-	portable, _ := ComposePortableContext(context.Background(), source, collections)
-	return portable
 }
 
 func ComposePortableContext(
@@ -798,10 +768,6 @@ func belongsToRoot(item *vendors.ParsedSession, byKey map[sessionKey]*vendors.Pa
 		item = byKey[sessionKey{agent: item.Session.Agent, id: item.ParentID}]
 	}
 	return false
-}
-
-func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {
-	_ = linkSpawnDigestContext(context.Background(), parent, spawnKey, subagent)
 }
 
 func linkSpawnDigestContext(ctx context.Context, parent *session.Session, spawnKey string, subagent session.Subagent) error {
@@ -928,7 +894,7 @@ func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSess
 
 		drifts[driftKey{cwd: s.WorkingDirectory, branch: deref(s.Branch)}] = &driftSlot{}
 	}
-	// BranchDrift waits on git subprocesses, so distinct keys probe
+	// BranchDriftContext waits on git subprocesses, so distinct keys probe
 	// concurrently. Results land through slot pointers — never map writes,
 	// which would race the range still spawning goroutines.
 	workers := make(chan struct{}, maxProbeWorkers)
@@ -1026,10 +992,6 @@ func resolveNamesContext(ctx context.Context, roots []*vendors.ParsedSession, me
 		}
 	}
 	return nil
-}
-
-func applySessionEnrichment(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
-	_ = applySessionEnrichmentContext(context.Background(), parsed, metadata)
 }
 
 func applySessionEnrichmentContext(ctx context.Context, parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) error {
