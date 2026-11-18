@@ -642,8 +642,8 @@ func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revisi
 			return nil, ErrRemoteSessionUnavailable
 		}
 		copy := *item
-		// Returning the current revision lets sessionpreview produce its stable
-		// stale-source response when the selected revision changed meanwhile.
+		// Returning the current revision lets the caller report a stale source
+		// when the selected revision changed meanwhile.
 		return &copy, nil
 	}
 	return nil, nil
