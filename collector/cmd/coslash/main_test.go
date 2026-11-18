@@ -19,6 +19,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -449,9 +450,22 @@ func sourceAwareListResponse(
 	now := time.UnixMilli(1_700_000_000_000)
 	cache := remote.NewCache(t.TempDir())
 	if config != nil && len(cached) > 0 {
-		if err := cache.Store(config.ID, remote.CachedSnapshot{
-			Version: 1, Sessions: cached, FetchedAtMs: now.UnixMilli(), CoverageSinceMs: now.UnixMilli(),
-		}); err != nil {
+		snapshot := remote.CachedSnapshotV2{SourceID: config.ID, FetchedAtMs: now.UnixMilli(), CoverageSinceMs: now.UnixMilli()}
+		for _, item := range cached {
+			snapshot.Families = append(snapshot.Families, remote.CachedFamilyV2{
+				Vendor: item.Agent, FamilyID: item.ID, Fingerprint: "fp-" + item.ID, LastSuccessAtMs: now.UnixMilli(),
+				Facts: remotefacts.Family{
+					SchemaVersion: remotefacts.SchemaVersion, ParserVersion: remotefacts.ParserVersion(item.Agent),
+					Vendor: item.Agent, FamilyID: item.ID, State: remotefacts.StateComplete,
+					Sessions: []remotefacts.Session{{
+						ID: item.ID, StartedAtMs: now.UnixMilli(), LastActivityAtMs: now.UnixMilli(), Counts: remotefacts.Counts{Turns: 1},
+						Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{},
+					}},
+					Fingerprints: []remotefacts.Fingerprint{{Key: "file-" + item.ID, Size: 10, ModifiedAtMs: 1000}},
+				},
+			})
+		}
+		if err := cache.StoreV2(config.ID, snapshot); err != nil {
 			t.Fatal(err)
 		}
 	}

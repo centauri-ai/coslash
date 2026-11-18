@@ -636,6 +636,43 @@ func TestCacheV2LoadRejectsFactStaleReasonOutsideStaleState(t *testing.T) {
 	}
 }
 
+// writeV1Snapshot writes the private snapshot.json that older releases wrote.
+// Only the v1 reader remains in production.
+func writeV1Snapshot(t *testing.T, cache *Cache, sourceID string, cached CachedSnapshot) {
+	t.Helper()
+	path, err := cache.snapshotPath(sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{filepath.Join(cache.Root, "remotes"), filepath.Dir(path)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := protectCacheDirectory(dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := json.Marshal(cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := protectCacheFile(path, file); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCacheV1RemainsLoadableAlongsideV2(t *testing.T) {
 	root := t.TempDir()
 	cache := NewCache(root)
@@ -643,9 +680,7 @@ func TestCacheV1RemainsLoadableAlongsideV2(t *testing.T) {
 		Version: cacheVersion, Sessions: []CachedSession{{Agent: vendors.AgentClaude, ID: "s1", StartedAt: 1, LastActivityTime: 2}},
 		FetchedAtMs: 1000,
 	}
-	if err := cache.Store("r_0123456789abcdef", legacy); err != nil {
-		t.Fatalf("Store (v1): %v", err)
-	}
+	writeV1Snapshot(t, cache, "r_0123456789abcdef", legacy)
 	_, ok, err := cache.LoadV2("r_0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
