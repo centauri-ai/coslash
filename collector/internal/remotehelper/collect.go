@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"time"
 
@@ -216,7 +218,7 @@ func collectVendor(
 	}
 
 	if baselineKnown && scanned.scan.complete {
-		for _, id := range sortedKeys(known) {
+		for _, id := range slices.Sorted(maps.Keys(known)) {
 			if _, exists := scanned.scan.families[id]; exists {
 				continue
 			}
@@ -741,15 +743,6 @@ func familyFiles(families []*family) []string {
 	}
 	sort.Strings(files)
 	return files
-}
-
-func sortedKeys(values map[string]string) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func timing(parser, total time.Duration) remoteprotocol.Timing {
