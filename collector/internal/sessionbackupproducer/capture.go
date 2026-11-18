@@ -243,7 +243,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		}
 		return left < right
 	})
-	before, err := vendors.FingerprintSourceFilesContext(ctx, handle.Source, handle.Home, familyFiles)
+	before, err := vendors.FingerprintSourceFiles(ctx, handle.Source, handle.Home, familyFiles)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -306,7 +306,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	indexPath := codex.SessionIndexPath(handle.Home)
 	var indexBefore []vendors.FileFingerprint
 	if _, statErr := handle.Source.Stat(indexPath); statErr == nil {
-		indexBefore, err = vendors.FingerprintSourceFilesContext(ctx, handle.Source, handle.Home, []string{indexPath})
+		indexBefore, err = vendors.FingerprintSourceFiles(ctx, handle.Source, handle.Home, []string{indexPath})
 		if err != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 		}
@@ -384,12 +384,12 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
 	}
-	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, familyFiles)
+	after, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, handle.Home, familyFiles)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}
 	if indexPresent {
-		indexAfter, statErr := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, []string{indexPath})
+		indexAfter, statErr := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, handle.Home, []string{indexPath})
 		if statErr != nil || !reflect.DeepEqual(indexBefore, indexAfter) {
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 		}

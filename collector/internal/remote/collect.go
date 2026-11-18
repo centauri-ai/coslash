@@ -64,8 +64,8 @@ type vendorFamilyInput struct {
 	SkippedEntries  int
 	Truncated       bool
 	Metadata        *vendors.SessionMetadata
-	Parse           func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error)
-	Fingerprint     func(files []string) ([]vendors.FileFingerprint, error)
+	Parse           func(ctx context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error)
+	Fingerprint     func(ctx context.Context, files []string) ([]vendors.FileFingerprint, error)
 	HeaderMappings  map[string][]remotefacts.HeaderMapping
 	SessionIDs      map[string][]string
 	InitialFailures []vendors.FileFailure
@@ -85,7 +85,7 @@ type vendorOutcome struct {
 	Err      error
 }
 
-func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
+func collectVendorFamilies(ctx context.Context, in vendorFamilyInput) vendorOutcome {
 	var records []remoteprotocol.Record
 	changed := map[string]string{}
 	var toParse []string
@@ -108,8 +108,11 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	failures := append([]vendors.FileFailure(nil), in.InitialFailures...)
 	if len(toParse) > 0 {
 		var parseFailures []vendors.FileFailure
-		parsed, parseFailures, _ = in.Parse(toParse)
+		parsed, parseFailures, _ = in.Parse(ctx, toParse)
 		failures = append(failures, parseFailures...)
+	}
+	if err := ctx.Err(); err != nil {
+		return vendorOutcome{Err: err}
 	}
 	failedFamilies := map[string]error{}
 	for _, failure := range failures {
@@ -125,7 +128,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		// Recheck each family independently so a disappearing or unstable file
 		// cannot cause otherwise valid changed families to be discarded.
 		for id, before := range changed {
-			after, err := in.Fingerprint(in.FilesOf[id])
+			after, err := in.Fingerprint(ctx, in.FilesOf[id])
 			if err != nil || familyFingerprint(in, id, after) != before {
 				unstableFamilies[id] = true
 			}
@@ -257,7 +260,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	return vendorOutcome{Records: records, Complete: complete, Coverage: coverage, Metadata: in.Metadata, Failures: familyFailures}
 }
 
-func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
+func collectClaudeVendor(ctx context.Context, source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
 	metadata := claude.RemoteMetadata(source, home, now)
 	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.LiveSessions())
 	if err != nil {
@@ -273,18 +276,18 @@ func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since
 			sessionIDs[id] = append(sessionIDs[id], claude.SessionIDFromPath(file))
 		}
 	}
-	return collectVendorFamilies(vendorFamilyInput{
+	return collectVendorFamilies(ctx, vendorFamilyInput{
 		SourceID: sourceID, Source: source,
 		Vendor: vendors.AgentClaude, ParserVersion: claudeParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
 		SessionIDs: sessionIDs,
-		Parse: func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+		Parse: func(_ context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 			return claude.ParseRemoteFiles(source, files)
 		},
-		Fingerprint: func(files []string) ([]vendors.FileFingerprint, error) {
+		Fingerprint: func(ctx context.Context, files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(
-				source,
+				ctx, source,
 				vendors.SourcePathJoin(source, home, ".claude", "projects"),
 				files,
 			)
@@ -294,6 +297,7 @@ func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since
 }
 
 func collectCodexVendor(
+	ctx context.Context,
 	source vendors.ReadSource, sourceID, home string, since int64,
 	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader, live map[string]struct{},
 ) (vendorOutcome, map[string]codex.CachedHeader) {
@@ -331,17 +335,17 @@ func collectCodexVendor(
 	for file, failure := range headerFailed {
 		initialFailures = append(initialFailures, vendors.FileFailure{Path: file, Err: failure})
 	}
-	outcome := collectVendorFamilies(vendorFamilyInput{
+	outcome := collectVendorFamilies(ctx, vendorFamilyInput{
 		SourceID: sourceID, Source: source,
 		Vendor: vendors.AgentCodex, ParserVersion: codexParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
-		Parse: func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+		Parse: func(_ context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 			return codex.ParseRemoteFiles(source, home, files, activeFiles)
 		},
-		Fingerprint: func(files []string) ([]vendors.FileFingerprint, error) {
+		Fingerprint: func(ctx context.Context, files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(
-				source,
+				ctx, source,
 				vendors.SourcePathJoin(source, home, ".codex", "sessions"),
 				files,
 			)
@@ -498,10 +502,10 @@ func collectIncremental(
 	codexCh := make(chan codexResult, 1)
 	sharedSource := source.sharedBudgetView()
 	go func() {
-		claudeCh <- claudeResult{collectClaudeVendor(sharedSource, baseline.SourceID, home, parseSince, now, claudeBaseline)}
+		claudeCh <- claudeResult{collectClaudeVendor(ctx, sharedSource, baseline.SourceID, home, parseSince, now, claudeBaseline)}
 	}()
 	go func() {
-		outcome, headers := collectCodexVendor(sharedSource, baseline.SourceID, home, parseSince, codexBaseline, codexHeaders, source.ssh.codexLive(ctx))
+		outcome, headers := collectCodexVendor(ctx, sharedSource, baseline.SourceID, home, parseSince, codexBaseline, codexHeaders, source.ssh.codexLive(ctx))
 		codexCh <- codexResult{outcome, headers}
 	}()
 	claudeOut := <-claudeCh

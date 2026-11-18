@@ -119,7 +119,7 @@ func FilesContext(ctx context.Context) ([]string, error) {
 }
 
 func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
-	return vendors.JSONLFilesUnderSourceContext(ctx, source, root)
+	return vendors.JSONLFilesUnderSource(ctx, source, root)
 }
 
 // filesForHomeSourceContext lists Codex rollouts from both supported trees.
@@ -289,5 +289,5 @@ func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, er
 }
 
 func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
-	return vendors.ScanSourceContext(ctx, source, root)
+	return vendors.ScanSource(ctx, source, root)
 }

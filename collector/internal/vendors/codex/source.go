@@ -137,7 +137,7 @@ func BuildRemoteFamilies(
 	files := scan.Files
 	skippedTotal = scan.SkippedTotal
 	candidateFiles = len(files)
-	fingerprints, err := vendors.FingerprintSourceFiles(source, root, files)
+	fingerprints, err := vendors.FingerprintSourceFiles(context.Background(), source, root, files)
 	if err != nil {
 		return nil, nil, nil, nil, nil, candidateFiles, skippedTotal, false, err
 	}
@@ -315,7 +315,7 @@ func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSe
 	if root, err := Root(); err == nil {
 		home = filepath.Dir(filepath.Dir(root))
 	}
-	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files,
+	parsed, err := vendors.ParseSourceFiles(ctx, vendors.LocalReadSource, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
 			return parseSourceCachedContext(ctx, source, path, func(command, cwd string) bool {
 				return commandNeedsApprovalContext(ctx, command, cwd)
@@ -334,8 +334,8 @@ func parseFilesSource(
 	files []string,
 	needsApproval func(string, string) bool,
 ) []*vendors.ParsedSession {
-	parsed := vendors.ParseSourceFiles(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSourceCachedContext(context.Background(), source, path, needsApproval)
+	parsed, _ := vendors.ParseSourceFiles(context.Background(), source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+		return parseSourceCachedContext(ctx, source, path, needsApproval)
 	})
 	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed)
 }
@@ -347,8 +347,8 @@ func parseFilesSourceStrict(
 	files []string,
 	needsApproval func(string, string) bool,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := vendors.ParseSourceFilesStrict(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSource(source, path, needsApproval)
+	parsed, failures, err := vendors.ParseSourceFilesStrict(context.Background(), source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+		return parseSourceContext(ctx, source, path, needsApproval)
 	})
 	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed), failures, err
 }

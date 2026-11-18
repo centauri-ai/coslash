@@ -106,7 +106,7 @@ func TestCodexScanReusesUnchangedCachedHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
-	fingerprints, err := vendors.FingerprintSourceFiles(source, root, []string{file})
+	fingerprints, err := vendors.FingerprintSourceFiles(t.Context(), source, root, []string{file})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestCodexScanReusesUnchangedCachedHeader(t *testing.T) {
 			Key: fp.Key, Size: fp.Size, ModifiedAtMs: fp.ModifiedAtMs, SessionID: id,
 		}},
 	}}
-	scan := scanCodex(source, home, request, noCodexLiveSessions)
+	scan := scanCodex(t.Context(), source, home, request, noCodexLiveSessions)
 	item := scan.scan.families[id]
 	if item == nil || item.skipReason != "" || len(item.headerMappings) != 1 {
 		t.Fatalf("cached header was not reused: %#v", item)
@@ -428,7 +428,7 @@ func TestCollectWithCachedHeaderIsolatesInvalidFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fingerprints, err := vendors.FingerprintSourceFiles(source, root, []string{path})
+	fingerprints, err := vendors.FingerprintSourceFiles(t.Context(), source, root, []string{path})
 	source.Close()
 	if err != nil {
 		t.Fatal(err)

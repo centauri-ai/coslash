@@ -1,6 +1,7 @@
 package remotehelper
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"time"
@@ -21,7 +22,7 @@ type vendorScan struct {
 	source   *Source
 	scan     *scan
 	metadata *vendors.SessionMetadata
-	parse    func(files []string) ([]*vendors.ParsedSession, error)
+	parse    func(ctx context.Context, files []string) ([]*vendors.ParsedSession, error)
 	// fileFacts is the metadata captured before parsing, which the stability
 	// check compares against afterwards.
 	fileFacts map[string]vendors.FileFingerprint
@@ -52,6 +53,7 @@ func sftpCompatibleFingerprint(fingerprint vendors.FileFingerprint) vendors.File
 }
 
 func scanClaude(
+	ctx context.Context,
 	source *Source,
 	home string,
 	since int64,
@@ -70,12 +72,12 @@ func scanClaude(
 		scan:      newScan(),
 		metadata:  metadata,
 		fileFacts: map[string]vendors.FileFingerprint{},
-		parse: func(files []string) ([]*vendors.ParsedSession, error) {
-			return claude.ParseFamilyFilesSource(source, files)
+		parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
+			return claude.ParseFamilyFilesSourceContext(ctx, source, files)
 		},
 	}
 	root := claude.ProjectsRoot(home)
-	found, err := claude.ScanSource(source, root)
+	found, err := claude.ScanSourceContext(ctx, source, root)
 	if err != nil {
 		result.scan.incompleteWhy = boundedReason(err)
 		return result
@@ -87,22 +89,30 @@ func scanClaude(
 	result.scan.candidateFiles = len(found.Files)
 	selected := found.Files
 	if since > 0 {
-		selected = claude.FilesSinceSource(source, found.Files, metadata.LiveSessions(), selectionSince(since))
+		selected, err = claude.FilesSinceSourceContext(ctx, source, found.Files, metadata.LiveSessions(), selectionSince(since))
 	}
-	selected, _ = vendors.LimitNewestSourceFileFamilies(
-		source, selected, vendors.MaxCandidateFilesPerAgent, claude.FamilyIDFromPath,
-	)
+	if err == nil {
+		selected, _, err = vendors.LimitNewestSourceFileFamilies(
+			ctx, source, selected, vendors.MaxCandidateFilesPerAgent, claude.FamilyIDFromPath,
+		)
+	}
+	if err != nil {
+		result.scan.complete = false
+		result.scan.incompleteWhy = boundedReason(err)
+		return result
+	}
 	inWindow := stringSet(selected)
 	result.scan.selectedFiles = len(selected)
 	for _, file := range found.Files {
 		sessionID := claude.SessionIDFromPath(file)
-		result.record(source, root, claude.FamilyIDFromPath(file), sessionID, file, inWindow[file])
+		result.record(ctx, source, root, claude.FamilyIDFromPath(file), sessionID, file, inWindow[file])
 	}
 	result.scan.finish(metadata)
 	return result
 }
 
 func scanCodex(
+	ctx context.Context,
 	source *Source,
 	home string,
 	request remoteprotocol.Request,
@@ -133,12 +143,12 @@ func scanCodex(
 		scan:      newScan(),
 		metadata:  metadata,
 		fileFacts: map[string]vendors.FileFingerprint{},
-		parse: func(files []string) ([]*vendors.ParsedSession, error) {
-			return codex.ParseFamilyFilesSource(source, home, files, activeFiles)
+		parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
+			return codex.ParseFamilyFilesSourceContext(ctx, source, home, files, activeFiles)
 		},
 	}
 	root := codex.SessionsRoot(home)
-	found, err := codex.ScanSource(source, root)
+	found, err := codex.ScanSourceContext(ctx, source, root)
 	if err != nil {
 		result.scan.incompleteWhy = boundedReason(err)
 		return result
@@ -154,7 +164,7 @@ func scanCodex(
 	fingerprints := make(map[string]vendors.FileFingerprint, len(found.Files))
 	readHeaders := make([]string, 0, len(found.Files))
 	for _, file := range found.Files {
-		items, fingerprintErr := vendors.FingerprintSourceFiles(source, root, []string{file})
+		items, fingerprintErr := vendors.FingerprintSourceFiles(ctx, source, root, []string{file})
 		if fingerprintErr == nil && len(items) == 1 {
 			fingerprints[file] = sftpCompatibleFingerprint(items[0])
 			if cached, ok := known[items[0].Key]; ok && cached.Size == items[0].Size &&
@@ -166,23 +176,31 @@ func scanCodex(
 		}
 		readHeaders = append(readHeaders, file)
 	}
-	for file, header := range codex.HeadersSource(source, readHeaders) {
+	read, err := codex.HeadersSourceContext(ctx, source, readHeaders)
+	for file, header := range read {
 		headers[file] = header
 	}
 	roots := codex.FamilyRoots(headers)
 	selected := found.Files
-	if request.SinceMs > 0 {
-		selected = codex.FilesSinceSource(source, found.Files, metadata.LiveSessions(), selectionSince(request.SinceMs))
+	if err == nil && request.SinceMs > 0 {
+		selected, err = codex.FilesSinceSourceContext(ctx, source, found.Files, metadata.LiveSessions(), selectionSince(request.SinceMs))
 	}
-	selected, _ = vendors.LimitNewestSourceFileFamilies(
-		source, selected, vendors.MaxCandidateFilesPerAgent,
-		func(file string) string {
-			if id := roots[file]; id != "" {
-				return id
-			}
-			return file
-		},
-	)
+	if err == nil {
+		selected, _, err = vendors.LimitNewestSourceFileFamilies(
+			ctx, source, selected, vendors.MaxCandidateFilesPerAgent,
+			func(file string) string {
+				if id := roots[file]; id != "" {
+					return id
+				}
+				return file
+			},
+		)
+	}
+	if err != nil {
+		result.scan.complete = false
+		result.scan.incompleteWhy = boundedReason(err)
+		return result
+	}
 	inWindow := stringSet(selected)
 	result.scan.selectedFiles = len(selected)
 	for _, file := range found.Files {
@@ -201,7 +219,7 @@ func scanCodex(
 		}
 		fingerprint, ok := fingerprints[file]
 		if !ok {
-			result.record(source, root, familyID, sessionID, file, inWindow[file])
+			result.record(ctx, source, root, familyID, sessionID, file, inWindow[file])
 		} else {
 			result.recordFingerprint(familyID, sessionID, file, fingerprint, inWindow[file])
 		}
@@ -223,11 +241,12 @@ func scanCodex(
 // vanished or became unreadable between listing and stat marks its family
 // skipped for this generation; it is never treated as a deletion.
 func (v *vendorScan) record(
+	ctx context.Context,
 	source *Source,
 	root, familyID, sessionID, file string,
 	selected bool,
 ) {
-	fingerprints, err := vendors.FingerprintSourceFiles(source, root, []string{file})
+	fingerprints, err := vendors.FingerprintSourceFiles(ctx, source, root, []string{file})
 	if err != nil || len(fingerprints) != 1 {
 		v.scan.family(familyID).skipReason = boundedReason(err)
 		return

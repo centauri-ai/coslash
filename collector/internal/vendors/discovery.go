@@ -29,11 +29,7 @@ func (scan *SourceScan) RecordSkipped(path string, err error) {
 	}
 }
 
-func ScanSource(source ReadSource, root string) (*SourceScan, error) {
-	return ScanSourceContext(context.Background(), source, root)
-}
-
-func ScanSourceContext(ctx context.Context, source ReadSource, root string) (*SourceScan, error) {
+func ScanSource(ctx context.Context, source ReadSource, root string) (*SourceScan, error) {
 	scan := &SourceScan{Files: []string{}, Skipped: []SkippedPath{}}
 	err := walkReadSourceContext(ctx, source, root, func(path string, entry fs.DirEntry, err error) error {
 		if contextErr := ctx.Err(); contextErr != nil {
@@ -61,8 +57,8 @@ func ScanSourceContext(ctx context.Context, source ReadSource, root string) (*So
 	return scan, nil
 }
 
-func JSONLFilesUnderSourceContext(ctx context.Context, source ReadSource, root string) ([]string, error) {
-	scan, err := ScanSourceContext(ctx, source, root)
+func JSONLFilesUnderSource(ctx context.Context, source ReadSource, root string) ([]string, error) {
+	scan, err := ScanSource(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}
