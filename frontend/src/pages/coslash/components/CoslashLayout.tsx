@@ -65,6 +65,7 @@ import {
   isLocalSession,
   LOCAL_SOURCE_ID,
   sessionCost,
+  sessionDisplayTitle,
   sessionKey,
   sessionReadiness,
   sessionTotalTokens,
@@ -354,16 +355,12 @@ function tokenTotal(sessions: Session[]): number | null {
   return sumKnown(sessions.map(sessionTotalTokens));
 }
 
-function sessionTitle(session: Session): string {
-  return session.name ?? session.firstPrompt ?? 'Untitled session';
-}
-
 function sortSessions(sessions: Session[], sort: SessionSort): Session[] {
   return [...sessions].sort((a, b) => {
     // Rows whose liveness is unknown stay below current rows whatever the sort key.
     if (a.displayStale !== b.displayStale) return a.displayStale ? 1 : -1;
     if (sort.key === 'title') {
-      const difference = sessionTitle(a).localeCompare(sessionTitle(b));
+      const difference = sessionDisplayTitle(a).localeCompare(sessionDisplayTitle(b));
       return sort.dir === 'asc' ? difference : -difference;
     }
     if (sort.key === 'cost') {
@@ -706,7 +703,7 @@ function SessionRow({
             className="text-ui group-hover:text-coslash-accent min-w-0 flex-1 cursor-pointer truncate px-1.5 py-px text-left leading-[1.35] font-semibold transition-colors"
             onClick={onSelect}
           >
-            {sessionTitle(session)}
+            {sessionDisplayTitle(session)}
           </button>
           {isLocalSession(session) && session.hubSyncChip && (
             <SyncChip state={session.hubSyncChip} failureCode={session.hubSyncFailureCode} />

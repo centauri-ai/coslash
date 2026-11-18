@@ -19,6 +19,7 @@ import {
   getVendor,
   isLocalSession,
   sessionCost,
+  sessionDisplayTitle,
   sessionKey,
   sessionReadiness,
   sessionTotalTokens,
@@ -229,7 +230,7 @@ function BoardCard({
         className="group-hover:text-coslash-accent line-clamp-2 w-full cursor-pointer pt-2 text-left text-[13px] leading-[1.35] font-semibold break-words transition-colors"
         onClick={onSelect}
       >
-        {session.name ?? session.firstPrompt ?? 'Untitled session'}
+        {sessionDisplayTitle(session)}
       </button>
       <p className="text-coslash-muted line-clamp-2 pt-1 text-[11.5px] leading-[1.45]">
         {getSessionCardSummary(session)}
