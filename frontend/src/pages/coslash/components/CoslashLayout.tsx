@@ -18,6 +18,20 @@ import { cn } from '@/lib/utils';
 import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { SearchDecisions } from '@/pages/coslash/components/SearchDecisions';
+import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
+import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
+import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
+import { MachineDot } from '@/pages/coslash/components/session-list/MachineDot';
+import { Rollup } from '@/pages/coslash/components/session-list/Rollup';
+import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
+import {
+  FacetRow,
+  FacetRows,
+  SidebarSection,
+  type FacetOption,
+  type FacetSection,
+} from '@/pages/coslash/components/session-list/SidebarSection';
+import { styles } from '@/pages/coslash/components/session-list/styles';
 import { useRankedSearch } from '@/pages/coslash/hooks/use-ranked-search';
 import {
   locationChoiceId,
@@ -48,6 +62,7 @@ import {
   type Session,
   type StatusKey,
 } from '@/pages/coslash/lib/session';
+import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 import {
   BOARD_GROUP_BY_OPTIONS,
   BOARD_ROW_GROUP_BY_OPTIONS,
@@ -63,25 +78,12 @@ import {
   type SessionViewPreferences,
 } from '@/pages/coslash/lib/session-view-preferences';
 import './coslash-layout.css';
-import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
-import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
-import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
-import { MachineDot } from '@/pages/coslash/components/session-list/MachineDot';
-import { Rollup } from '@/pages/coslash/components/session-list/Rollup';
-import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
-import {
-  FacetRow,
-  FacetRows,
-  SidebarSection,
-  type FacetOption,
-  type FacetSection,
-} from '@/pages/coslash/components/session-list/SidebarSection';
-import { styles } from '@/pages/coslash/components/session-list/styles';
-import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 
 const SessionBoard = lazy(() =>
   import('@/pages/coslash/components/SessionBoard').then((module) => ({ default: module.SessionBoard })),
 );
+
+type FilterKey = 'statusFilters' | 'groupFilters' | 'machineFilters' | 'agentFilters';
 
 const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'today', label: 'Today' },
@@ -314,24 +316,12 @@ export function CoslashLayout({
       ),
     [visibleSessions, sessionGroups, preferences.groupFilters],
   );
-  const toggleStatus = (status: StatusKey) =>
+  const toggleFilter = <K extends FilterKey>(key: K, value: SessionViewPreferences[K][number]) => {
+    const values: string[] = preferences[key];
     patchPreferences({
-      statusFilters: preferences.statusFilters.includes(status)
-        ? preferences.statusFilters.filter((value) => value !== status)
-        : [...preferences.statusFilters, status],
+      [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value],
     });
-  const toggleMachine = (id: string) =>
-    patchPreferences({
-      machineFilters: preferences.machineFilters.includes(id)
-        ? preferences.machineFilters.filter((value) => value !== id)
-        : [...preferences.machineFilters, id],
-    });
-  const toggleAgent = (id: string) =>
-    patchPreferences({
-      agentFilters: preferences.agentFilters.includes(id)
-        ? preferences.agentFilters.filter((value) => value !== id)
-        : [...preferences.agentFilters, id],
-    });
+  };
   const clearFacets = () =>
     patchPreferences({ statusFilters: [], groupFilters: [], machineFilters: [], agentFilters: [] });
   const setSortKey = (key: SessionSort['key']) =>
@@ -388,7 +378,7 @@ export function CoslashLayout({
         label: STATUSES[status].label,
         count: facetCounts.status.get(status) ?? 0,
         selected: preferences.statusFilters.includes(status),
-        onClick: () => toggleStatus(status),
+        onClick: () => toggleFilter('statusFilters', status),
       })),
     },
     {
@@ -404,7 +394,7 @@ export function CoslashLayout({
           ),
         count: facetCounts.machine.get(machine.sourceId) ?? 0,
         selected: preferences.machineFilters.includes(machine.sourceId),
-        onClick: () => toggleMachine(machine.sourceId),
+        onClick: () => toggleFilter('machineFilters', machine.sourceId),
       })),
     },
     {
@@ -415,7 +405,7 @@ export function CoslashLayout({
         label: getVendor(agent).label,
         count: facetCounts.agent.get(agent) ?? 0,
         selected: preferences.agentFilters.includes(agent),
-        onClick: () => toggleAgent(agent),
+        onClick: () => toggleFilter('agentFilters', agent),
       })),
     },
   ];
@@ -451,33 +441,25 @@ export function CoslashLayout({
       kind: 'Status',
       value,
       label: STATUSES[value].label,
-      remove: () =>
-        patchPreferences({
-          statusFilters: preferences.statusFilters.filter((item) => item !== value),
-        }),
+      remove: () => toggleFilter('statusFilters', value),
     })),
     ...preferences.groupFilters.map((value) => ({
       kind: 'Group',
       value,
       label: chipLabel(value),
-      remove: () =>
-        patchPreferences({ groupFilters: preferences.groupFilters.filter((item) => item !== value) }),
+      remove: () => toggleFilter('groupFilters', value),
     })),
     ...preferences.machineFilters.map((value) => ({
       kind: 'Machine',
       value,
       label: machines.find((machine) => machine.sourceId === value)?.label ?? value,
-      remove: () =>
-        patchPreferences({
-          machineFilters: preferences.machineFilters.filter((item) => item !== value),
-        }),
+      remove: () => toggleFilter('machineFilters', value),
     })),
     ...preferences.agentFilters.map((value) => ({
       kind: 'Agent',
       value,
       label: getVendor(value).label,
-      remove: () =>
-        patchPreferences({ agentFilters: preferences.agentFilters.filter((item) => item !== value) }),
+      remove: () => toggleFilter('agentFilters', value),
     })),
   ];
   const sections = STATUS_ORDER.map((status) => ({
