@@ -168,7 +168,7 @@ jobs:
           cache-dependency-path: collector/go.sum
       - name: Prove settlement against the real v0.4.2 helper
         shell: powershell
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-real-helper.ps1 -Paired
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-real-helper.ps1
 
   windows-release-smoke:
     name: Windows release smoke
