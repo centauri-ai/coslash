@@ -374,7 +374,7 @@ func parse(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSession, e
 		Commands:       commands.Raw(),
 		CommandOutputs: commands.Outputs(),
 		Skills:         skills.Entries(),
-		Commits:        session.ReconcileCommits(commitLog, "", nil),
+		Commits:        session.CommitSubjects(commitLog),
 		Todos:          todos,
 		Digest:         digest.Entries(),
 		FileEdits:      fileEdits.Edits,

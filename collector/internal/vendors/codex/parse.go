@@ -559,7 +559,7 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		Commands:       analysis.commands.Raw(),
 		Skills:         analysis.skills.log.Entries(),
 		CommandOutputs: analysis.commands.Outputs(),
-		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
+		Commits:        session.CommitSubjects(analysis.commitLog),
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),
 	}

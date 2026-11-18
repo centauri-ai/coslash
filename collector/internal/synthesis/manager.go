@@ -322,7 +322,7 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 	m.accountingVersion.Add(1)
 }
 
-var probeBranchDrift = session.BranchDriftContext
+var probeBranchDrift = session.BranchDrift
 
 func sessionWithDetailProbes(ctx context.Context, s *session.Session) *session.Session {
 	inputSession := *s

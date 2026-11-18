@@ -114,11 +114,11 @@ func TestPiAccountingAndContextClone(t *testing.T) {
 	if source.UnattributedTokens.InputTokens != 4 || !*source.Digest[0].ContextSelected || *source.Digest[0].ContextDescription != description {
 		t.Fatal("clone aliases private Pi details")
 	}
-	revision, err := LocalDetailRevision(*source)
+	revision, err := LocalDetailRevision(t.Context(), *source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := LocalDetailRevision(*cloned)
+	other, err := LocalDetailRevision(t.Context(), *cloned)
 	if err != nil || revision == other {
 		t.Fatal("selected context did not change detail revision")
 	}

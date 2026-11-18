@@ -24,7 +24,8 @@ func main() {
 	}
 
 	log.SetOutput(io.Discard)
-	values, err := collector.List(context.Background(), 0)
+	ctx := context.Background()
+	values, err := collector.List(ctx, 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "session collection failed")
 		os.Exit(1)
@@ -33,7 +34,7 @@ func main() {
 	roots := make([]string, len(values))
 	for i, value := range values {
 		corpus[i] = *value
-		roots[i] = session.RepositoryRoot(value.WorkingDirectory)
+		roots[i] = session.RepositoryRoot(ctx, value.WorkingDirectory)
 		if roots[i] == "" {
 			roots[i] = value.WorkingDirectory
 		}

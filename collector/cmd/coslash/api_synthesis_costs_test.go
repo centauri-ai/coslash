@@ -49,7 +49,7 @@ func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
 	defer store.Close()
 	runner := &integratedCostRunner{calls: make(chan int, 3)}
 	current := &session.Session{Agent: "codex", ID: "integrated", SessionDetails: session.SessionDetails{Turns: 6}}
-	revision, err := session.LocalDetailRevision(*current)
+	revision, err := session.LocalDetailRevision(t.Context(), *current)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unguarded costs status = %d", unauthorized.Code)
 	}
-	if got, err := session.LocalDetailRevision(*current); err != nil || got != revision {
+	if got, err := session.LocalDetailRevision(t.Context(), *current); err != nil || got != revision {
 		t.Fatalf("portable revision changed: %q to %q (%v)", revision, got, err)
 	}
 	if err := store.Close(); err != nil {

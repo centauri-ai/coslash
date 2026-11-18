@@ -23,7 +23,7 @@ func TestParseCommitObservationsSupportsStandaloneFullHash(t *testing.T) {
 
 func TestReconcileCommitFactsExportsOnlyResolvedFullObjectIDs(t *testing.T) {
 	full := strings.Repeat("a", 40)
-	facts := reconcileCommitFacts(
+	facts := reconcileCommitFacts(t.Context(),
 		[]CommitObservation{{Hash: full[:12], Subject: "ship it"}},
 		[]repositoryCommit{{hash: full, subject: "ship it"}}, true,
 	)
@@ -36,7 +36,7 @@ func TestReconcileCommitFactsExportsOnlyResolvedFullObjectIDs(t *testing.T) {
 
 	// A subject can still be retained for people when the observed abbreviated
 	// hash cannot be resolved. It must never become a guessed Git identifier.
-	facts = reconcileCommitFacts(
+	facts = reconcileCommitFacts(t.Context(),
 		[]CommitObservation{{Hash: "deadbeef", Subject: "ship it"}},
 		[]repositoryCommit{{hash: full, subject: "ship it"}}, true,
 	)
@@ -102,12 +102,12 @@ func TestPullRequestLinksAreCanonical(t *testing.T) {
 
 func TestDetailRevisionChangesWhenPullRequestLinksChange(t *testing.T) {
 	value := Session{Agent: "claude", ID: "s"}
-	before, err := LocalDetailRevision(value)
+	before, err := LocalDetailRevision(t.Context(), value)
 	if err != nil {
 		t.Fatal(err)
 	}
 	value.SetPullRequestLinks([]PullRequestLink{{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2}})
-	after, err := LocalDetailRevision(value)
+	after, err := LocalDetailRevision(t.Context(), value)
 	if err != nil || after == before {
 		t.Fatalf("revision must change with the links: %q, %q, %v", before, after, err)
 	}
