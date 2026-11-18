@@ -36,10 +36,6 @@ func FilesContext(ctx context.Context) ([]string, error) {
 	return FilesSourceContext(ctx, vendors.LocalReadSource, root)
 }
 
-func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
-	return FilesSourceContext(context.Background(), source, root)
-}
-
 func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
 	files, err := vendors.JSONLFilesUnderSourceContext(ctx, source, root)
 	if err != nil {

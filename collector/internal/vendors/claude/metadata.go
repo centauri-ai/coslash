@@ -98,14 +98,6 @@ func loadRemoteMetadata(
 	return metadata, nil
 }
 
-func loadMetadata(
-	paths metadataPaths,
-	now time.Time,
-	processAlive func(int) bool,
-) (*vendors.SessionMetadata, error) {
-	return loadMetadataContext(context.Background(), paths, now, processAlive)
-}
-
 func loadMetadataContext(
 	ctx context.Context,
 	paths metadataPaths,

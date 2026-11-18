@@ -132,13 +132,6 @@ func SourcePathDir(source ReadSource, name string) string {
 	return filepath.Dir(name)
 }
 
-func SourcePathBase(source ReadSource, name string) string {
-	if operations, ok := source.(sourcePathOperations); ok {
-		return operations.BasePath(name)
-	}
-	return filepath.Base(name)
-}
-
 // freshStatSource is implemented by remote sources that cache directory
 // metadata. FreshStat bypasses that manifest cache for post-read stability and
 // path-security checks. Local sources can simply use Stat.
@@ -300,10 +293,6 @@ func LimitNewestFileFamiliesContext(
 	return result, len(result) < len(files), nil
 }
 
-func walkReadSource(source ReadSource, root string, visit fs.WalkDirFunc) error {
-	return walkReadSourceContext(context.Background(), source, root, visit)
-}
-
 func walkReadSourceContext(ctx context.Context, source ReadSource, root string, visit fs.WalkDirFunc) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -313,15 +302,6 @@ func walkReadSourceContext(ctx context.Context, source ReadSource, root string, 
 		return visit(root, nil, err)
 	}
 	return walkReadSourceEntryContext(ctx, source, root, fs.FileInfoToDirEntry(info), visit)
-}
-
-func walkReadSourceEntry(
-	source ReadSource,
-	path string,
-	entry fs.DirEntry,
-	visit fs.WalkDirFunc,
-) error {
-	return walkReadSourceEntryContext(context.Background(), source, path, entry, visit)
 }
 
 func walkReadSourceEntryContext(
@@ -367,11 +347,6 @@ func walkReadSourceEntryContext(
 		}
 	}
 	return nil
-}
-
-// ParseJSONLSource decodes JSON values from a source file until clean or torn EOF.
-func ParseJSONLSource[T any](source ReadSource, path string) ([]T, error) {
-	return ParseJSONLSourceContext[T](context.Background(), source, path)
 }
 
 func ParseJSONLSourceContext[T any](ctx context.Context, source ReadSource, path string) ([]T, error) {
