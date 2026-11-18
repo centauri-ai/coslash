@@ -78,11 +78,12 @@ it.each([false, true])('preserves tabbed content and file-diff focus (docked=%s)
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(overview).not.toContain('hello.ts');
     expect(overview).not.toContain('Review the changes.');
-    const commands = Array.from(panels[0]!.querySelectorAll('div')).find(
-      (element) => element.textContent === '1 COMMANDS' && element.classList.contains('cursor-pointer'),
+    const commands = Array.from(panels[0]!.querySelectorAll('button')).find(
+      (element) => element.textContent === '1 COMMANDS',
     );
-    expect(commands).not.toBeNull();
+    expect(commands?.getAttribute('aria-expanded')).toBe('false');
     await act(async () => commands!.click());
+    expect(commands!.getAttribute('aria-expanded')).toBe('true');
     await act(async () => tabs[2]!.focus());
     expect(tabs[2]!.getAttribute('aria-selected')).toBe('true');
     expect(panels[2]!.textContent).toContain('Review the changes.');
