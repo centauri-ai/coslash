@@ -12,3 +12,4 @@ graphify-out/
 !.agents/plugins/marketplace.json
 .vscode/
 .zed/
+__pycache__/
