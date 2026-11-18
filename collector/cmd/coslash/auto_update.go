@@ -285,7 +285,7 @@ func prepareAutomaticUpdate(ctx context.Context, prompt syncv4.UpdatePrompt) (st
 			if header.Name != want {
 				continue
 			}
-			if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA || header.Size <= 0 || header.Size > maxUpdateAsset {
+			if header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxUpdateAsset {
 				return "", errors.New("release executable is invalid")
 			}
 			if _, err = io.CopyN(staged, tarReader, header.Size); err != nil {
