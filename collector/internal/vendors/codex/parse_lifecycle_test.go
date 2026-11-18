@@ -73,7 +73,7 @@ func parseLifecycleRows(t *testing.T, rows []string) *vendors.ParsedSession {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscriptSource(vendors.LocalReadSource, path, func(string, string) bool { return false })
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path, func(string, string) bool { return false })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestSessionMetaRecordsCanonicalRepository(t *testing.T) {
 		if err := os.WriteFile(path, []byte(meta), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		parsed, err := parseTranscriptSource(vendors.LocalReadSource, path, func(string, string) bool { return false })
+		parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path, func(string, string) bool { return false })
 		if err != nil {
 			t.Fatal(err)
 		}

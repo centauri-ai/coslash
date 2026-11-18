@@ -301,12 +301,12 @@ func collectCodexVendor(
 	source vendors.ReadSource, sourceID, home string, since int64,
 	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader, live map[string]struct{},
 ) (vendorOutcome, map[string]codex.CachedHeader) {
-	metadata := codex.RemoteMetadata(source, home)
+	metadata := codex.RemoteMetadata(ctx, source, home)
 	for id := range live {
 		metadata.Session(id).Live = "interactive"
 	}
 	selectedFamilies, activeFiles, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedEntries, truncated, err := codex.BuildRemoteFamilies(
-		source, home, since, metadata.LiveSessions(), cachedHeaders,
+		ctx, source, home, since, metadata.LiveSessions(), cachedHeaders,
 	)
 	if err != nil {
 		return vendorOutcome{Err: fmt.Errorf("collect Codex remote data: %w", err)}, cachedHeaders
@@ -341,7 +341,7 @@ func collectCodexVendor(
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
 		Parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-			return codex.ParseRemoteFilesContext(ctx, source, home, files, activeFiles)
+			return codex.ParseRemoteFiles(ctx, source, home, files, activeFiles)
 		},
 		Fingerprint: func(ctx context.Context, files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(

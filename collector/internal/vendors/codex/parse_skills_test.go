@@ -7,8 +7,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 type capturedSkill struct {
@@ -137,13 +138,13 @@ func TestSkillBackupFamilyAndCache(t *testing.T) {
 	if err := os.Rename(file, archived); err != nil {
 		t.Fatal(err)
 	}
-	parsed, failures, err := ParseRemoteFiles(vendors.LocalReadSource, home, []string{archived}, nil)
+	parsed, failures, err := ParseRemoteFiles(t.Context(), vendors.LocalReadSource, home, []string{archived}, nil)
 	if err != nil || len(failures) > 0 || len(parsed) != 1 {
 		t.Fatalf("backup parse: %v, %v, %d", err, failures, len(parsed))
 	}
 	want := []capturedSkill{{"example", "backup body"}}
 	assertCapturedSkills(t, parsed[0].Session, want)
-	source, err := parseSource(vendors.LocalReadSource, archived, func(string, string) bool { return false })
+	source, err := parseSource(t.Context(), vendors.LocalReadSource, archived, func(string, string) bool { return false })
 	if err != nil {
 		t.Fatal(err)
 	}

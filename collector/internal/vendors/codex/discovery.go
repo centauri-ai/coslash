@@ -34,20 +34,12 @@ func SessionIDFromRollout(path string) string {
 	return ids[len(ids)-1]
 }
 
-func readHeader(path string) (string, string, error) {
-	return readHeaderSource(vendors.LocalReadSource, path)
-}
-
-func readHeaderSource(source vendors.ReadSource, path string) (string, string, error) {
-	return readHeaderSourceContext(context.Background(), source, path)
-}
-
-func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, path string) (string, string, error) {
-	header, err := readFileHeaderSourceContext(ctx, source, path)
+func readHeader(ctx context.Context, source vendors.ReadSource, path string) (string, string, error) {
+	header, err := readFileHeader(ctx, source, path)
 	return header.SessionID, header.ParentID, err
 }
 
-func readFileHeaderSourceContext(ctx context.Context, source vendors.ReadSource, path string) (FileHeader, error) {
+func readFileHeader(ctx context.Context, source vendors.ReadSource, path string) (FileHeader, error) {
 	if err := ctx.Err(); err != nil {
 		return FileHeader{}, err
 	}
@@ -91,8 +83,8 @@ func readFileHeaderSourceContext(ctx context.Context, source vendors.ReadSource,
 	}, nil
 }
 
-func IsRootRollout(path string) (bool, error) {
-	_, parentID, err := readHeader(path)
+func IsRootRollout(ctx context.Context, source vendors.ReadSource, path string) (bool, error) {
+	_, parentID, err := readHeader(ctx, source, path)
 	return err == nil && parentID == "", err
 }
 
@@ -109,43 +101,27 @@ func SessionsRoot(home string) string {
 	return filepath.Join(home, ".codex", "sessions")
 }
 
-func Files() ([]string, error) {
-	return FilesContext(context.Background())
-}
-
-func FilesContext(ctx context.Context) ([]string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	return filesForHomeSourceContext(ctx, vendors.LocalReadSource, home)
-}
-
-func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
-	return vendors.JSONLFilesUnderSource(ctx, source, root)
-}
-
-// filesForHomeSourceContext lists Codex rollouts from both supported trees.
+// Files lists Codex rollouts from both supported trees under home.
 // Active copies win when a session is present in both locations, so a move to
 // archived storage cannot create duplicate cards or duplicate family members.
-func filesForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) ([]string, error) {
-	active, err := FilesSourceContext(ctx, source, SessionsRoot(home))
+func Files(ctx context.Context, source vendors.ReadSource, home string) ([]string, error) {
+	active, err := vendors.JSONLFilesUnderSource(ctx, source, SessionsRoot(home))
 	if err != nil {
 		return nil, err
 	}
-	archived, err := FilesSourceContext(ctx, source, ArchivedDir(home))
+	archived, err := vendors.JSONLFilesUnderSource(ctx, source, ArchivedDir(home))
 	if err != nil {
 		return nil, err
 	}
 	return mergeActiveAndArchivedFiles(active, archived), nil
 }
 
-func scanForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) (*vendors.SourceScan, error) {
-	active, err := ScanSourceContext(ctx, source, SessionsRoot(home))
+func scanHome(ctx context.Context, source vendors.ReadSource, home string) (*vendors.SourceScan, error) {
+	active, err := Scan(ctx, source, SessionsRoot(home))
 	if err != nil {
 		return nil, err
 	}
-	archived, err := ScanSourceContext(ctx, source, ArchivedDir(home))
+	archived, err := Scan(ctx, source, ArchivedDir(home))
 	if err != nil {
 		return nil, err
 	}
@@ -180,17 +156,7 @@ func mergeActiveAndArchivedFiles(active, archived []string) []string {
 	return files
 }
 
-func FilesSinceSource(
-	source vendors.ReadSource,
-	files []string,
-	live map[string]string,
-	since int64,
-) []string {
-	selected, _ := FilesSinceSourceContext(context.Background(), source, files, live, since)
-	return selected
-}
-
-func FilesSinceSourceContext(
+func FilesSince(
 	ctx context.Context,
 	source vendors.ReadSource,
 	files []string,
@@ -205,7 +171,7 @@ func FilesSinceSourceContext(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		id, parentID, err := readHeaderSourceContext(ctx, source, file)
+		id, parentID, err := readHeader(ctx, source, file)
 		if err != nil {
 			selected[file] = struct{}{}
 			continue
@@ -248,25 +214,13 @@ func FilesSinceSourceContext(
 	return result, nil
 }
 
-func FilesForRoot(files []string, rootID string) []string {
-	return FilesForRootSource(vendors.LocalReadSource, files, rootID)
-}
-
-func FilesForRootSource(source vendors.ReadSource, files []string, rootID string) []string {
-	selected, _ := FilesForRootSourceContext(context.Background(), source, files, rootID)
-	return selected
-}
-
-func FilesForRootSourceContext(ctx context.Context, source vendors.ReadSource, files []string, rootID string) ([]string, error) {
+func FilesForRoot(ctx context.Context, source vendors.ReadSource, files []string, rootID string) ([]string, error) {
 	byID := make(map[string]string, len(files))
 	children := map[string][]string{}
 	for _, file := range files {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		id, parentID, err := readHeaderSourceContext(ctx, source, file)
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		id, parentID, err := readHeader(ctx, source, file)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 		if err != nil {
 			continue
@@ -304,10 +258,6 @@ func FilesForRootSourceContext(ctx context.Context, source vendors.ReadSource, f
 	return result, nil
 }
 
-func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
-	return ScanSourceContext(context.Background(), source, root)
-}
-
-func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
+func Scan(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
 	return vendors.ScanSource(ctx, source, root)
 }
