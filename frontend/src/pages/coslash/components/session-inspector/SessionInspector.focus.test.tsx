@@ -68,7 +68,7 @@ it.each([false, true])('preserves tabbed content and file-diff focus (docked=%s)
       'RESUME OR HAND OFF',
       'DEBRIEF',
       'ARTIFACTS',
-      'COMMANDS',
+      'COMMAND',
       'COMMITS',
       'TODOS',
       'TIMELINE',
@@ -79,7 +79,7 @@ it.each([false, true])('preserves tabbed content and file-diff focus (docked=%s)
     expect(overview).not.toContain('hello.ts');
     expect(overview).not.toContain('Review the changes.');
     const commands = Array.from(panels[0]!.querySelectorAll('button')).find(
-      (element) => element.textContent === '1 COMMANDS',
+      (element) => element.textContent === '1 COMMAND',
     );
     expect(commands?.getAttribute('aria-expanded')).toBe('false');
     await act(async () => commands!.click());
