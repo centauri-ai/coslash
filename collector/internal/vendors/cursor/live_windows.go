@@ -28,11 +28,7 @@ var (
 	cursorSameFile            = sameFile
 )
 
-func loadLiveSessions() map[string]string {
-	return loadLiveSessionsContext(context.Background())
-}
-
-func loadLiveSessionsContext(ctx context.Context) map[string]string {
+func loadLiveSessions(ctx context.Context) map[string]string {
 	live := map[string]string{}
 	if ctx.Err() != nil {
 		return live
@@ -47,7 +43,7 @@ func loadLiveSessionsContext(ctx context.Context) map[string]string {
 		}
 		live[id] = entrypointCLI
 	}
-	for store := range liveCursorStoresContext(ctx, home, cursorChatStores(home, nil)) {
+	for store := range liveCursorStores(ctx, home, localChatStores(ctx, home)) {
 		if ctx.Err() != nil {
 			return live
 		}
@@ -57,7 +53,7 @@ func loadLiveSessionsContext(ctx context.Context) map[string]string {
 		}
 	}
 	if ctx.Err() == nil && cursorIDEProcessRunning(home) {
-		id := selectedCursorIDEChat(home)
+		id := selectedCursorIDEChat(ctx, home)
 		if transcriptIDPattern.MatchString(id) {
 			if lane, exists := live[id]; exists && lane != entrypointIDE {
 				live[id] = ""
@@ -133,11 +129,7 @@ func cursorResumeID(home, executable, commandLine string) string {
 	return ""
 }
 
-func liveCursorStores(home string, stores []string) map[string]bool {
-	return liveCursorStoresContext(context.Background(), home, stores)
-}
-
-func liveCursorStoresContext(ctx context.Context, home string, stores []string) map[string]bool {
+func liveCursorStores(ctx context.Context, home string, stores []string) map[string]bool {
 	stores = newestCursorStores(stores, maxWindowsLiveCursorStores)
 	storeByPath := map[string]string{}
 	var paths []string
@@ -301,15 +293,20 @@ func processCommandLine(pid uint32) (string, error) {
 	return windows.UTF16ToString(unsafe.Slice(value.Buffer, int(value.Length)/2)), nil
 }
 
-func selectedCursorIDEChat(home string) string {
+func localChatStores(ctx context.Context, home string) []string {
+	stores, _ := cursorChatStores(ctx, home, nil)
+	return stores
+}
+
+func selectedCursorIDEChat(ctx context.Context, home string) string {
 	path := filepath.Join(GlobalStorage(home), "state.vscdb")
-	db, err := openCursorDB(path)
+	db, err := openCursorDB(ctx, path)
 	if err != nil {
 		return ""
 	}
 	defer db.Close()
 	var id string
-	if err := db.QueryRow(`SELECT value FROM ItemTable WHERE key = 'cursor/glass.selectedAgent'`).Scan(&id); err != nil && err != sql.ErrNoRows {
+	if err := db.QueryRowContext(ctx, `SELECT value FROM ItemTable WHERE key = 'cursor/glass.selectedAgent'`).Scan(&id); err != nil && err != sql.ErrNoRows {
 		return ""
 	}
 	return canonicalCursorID(id)

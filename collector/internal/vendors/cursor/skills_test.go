@@ -122,7 +122,7 @@ func TestSkillsLiveAndFrozen(t *testing.T) {
 			if err := os.Rename(parsed.LogPath, childPath); err != nil {
 				t.Fatal(err)
 			}
-			parsed, err := parseTranscript(childPath)
+			parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, childPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -134,7 +134,7 @@ func TestSkillsLiveAndFrozen(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertSkills(t, parsed, want)
-			live, _, err := ParseFilesContext(context.Background(), []string{parsed.LogPath}, nil)
+			live, _, err := ParseFiles(context.Background(), []string{parsed.LogPath}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,7 +150,7 @@ func TestSkillsLiveAndFrozen(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := map[string][]BackupRows{outputsTestID: {{SourceKey: label, Bytes: frozen}}}
-			backup, err := ParseBackupFilesContext(context.Background(), vendors.LocalReadSource, map[string][]string{outputsTestID: {parsed.LogPath}}, metadata, rows)
+			backup, err := ParseBackupFiles(context.Background(), vendors.LocalReadSource, map[string][]string{outputsTestID: {parsed.LogPath}}, metadata, rows)
 			if err != nil {
 				t.Fatal(err)
 			}

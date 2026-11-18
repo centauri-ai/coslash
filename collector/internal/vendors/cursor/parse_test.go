@@ -17,7 +17,7 @@ import (
 func TestParseTranscriptStopsWhenContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := parseTranscriptFragmentsSourceContext(ctx, vendors.LocalReadSource, []string{"unused.jsonl"})
+	_, err := parseTranscriptFragments(ctx, vendors.LocalReadSource, []string{"unused.jsonl"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -38,7 +38,7 @@ func TestParseTranscriptPreservesUserQuestionsAsUserTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestParseTranscriptDoesNotCountPullRequestURLsFromAssistantProse(t *testing
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestParseTranscriptDoesNotReportUnverifiedCommitAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestParseTranscriptPreservesApplyPatchMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestParseTranscriptCountsSignPrefixedApplyPatchContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestParseTranscriptRecordsCreatePlanAsTimelinePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,11 +235,11 @@ func TestParseTranscriptAddsRepliesWithoutTurnEndedRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, vendors.EmptySessionMetadata())
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, vendors.EmptySessionMetadata())
 	want := []session.DigestEntry{
 		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt", SearchText: "first prompt"},
 		{Turn: 1, Category: session.DigestRecap, Description: "first reply"},
@@ -275,7 +275,7 @@ func TestParseTranscriptClearsResultForToolPreamble(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestParseTranscriptDoesNotPromoteProgressBeforeToolOnlyAssistantRecord(t *t
 	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestParseTranscriptDoesNotPromoteToolCallPreamble(t *testing.T) {
 	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}

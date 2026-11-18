@@ -228,7 +228,7 @@ func orderedShellCalls(list []bubbleCall) []shellCall {
 }
 
 func loadIDEShellCalls(ctx context.Context, home string, ids []string) (map[string][]shellCall, error) {
-	db, err := openCursorDBContext(ctx, filepath.Join(GlobalStorage(home), "state.vscdb"))
+	db, err := openCursorDB(ctx, filepath.Join(GlobalStorage(home), "state.vscdb"))
 	if err != nil {
 		return nil, ctx.Err()
 	}
@@ -290,7 +290,7 @@ func ideShellOutput(status, result string) *string {
 }
 
 func loadCLIShellCalls(ctx context.Context, home string, ids []string) (map[string][]shellCall, error) {
-	stores, err := cursorChatStoresContext(ctx, home, canonicalCursorIDs(ids))
+	stores, err := cursorChatStores(ctx, home, canonicalCursorIDs(ids))
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ func loadCLIShellCalls(ctx context.Context, home string, ids []string) (map[stri
 }
 
 func readCLIStoreShellCalls(ctx context.Context, path string) ([]shellCall, error) {
-	db, err := openCursorDBContext(ctx, path)
+	db, err := openCursorDB(ctx, path)
 	if err != nil {
 		return nil, ctx.Err()
 	}
@@ -508,18 +508,18 @@ func cliShellOutput(raw json.RawMessage) (string, bool) {
 	return body[:end], true
 }
 
-// loadCLIPullRequestsContext records the pull requests that a CLI session
+// loadCLIPullRequests records the pull requests that a CLI session
 // created. The transcript has no tool results, so it reads the store blobs. A
 // Shell result holds its own command, because its tool call ID differs from the
 // ID of the call, so one blob holds the command and the URL, and SQL skips the
 // other blobs on the two literal parts. IsPullRequestCreate decides the
 // command. Only a command that exited with zero counts.
-func loadCLIPullRequestsContext(ctx context.Context, metadata *vendors.SessionMetadata, path string) error {
+func loadCLIPullRequests(ctx context.Context, metadata *vendors.SessionMetadata, path string) error {
 	id := canonicalCursorID(filepath.Base(filepath.Dir(path)))
 	if !transcriptIDPattern.MatchString(id) {
 		return nil
 	}
-	db, err := openCursorDBContext(ctx, path)
+	db, err := openCursorDB(ctx, path)
 	if err != nil {
 		return ctx.Err()
 	}
