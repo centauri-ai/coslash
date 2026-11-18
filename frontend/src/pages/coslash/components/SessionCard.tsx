@@ -8,6 +8,7 @@ import {
   environmentFact,
   getVendor,
   sessionCost,
+  sessionDisplayTitle,
   sessionTotalTokens,
   SUBAGENT_STATUSES,
   type Session,
@@ -25,14 +26,14 @@ export function SessionVendorBadge({ agent }: { agent: string }) {
   return <Badge className={cn('text-xs font-semibold', vendor.fg, vendor.bg)}>{vendor.label}</Badge>;
 }
 
-export function SessionName({ name }: { name: string | null }) {
+export function SessionName({ session }: { session: Pick<Session, 'name' | 'firstPrompt'> }) {
   return (
     <span
       className={cn('block min-w-0 truncate text-sm font-bold', {
-        'text-coslash-muted font-normal': name == null,
+        'text-coslash-muted font-normal': session.name == null,
       })}
     >
-      {name ?? 'Untitled session'}
+      {sessionDisplayTitle(session)}
     </span>
   );
 }

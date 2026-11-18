@@ -85,6 +85,7 @@ import {
   resumeDisabled,
   resumeDisabledHint,
   sessionCost,
+  sessionDisplayTitle,
   sessionKey,
   sessionLocationFact,
   sessionReadiness,
@@ -800,14 +801,14 @@ export function SessionInspectorTitle({
   detail,
   showMachineBadge,
 }: {
-  detail: Pick<SessionDetail, 'agent' | 'id' | 'name' | 'sourceLabel'>;
+  detail: Pick<SessionDetail, 'agent' | 'id' | 'name' | 'firstPrompt' | 'sourceLabel'>;
   showMachineBadge: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 pr-10">
       <SessionVendorBadge agent={detail.agent} />
       <div className="min-w-0 flex-1">
-        <SessionName name={detail.name} />
+        <SessionName session={detail} />
       </div>
       <SessionId id={detail.id} shortened />
       {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
@@ -1988,7 +1989,7 @@ export function SessionInspector({
           onKeyDown={resizeWithKeyboard}
           className="hover:bg-coslash-accent focus-visible:bg-coslash-accent absolute inset-y-0 left-0 z-20 hidden w-1.5 cursor-col-resize touch-none transition-colors outline-none sm:block"
         />
-        {session != null && <SheetTitle className="sr-only">{session.name ?? 'Untitled session'}</SheetTitle>}
+        {session != null && <SheetTitle className="sr-only">{sessionDisplayTitle(session)}</SheetTitle>}
         {isOpen && detail == null && isLoading && (
           <div
             role="status"

@@ -25,6 +25,7 @@ import {
   synthesisSettlement,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
+import type { Session } from '@/pages/coslash/lib/session';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
 
 const session = makeSession({
@@ -159,6 +160,18 @@ describe('SessionInspector exact-detail boundaries', () => {
     );
 
     expect(markup).toContain('block min-w-0 truncate text-sm font-bold');
+  });
+
+  it('titles an unnamed session by its first prompt, as the table and board do', () => {
+    const titleOf = (overrides: Partial<Session>) =>
+      renderToStaticMarkup(
+        <TooltipProvider>
+          <SessionInspectorTitle detail={{ ...session, ...overrides }} showMachineBadge={false} />
+        </TooltipProvider>,
+      );
+
+    expect(titleOf({ name: null, firstPrompt: 'Fix the parser' })).toContain('>Fix the parser<');
+    expect(titleOf({ name: null, firstPrompt: null })).toContain('>Untitled session<');
   });
 
   it('supports bounded keyboard resizing for the inspector separator', () => {

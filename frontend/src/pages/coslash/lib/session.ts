@@ -126,6 +126,10 @@ export type Session = {
 
 export type SessionIdentity = Pick<Session, 'sourceId' | 'agent' | 'id'>;
 
+export function sessionDisplayTitle(session: Pick<Session, 'name' | 'firstPrompt'>): string {
+  return session.name ?? session.firstPrompt ?? 'Untitled session';
+}
+
 export function sessionKey(session: SessionIdentity): string {
   return `${session.sourceId}:${session.agent}:${session.id}`;
 }
