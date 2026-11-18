@@ -185,11 +185,6 @@ type Check struct {
 
 var terminalAvailable = launch.Available
 
-// Collect turns every probe failure into data so the diagnostic surface itself remains available.
-func Collect(ctx context.Context, version string, includeVersions bool) *Snapshot {
-	return CollectWithRemote(ctx, version, includeVersions, nil)
-}
-
 func CollectWithHub(ctx context.Context, version string, includeVersions bool, hub *HubSync) *Snapshot {
 	snapshot := collectLocal(ctx, version, includeVersions)
 	snapshot.Hub = hub
