@@ -407,7 +407,30 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('in this scope');
     expect(markup).toContain('3k tokens');
     expect(markup).toContain('≈$10.00');
-    expect(markup).toContain('>$9.00<');
+    expect(markup).toContain('>≈$9.00<');
+  });
+
+  it('formats row tokens and cost like the inspector', () => {
+    const markup = renderLayout({
+      sessions: [
+        session({
+          id: 'large',
+          cost: 0.004,
+          tokens: {
+            'gpt-5': {
+              input_tokens: 12_345_678,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_creation_1h_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(markup).toContain('12.35M tokens');
+    expect(markup).toContain('&lt;$0.01');
   });
 
   it('keeps the fresh warning tone when the prompt cache is warm', () => {
