@@ -106,16 +106,16 @@ func TestGrokLaunchAndResumeArguments(t *testing.T) {
 	t.Setenv("USERPROFILE", t.TempDir())
 	t.Setenv("PATH", "")
 	t.Setenv("GROK_HOME", "")
-	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != localCommandJoin("grok") {
+	if command, _, err := cliCommand(t.Context(), vendors.AgentGrok, "", NewSession, "", ""); err != nil || command != localCommandJoin("grok") {
 		t.Fatalf("cliCommand(NewSession) = %q, %v, want grok alone", command, err)
 	}
 	home := t.TempDir()
 	t.Setenv("GROK_HOME", home)
 	id := "01a0f8c9-e0fa-7ec0-a5bf-79da860d539a"
-	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != grokHomeCommand(home, localCommandJoin("grok")) {
+	if command, _, err := cliCommand(t.Context(), vendors.AgentGrok, "", NewSession, "", ""); err != nil || command != grokHomeCommand(home, localCommandJoin("grok")) {
 		t.Fatalf("cliCommand(NewSession) = %q, %v", command, err)
 	}
-	if command, _, err := cliCommand(vendors.AgentGrok, id, ResumeSession, ""); err != nil || command != grokHomeCommand(home, localCommandJoin("grok", "--resume", id)) {
+	if command, _, err := cliCommand(t.Context(), vendors.AgentGrok, id, ResumeSession, "", ""); err != nil || command != grokHomeCommand(home, localCommandJoin("grok", "--resume", id)) {
 		t.Fatalf("cliCommand(ResumeSession) = %q, %v", command, err)
 	}
 }

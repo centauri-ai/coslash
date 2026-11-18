@@ -236,7 +236,7 @@ func TestWindowsCLICommandPreservesVendorResumeForms(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.agent, func(t *testing.T) {
-			got, path, err := cliCommand(test.agent, test.sessionID, ResumeSession, "")
+			got, path, err := cliCommand(t.Context(), test.agent, test.sessionID, ResumeSession, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -265,7 +265,7 @@ func TestWindowsGrokCLIOutsidePath(t *testing.T) {
 		{NewSession, "", localCommandJoin(bin)},
 		{ResumeSession, "01234567-89ab-cdef-0123-456789abcdef", localCommandJoin(bin, "--resume", "01234567-89ab-cdef-0123-456789abcdef")},
 	} {
-		command, _, err := cliCommand(vendors.AgentGrok, test.id, test.mode, "")
+		command, _, err := cliCommand(t.Context(), vendors.AgentGrok, test.id, test.mode, "", "")
 		if err != nil || !strings.Contains(command, test.want) {
 			t.Fatalf("cliCommand(%s) = %q, %v; want %q", test.mode, command, err, test.want)
 		}
@@ -314,7 +314,7 @@ func TestWindowsHandoffCommandsUsePowerShellCleanup(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.agent, func(t *testing.T) {
-			command, path, err := cliCommand(test.agent, "", NewSession, "handoff")
+			command, path, err := cliCommand(t.Context(), test.agent, "", NewSession, "handoff", "")
 			if err != nil {
 				t.Fatal(err)
 			}

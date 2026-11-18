@@ -51,7 +51,7 @@ func loadModels(ctx context.Context) []string {
 		return []string{}
 	}
 	defer os.RemoveAll(directory)
-	major, err := cliMajorVersion(ctx)
+	major, err := CLIMajorVersion(ctx)
 	if err != nil {
 		return []string{}
 	}

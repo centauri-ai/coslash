@@ -46,7 +46,7 @@ func setupFakePi(t *testing.T) string {
 func TestPiResumeExactQuotedPath(t *testing.T) {
 	capture := fakePi(t)
 	path := filepath.Join(t.TempDir(), "custom ' \" $ ` session.jsonl")
-	command, _, err := cliCommand(vendors.AgentPi, path, ResumeSession, "")
+	command, _, err := cliCommand(t.Context(), vendors.AgentPi, path, ResumeSession, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestPiHandoffPrivateGuardCleanup(t *testing.T) {
 	capture := fakePi(t)
 	prefix := "quote ' dollar $ backtick `\n"
 	notes := prefix + strings.Repeat("x", MaxHandoffBytes-len(prefix))
-	command, path, err := cliCommand(vendors.AgentPi, "", NewSession, notes)
+	command, path, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, notes, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestPiHandoffPrivateGuardCleanup(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("not cleaned: %v", err)
 	}
-	command, path, err = cliCommand(vendors.AgentPi, "", NewSession, "missing notes")
+	command, path, err = cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "missing notes", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestPiHandoffPrivateGuardCleanup(t *testing.T) {
 	if _, err := os.Stat(capture); !os.IsNotExist(err) {
 		t.Fatal("Pi ran without handoff")
 	}
-	if _, _, err := cliCommand(vendors.AgentPi, "", NewSession, strings.Repeat("x", MaxHandoffBytes+1)); err == nil {
+	if _, _, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, strings.Repeat("x", MaxHandoffBytes+1), ""); err == nil {
 		t.Fatal("oversized handoff accepted")
 	}
 }
@@ -146,7 +146,7 @@ func TestPiTranscriptValidationAndLaunchFailure(t *testing.T) {
 		t.Fatal("file cwd accepted")
 	}
 	t.Setenv("PATH", t.TempDir())
-	if _, _, err := cliCommand(vendors.AgentPi, "", NewSession, ""); err == nil {
+	if _, _, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "", ""); err == nil {
 		t.Fatal("missing Pi accepted")
 	}
 	if _, err := remoteCLICommand(vendors.AgentPi, "", NewSession, ""); err == nil {
@@ -165,7 +165,7 @@ func TestPiUnsupportedVersionAndUnmanagedExtension(t *testing.T) {
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho 0.99.0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := cliCommand(vendors.AgentPi, "", NewSession, "notes"); !errors.Is(err, ErrPiUnsupportedVersion) {
+	if _, _, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "notes", ""); !errors.Is(err, ErrPiUnsupportedVersion) {
 		t.Fatalf("unsupported version: %v", err)
 	}
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho 0.99.1\n"), 0700); err != nil {
@@ -174,7 +174,7 @@ func TestPiUnsupportedVersionAndUnmanagedExtension(t *testing.T) {
 	target := filepath.Join(os.Getenv("PI_CODING_AGENT_DIR"), "extensions", "coslash-extension.ts")
 	os.MkdirAll(filepath.Dir(target), 0700)
 	os.WriteFile(target, []byte("user-owned"), 0600)
-	if _, _, err := cliCommand(vendors.AgentPi, "", NewSession, "notes"); !errors.Is(err, ErrPiExtension) {
+	if _, _, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "notes", ""); !errors.Is(err, ErrPiExtension) {
 		t.Fatalf("unmanaged extension: %v", err)
 	}
 	contents, _ := os.ReadFile(target)
@@ -185,7 +185,7 @@ func TestPiUnsupportedVersionAndUnmanagedExtension(t *testing.T) {
 
 func TestPiHandoffCleanupAfterCommandFailure(t *testing.T) {
 	fakePi(t)
-	command, path, err := cliCommand(vendors.AgentPi, "", NewSession, "failure notes")
+	command, path, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "failure notes", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestPiMinimumReleaseAndTargetAvailability(t *testing.T) {
 		if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '"+version+"'\n"), 0700); err != nil {
 			t.Fatal(err)
 		}
-		_, _, err := cliCommand(vendors.AgentPi, "", NewSession, "")
+		_, _, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "", "")
 		verified := test.allowed
 		if available := PiAvailable(); available != verified {
 			t.Fatalf("PiAvailable(%s) = %v, want %v", version, available, verified)
@@ -254,7 +254,7 @@ func TestPiHandoffCleanupOnProcessGroupSignal(t *testing.T) {
 				capture := fakePi(t)
 				binary, _ := exec.LookPath("pi")
 				os.WriteFile(binary, []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 0.99.1; exit; fi\ntouch \"$CAPTURE\"\nsleep 30\n"), 0700)
-				command, path, err := cliCommand(vendors.AgentPi, "", NewSession, "signal cleanup notes")
+				command, path, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "signal cleanup notes", "")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -298,7 +298,7 @@ func TestPiCleanupPreservesParentShellTrap(t *testing.T) {
 				t.Skipf("%s is unavailable: %v", shell, err)
 			}
 			capture := fakePi(t)
-			command, path, err := cliCommand(vendors.AgentPi, "", NewSession, "scoped traps")
+			command, path, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "scoped traps", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -381,7 +381,7 @@ func TestPiPromptUsesPrivateTransportAndCleansContext(t *testing.T) {
 	if err := os.WriteFile(fakeExpect, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	command, path, err := cliCommandWithPrompt(vendors.AgentPi, "", NewSession, "private background", "private request")
+	command, path, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "private background", "private request")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestPiPromptUsesPrivateTransportAndCleansContext(t *testing.T) {
 			t.Fatalf("staged file remains %s", file)
 		}
 	}
-	command, path, err = cliCommandWithPrompt(vendors.AgentPi, "", NewSession, "private background", "private request")
+	command, path, err = cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "private background", "private request")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestPiPromptUsesPrivateTransportAndCleansContext(t *testing.T) {
 			t.Fatalf("failed cd leaves file %s", file)
 		}
 	}
-	command, path, err = cliCommandWithPrompt(vendors.AgentPi, "", NewSession, "private background", "private request")
+	command, path, err = cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "private background", "private request")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestStagedLaunchFishUsesNativeParentAndPOSIXChild(t *testing.T) {
 		if agent == vendors.AgentPi && !vendors.PiSupported() {
 			continue
 		}
-		command, path, err := cliCommand(agent, "", NewSession, "private notes")
+		command, path, err := cliCommand(t.Context(), agent, "", NewSession, "private notes", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -482,7 +482,7 @@ func TestStagedLaunchFishUsesNativeParentAndPOSIXChild(t *testing.T) {
 	}
 	for _, missing := range []bool{false, true} {
 		cwd := t.TempDir()
-		command, path, err := cliCommand(vendors.AgentPi, "", NewSession, "private notes")
+		command, path, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "private notes", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -529,7 +529,7 @@ func TestPiForwardedDirectoriesStayRelativeToCollector(t *testing.T) {
 	}
 	for _, sessionRoot := range []string{os.Getenv("PI_CODING_AGENT_SESSION_DIR"), "~/pi override with spaces"} {
 		t.Setenv("PI_CODING_AGENT_SESSION_DIR", sessionRoot)
-		command, _, err := cliCommand(vendors.AgentPi, "", NewSession, "")
+		command, _, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}

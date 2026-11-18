@@ -25,7 +25,7 @@ func TestWindowsTUIProcessDiscoveryBoundsBackgroundContext(t *testing.T) {
 		}
 		return []byte("[]"), nil
 	}
-	if _, err := listTUIProcessesContext(context.Background()); err != nil {
+	if _, err := listTUIProcesses(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -85,7 +85,7 @@ func TestProcessWorkingDirectoryCurrentProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := processWorkingDirectory(os.Getpid()); filepath.Clean(got) != filepath.Clean(want) {
+	if got := processWorkingDirectory(t.Context(), os.Getpid()); filepath.Clean(got) != filepath.Clean(want) {
 		t.Fatalf("working directory = %q; want %q", got, want)
 	}
 }

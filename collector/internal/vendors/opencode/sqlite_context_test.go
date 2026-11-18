@@ -38,7 +38,7 @@ func TestDatabasePathProbeSupportsBothCLIs(t *testing.T) {
 				return exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestDatabasePathProbeHelper$", "--"}, args...)...)
 			}
 			t.Cleanup(func() { commandContext = original })
-			got, err := RootContext(context.Background())
+			got, err := Root(context.Background())
 			if err != nil || got != os.Getenv("COSLASH_TEST_DB_PATH") {
 				t.Fatalf("root = %q, error = %v", got, err)
 			}
@@ -91,7 +91,7 @@ func TestOpenV2DatabaseFromDataHome(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err := openContext(context.Background())
+	db, err := open(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,19 +124,19 @@ func TestOpenV2DatabaseOverride(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err := openContext(context.Background())
+	db, err := open(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	got, skipped, err := load(db, activeFamiliesQuery)
+	got, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 	if err != nil || len(skipped) != 0 || len(got) != 1 || got[0].Session.ID != "ses_v2" {
 		t.Fatalf("v2 override sessions = %#v, skipped = %#v, error = %v", got, skipped, err)
 	}
 	if got[0].Session.LastActivityTime != 300 {
 		t.Fatalf("v2 last activity = %d, want 300", got[0].Session.LastActivityTime)
 	}
-	got, skipped, err = load(db, activeFamiliesQuery+" AND selected_roots.family_updated >= ?", 200)
+	got, skipped, err = load(t.Context(), db, activeFamiliesQuery+" AND selected_roots.family_updated >= ?", 200)
 	if err != nil || len(skipped) != 0 || len(got) != 1 {
 		t.Fatalf("v2 incremental sessions = %#v, skipped = %#v, error = %v", got, skipped, err)
 	}
@@ -146,7 +146,7 @@ func TestRootV2RelativeDatabaseOverride(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("OPENCODE_DB", "custom.db")
-	got, err := RootContext(context.Background())
+	got, err := Root(context.Background())
 	if err != nil || got != filepath.Join(dataHome, "opencode", "custom.db") {
 		t.Fatalf("relative v2 database = %q, error = %v", got, err)
 	}
@@ -154,7 +154,7 @@ func TestRootV2RelativeDatabaseOverride(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	got, err = RootContext(context.Background())
+	got, err = Root(context.Background())
 	want := filepath.Join(home, ".local", "share", "opencode", "custom.db")
 	if err != nil || got != want {
 		t.Fatalf("relative v2 database without XDG = %q, want %q, error = %v", got, want, err)
@@ -184,7 +184,7 @@ func TestRootContextCancelsOpenCodeLookup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan error, 1)
 	go func() {
-		_, err := RootContext(ctx)
+		_, err := Root(ctx)
 		finished <- err
 	}()
 	select {
@@ -221,7 +221,7 @@ func TestRootContextFallsBackAfterLookupTimeout(t *testing.T) {
 	databasePathLookupTimeout = 10 * time.Millisecond
 	t.Cleanup(func() { databasePathLookupTimeout = originalTimeout })
 
-	got, err := RootContext(context.Background())
+	got, err := Root(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

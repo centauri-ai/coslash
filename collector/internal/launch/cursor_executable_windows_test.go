@@ -34,7 +34,7 @@ func TestCursorReviewerUsesInstalledPowerShellLauncher(t *testing.T) {
 	if !ReviewerAvailable("cursor") {
 		t.Fatal("Cursor reviewer is unavailable despite the installed launcher")
 	}
-	spec, err := reviewCLICommand("cursor", `C:\repo`, "review", "prompt")
+	spec, err := reviewCLICommand(t.Context(), "cursor", `C:\repo`, "review", "prompt")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -310,7 +310,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		}
 	}
 
-	refs, err := opencode.FamiliesContext(ctx)
+	refs, err := opencode.Families(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -535,7 +535,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		metadata[vendors.AgentGrok] = grokMetadata
 	}
 	if len(opencodeIDs) > 0 {
-		items, dbMetadata, err := opencode.LoadFamiliesContext(ctx, opencodeIDs)
+		items, dbMetadata, err := opencode.LoadFamilies(ctx, opencodeIDs)
 		if err != nil {
 			return nil, err
 		}

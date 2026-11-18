@@ -21,7 +21,7 @@ func TestLoadContextStopsBeforeOpeningTransaction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	parsed, skipped, err := loadContext(ctx, nil, "unused")
+	parsed, skipped, err := load(ctx, nil, "unused")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -48,7 +48,7 @@ func TestMixedOpenCodeSchemasPreferV2AndKeepV1(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, skipped, err := load(db, activeFamiliesQuery)
+	parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestV2OnlyOpenCodeDatabase(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, skipped, err := load(db, activeFamiliesQuery)
+	parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 	if err != nil || len(skipped) != 0 || len(parsed) != 1 {
 		t.Fatalf("parsed %d, skipped %v, error %v", len(parsed), skipped, err)
 	}
@@ -110,7 +110,7 @@ func TestV2MessageFlagsAndTodos(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	parsed, err := parse(tx, storedSession{v2: true, id: "session", directory: "/work"})
+	parsed, err := parse(t.Context(), tx, storedSession{v2: true, id: "session", directory: "/work"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestV2SessionDetailFromCurrentMessageShapes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, skipped, err := load(db, activeFamiliesQuery)
+	parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 	if err != nil || len(skipped) != 0 || len(parsed) != 1 {
 		t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
 	}
@@ -178,7 +178,7 @@ func TestV2IncompleteCompactionAndStreamingTool(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, skipped, err := load(db, activeFamiliesQuery)
+	parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 	if err != nil || len(skipped) != 0 || len(parsed) != 1 {
 		t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
 	}
@@ -253,7 +253,7 @@ func TestV2StandaloneShellState(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			parsed, skipped, err := load(db, activeFamiliesQuery)
+			parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 			if err != nil || len(skipped) != 0 || len(parsed) != 1 {
 				t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
 			}
@@ -288,7 +288,7 @@ func TestMalformedV2ContentSkipsOnlyItsFamily(t *testing.T) {
 			if _, err := db.Exec(`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('bad-message', 'bad', 'assistant', 1, 100, ?)`, `{"content":[`+content+`]}`); err != nil {
 				t.Fatal(err)
 			}
-			parsed, skipped, err := load(db, activeFamiliesQuery)
+			parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 			if err != nil || len(parsed) != 1 || parsed[0].Session.ID != "good" || len(skipped) != 1 || skipped[0].id != "bad" {
 				t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
 			}
@@ -516,7 +516,7 @@ func parseDB(t *testing.T, db *sql.DB) *vendors.ParsedSession {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	parsed, err := parse(tx, storedSession{
+	parsed, err := parse(t.Context(), tx, storedSession{
 		id: "session", directory: "/tmp", title: "test",
 		agent: sql.NullString{String: "build", Valid: true},
 	})
