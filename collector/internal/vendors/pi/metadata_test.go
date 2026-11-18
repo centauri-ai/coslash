@@ -48,21 +48,21 @@ func TestIdentityAndRetainedDiscovery(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	r := testRecord()
-	identity, err := ProcessStartIdentity(os.Getpid())
+	identity, err := ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.ProcessStartIdentity = identity
-	if got := ownerState(runtimeEvidence{Record: r}); got != "live" {
+	if got := ownerState(t.Context(), runtimeEvidence{Record: r}); got != "live" {
 		t.Fatal(got)
 	}
 	r.ProcessStartIdentity = "reused PID"
-	if got := ownerState(runtimeEvidence{Record: r}); got != "dead" {
+	if got := ownerState(t.Context(), runtimeEvidence{Record: r}); got != "dead" {
 		t.Fatal(got)
 	}
 	r.ProcessStartIdentity = ""
 	r.Entrypoint = "pi-json"
-	if got := ownerState(runtimeEvidence{Record: r}); got != "unknown" {
+	if got := ownerState(t.Context(), runtimeEvidence{Record: r}); got != "unknown" {
 		t.Fatal(got)
 	}
 	if err := os.MkdirAll(filepath.Join(home, "pi-history"), 0700); err != nil {
@@ -72,11 +72,11 @@ func TestIdentityAndRetainedDiscovery(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "pi-history", "retained.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := RuntimeTranscriptPaths()
+	paths, err := RuntimeTranscriptPaths(t.Context())
 	if err != nil || len(paths) != 1 || paths[0] != r.TranscriptPath {
 		t.Fatalf("%v %v", paths, err)
 	}
-	metadata, err := LoadMetadata()
+	metadata, err := LoadMetadata(t.Context())
 	if err != nil || metadata.Session(r.SessionID).Live != "inactive" || metadata.Session(r.SessionID).Entrypoint != "pi-json" {
 		t.Fatalf("%v %v", metadata, err)
 	}
@@ -84,7 +84,7 @@ func TestIdentityAndRetainedDiscovery(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "pi-history", "retained.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	paths, _ = RuntimeTranscriptPaths()
+	paths, _ = RuntimeTranscriptPaths(t.Context())
 	if len(paths) != 0 {
 		t.Fatal(paths)
 	}
@@ -98,7 +98,7 @@ func TestEnsureExtensionPreservesUnmanagedFiles(t *testing.T) {
 	if err := ensureExtension(); err != nil {
 		t.Fatal(err)
 	}
-	if !extensionDiagnostics().Installed {
+	if !extensionDiagnostics(t.Context()).Installed {
 		t.Fatal("not installed")
 	}
 	target, _ := ExtensionPath()
@@ -121,7 +121,7 @@ func TestRuntimeSequenceAndLeafAgreement(t *testing.T) {
 		}
 	}
 	r := testRecord()
-	identity, err := ProcessStartIdentity(os.Getpid())
+	identity, err := ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,14 +134,14 @@ func TestRuntimeSequenceAndLeafAgreement(t *testing.T) {
 	r.Sequence = 3
 	data, _ := json.Marshal(r)
 	os.WriteFile(filepath.Join(home, "pi-runtime", r.RuntimeID+".json"), data, 0600)
-	records, err := runtimeRecords()
+	records, err := runtimeRecords(t.Context())
 	if err != nil || len(records) != 1 || records[0].Record.Sequence != 3 {
 		t.Fatalf("%v %v", records, err)
 	}
-	if leaf, ok := RuntimeLeaf(r.SessionID, r.TranscriptPath); !ok || leaf != "leaf" {
+	if leaf, ok := runtimeLeaf(t.Context(), r.SessionID, r.TranscriptPath); !ok || leaf != "leaf" {
 		t.Fatalf("%s %v", leaf, ok)
 	}
-	snapshot, err := LoadRuntimeSnapshot()
+	snapshot, err := LoadRuntimeSnapshot(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,11 +152,11 @@ func TestRuntimeSequenceAndLeafAgreement(t *testing.T) {
 	other.LeafID = &otherLeaf
 	data, _ = json.Marshal(other)
 	os.WriteFile(filepath.Join(home, "pi-runtime", "other.json"), data, 0600)
-	if _, ok := RuntimeLeaf(r.SessionID, r.TranscriptPath); ok {
+	if _, ok := runtimeLeaf(t.Context(), r.SessionID, r.TranscriptPath); ok {
 		t.Fatal("ambiguous leaf accepted")
 	}
 	// This refresh retains one generation even if metadata changes during projection.
-	if leaf, ok := runtimeLeafContext(ctx, r.SessionID, r.TranscriptPath); !ok || leaf != "leaf" {
+	if leaf, ok := runtimeLeaf(ctx, r.SessionID, r.TranscriptPath); !ok || leaf != "leaf" {
 		t.Fatal("snapshot reread runtime metadata")
 	}
 	if err := os.RemoveAll(filepath.Join(home, "pi-runtime")); err != nil {
@@ -165,11 +165,11 @@ func TestRuntimeSequenceAndLeafAgreement(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(home, "pi-history")); err != nil {
 		t.Fatal(err)
 	}
-	metadata, err := LoadMetadataContext(ctx)
+	metadata, err := LoadMetadata(ctx)
 	if err != nil || metadata.Session(r.SessionID).Live != "idle" {
 		t.Fatalf("lost verified owner snapshot: %v, %v", metadata, err)
 	}
-	paths, err := RuntimeTranscriptPathsContext(ctx)
+	paths, err := RuntimeTranscriptPaths(ctx)
 	if err != nil || len(paths) != 1 || paths[0] != r.TranscriptPath {
 		t.Fatalf("lost snapshot discovery: %v, %v", paths, err)
 	}
@@ -229,7 +229,7 @@ func TestRuntimeLeafCanonicalPath(t *testing.T) {
 	}
 	r := testRecord()
 	r.TranscriptPath = filepath.Join(alias, "session.jsonl")
-	r.ProcessStartIdentity, err = ProcessStartIdentity(os.Getpid())
+	r.ProcessStartIdentity, err = ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestRuntimeLeafCanonicalPath(t *testing.T) {
 	if err := os.WriteFile(recordPath, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if leaf, ok := RuntimeLeaf(r.SessionID, canonical); !ok || leaf != "leaf" {
+	if leaf, ok := runtimeLeaf(t.Context(), r.SessionID, canonical); !ok || leaf != "leaf" {
 		t.Fatalf("canonical leaf: %q %v", leaf, ok)
 	}
 	r.ProcessStartIdentity = "reused PID"
@@ -250,7 +250,7 @@ func TestRuntimeLeafCanonicalPath(t *testing.T) {
 	if err := os.WriteFile(recordPath, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := RuntimeLeaf(r.SessionID, canonical); ok {
+	if _, ok := runtimeLeaf(t.Context(), r.SessionID, canonical); ok {
 		t.Fatal("path normalization accepted a dead owner")
 	}
 }
@@ -328,7 +328,7 @@ func TestUnsupportedPlatformDoesNotInstallPiExtension(t *testing.T) {
 	if err := EnsureExtension(); err != nil {
 		t.Fatal(err)
 	}
-	health := ExtensionDiagnostics()
+	health := ExtensionDiagnostics(t.Context())
 	if health.Installed || health.Path != "" || health.Err != nil {
 		t.Fatalf("unsupported platform probed Pi: %#v", health)
 	}
@@ -346,10 +346,10 @@ func TestRuntimeMetadataCancellation(t *testing.T) {
 		if injected {
 			current = WithRuntimeSnapshot(current, &RuntimeSnapshot{})
 		}
-		if _, err := LoadMetadataContext(current); !errors.Is(err, context.Canceled) {
+		if _, err := LoadMetadata(current); !errors.Is(err, context.Canceled) {
 			t.Errorf("metadata injected=%v: %v", injected, err)
 		}
-		if _, err := RuntimeTranscriptPathsContext(current); !errors.Is(err, context.Canceled) {
+		if _, err := RuntimeTranscriptPaths(current); !errors.Is(err, context.Canceled) {
 			t.Errorf("paths injected=%v: %v", injected, err)
 		}
 	}

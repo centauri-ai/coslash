@@ -234,11 +234,11 @@ func TestFrozenUnpreparedRestartUsesVerifiedNewerSource(t *testing.T) {
 	_, file, data := piQueueSource(t)
 	revision := func() string {
 		t.Helper()
-		plan, err := pi.PlanSourcesContext(t.Context())
+		plan, err := pi.PlanSources(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
-		inputs, err := plan.SessionInputsContext(t.Context(), "pi.custom_01")
+		inputs, err := plan.SessionInputs(t.Context(), "pi.custom_01")
 		if err != nil {
 			t.Fatal(err)
 		}

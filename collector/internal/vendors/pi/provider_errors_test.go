@@ -25,7 +25,7 @@ func TestProviderErrorSelectedAncestry(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := projectionFixture(t, tc.name, "", root, failure, tc.row)
-			p, err := projectLeaf(tr, nil, "next", false)
+			p, err := projectLeaf(t.Context(), tr, nil, "next", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,7 +43,7 @@ func TestProviderErrorSelectedAncestry(t *testing.T) {
 		})
 	}
 	tr := projectionFixture(t, "failure", "", root, failure)
-	p, err := projectLeaf(tr, nil, "failed", false)
+	p, err := projectLeaf(t.Context(), tr, nil, "failed", false)
 	if err != nil || p.Session.AgentError == nil || p.Session.Errors != 1 {
 		t.Fatalf("empty-content failure lost: %#v, %v", p, err)
 	}
@@ -58,7 +58,7 @@ func TestProviderErrorDiagnosticBounds(t *testing.T) {
 	for _, diagnostic := range []string{"", strings.Repeat("x", 5000)} {
 		row := fmt.Sprintf(`{"type":"message","id":"failed","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":%q}}`, diagnostic)
 		tr := projectionFixture(t, "bounded", "", row)
-		p, err := projectLeaf(tr, nil, "failed", false)
+		p, err := projectLeaf(t.Context(), tr, nil, "failed", false)
 		if err != nil || p.Session.AgentError == nil || len(*p.Session.AgentError) == 0 || len(*p.Session.AgentError) > 4100 {
 			t.Fatalf("unbounded/absent diagnostic: %#v, %v", p, err)
 		}

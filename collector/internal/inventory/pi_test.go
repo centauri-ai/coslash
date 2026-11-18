@@ -46,7 +46,7 @@ func TestPiInventoryStatsExplicitPlanWithoutReadingSessionContent(t *testing.T) 
 	if err := os.WriteFile(path, header, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := pi.PlanSourcesContext(t.Context())
+	plan, err := pi.PlanSources(t.Context())
 	if err != nil || len(plan.Sources) != 1 || plan.Sources[0].ID != "custom.header_id" {
 		t.Fatalf("custom-root plan = %+v, %v", plan, err)
 	}

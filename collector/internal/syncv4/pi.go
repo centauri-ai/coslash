@@ -131,7 +131,7 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 		} else if plan == nil {
 			err = piSourceProblem(id, backup.ProblemUnreadable)
 		} else {
-			inputs, err = plan.SessionInputsContext(ctx, id)
+			inputs, err = plan.SessionInputs(ctx, id)
 			if err != nil && ctx.Err() == nil {
 				err = piSourceProblem(id, backup.ProblemUnreadable)
 			}
@@ -251,7 +251,7 @@ func planPiSources(ctx context.Context, queue *Queue) (*pi.SourcePlan, error) {
 	if !needed {
 		return nil, nil
 	}
-	plan, err := pi.PlanSourcesContext(ctx)
+	plan, err := pi.PlanSources(ctx)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}

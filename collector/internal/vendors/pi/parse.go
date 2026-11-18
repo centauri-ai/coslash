@@ -17,11 +17,7 @@ const (
 	maxTranscriptEntries     = 100000
 )
 
-// Raw reading deliberately avoids Pi's persistent loader, which repairs/migrates files.
-func parseTranscript(path string) (*transcript, error) {
-	return parseTranscriptContext(context.Background(), path)
-}
-func parseTranscriptContext(ctx context.Context, path string) (*transcript, error) {
+func parseTranscript(ctx context.Context, path string) (*transcript, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

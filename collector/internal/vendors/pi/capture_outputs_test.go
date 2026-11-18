@@ -16,11 +16,11 @@ func TestFrozenSessionRetainsCommandOutputsAndPRLinks(t *testing.T) {
 		`{"type":"message","id":"s","parentId":"r","timestamp":"2026-01-01T00:00:03Z","message":{"role":"toolResult","toolCallId":"skill","toolName":"read","content":"captured skill body"}}`,
 	)
 	captureEnvironment(t, filepath.Dir(path))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), "outputs")
+	inputs, err := plan.SessionInputs(t.Context(), "outputs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestFrozenSessionRetainsCommandOutputsAndPRLinks(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	parsed, _, err := ParseFrozenSessionContext(t.Context(), inputs, files)
+	parsed, _, err := ParseFrozenSession(t.Context(), inputs, files)
 	if err != nil {
 		t.Fatal(err)
 	}

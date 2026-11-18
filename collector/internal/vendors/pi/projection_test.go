@@ -23,7 +23,7 @@ func projectionFixture(t *testing.T, name, parent string, rows ...string) *trans
 	if err := os.WriteFile(path, []byte(string(h)+"\n"+strings.Join(rows, "\n")+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func assistantRow(id, parent, text string, cost int) string {
 }
 func assertCost(t *testing.T, tr, parent *transcript, want float64) {
 	t.Helper()
-	p, err := projectLeaf(tr, parent, tr.Entries[len(tr.Entries)-1].ID, false)
+	p, err := projectLeaf(t.Context(), tr, parent, tr.Entries[len(tr.Entries)-1].ID, false)
 	if err != nil || p.Session.CostUnavailable || p.RecordedCost == nil || *p.RecordedCost != want {
 		t.Fatalf("want %v: %#v, %v", want, p, err)
 	}
@@ -60,10 +60,10 @@ func TestProjectionForkAttribution(t *testing.T) {
 	assertCost(t, all, parent, 0)
 	repeated := projectionFixture(t, "repeated", parent.Path, root, b, assistantRow("novel", "b", "selected", 3))
 	assertCost(t, repeated, parent, 3)
-	parents := parentCache([]*transcript{parent, clone, nested})
+	parents := parentCache(t.Context(), []*transcript{parent, clone, nested})
 	assertCost(t, nested, parents(nested), 11)
 	for _, bad := range []*transcript{projectionFixture(t, "missing", "/missing", root, b), projectionFixture(t, "changed", parent.Path, root, assistantRow("b", "r", "selected", 4)), projectionFixture(t, "changedID", parent.Path, strings.Replace(root, `"r"`, `"changed"`, 1), b)} {
-		p, _ := projectLeaf(bad, parent, bad.Entries[len(bad.Entries)-1].ID, false)
+		p, _ := projectLeaf(t.Context(), bad, parent, bad.Entries[len(bad.Entries)-1].ID, false)
 		if !p.Session.TokensUnavailable || !p.Session.CostUnavailable || len(p.Session.Tokens) != 0 || p.RecordedCost != nil {
 			t.Fatalf("partial accounting %#v", p)
 		}
@@ -71,18 +71,18 @@ func TestProjectionForkAttribution(t *testing.T) {
 	if err := os.Rename(parent.Path, parent.Path+".moved"); err != nil {
 		t.Fatal(err)
 	}
-	if parentCache([]*transcript{clone})(clone) != nil {
+	if parentCache(t.Context(), []*transcript{clone})(clone) != nil {
 		t.Fatal("relocated parent recovered without evidence")
 	}
 }
 
 func TestProjectionUsageSourcesAndAbsence(t *testing.T) {
-	fixture, err := parseTranscript("testdata/schema3.jsonl")
+	fixture, err := parseTranscript(t.Context(), "testdata/schema3.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	fixture.Header.ParentSession = ""
-	p, _ := projectLeaf(fixture, nil, "info", false)
+	p, _ := projectLeaf(t.Context(), fixture, nil, "info", false)
 	if p.Session.TokensUnavailable || p.Session.CostUnavailable || !p.Session.DetailsIncomplete || p.RecordedCost == nil || *p.RecordedCost != 12.5 {
 		t.Fatalf("all five usage sources: %#v", p)
 	}
@@ -93,13 +93,13 @@ func TestProjectionUsageSourcesAndAbsence(t *testing.T) {
 	assertCost(t, normal, nil, 2)
 	for _, row := range []string{`{"type":"message","id":"a","message":{"role":"assistant","content":"unknown"}}`, `{"type":"usage","id":"a"}`, assistantRow("a", "", "zero pricing", 0), strings.ReplaceAll(assistantRow("a", "", "zero reporting", 2), `"input":10,"output":5,"cacheRead":2,"cacheWrite":3`, `"input":0,"output":0,"cacheRead":0,"cacheWrite":0`)} {
 		tr := projectionFixture(t, "unknown", "", row)
-		p, _ := projectLeaf(tr, nil, "a", false)
+		p, _ := projectLeaf(t.Context(), tr, nil, "a", false)
 		if !p.Session.TokensUnavailable && !p.Session.CostUnavailable {
 			t.Fatal("ambiguous reporting accepted")
 		}
 	}
 	missingTokens := projectionFixture(t, "knownCost", "", `{"type":"usage","id":"a","model":"m","usage":{"cost":{"total":5}}}`)
-	p, _ = projectLeaf(missingTokens, nil, "a", false)
+	p, _ = projectLeaf(t.Context(), missingTokens, nil, "a", false)
 	if !p.Session.TokensUnavailable || p.Session.CostUnavailable || p.RecordedCost == nil || *p.RecordedCost != 5 {
 		t.Fatal("known cost lost")
 	}
@@ -107,7 +107,7 @@ func TestProjectionUsageSourcesAndAbsence(t *testing.T) {
 
 func TestProjectionBranchesAndCurrentContext(t *testing.T) {
 	tr := projectionFixture(t, "branches", "", userRow("r", "", "shared", "2026-01-01T00:00:03Z"), assistantRow("a", "r", "abandoned recap", 2), userRow("u", "r", "chosen prompt", ""), assistantRow("b", "u", "chosen recap", 3), userRow("other", "", "second root", "2026-01-01T00:00:02Z"))
-	p, _ := projectLeaf(tr, nil, "b", true)
+	p, _ := projectLeaf(t.Context(), tr, nil, "b", true)
 	s := p.Session
 	if *s.Summary != "chosen recap" || *s.Model != "actual" || s.Turns != 3 || len(s.Digest) != 5 || s.ContextTokens == nil {
 		t.Fatalf("state %#v", s)
@@ -136,7 +136,7 @@ func TestProjectionBranchesAndCurrentContext(t *testing.T) {
 	if strings.Contains(input, "abandoned recap") || strings.Contains(input, "second root") {
 		t.Fatalf("synthesis blended branches: %s", input)
 	}
-	other, _ := projectLeaf(tr, nil, "a", false)
+	other, _ := projectLeaf(t.Context(), tr, nil, "a", false)
 	if *other.Session.Summary != "abandoned recap" || *other.RecordedCost != *p.RecordedCost {
 		t.Fatal("runtime leaf changed accounting")
 	}
@@ -145,7 +145,7 @@ func TestProjectionBranchesAndCurrentContext(t *testing.T) {
 			t.Fatal("fallback presented as live active")
 		}
 	}
-	fallback, _ := projectLeaf(tr, nil, "other", false)
+	fallback, _ := projectLeaf(t.Context(), tr, nil, "other", false)
 	if *fallback.Session.FirstPrompt != "second root" {
 		t.Fatal("multiple roots first prompt")
 	}
@@ -153,7 +153,7 @@ func TestProjectionBranchesAndCurrentContext(t *testing.T) {
 
 func TestProjectionCompactionAndContextEdits(t *testing.T) {
 	tr := projectionFixture(t, "context", "", userRow("r", "", "old prompt", "2026-01-01T00:00:01Z"), assistantRow("a", "r", "old recap", 2), `{"type":"compaction","id":"c","parentId":"a","summary":"checkpoint","firstKeptEntryId":"c"}`, userRow("u", "c", "new prompt", "2026-01-01T00:00:04Z"), assistantRow("b", "u", "new recap", 3), `{"type":"context_edit","id":"edit","parentId":"b","targetId":"b","replacement":{"content":"edited recap"}}`)
-	p, _ := projectLeaf(tr, nil, "edit", false)
+	p, _ := projectLeaf(t.Context(), tr, nil, "edit", false)
 	if *p.Session.FirstPrompt != "new prompt" || *p.Session.Summary != "edited recap" || p.Session.CompactionSeed != "checkpoint" {
 		t.Fatalf("context %#v", p.Session)
 	}
@@ -165,21 +165,21 @@ func TestProjectionCompactionAndContextEdits(t *testing.T) {
 
 func TestProjectionToolsAndInvalidAncestry(t *testing.T) {
 	tr := projectionFixture(t, "tools", "", `{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"t","name":"bash","arguments":{"command":"git commit -m 'done'"}},{"type":"toolCall","id":"w","name":"write","arguments":{"path":"x.go","content":"one\ntwo\n"}}],"usage":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4,"cost":{"total":1}}}}`, `{"type":"message","id":"b","parentId":"a","message":{"role":"toolResult","toolCallId":"t","content":"[main abcdef1] done","isError":false}}`, `{"type":"message","id":"wresult","parentId":"b","message":{"role":"toolResult","toolCallId":"w","content":"written","isError":false}}`)
-	p, _ := projectLeaf(tr, nil, "b", false)
+	p, _ := projectLeaf(t.Context(), tr, nil, "b", false)
 	if p.Session.ToolUses != 2 || len(p.Session.Commands) != 1 || p.Session.EditedFileCount != 1 || p.Session.FileEdits[0].Additions != 2 || len(p.Session.CommitLog) != 1 {
 		t.Fatalf("tools %#v", p.Session)
 	}
 	orphan := projectionFixture(t, "orphan", "", userRow("a", "missing", "visible", ""))
-	p, _ = projectLeaf(orphan, nil, "a", false)
+	p, _ = projectLeaf(t.Context(), orphan, nil, "a", false)
 	if !p.Session.CostUnavailable || len(p.Session.Digest) != 1 {
 		t.Fatal("orphan hidden or accounted")
 	}
-	p, _ = projectLeaf(orphan, nil, "a", true)
+	p, _ = projectLeaf(t.Context(), orphan, nil, "a", true)
 	if p.Session.Digest[0].Active == nil || !*p.Session.Digest[0].Active {
 		t.Fatal("known runtime leaf lost active evidence")
 	}
 	cycle := projectionFixture(t, "cycle", "", userRow("a", "b", "a", ""), userRow("b", "a", "b", ""))
-	p, _ = projectLeaf(cycle, nil, "b", false)
+	p, _ = projectLeaf(t.Context(), cycle, nil, "b", false)
 	if !p.Session.CostUnavailable {
 		t.Fatal("cycle accounted")
 	}
@@ -192,10 +192,10 @@ func TestProjectionLabelRewritesAndStableSegments(t *testing.T) {
 	parent := projectionFixture(t, "labelparent", "", root, label, billing)
 	clone := projectionFixture(t, "labelclone", parent.Path, root, assistantRow("a", "r", "copied", 3), `{"type":"label","id":"newlabel","parentId":"a","targetId":"r","label":"bookmark"}`, assistantRow("new", "newlabel", "new", 7))
 	assertCost(t, clone, parent, 7)
-	before, _ := projectLeaf(parent, nil, "a", false)
+	before, _ := projectLeaf(t.Context(), parent, nil, "a", false)
 	branch := userRow("b", "r", "later branch", "2026-01-01T00:00:04Z")
 	parent2 := projectionFixture(t, "labelparent2", "", root, label, billing, branch)
-	after, _ := projectLeaf(parent2, nil, "a", false)
+	after, _ := projectLeaf(t.Context(), parent2, nil, "a", false)
 	for _, old := range before.Session.Digest {
 		for _, new := range after.Session.Digest {
 			if old.SourceEntryID == new.SourceEntryID && old.BranchID != new.BranchID {
@@ -207,7 +207,7 @@ func TestProjectionLabelRewritesAndStableSegments(t *testing.T) {
 
 func TestContextEditRemovesObsoleteGoalCandidate(t *testing.T) {
 	tr := projectionFixture(t, "editedGoal", "", userRow("r", "", "obsolete goal", "2026-01-01T00:00:01Z"), assistantRow("a", "r", "obsolete recap", 2), `{"type":"context_edit","id":"removed","parentId":"a","targetId":"r","replacement":null}`, `{"type":"context_edit","id":"replaced","parentId":"removed","targetId":"a","replacement":{"content":"current recap"}}`, userRow("u", "replaced", "current goal", "2026-01-01T00:00:04Z"))
-	p, _ := projectLeaf(tr, nil, "u", false)
+	p, _ := projectLeaf(t.Context(), tr, nil, "u", false)
 	input := synthesis.BuildInput(p.Session)
 	if *p.Session.FirstPrompt != "current goal" || *p.Session.Summary != "current recap" || strings.Contains(input, "obsolete") || !strings.Contains(input, "current recap") {
 		t.Fatalf("obsolete context persisted: %s", input)
@@ -222,7 +222,7 @@ func TestProjectionTodosFollowSelectedPathWithDistinctDigestRows(t *testing.T) {
 	a := strings.Replace(assistantRow("a", "r", "A recap", 2), `"content":"A recap"`, `"content":[{"type":"text","text":"A recap"},{"type":"toolCall","id":"ta","name":"todos","arguments":{"todos":[{"text":"A task","done":true}]}}]`, 1)
 	b := strings.Replace(assistantRow("b", "r", "B recap", 3), `"content":"B recap"`, `"content":[{"type":"text","text":"B recap"},{"type":"toolCall","id":"tb","name":"todos","arguments":{"todos":[{"text":"B task","done":false}]}}]`, 1)
 	tr := projectionFixture(t, "todos", "", root, a, b)
-	p, _ := projectLeaf(tr, nil, "b", true)
+	p, _ := projectLeaf(t.Context(), tr, nil, "b", true)
 	if len(p.Session.Todos) != 1 || p.Session.Todos[0].Text != "B task" || p.Session.Todos[0].Done {
 		t.Fatal("abandoned todos selected")
 	}
@@ -242,7 +242,7 @@ func TestProjectionTodosFollowSelectedPathWithDistinctDigestRows(t *testing.T) {
 
 func TestProjectionFailedWritesAreNotEdits(t *testing.T) {
 	tr := projectionFixture(t, "failedWrite", "", `{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"w","name":"write","arguments":{"path":"x.go","content":"new"}}],"usage":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4,"cost":{"total":1}}}}`, `{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"w","content":"permission denied","isError":true}}`)
-	p, _ := projectLeaf(tr, nil, "r", false)
+	p, _ := projectLeaf(t.Context(), tr, nil, "r", false)
 	if p.Session.EditedFileCount != 0 || p.Session.ToolUses != 1 || p.Session.Errors != 1 {
 		t.Fatal("failed write counted as changed file")
 	}
@@ -250,7 +250,7 @@ func TestProjectionFailedWritesAreNotEdits(t *testing.T) {
 
 func TestContextReplacementRetainsSecondPromptAndEarlierRecap(t *testing.T) {
 	tr := projectionFixture(t, "replacementContext", "", userRow("r", "", "Build service", "2026-01-01T00:00:01Z"), assistantRow("a", "r", "obsolete decision", 2), userRow("u", "a", "obsolete requirement", "2026-01-01T00:00:03Z"), assistantRow("b", "u", "Understood", 3), `{"type":"context_edit","id":"eu","parentId":"b","targetId":"u","replacement":{"content":"Never send customer data to the external service"}}`, `{"type":"context_edit","id":"ea","parentId":"eu","targetId":"a","replacement":{"content":"Keep all customer processing local"}}`)
-	p, _ := projectLeaf(tr, nil, "ea", true)
+	p, _ := projectLeaf(t.Context(), tr, nil, "ea", true)
 	input := synthesis.BuildInput(p.Session)
 	for _, want := range []string{"Never send customer data to the external service", "Keep all customer processing local"} {
 		if !strings.Contains(input, want) {
@@ -285,7 +285,7 @@ func TestDivergentSegmentBypassesMutableLabels(t *testing.T) {
 		}
 		rows = append(rows, assistantRow("b", parent, "second", 3))
 		tr := projectionFixture(t, "segments"+labelID, "", rows...)
-		p, _ := projectLeaf(tr, nil, "b", false)
+		p, _ := projectLeaf(t.Context(), tr, nil, "b", false)
 		for _, row := range p.Session.Digest {
 			if row.SourceEntryID == "b" && row.BranchID != "b" {
 				t.Fatalf("mutable segment for label %q: %q", labelID, row.BranchID)
@@ -296,7 +296,7 @@ func TestDivergentSegmentBypassesMutableLabels(t *testing.T) {
 
 func TestEmptyContextReplacementDoesNotRestoreHistoricalText(t *testing.T) {
 	tr := projectionFixture(t, "emptyReplacement", "", userRow("r", "", "Build service", "2026-01-01T00:00:01Z"), assistantRow("a", "r", "Earlier answer", 2), userRow("u", "a", "obsolete requirement", "2026-01-01T00:00:03Z"), assistantRow("b", "u", "Understood", 3), `{"type":"context_edit","id":"e","parentId":"b","targetId":"u","replacement":{"content":""}}`)
-	p, _ := projectLeaf(tr, nil, "e", true)
+	p, _ := projectLeaf(t.Context(), tr, nil, "e", true)
 	if strings.Contains(synthesis.BuildInput(p.Session), "obsolete requirement") {
 		t.Fatal("empty replacement restored source text")
 	}
@@ -316,7 +316,7 @@ func TestEmptyContextReplacementDoesNotRestoreHistoricalText(t *testing.T) {
 
 func TestRetainedOlderCompactionContext(t *testing.T) {
 	tr := projectionFixture(t, "doubleCompaction", "", userRow("r", "", "goal", "2026-01-01T00:00:01Z"), assistantRow("a", "r", "retained answer", 2), `{"type":"compaction","id":"c1","parentId":"a","timestamp":"2026-01-01T00:00:03Z","summary":"obsolete checkpoint","firstKeptEntryId":"c1"}`, `{"type":"compaction","id":"c2","parentId":"c1","timestamp":"2026-01-01T00:00:04Z","summary":"current checkpoint","firstKeptEntryId":"a"}`)
-	p, _ := projectLeaf(tr, nil, "c2", false)
+	p, _ := projectLeaf(t.Context(), tr, nil, "c2", false)
 	input := synthesis.BuildInput(p.Session)
 	if p.Session.Cost == nil || *p.Session.Cost != 2 || p.Session.Compactions != 2 {
 		t.Fatal("compaction projection changed raw accounting/history")
@@ -343,7 +343,7 @@ func TestRetainedOlderCompactionContext(t *testing.T) {
 
 func TestVerifiedEmptyPiAccountingIsKnownZero(t *testing.T) {
 	value := &transcript{Header: header{ID: "empty"}, ByID: map[string]int{}}
-	facts, err := projectLeaf(value, nil, "", false)
+	facts, err := projectLeaf(t.Context(), value, nil, "", false)
 	if err != nil || facts.Session.TokensUnavailable || !facts.Session.TokensKnown || facts.RecordedCost == nil || *facts.RecordedCost != 0 {
 		t.Fatalf("verified empty accounting lost: %#v, %v", facts, err)
 	}
@@ -356,7 +356,7 @@ func TestProjectionInvalidatesChangedContextUsage(t *testing.T) {
 		`{"type":"custom_message","id":"later","parentId":"a","customType":"extension","content":"extra context","display":false}`,
 	} {
 		tr := projectionFixture(t, "changedContext", "", userRow("u", "", "goal", "2026-01-01T00:00:01Z"), assistantRow("a", "u", "answer", 2), row)
-		p, _ := projectLeaf(tr, nil, "later", false)
+		p, _ := projectLeaf(t.Context(), tr, nil, "later", false)
 		if p.Session.ContextTokens != nil {
 			t.Fatal("stale usage retained after context changes")
 		}
@@ -374,12 +374,12 @@ func TestProjectionInvalidatesChangedContextUsage(t *testing.T) {
 		}
 		tr.ByID[fresh.ID] = fresh.AppendIndex
 		tr.Entries = append(tr.Entries, fresh)
-		p, _ = projectLeaf(tr, nil, "fresh", false)
+		p, _ = projectLeaf(t.Context(), tr, nil, "fresh", false)
 		if p.Session.ContextTokens == nil || *p.Session.ContextTokens != 20 {
 			t.Fatal("new assistant evidence did not restore context usage")
 		}
 		tr.Entries = tr.Entries[:2]
-		p, _ = projectLeaf(tr, nil, "a", false)
+		p, _ = projectLeaf(t.Context(), tr, nil, "a", false)
 		if p.Session.ContextTokens == nil || *p.Session.ContextTokens != 20 {
 			t.Fatal("verified assistant usage lost")
 		}
@@ -392,7 +392,7 @@ func TestProjectionCustomMessageContext(t *testing.T) {
 		`{"type":"compaction","id":"c","parentId":"old","timestamp":"2026-01-01T00:00:04Z","summary":"checkpoint","firstKeptEntryId":"c"}`,
 		`{"type":"custom_message","id":"custom","parentId":"c","timestamp":"2026-01-01T00:00:05Z","customType":"extension","content":[{"type":"text","text":"original extension context"}],"display":false}`,
 		`{"type":"context_edit","id":"edit","parentId":"custom","timestamp":"2026-01-01T00:00:06Z","targetId":"custom","replacement":{"content":"replacement extension context"}}`)
-	p, _ := projectLeaf(tr, nil, "edit", false)
+	p, _ := projectLeaf(t.Context(), tr, nil, "edit", false)
 	input := synthesis.BuildInput(p.Session)
 	if !strings.Contains(input, "replacement extension context") || strings.Contains(input, "original extension context") || strings.Contains(input, "old extension context") {
 		t.Fatalf("custom selected context mismatch: %s", input)
@@ -408,7 +408,7 @@ func TestProjectionCustomMessageContext(t *testing.T) {
 		t.Fatal("custom raw history missing")
 	}
 	tr.Entries[len(tr.Entries)-1].Raw = []byte(`{"type":"context_edit","id":"edit","parentId":"custom","targetId":"custom","replacement":null}`)
-	p, _ = projectLeaf(tr, nil, "edit", false)
+	p, _ = projectLeaf(t.Context(), tr, nil, "edit", false)
 	if strings.Contains(synthesis.BuildInput(p.Session), "original extension context") {
 		t.Fatal("deleted custom context retained")
 	}
@@ -423,7 +423,7 @@ func TestProjectionEmptyContentEditedIntoText(t *testing.T) {
 			tr := projectionFixture(t, "editedEmpty", "", userRow("u", "", "goal", "2026-01-01T00:00:01Z"),
 				fmt.Sprintf(entryFormat, content),
 				`{"type":"context_edit","id":"edit","parentId":"custom","targetId":"custom","replacement":{"content":"new extension context"}}`)
-			p, _ := projectLeaf(tr, nil, "edit", false)
+			p, _ := projectLeaf(t.Context(), tr, nil, "edit", false)
 			if !strings.Contains(synthesis.BuildInput(p.Session), "new extension context") {
 				t.Fatal("replacement for textless native context dropped")
 			}
@@ -439,7 +439,7 @@ func TestProjectionEmptyContentEditedIntoText(t *testing.T) {
 			if !found {
 				t.Fatal("context-only digest row missing")
 			}
-			p, _ = projectLeaf(tr, nil, "custom", false)
+			p, _ = projectLeaf(t.Context(), tr, nil, "custom", false)
 			for _, row := range p.Session.Digest {
 				if row.SourceEntryID == "custom" {
 					t.Fatal("unselected edit invented historical row")
@@ -466,7 +466,7 @@ func TestProjectionNativeEditArrays(t *testing.T) {
 			for _, failed := range []bool{false, true} {
 				result := `{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"edit","isError":` + strconv.FormatBool(failed) + `,"content":"result"}}`
 				tr := projectionFixture(t, tc.name, "", row, result)
-				p, _ := projectLeaf(tr, nil, "r", false)
+				p, _ := projectLeaf(t.Context(), tr, nil, "r", false)
 				if p.Session.ToolUses != 1 || p.Session.Cost == nil || *p.Session.Cost != 1 {
 					t.Fatalf("tool/accounting changed: %#v", p.Session)
 				}
@@ -505,7 +505,7 @@ func TestProjectionPreservesHandoffMarker(t *testing.T) {
 	}
 	prompt := directedhandoff.Marker(record.ID) + "\nDo the requested work\n" + strings.Repeat("é", 300)
 	tr := projectionFixture(t, "handoff", "", userRow("u", "", prompt, "2026-01-01T00:00:01Z"))
-	projected, err := projectLeaf(tr, nil, "u", false)
+	projected, err := projectLeaf(t.Context(), tr, nil, "u", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,7 +525,7 @@ func TestProjectionSessionTitleSurvivesBranchSelection(t *testing.T) {
 		`{"type":"session_info","id":"name2","parentId":"name1","name":"New name"}`,
 		userRow("branch", "u", "alternate", "2026-01-01T00:00:02Z"))
 	for _, leaf := range []string{"u", "branch", "name1"} {
-		p, err := projectLeaf(tr, nil, leaf, true)
+		p, err := projectLeaf(t.Context(), tr, nil, leaf, true)
 		if err != nil || p.Name != "New name" {
 			t.Fatalf("leaf %s lost latest title: %#v, %v", leaf, p, err)
 		}
@@ -534,7 +534,7 @@ func TestProjectionSessionTitleSurvivesBranchSelection(t *testing.T) {
 
 func TestProjectionContextIncludesNativeOutput(t *testing.T) {
 	row := `{"type":"message","id":"a","message":{"role":"assistant","model":"m","usage":{"input":100,"output":40,"cacheRead":10,"cacheWrite":5,"cost":{"total":1}}}}`
-	parsed, err := projectLeaf(projectionFixture(t, "context-output", "", row), nil, "a", false)
+	parsed, err := projectLeaf(t.Context(), projectionFixture(t, "context-output", "", row), nil, "a", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,7 +548,7 @@ func TestProjectionForkLargeCounterMismatch(t *testing.T) {
 	matching := projectionFixture(t, "precision-matching", parent.Path, row)
 	assertCost(t, matching, parent, 0)
 	fork := projectionFixture(t, "precision-fork", parent.Path, strings.Replace(row, "9007199254740992", "9007199254740993", 1))
-	parsed, err := projectLeaf(fork, parent, "a", false)
+	parsed, err := projectLeaf(t.Context(), fork, parent, "a", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestProjectionRepeatedLabelChains(t *testing.T) {
 	for i := 0; i < 3000; i++ {
 		rows = append(rows, assistantRow(fmt.Sprintf("message-%d", i), parent, "recap", 1))
 	}
-	parsed, err := projectLeaf(projectionFixture(t, "labels", "", rows...), nil, "message-2999", false)
+	parsed, err := projectLeaf(t.Context(), projectionFixture(t, "labels", "", rows...), nil, "message-2999", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestProjectionPullRequestLinksFromSuccessfulCreates(t *testing.T) {
 		call("a4", "bash", "gh pr view 5"), result("r4", "a4", "https://github.com/acme/api/pull/5", false),
 		call("a5", "github_create_pull_request", ""), result("r5", "a5", "https://github.com/acme/web/pull/4", false),
 	)
-	p, _ := projectLeaf(tr, nil, "r5", false)
+	p, _ := projectLeaf(t.Context(), tr, nil, "r5", false)
 	want := []session.PullRequestLink{
 		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
 		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
