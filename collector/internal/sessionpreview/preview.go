@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -106,27 +105,6 @@ func FromCanonical(payload []byte, sourceRevision int64) Response {
 		CanonicalPayloadBase64: base64.StdEncoding.EncodeToString(payload),
 		Snapshot:               &snapshot,
 	}
-}
-
-func UploadBytes(response Response) ([]byte, error) {
-	if response.State != StateReady || !response.ApprovalAllowed || response.Snapshot == nil {
-		return nil, fmt.Errorf("preview state %q is not approvable", response.State)
-	}
-	payload, err := base64.StdEncoding.DecodeString(response.CanonicalPayloadBase64)
-	if err != nil {
-		return nil, fmt.Errorf("decode canonical preview payload: %w", err)
-	}
-	decoded, err := snapshotv1.Decode(payload)
-	if err != nil {
-		return nil, fmt.Errorf("validate canonical preview payload: %w", err)
-	}
-	if !reflect.DeepEqual(decoded, *response.Snapshot) {
-		return nil, fmt.Errorf("preview snapshot does not match canonical upload payload")
-	}
-	if len(payload) != response.PayloadBytes {
-		return nil, fmt.Errorf("preview payload length is %d; metadata says %d", len(payload), response.PayloadBytes)
-	}
-	return payload, nil
 }
 
 func fromError(err error, sourceRevision int64) Response {
