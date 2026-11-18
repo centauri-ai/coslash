@@ -26,10 +26,11 @@ import (
 // model (family commits are eager, deletion requires a complete inventory,
 // and an incomplete vendor withholds vendor_complete so request_complete —
 // and any coverage-window advance — never happens for it).
-const (
-	claudeParserVersion        = vendors.ParserVersion
-	codexParserVersion         = vendors.ParserVersion
-	sftpCollectorParserVersion = "sftp-collector.1"
+const sftpCollectorParserVersion = "sftp-collector.1"
+
+var (
+	claudeParserVersion = remotefacts.ParserVersion(vendors.AgentClaude)
+	codexParserVersion  = remotefacts.ParserVersion(vendors.AgentCodex)
 )
 
 func familySkipReason(err error) string {

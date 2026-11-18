@@ -35,7 +35,7 @@ func rebindSnapshotSource(t *testing.T, snapshot CachedSnapshotV2, sourceID stri
 func validFamily(t *testing.T, familyID string) remotefacts.Family {
 	t.Helper()
 	family := remotefacts.Family{
-		SchemaVersion: remotefacts.SchemaVersion, ParserVersion: "test/1",
+		SchemaVersion: remotefacts.SchemaVersion, ParserVersion: remotefacts.ParserVersion(vendors.AgentClaude),
 		Vendor: vendors.AgentClaude, FamilyID: familyID, State: remotefacts.StateComplete,
 		Sessions: []remotefacts.Session{{
 			ID: familyID, StartedAtMs: 1000, LastActivityAtMs: 2000,
@@ -68,6 +68,7 @@ func completeCodexSnapshot(t *testing.T, baselineID, body string) CachedSnapshot
 	}
 	family := validFamily(t, "root-1")
 	family.Vendor = vendors.AgentCodex
+	family.ParserVersion = remotefacts.ParserVersion(vendors.AgentCodex)
 	if err := remotefacts.Validate(family); err != nil {
 		t.Fatal(err)
 	}
