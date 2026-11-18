@@ -261,7 +261,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		}
 	}
 	if files := byAgent[vendors.AgentCursor]; len(files) > 0 {
-		cursorPlan, err := cursor.PlanFamiliesContext(ctx, files)
+		cursorPlan, err := cursor.PlanFamilies(ctx, files)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -519,7 +519,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		parsed = append(parsed, items...)
 	}
 	if paths := files[vendors.AgentCursor]; len(paths) > 0 {
-		items, batchMetadata, err := cursor.ParseFilesContext(ctx, paths, plan.live)
+		items, batchMetadata, err := cursor.ParseFiles(ctx, paths, plan.live)
 		if err != nil {
 			return nil, err
 		}

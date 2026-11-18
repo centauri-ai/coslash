@@ -31,7 +31,7 @@ func parseShellTranscript(t *testing.T, id string, commands ...string) *vendors.
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestParseFilesContextAppliesCommandOutputs(t *testing.T) {
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, _, err := ParseFilesContext(context.Background(), []string{path}, nil)
+	parsed, _, err := ParseFiles(context.Background(), []string{path}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

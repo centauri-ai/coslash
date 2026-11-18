@@ -31,7 +31,7 @@ func TestLoadCursorRowsStopsDuringCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	seen := 0
-	err = loadCursorRowsDBContext(ctx, vendors.EmptySessionMetadata(), map[string]map[string]bool{}, "", "memory", db, `SELECT id, value FROM rows`, nil, func(id, value string) (string, string, string) {
+	err = loadCursorRowsDB(ctx, vendors.EmptySessionMetadata(), map[string]map[string]bool{}, "", "memory", db, `SELECT id, value FROM rows`, nil, func(id, value string) (string, string, string) {
 		seen++
 		cancel()
 		return id, value, ""
@@ -109,7 +109,7 @@ func TestLoadMetadataForSessionsReturnsOnlyRequestedIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadMetadataForSessions(home, []string{target})
+	metadata, err := loadMetadataForSessions(t.Context(), home, []string{target})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestLoadMetadataReadsCursorCLIWorkingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadMetadata(home)
+	metadata, err := loadMetadataForSessions(t.Context(), home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestLoadSelectionMetadataReadsOnlySelectionSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadSelectionMetadata(home)
+	metadata, err := loadSelectionMetadata(t.Context(), home, loadLiveSessions(t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,15 +195,15 @@ func TestApplyCursorLivenessSupportsSelectionWithoutPollutingScopedMetadata(t *t
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session("requested").Entrypoint = entrypointIDE
 	metadata.Session("ambiguous")
-	applyCursorLiveness(metadata, map[string]string{"requested": entrypointIDE, "unrelated": entrypointCLI}, false)
+	applyCursorLiveness(t.Context(), metadata, map[string]string{"requested": entrypointIDE, "unrelated": entrypointCLI}, false)
 	if metadata.Lookup("requested").Live != "interactive" || metadata.Lookup("unrelated") != nil {
 		t.Fatalf("scoped liveness = %#v", metadata.Sessions)
 	}
-	applyCursorLiveness(metadata, map[string]string{"ambiguous": entrypointCLI}, false)
+	applyCursorLiveness(t.Context(), metadata, map[string]string{"ambiguous": entrypointCLI}, false)
 	if got := metadata.Lookup("ambiguous").Live; got != "" {
 		t.Fatalf("ambiguous liveness = %q, want empty", got)
 	}
-	applyCursorLiveness(metadata, map[string]string{"live-cli": entrypointCLI}, true)
+	applyCursorLiveness(t.Context(), metadata, map[string]string{"live-cli": entrypointCLI}, true)
 	if got := metadata.Lookup("live-cli"); got == nil || got.Live != "interactive" || got.Entrypoint != entrypointCLI {
 		t.Fatalf("selection liveness = %#v", got)
 	}
@@ -229,7 +229,7 @@ func TestLoadRelationshipMetadataIncludesCursorCLIParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	metadata, err := loadRelationshipMetadataForSessions(home, []string{childID})
+	metadata, err := loadRelationshipMetadataForSessions(t.Context(), home, []string{childID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestHealthCountsCLIChildAsSubagent(t *testing.T) {
 	}
 	db.Close()
 
-	if health := Health(); health.Err != nil || health.Entries != 2 || health.Sessions != 1 {
+	if health := Health(t.Context()); health.Err != nil || health.Entries != 2 || health.Sessions != 1 {
 		t.Fatalf("health = %#v, want 2 entries and 1 session", health)
 	}
 }
@@ -339,7 +339,7 @@ func TestLoadRelationshipMetadataReadsOnlyRelationships(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadRelationshipMetadataForSessions(home, []string{childID})
+	metadata, err := loadRelationshipMetadataForSessions(t.Context(), home, []string{childID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadMetadataForSessions(home, []string{id})
+	metadata, err := loadMetadataForSessions(t.Context(), home, []string{id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestLoadIDEModelsRetainsHistoryAndSelectsNewestDeterministically(t *testing
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, nil, db, nil)
+	loadIDEModelsDB(t.Context(), metadata, nil, db, nil)
 	if got := metadata.Session(id).Model; got != "gpt-5" {
 		t.Fatalf("model = %q, want newest model with deterministic key tie-break", got)
 	}
@@ -440,7 +440,7 @@ func TestLoadIDEModelsBoundsObservedHistory(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, nil, db, nil)
+	loadIDEModelsDB(t.Context(), metadata, nil, db, nil)
 	got := metadata.Session(id).ObservedModels
 	if len(got) != maxObservedModels {
 		t.Fatalf("observed model count = %d, want %d", len(got), maxObservedModels)
@@ -476,7 +476,7 @@ func TestLoadIDEModelsBoundsObservedModelBytes(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, nil, db, nil)
+	loadIDEModelsDB(t.Context(), metadata, nil, db, nil)
 	if got := metadata.Session(id).ObservedModels; !slices.Equal(got, []string{atLimit}) {
 		t.Fatalf("observed models = %v, want only %d-byte model", got, maxObservedModelBytes)
 	}
@@ -514,7 +514,7 @@ func TestLoadIDEModelsCollectsOnlyCreatedPullRequestLinks(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, nil, db, nil)
+	loadIDEModelsDB(t.Context(), metadata, nil, db, nil)
 	entry := metadata.Session(id)
 	want := []session.PullRequestLink{
 		{URL: "https://github.com/centauri-ai/coslash/pull/124", Repository: "centauri-ai/coslash", Number: 124},
@@ -552,11 +552,11 @@ func TestLoadIDEModelsMarksOnlyLivePendingQuestionsWaiting(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, nil, db, nil)
+	loadIDEModelsDB(t.Context(), metadata, nil, db, nil)
 	for _, id := range []string{waitingID, runningID, closedID} {
 		metadata.Session(id).Entrypoint = entrypointIDE
 	}
-	applyCursorLiveness(metadata, map[string]string{
+	applyCursorLiveness(t.Context(), metadata, map[string]string{
 		waitingID: entrypointIDE, runningID: entrypointIDE,
 	}, false)
 
@@ -589,7 +589,7 @@ func TestLoadIDEModelsBatchesLargeSelections(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, nil, db, ids)
+	loadIDEModelsDB(t.Context(), metadata, nil, db, ids)
 	if got := metadata.Session(target).Model; got != "gpt-5" {
 		t.Fatalf("model = %q, want model from the final query batch", got)
 	}
@@ -623,7 +623,7 @@ func TestLoadMetadataForSessionsExpandsIDEFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadMetadataForSessions(home, []string{child1ID})
+	metadata, err := loadMetadataForSessions(t.Context(), home, []string{child1ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +656,7 @@ func TestLoadIDERelationshipsResolvesRunningTaskWithoutResult(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDERelationships(metadata, db, nil)
+	loadIDERelationships(t.Context(), metadata, db, nil)
 	relationship := metadata.Session(childID).Relationship
 	if !relationship.Active || relationship.ParentID != parentID || relationship.SpawnKey != "call-1" || relationship.Task != "inspect" {
 		t.Fatalf("relationship = %#v, want active child resolved from header join", relationship)
@@ -699,7 +699,7 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, nil, db, nil)
+	loadIDEModelsDB(t.Context(), metadata, nil, db, nil)
 	usage := metadata.Session(id).Usage
 	if len(usage.Tokens) != 0 {
 		t.Fatalf("cumulative tokens = %#v, want unavailable", usage.Tokens)
@@ -714,7 +714,7 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 		t.Fatalf("compaction seed = %q, want stored conversation summary", got)
 	}
 	parsed := &vendors.ParsedSession{Session: &session.Session{ID: id}}
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, metadata)
 	if got := parsed.Session.CompactionSeed; got != "Work completed before compaction." {
 		t.Fatalf("applied compaction seed = %q, want stored conversation summary", got)
 	}
@@ -750,7 +750,7 @@ func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 	if err := stateDB.Close(); err != nil {
 		t.Fatal(err)
 	}
-	metadata, err := loadMetadata(home)
+	metadata, err := loadMetadataForSessions(t.Context(), home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,7 +783,7 @@ func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err = loadMetadata(home)
+	metadata, err = loadMetadataForSessions(t.Context(), home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -826,7 +826,7 @@ func TestMalformedComposerDataStillRegistersIDELane(t *testing.T) {
 		t.Fatal(err)
 	}
 	chatDB.Close()
-	metadata, err := loadMetadata(home)
+	metadata, err := loadMetadataForSessions(t.Context(), home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -888,7 +888,7 @@ func TestLoadMetadataRecoversCLIWorkingDirectoryFromItsWorkspaceFolder(t *testin
 	writeCLIChatStore(t, home, "workspace", unverified, "", 1)
 	writeCLIChatStore(t, home, "workspace", other, want, 1)
 
-	metadata, err := loadMetadata(home)
+	metadata, err := loadMetadataForSessions(t.Context(), home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -917,7 +917,7 @@ func TestResumeStubStoresAreDropped(t *testing.T) {
 	if want := []string{real, loneStub, first, second}; !slices.Equal(got, want) {
 		t.Fatalf("stores = %q, want %q", got, want)
 	}
-	metadata, err := loadMetadata(home)
+	metadata, err := loadMetadataForSessions(t.Context(), home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -974,7 +974,7 @@ func TestLoadMetadataCollectsCLIPullRequestsFromSuccessfulShellResults(t *testin
 			t.Fatal(err)
 		}
 	}
-	metadata, err := loadMetadata(home)
+	metadata, err := loadMetadataForSessions(t.Context(), home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

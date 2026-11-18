@@ -11,7 +11,7 @@ func TestLiveIDsFromLSOFCanonicalizesIDs(t *testing.T) {
 	id := "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF"
 	output := "n/Users/test/.cursor/chats/abc/" + id + "/store.db\n"
 
-	got := liveCLIFromLSOF(output)
+	got, _ := liveIDsFromLSOF(t.Context(), output, "/.cursor/chats/", "", "store.db")
 	if !got[strings.ToLower(id)] || got[id] {
 		t.Fatalf("live IDs = %v, want only canonical lowercase ID", got)
 	}
@@ -24,7 +24,7 @@ func TestLiveIDEFromLSOFMatchesMacOSAndLinuxStores(t *testing.T) {
 		"n/home/test/.config/Cursor/AgentStores/cursor_agent_stores/" + linux + "/.sync/index.sqlite-wal\n" +
 		"n/home/test/.config/Cursor/AgentStores/cursor_agent_stores/" + linux + "/other/index.sqlite\n"
 
-	got := liveIDEFromLSOF(output)
+	got, _ := liveIDsFromLSOF(t.Context(), output, cursorAgentStoresRoot, ".sync", "index.sqlite")
 	if len(got) != 2 || !got[mac] || !got[linux] {
 		t.Fatalf("live IDE IDs = %v, want the macOS and Linux sessions", got)
 	}

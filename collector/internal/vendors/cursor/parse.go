@@ -17,23 +17,11 @@ import (
 
 var cursorTimestampPattern = regexp.MustCompile(`^(.*) \(UTC([+-])(\d{1,2})(:([0-9]{2}))?\)$`)
 
-func parseTranscript(path string) (*vendors.ParsedSession, error) {
-	return parseTranscriptSource(vendors.LocalReadSource, path)
+func parseTranscript(ctx context.Context, source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
+	return parseTranscriptFragments(ctx, source, []string{path})
 }
 
-func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
-	return parseTranscriptSourceContext(context.Background(), source, path)
-}
-
-func parseTranscriptSourceContext(ctx context.Context, source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
-	return parseTranscriptFragmentsSourceContext(ctx, source, []string{path})
-}
-
-func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (*vendors.ParsedSession, error) {
-	return parseTranscriptFragmentsSourceContext(context.Background(), source, paths)
-}
-
-func parseTranscriptFragmentsSourceContext(ctx context.Context, source vendors.ReadSource, paths []string) (*vendors.ParsedSession, error) {
+func parseTranscriptFragments(ctx context.Context, source vendors.ReadSource, paths []string) (*vendors.ParsedSession, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
