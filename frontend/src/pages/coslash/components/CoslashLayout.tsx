@@ -1,16 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
-import {
-  AlertTriangle,
-  ChevronRight,
-  Folder,
-  FolderGit2,
-  Monitor,
-  Rows3,
-  Rows4,
-  Search,
-  Server,
-  X,
-} from 'lucide-react';
+import { AlertTriangle, Folder, FolderGit2, Monitor, Rows3, Rows4, Search, Server, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Theme } from '@/lib/theme';
@@ -19,7 +8,6 @@ import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
 import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
-import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
 import { MachineDot } from '@/pages/coslash/components/session-list/MachineDot';
 import { Rollup } from '@/pages/coslash/components/session-list/Rollup';
 import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
@@ -418,29 +406,24 @@ export function CoslashLayout({
             {facetSections.map((section) => (
               <SidebarSection
                 key={section.id}
-                section={section}
+                id={section.id}
+                label={section.label}
                 open={sideOpen[section.id]}
                 isLoading={isLoading}
                 onToggle={() => setSideOpen((state) => ({ ...state, [section.id]: !state[section.id] }))}
-              />
+              >
+                <FacetRows options={section.options} />
+              </SidebarSection>
             ))}
-            <div className="pb-3.5">
-              <div className="bg-coslash-surface sticky top-[-20px] z-20 pb-1">
-                <button
-                  className={styles.sideHeading}
-                  aria-expanded={sideOpen.group}
-                  aria-controls="coslash-group"
-                  onClick={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
-                >
-                  <ChevronRight
-                    className={cn('size-[13px] transition-transform', { 'rotate-90': sideOpen.group })}
-                  />
-                  <span className="flex flex-1 items-center justify-between">
-                    Detected groups
-                    {isLoading && <InlineSpinner />}
-                  </span>
-                </button>
-                {sideOpen.group && (
+            <SidebarSection
+              id="group"
+              label="Detected groups"
+              open={sideOpen.group}
+              isLoading={isLoading}
+              onToggle={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
+              headerClassName="bg-coslash-surface sticky top-[-20px] z-20 pb-1"
+              headerExtra={
+                sideOpen.group && (
                   <div className="border-coslash-line bg-coslash-bg text-coslash-muted focus-within:border-coslash-accent mx-2 mt-1 mb-1.5 flex items-center gap-1.5 rounded-[7px] border px-2 py-1.5 [&>svg]:size-3.5">
                     <Search />
                     <input
@@ -462,30 +445,27 @@ export function CoslashLayout({
                       </button>
                     )}
                   </div>
-                )}
-              </div>
-              {sideOpen.group && (
-                <div id="coslash-group">
-                  {groupSections.map(({ kind, options }) => (
-                    <div key={kind}>
-                      {kind !== 'No location' && (
-                        <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
-                          {kind === 'Repository' && <FolderGit2 />}
-                          {kind === 'Folder' && <Folder />}
-                          {GROUP_LABELS[kind]}
-                        </div>
-                      )}
-                      <FacetRows options={options} />
-                    </div>
-                  ))}
-                  {groupSections.length === 0 && (
-                    <div className="text-coslash-muted px-2.5 py-2 text-xs">
-                      {groupQuery.trim() === '' ? 'No groups yet.' : `No groups match “${groupQuery}”.`}
+                )
+              }
+            >
+              {groupSections.map(({ kind, options }) => (
+                <div key={kind}>
+                  {kind !== 'No location' && (
+                    <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
+                      {kind === 'Repository' && <FolderGit2 />}
+                      {kind === 'Folder' && <Folder />}
+                      {GROUP_LABELS[kind]}
                     </div>
                   )}
+                  <FacetRows options={options} />
+                </div>
+              ))}
+              {groupSections.length === 0 && (
+                <div className="text-coslash-muted px-2.5 py-2 text-xs">
+                  {groupQuery.trim() === '' ? 'No groups yet.' : `No groups match “${groupQuery}”.`}
                 </div>
               )}
-            </div>
+            </SidebarSection>
           </div>
 
           <div className={styles.main}>

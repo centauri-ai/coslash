@@ -46,20 +46,28 @@ export function FacetRows({ options }: { options: FacetOption[] }) {
 }
 
 export function SidebarSection({
-  section,
+  id,
+  label,
   open,
   isLoading,
   onToggle,
+  headerClassName = 'flex items-center',
+  headerExtra,
+  children,
 }: {
-  section: FacetSection;
+  id: FacetKey;
+  label: string;
   open: boolean;
   isLoading: boolean;
   onToggle: () => void;
+  headerClassName?: string;
+  headerExtra?: ReactNode;
+  children: ReactNode;
 }) {
-  const contentId = `coslash-${section.id}`;
+  const contentId = `coslash-${id}`;
   return (
     <div className="pb-3.5">
-      <div className="flex items-center">
+      <div className={headerClassName}>
         <button
           className={styles.sideHeading}
           aria-expanded={open}
@@ -68,16 +76,13 @@ export function SidebarSection({
         >
           <ChevronRight className={cn('size-[13px] transition-transform', { 'rotate-90': open })} />
           <span className="flex flex-1 items-center justify-between">
-            {section.label}
+            {label}
             {isLoading && <InlineSpinner />}
           </span>
         </button>
+        {headerExtra}
       </div>
-      {open && (
-        <div id={contentId}>
-          <FacetRows options={section.options} />
-        </div>
-      )}
+      {open && <div id={contentId}>{children}</div>}
     </div>
   );
 }
