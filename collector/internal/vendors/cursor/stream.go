@@ -15,16 +15,16 @@ type Plan struct {
 	Metadata *vendors.SessionMetadata
 }
 
-// PlanFamiliesContext groups transcripts by family using paths and the
+// PlanFamilies groups transcripts by family using paths and the
 // relationship metadata Cursor keeps beside them. Streamed discovery uses it
 // to order and batch families before parsing.
-func PlanFamiliesContext(ctx context.Context, files []string) (*Plan, error) {
+func PlanFamilies(ctx context.Context, files []string) (*Plan, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	live := loadLiveSessionsContext(ctx)
-	metadata, metadataErr := loadSelectionMetadataWithLiveContext(ctx, home, live)
+	live := loadLiveSessions(ctx)
+	metadata, metadataErr := loadSelectionMetadata(ctx, home, live)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -56,10 +56,10 @@ func PlanFamiliesContext(ctx context.Context, files []string) (*Plan, error) {
 	return &Plan{Families: families, Live: live, Metadata: metadata}, nil
 }
 
-// ParseFilesContext parses whole families of local transcripts and applies
+// ParseFiles parses whole families of local transcripts and applies
 // Cursor's metadata enrichment and relationships to them. The returned
 // metadata covers only these sessions.
-func ParseFilesContext(ctx context.Context, files []string, live map[string]string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+func ParseFiles(ctx context.Context, files []string, live map[string]string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, nil, err
@@ -68,7 +68,7 @@ func ParseFilesContext(ctx context.Context, files []string, live map[string]stri
 	for _, path := range files {
 		ids = append(ids, IDFromPath(path))
 	}
-	metadata, metadataErr := loadMetadataForSessionsWithLiveContext(ctx, home, canonicalCursorIDs(ids), live)
+	metadata, metadataErr := loadMetadataForSessionsWithLive(ctx, home, canonicalCursorIDs(ids), live)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -77,14 +77,14 @@ func ParseFilesContext(ctx context.Context, files []string, live map[string]stri
 			return nil, metadataErr
 		})
 	}
-	parsed, err := parseTranscriptFilesSourceContext(ctx, vendors.LocalReadSource, files)
+	parsed, err := parseTranscriptFiles(ctx, vendors.LocalReadSource, files)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := applyCursorEnrichmentContext(ctx, parsed, metadata); err != nil {
+	if err := applyCursorEnrichment(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
-	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
+	if err := applyRelationships(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
 	if err := applyCommandOutputs(ctx, home, parsed, metadata); err != nil {

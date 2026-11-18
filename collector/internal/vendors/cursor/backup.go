@@ -87,7 +87,7 @@ func sqliteChangeCounter(path string) uint32 {
 	return binary.BigEndian.Uint32(header[:])
 }
 
-func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, error) {
+func PlanBackup(ctx context.Context, home, rootID string) (*BackupPlan, error) {
 	rootID = canonicalCursorID(rootID)
 	if !transcriptIDPattern.MatchString(rootID) {
 		return nil, vendors.ErrInvalidData
@@ -108,7 +108,7 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	searchPath := filepath.Join(global, "conversation-search.db")
 	trackingPath := filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db")
 	observedPaths := []string{statePath, searchPath, trackingPath}
-	stores, err := cursorChatStoresContext(ctx, home, ids)
+	stores, err := cursorChatStores(ctx, home, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -116,11 +116,11 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 		observedPaths = append(observedPaths, store, filepath.Join(filepath.Dir(store), "meta.json"))
 	}
 	baseline := databaseState(observedPaths)
-	metadata, err := loadMetadataForSessionsWithLiveContext(ctx, home, ids, nil)
+	metadata, err := loadMetadataForSessionsWithLive(ctx, home, ids, nil)
 	if err != nil {
 		return nil, err
 	}
-	family := cursorFamilyFilesWithMetadata(files, rootID, metadata)
+	family := cursorFamilyFiles(files, rootID, metadata)
 	groups := map[string][]string{}
 	for _, path := range family {
 		id := IDFromPath(path)
@@ -186,7 +186,7 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 				}
 			}
 		} else {
-			stores, err := cursorChatStoresContext(ctx, home, []string{id})
+			stores, err := cursorChatStores(ctx, home, []string{id})
 			if err != nil {
 				return nil, vendors.ErrInvalidData
 			}
@@ -223,7 +223,7 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	}
 	sort.Strings(plan.dbPaths)
 	plan.dbPaths = slices.Compact(plan.dbPaths)
-	confirmed, err := loadMetadataForSessionsWithLiveContext(ctx, home, ids, nil)
+	confirmed, err := loadMetadataForSessionsWithLive(ctx, home, ids, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	return plan, nil
 }
 
-func ParseBackupFilesContext(ctx context.Context, source vendors.ReadSource, files map[string][]string, metadata *vendors.SessionMetadata, rows map[string][]BackupRows) ([]*vendors.ParsedSession, error) {
+func ParseBackupFiles(ctx context.Context, source vendors.ReadSource, files map[string][]string, metadata *vendors.SessionMetadata, rows map[string][]BackupRows) ([]*vendors.ParsedSession, error) {
 	ids := make([]string, 0, len(files))
 	for id := range files {
 		ids = append(ids, id)
@@ -247,16 +247,16 @@ func ParseBackupFilesContext(ctx context.Context, source vendors.ReadSource, fil
 	sort.Strings(ids)
 	parsed := make([]*vendors.ParsedSession, 0, len(ids))
 	for _, id := range ids {
-		item, err := parseTranscriptFragmentsSourceContext(ctx, source, files[id])
+		item, err := parseTranscriptFragments(ctx, source, files[id])
 		if err != nil || item == nil || item.Session == nil || item.Session.ID != id {
 			return nil, vendors.ErrInvalidData
 		}
 		parsed = append(parsed, item)
 	}
-	if err := applyCursorEnrichmentContext(ctx, parsed, metadata); err != nil {
+	if err := applyCursorEnrichment(ctx, parsed, metadata); err != nil {
 		return nil, err
 	}
-	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
+	if err := applyRelationships(ctx, parsed, metadata); err != nil {
 		return nil, err
 	}
 	if err := applyBackupCommandOutputs(parsed, metadata, rows); err != nil {
@@ -293,7 +293,7 @@ func strayMayBelongToFamily(projects, path, rootID string, members map[string][]
 type tableFilter struct{ table, where, id string }
 
 func projectDatabase(ctx context.Context, path, label, id string, filters []tableFilter) ([]byte, bool, error) {
-	db, err := openCursorDBContext(ctx, path)
+	db, err := openCursorDB(ctx, path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
@@ -435,7 +435,7 @@ func databaseValue(value any) (sessionbackupv1.DatabaseValue, error) {
 }
 
 func validateChatStore(ctx context.Context, path, id string) error {
-	db, err := openCursorDBContext(ctx, path)
+	db, err := openCursorDB(ctx, path)
 	if err != nil {
 		return err
 	}
