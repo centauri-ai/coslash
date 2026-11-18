@@ -333,12 +333,6 @@ func sessionWithDetailProbes(ctx context.Context, s *session.Session) *session.S
 	return &inputSession
 }
 
-func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (session.SessionSynthesis, error) {
-	return runSynthesisWithInvocation(ctx, s, func(ctx context.Context, _ string, _ int, input string) (RunResult, error) {
-		return runner.Run(ctx, input)
-	})
-}
-
 func runSynthesisWithInvocation(ctx context.Context, s *session.Session, record func(context.Context, string, int, string) (RunResult, error)) (session.SessionSynthesis, error) {
 	const (
 		maxSourceSynthesisRuns      = 32

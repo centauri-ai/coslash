@@ -1044,3 +1044,9 @@ func TestRunSynthesisPreservesRecordedLaterReversal(t *testing.T) {
 		t.Fatalf("reversed choice leaked into keys: %v", result.KeyDecisions)
 	}
 }
+
+func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (session.SessionSynthesis, error) {
+	return runSynthesisWithInvocation(ctx, s, func(ctx context.Context, _ string, _ int, input string) (RunResult, error) {
+		return runner.Run(ctx, input)
+	})
+}
