@@ -3,8 +3,8 @@ import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
 import { waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
 import { isLocalSource, type Session, type SessionIdentity } from '@/pages/coslash/lib/session';
+import { rangeStart, type SessionRange } from '@/pages/coslash/lib/session-range';
 import { MINUTE } from '@/pages/coslash/lib/time';
-import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
@@ -77,8 +77,7 @@ export type SessionsPayload = {
 };
 
 export type SessionsQuery = {
-  localWindow: TimeWindow;
-  remoteWindow: TimeWindow;
+  range: SessionRange;
 };
 
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
@@ -238,7 +237,7 @@ export function useFileDiff(selection: FileSelection | null, retryToken: number)
   };
 }
 
-export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
+export function useSessions({ range }: SessionsQuery) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [machines, setMachines] = useState<MachineFact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -255,8 +254,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     let authenticationFailed = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     // A programmatic refresh reloads in the background, so a failure keeps the
-    // last good list. A new time window or an explicit retry is a foreground load.
-    const key = `${localWindow}|${remoteWindow}|${retryCount}`;
+    // last good list. A new range or an explicit retry is a foreground load.
+    const key = `${range}|${retryCount}`;
 
     const scheduleRefresh = (delay = REFRESH_INTERVAL_MS) => {
       refreshTimer = setTimeout(() => load(true), delay);
@@ -269,10 +268,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         setIsLoading(true);
         setLoadError(null);
       }
-      const path = sessionsRequestPath({
-        localSince: timeWindowStart(localWindow),
-        remoteSince: timeWindowStart(remoteWindow),
-      });
+      const since = rangeStart(range);
+      const path = sessionsRequestPath({ localSince: since, remoteSince: since });
       apiFetch(path, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
@@ -322,7 +319,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
       if (refreshTimer) clearTimeout(refreshTimer);
       controller.abort();
     };
-  }, [localWindow, remoteWindow, retryCount, refreshCount]);
+  }, [range, retryCount, refreshCount]);
 
   const remoteRefreshing = remoteRefreshInProgress(machines);
 
@@ -356,7 +353,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   return {
     sessions,
     machines,
-    isLoading: isLoading || loadedWindowKey !== `${localWindow}|${remoteWindow}|${retryCount}`,
+    isLoading: isLoading || loadedWindowKey !== `${range}|${retryCount}`,
     loadError,
     sessionsVersion,
     synthesisCostVersion,
