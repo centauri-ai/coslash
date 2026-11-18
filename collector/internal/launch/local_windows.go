@@ -335,14 +335,6 @@ func localCLIExecutable(agent, fallback string) string {
 	return fallback
 }
 
-func cursorReviewCommand(prompt string) reviewCommandSpec {
-	path := localCLIExecutable(vendors.AgentCursor, settings.CursorExecutable())
-	if strings.HasSuffix(strings.ToLower(path), ".ps1") {
-		return reviewCommandSpec{bin: "powershell.exe", args: append(powerShellCommandArguments(path, false), "--print", "--mode", "ask"), stdin: prompt}
-	}
-	return reviewCommandSpec{bin: path, args: []string{"--print", "--mode", "ask"}, stdin: prompt}
-}
-
 func interactivePromptCommand(agent, cli, handoff, prompt string) (string, string, error) {
 	if agent != vendors.AgentGrok {
 		return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unsupported on Windows")
