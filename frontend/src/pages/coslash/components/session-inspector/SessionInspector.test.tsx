@@ -14,7 +14,7 @@ import {
   SessionInspectorTitle,
   SessionModelUsage,
 } from '@/pages/coslash/components/session-inspector/InspectorHeader';
-import { inspectorWidthForKey } from '@/pages/coslash/components/SessionInspector';
+import { inspectorWidthForKey } from '@/pages/coslash/components/session-inspector/use-inspector-width';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
 import {
