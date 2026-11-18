@@ -28,12 +28,6 @@ import {
   type Group,
 } from '@/pages/coslash/lib/detected-groups';
 import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
-import {
-  MACHINE_TONE_DOT,
-  machineRetryable,
-  machineStatusText,
-  machineTone,
-} from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import type { ReviewerOption, ReviewIndex } from '@/pages/coslash/lib/review';
 import {
@@ -72,6 +66,7 @@ import './coslash-layout.css';
 import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
 import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
 import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
+import { MachineDot } from '@/pages/coslash/components/session-list/MachineDot';
 import { Rollup } from '@/pages/coslash/components/session-list/Rollup';
 import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
 import {
@@ -113,45 +108,6 @@ function ViewSwitch({ view, onChange }: { view: SessionView; onChange: (view: Se
         </button>
       ))}
     </div>
-  );
-}
-
-function MachineDot({
-  machine,
-  onRetry,
-  retrying,
-}: {
-  machine: MachineFact;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  const tone = machineTone(machine);
-  const retryable = machineRetryable(machine) && !retrying;
-  const status = machineStatusText(machine);
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className={cn('size-[7px] shrink-0 rounded-full', MACHINE_TONE_DOT[tone])}
-          role="img"
-          aria-label={status}
-        />
-      </TooltipTrigger>
-      {/* Portaled outside the shell, so the tokens have to be re-scoped here. */}
-      <TooltipContent className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line [&_svg]:bg-coslash-surface [&_svg]:fill-coslash-surface flex-col items-start gap-1 border">
-        <span>{status}</span>
-        {retrying && <span className="text-coslash-muted">Retrying…</span>}
-        {retryable && (
-          <button
-            type="button"
-            className="cursor-pointer font-semibold underline underline-offset-2"
-            onClick={onRetry}
-          >
-            Retry the connection
-          </button>
-        )}
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
