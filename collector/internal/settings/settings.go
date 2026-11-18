@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/grokcli"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -102,9 +103,8 @@ type State struct {
 }
 
 type Store struct {
-	mu     sync.RWMutex
-	state  State
-	rename func(string, string) error
+	mu    sync.RWMutex
+	state State
 }
 
 func Home() string {
@@ -441,7 +441,7 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 }
 
 func Open() *Store {
-	return &Store{state: load(), rename: os.Rename}
+	return &Store{state: load()}
 }
 
 func load() State {
@@ -503,28 +503,7 @@ func (store *Store) Save(config Config) error {
 	if err := protectSettingsDirectory(Home()); err != nil {
 		return fmt.Errorf("secure coSlash directory: %w", err)
 	}
-	temp, err := os.CreateTemp(Home(), ".settings-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create settings temporary file: %w", err)
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if err := protectSettingsFile(tempPath, temp); err != nil {
-		temp.Close()
-		return fmt.Errorf("secure settings temporary file: %w", err)
-	}
-	if _, err := temp.Write(data); err != nil {
-		temp.Close()
-		return fmt.Errorf("write settings temporary file: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		temp.Close()
-		return fmt.Errorf("sync settings temporary file: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close settings temporary file: %w", err)
-	}
-	if err := store.rename(tempPath, Path()); err != nil {
+	if err := atomicfile.Write(Path(), data, 0o600, protectSettingsFile); err != nil {
 		return fmt.Errorf("replace settings.json: %w", err)
 	}
 	store.mu.Lock()
