@@ -22,16 +22,17 @@ type SourceHealth struct {
 	Err          error
 }
 
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
+// ContextReader stops reading from Reader once Ctx is done.
+type ContextReader struct {
+	Ctx    context.Context
+	Reader io.Reader
 }
 
-func (reader contextReader) Read(destination []byte) (int, error) {
-	if err := reader.ctx.Err(); err != nil {
+func (reader ContextReader) Read(destination []byte) (int, error) {
+	if err := reader.Ctx.Err(); err != nil {
 		return 0, err
 	}
-	return reader.reader.Read(destination)
+	return reader.Reader.Read(destination)
 }
 
 // ParseFiles parses concurrently while preserving source order.

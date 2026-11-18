@@ -110,7 +110,7 @@ func (manager *Manager) captureGrok(ctx context.Context, staging string, selecti
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, "", true)
 		}
 		hash := sha256.New()
-		n, readErr := io.Copy(hash, io.LimitReader(&contextReader{ctx: ctx, reader: file}, sessionbackupv1.MaxArtifactBytes+1))
+		n, readErr := io.Copy(hash, io.LimitReader(vendors.ContextReader{Ctx: ctx, Reader: file}, sessionbackupv1.MaxArtifactBytes+1))
 		closeErr := file.Close()
 		evidence := writes.evidence["members/"+input.memberID+"/raw/"+filepath.ToSlash(input.relative)]
 		if readErr != nil || closeErr != nil || n != evidence.ByteLength || hex.EncodeToString(hash.Sum(nil)) != evidence.SHA256 {
@@ -521,7 +521,7 @@ func GrokSourceRevision(ctx context.Context, family grok.FamilyRef) (revision st
 		}
 		hash := sha256.New()
 		maximum := min(sessionbackupv1.MaxArtifactBytes, sessionbackupv1.MaxTotalBytes-total)
-		n, readErr := io.Copy(hash, io.LimitReader(&contextReader{ctx: ctx, reader: file}, maximum+1))
+		n, readErr := io.Copy(hash, io.LimitReader(vendors.ContextReader{Ctx: ctx, Reader: file}, maximum+1))
 		closeErr := file.Close()
 		if err := ctx.Err(); err != nil {
 			return "", err
