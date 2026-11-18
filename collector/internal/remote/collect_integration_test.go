@@ -922,7 +922,7 @@ func TestCollectIncrementalNeverTombstonesOnHardVendorFailure(t *testing.T) {
 	}
 
 	// Simulate a codex root directory that has become unreadable: any file
-	// under it now looks like a directory to lstat, so FilesSource fails.
+	// under it now looks like a directory to lstat, so FilesSourceContext fails.
 	fs.mu.Lock()
 	fs.files[path.Join(fakeHome, ".codex/sessions")] = &fakeEntry{isDir: true, symlink: true}
 	fs.mu.Unlock()
