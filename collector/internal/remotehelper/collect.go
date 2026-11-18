@@ -382,7 +382,7 @@ func publishFamily(
 		var fullErr error
 		servable := false
 		if request.SourceID != "" {
-			complete, servable, fullErr = fullsessionrecord.FromParsedFamilyWithServabilityContext(
+			complete, servable, fullErr = fullsessionrecord.FromParsedFamilyWithServability(
 				ctx, item.id, request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata,
 			)
 			if ctx.Err() != nil {
@@ -397,7 +397,11 @@ func publishFamily(
 			}
 		}
 		if request.SourceID == "" {
-			servable = fullsessionrecord.IsServableFamily(item.id, scanned.vendor, scanned.source, sessions, scanned.metadata)
+			var servableErr error
+			servable, servableErr = fullsessionrecord.IsServableFamily(ctx, item.id, scanned.vendor, scanned.source, sessions, scanned.metadata)
+			if servableErr != nil {
+				return parser, nil
+			}
 		}
 		if (request.SourceID == "" || fullErr != nil) && !servable {
 			delete(scanned.scan.families, item.id)

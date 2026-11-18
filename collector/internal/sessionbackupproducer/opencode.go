@@ -41,7 +41,7 @@ func (manager *Manager) captureOpenCode(ctx context.Context, staging string, sel
 	if !captured.Stable(ctx) {
 		return nil, captureFailure(backup.ProblemUnstable, backup.KindRawMetadataRows, true)
 	}
-	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentOpenCode, vendors.LocalReadSource, captured.Parsed, vendors.EmptySessionMetadata())
+	records, err := fullsessionrecord.FromParsedFamily(ctx, selection.SourceID, vendors.AgentOpenCode, vendors.LocalReadSource, captured.Parsed, vendors.EmptySessionMetadata())
 	if err != nil {
 		return nil, captureFailure(backup.ProblemInvalid, backup.KindParsedSessionRecord, false)
 	}

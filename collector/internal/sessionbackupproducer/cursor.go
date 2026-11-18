@@ -117,7 +117,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 	if err != nil || len(parsed) != len(plan.Files) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
-	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentCursor, frozenSource, parsed, plan.Metadata)
+	records, err := fullsessionrecord.FromParsedFamily(ctx, selection.SourceID, vendors.AgentCursor, frozenSource, parsed, plan.Metadata)
 	if err != nil || len(records) != len(plan.Files) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
