@@ -13,8 +13,6 @@
     "lint": "oxlint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "fixture:c02": "node scripts/c02-fixture-server.mjs",
-    "fixture:c03": "node scripts/c03-fixture-server.mjs",
     "test": "vitest run",
     "qa:journeys": "playwright test --config test/qa/playwright.config.mjs",
     "preview": "vite preview"
