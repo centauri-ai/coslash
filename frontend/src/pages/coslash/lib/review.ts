@@ -75,12 +75,10 @@ export function reviewerOptionsForOrigin(
 }
 
 export function reviewActionVisible(
-  session: { sourceId: string; cwd: string; launchable?: boolean },
+  session: { sourceId: string; cwd: string; launchable: boolean },
   reviewSession: boolean,
 ): boolean {
-  return (
-    !reviewSession && (isLocalSession(session) ? session.cwd.trim() !== '' : session.launchable === true)
-  );
+  return !reviewSession && (isLocalSession(session) ? session.cwd.trim() !== '' : session.launchable);
 }
 
 function reviewerRank(reviewer: string, originAgent: string): number {

@@ -1896,7 +1896,7 @@ export function SessionInspector({
     detail != null &&
     !isLocalSession(detail) &&
     detail.cwd.trim() !== '' &&
-    detail.launchable !== false &&
+    detail.launchable &&
     machines.some(
       (machine) =>
         machine.sourceId === detail.sourceId && (machine.state === 'ok' || machine.state === 'limited'),

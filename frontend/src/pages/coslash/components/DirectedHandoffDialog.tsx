@@ -39,7 +39,7 @@ export function DirectedHandoffDialog({
   const freshHint =
     disabledHint ??
     freshLaunchDisabledHint(source) ??
-    (!isLocalSession(source) && (source.displayStale || source.launchable === false)
+    (!isLocalSession(source) && (source.displayStale || !source.launchable)
       ? 'This remote session is unavailable for launch.'
       : undefined);
 

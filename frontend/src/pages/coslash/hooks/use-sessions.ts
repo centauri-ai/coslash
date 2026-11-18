@@ -2,12 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
 import { waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
-import {
-  isLocalSource,
-  withLocalSourceDefaults,
-  type Session,
-  type SessionIdentity,
-} from '@/pages/coslash/lib/session';
+import { isLocalSource, type Session, type SessionIdentity } from '@/pages/coslash/lib/session';
 import { MINUTE } from '@/pages/coslash/lib/time';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
@@ -87,22 +82,10 @@ export type SessionsQuery = {
 };
 
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
-  if (Array.isArray(body)) {
-    return {
-      sessions: body.map(decodeSession),
-      machines: [],
-    };
-  }
   if (body == null || typeof body !== 'object') {
     throw new Error('Invalid sessions response');
   }
   const sessions = (body as { sessions?: unknown }).sessions;
-  if (sessions == null) {
-    return {
-      sessions: [],
-      machines: machinesFromBody(body),
-    };
-  }
   if (!Array.isArray(sessions)) {
     throw new Error('Invalid sessions response');
   }
@@ -121,39 +104,13 @@ export async function decodeSessionsResponseWithCostVersion(response: Response, 
   };
 }
 
-function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
-  return Array.isArray(value) ? value : [];
-}
-
-// Older caches and sparse remote facts can contain null collection fields.
-// Normalize at the API boundary so one incomplete session cannot crash the
-// whole board while the backend is being upgraded or refreshed.
+// The collector sends every Session field and encodes empty collections as
+// [] or {} (sessionWithJSONCollections in collector/cmd/coslash).
 export function decodeSession(value: unknown): Session {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Invalid session response');
   }
-  const raw = value as Session;
-  const synthesis =
-    raw.synthesis == null
-      ? null
-      : {
-          ...raw.synthesis,
-          goals: arrayOrEmpty(raw.synthesis.goals),
-          keyDecisions: arrayOrEmpty(raw.synthesis.keyDecisions),
-        };
-  return {
-    ...withLocalSourceDefaults(raw),
-    tokens: raw.tokens != null && typeof raw.tokens === 'object' ? raw.tokens : {},
-    observedModels: arrayOrEmpty(raw.observedModels),
-    unpricedModels: arrayOrEmpty(raw.unpricedModels),
-    subagents: arrayOrEmpty(raw.subagents),
-    commands: arrayOrEmpty(raw.commands),
-    commits: arrayOrEmpty(raw.commits),
-    todos: arrayOrEmpty(raw.todos),
-    digest: arrayOrEmpty(raw.digest),
-    fileEdits: arrayOrEmpty(raw.fileEdits),
-    synthesis,
-  };
+  return value as Session;
 }
 
 function machinesFromBody(body: object): MachineFact[] {

@@ -14,7 +14,7 @@ import {
   useSessions,
 } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
-import { LOCAL_SOURCE_ID, withLocalSourceDefaults, type Session } from '@/pages/coslash/lib/session';
+import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import type { TimeWindow } from '@/pages/coslash/lib/time-window';
 
@@ -43,70 +43,16 @@ function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
 }
 
 describe('decodeSessionsResponse', () => {
-  it('accepts the legacy bare array with local source defaults', () => {
-    const {
-      sourceId: _s,
-      sourceLabel: _l,
-      eligibleForAggregates: _e,
-      displayStale: _d,
-      sourceClass: _sc,
-      logicalSessionId: _li,
-      revision: _r,
-      completion: _c,
-      privacy: _p,
-      shareEligibility: _se,
-      ...legacy
-    } = sampleSession('a');
-    expect(decodeSessionsResponse([legacy])).toEqual({
-      sessions: [withLocalSourceDefaults(legacy)],
-      machines: [],
-    });
-  });
-
   it('accepts the source-aware envelope and preserves machines', () => {
     const sessions = [sampleSession('a'), sampleSession('b', 'r_0123456789abcdef')];
     const machines = [{ sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true }];
-    expect(decodeSessionsResponse({ sessions, machines })).toEqual({
-      sessions: sessions.map(withLocalSourceDefaults),
-      machines,
-    });
-  });
-
-  it('normalizes null remote collections so sparse facts cannot crash the board', () => {
-    const sparse = {
-      ...sampleSession('remote', 'r_0123456789abcdef'),
-      tokens: null,
-      observedModels: null,
-      unpricedModels: null,
-      subagents: null,
-      commands: null,
-      commits: null,
-      todos: null,
-      digest: null,
-      fileEdits: null,
-    };
-    const decoded = decodeSessionsResponse({ sessions: [sparse], machines: [] }).sessions[0];
-    expect(decoded).toMatchObject({
-      tokens: {},
-      observedModels: [],
-      unpricedModels: [],
-      subagents: [],
-      commands: [],
-      commits: [],
-      todos: [],
-      digest: [],
-      fileEdits: [],
-    });
-  });
-
-  it('treats a null or missing sessions list as empty', () => {
-    const machines = [{ sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true }];
-    expect(decodeSessionsResponse({ sessions: null, machines })).toEqual({ sessions: [], machines });
-    expect(decodeSessionsResponse({ machines })).toEqual({ sessions: [], machines });
+    expect(decodeSessionsResponse({ sessions, machines })).toEqual({ sessions, machines });
   });
 
   it('rejects invalid bodies and unknown machine enums', () => {
     expect(() => decodeSessionsResponse(null)).toThrow('Invalid sessions response');
+    expect(() => decodeSessionsResponse([])).toThrow('Invalid sessions response');
+    expect(() => decodeSessionsResponse({ machines: [] })).toThrow('Invalid sessions response');
     expect(() => decodeSessionsResponse({ sessions: 'nope', machines: [] })).toThrow(
       'Invalid sessions response',
     );

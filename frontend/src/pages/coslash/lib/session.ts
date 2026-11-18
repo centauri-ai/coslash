@@ -47,8 +47,6 @@ export function subagentParentName(
 }
 
 export const LOCAL_SOURCE_ID = 'local';
-const LOCAL_SOURCE_LABEL = 'Local Mac';
-const SSH_SOURCE_LABEL = 'SSH workspace';
 
 export type SourceClass = 'local' | 'ssh_workspace';
 type SessionCompletion = 'complete' | 'running' | 'incomplete';
@@ -62,19 +60,19 @@ export type Session = {
   hubSyncFailureCode?: string;
   sourceLabel: string;
   /** Stable across a remote alias rename. Never contains host or path data. */
-  sourceClass?: SourceClass;
-  logicalSessionId?: string;
-  revision?: number;
+  sourceClass: SourceClass;
+  logicalSessionId: string;
+  revision: number;
   /** Revision guard used by detail and change-body reads. */
   detailRevision: string;
   /** Immutable full-record revision when this row supports full-v2 sharing. */
   fullRevision?: string;
-  completion?: SessionCompletion;
-  privacy?: SessionPrivacy;
-  shareEligibility?: ShareEligibility;
+  completion: SessionCompletion;
+  privacy: SessionPrivacy;
+  shareEligibility: ShareEligibility;
   eligibleForAggregates: boolean;
   displayStale: boolean;
-  launchable?: boolean;
+  launchable: boolean;
   launchBlockReason?: 'missing_details' | 'oversized';
   lastSeenStatus?: string;
   agent: string;
@@ -140,39 +138,6 @@ export function isLocalSession(session: Pick<Session, 'sourceId'>): boolean {
   return isLocalSource(session.sourceId);
 }
 
-export function sessionLogicalId(
-  session: Pick<Session, 'sourceId' | 'agent' | 'id' | 'logicalSessionId'>,
-): string {
-  return session.logicalSessionId ?? `${session.sourceId}:${session.agent}:${session.id}`;
-}
-
-export function sessionRevision(session: Pick<Session, 'mtime' | 'revision'>): number {
-  return session.revision ?? session.mtime;
-}
-
-export function sessionShareEligibility(
-  session: Pick<
-    Session,
-    'shareEligibility' | 'repoLocalOnly' | 'status' | 'displayStale' | 'eligibleForAggregates'
-  >,
-): ShareEligibility {
-  if (session.shareEligibility != null) return session.shareEligibility;
-  if (session.repoLocalOnly) return 'private';
-  if (session.displayStale) return 'stale';
-  if (!session.eligibleForAggregates) return 'incomplete';
-  if (session.status != null) return 'running';
-  return 'eligible';
-}
-
-export function isEligibleForSharing(
-  session: Pick<
-    Session,
-    'shareEligibility' | 'repoLocalOnly' | 'status' | 'displayStale' | 'eligibleForAggregates'
-  >,
-): boolean {
-  return sessionShareEligibility(session) === 'eligible';
-}
-
 export function sessionsForAggregates<T extends Pick<Session, 'eligibleForAggregates'>>(
   sessions: readonly T[],
 ): T[] {
@@ -199,55 +164,6 @@ export function sessionLocationFact(session: Pick<Session, 'repo' | 'repoLocalOn
   return environmentFact(
     session.repoLocalOnly ? session.cwd.trim() || session.repo : session.repo?.trim() || session.cwd,
   );
-}
-
-export function withLocalSourceDefaults<T extends { agent: string; id: string }>(
-  session: T,
-): T &
-  Pick<
-    Session,
-    | 'sourceId'
-    | 'sourceLabel'
-    | 'sourceClass'
-    | 'logicalSessionId'
-    | 'revision'
-    | 'detailRevision'
-    | 'completion'
-    | 'privacy'
-    | 'shareEligibility'
-    | 'eligibleForAggregates'
-    | 'displayStale'
-  > {
-  const record = session as T & Partial<Session>;
-  const sourceId = record.sourceId ?? LOCAL_SOURCE_ID;
-  const sourceClass = record.sourceClass ?? (sourceId === LOCAL_SOURCE_ID ? 'local' : 'ssh_workspace');
-  const sourceLabel =
-    sourceClass === 'ssh_workspace' ? SSH_SOURCE_LABEL : (record.sourceLabel ?? LOCAL_SOURCE_LABEL);
-  const eligibleForAggregates = record.eligibleForAggregates ?? true;
-  const displayStale = record.displayStale ?? false;
-  const shareEligibility = sessionShareEligibility({
-    shareEligibility: record.shareEligibility,
-    repoLocalOnly: record.repoLocalOnly ?? false,
-    status: record.status ?? null,
-    displayStale,
-    eligibleForAggregates,
-  });
-  return {
-    ...session,
-    sourceId,
-    sourceLabel,
-    sourceClass,
-    logicalSessionId: record.logicalSessionId ?? `${sourceId}:${session.agent}:${session.id}`,
-    revision: record.revision ?? record.mtime ?? 0,
-    detailRevision: record.detailRevision ?? String(record.revision ?? record.mtime ?? 0),
-    completion:
-      record.completion ??
-      (shareEligibility === 'running' ? 'running' : eligibleForAggregates ? 'complete' : 'incomplete'),
-    privacy: record.privacy ?? (record.repoLocalOnly ? 'private' : 'shareable'),
-    shareEligibility,
-    eligibleForAggregates,
-    displayStale,
-  };
 }
 
 type FileEdit = {
@@ -523,10 +439,7 @@ export function resumeDisabled(
   if (session.agent === 'pi' && !isLocalSession(session)) return true;
   return isLocalSession(session)
     ? disabledHint != null
-    : session.status === 'busy' ||
-        session.status === 'idle' ||
-        session.displayStale ||
-        session.launchable === false;
+    : session.status === 'busy' || session.status === 'idle' || session.displayStale || !session.launchable;
 }
 
 export function remoteLaunchDisabledHint(
