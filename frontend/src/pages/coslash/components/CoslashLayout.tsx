@@ -103,7 +103,6 @@ type Group = {
   label: string;
   kind: 'Repository' | 'Folder' | 'No location';
   basis: string;
-  legacyIds: string[];
 };
 type FacetKey = 'status' | 'machine' | 'agent' | 'group';
 type FacetOption = {
@@ -230,30 +229,6 @@ function folderRoot(cwd: string, repo: string): string {
   return depth === -1 ? cwd : parts.slice(0, depth + 1).join('/');
 }
 
-/** The previous per-session group ID, retained so saved filters keep matching after regrouping. */
-function legacyGroupIds(session: Session, currentId: string): string[] {
-  const repo = session.repo?.trim() ?? '';
-  if (repo && !session.repoLocalOnly) return [];
-
-  let legacyId: string | null = null;
-  if (repo) {
-    const parts = session.cwd.trim().split('/');
-    const depth = parts.lastIndexOf(repo);
-    const root = depth === -1 ? session.cwd.trim() || repo : parts.slice(0, depth + 1).join('/');
-    legacyId = `folder:${session.sourceId}:${root.toLowerCase()}`;
-  } else {
-    const cwd = session.cwd.trim();
-    if (cwd && !isLocalSession(session)) {
-      legacyId = `folder:${session.sourceId}:${cwd}`;
-    } else if (cwd) {
-      const parts = cwd.split('/').filter(Boolean);
-      const parent = parts.slice(0, -1).join('/') || parts.join('/');
-      legacyId = `folder:${session.sourceId}:${parent}`;
-    }
-  }
-  return legacyId && legacyId !== currentId ? [legacyId] : [];
-}
-
 /** `~/…` inside a recognizable home folder (`~` for home itself), else the full path, as on the Hub. */
 function homeRelativeLabel(path: string): string {
   const parts = path.split('/').filter(Boolean);
@@ -279,20 +254,17 @@ function detectedGroup(session: Session): Group {
       label,
       kind: 'Repository',
       basis: repo,
-      legacyIds: [],
     };
   }
   const cwd = session.cwd.trim().replaceAll('\\', '/');
   const root = cwd ? folderRoot(cwd, repo) : repo;
   if (root) {
     const label = homeRelativeLabel(root);
-    const id = `folder:${session.sourceId}:${isLocalSession(session) ? root.toLowerCase() : root}`;
     return {
-      id,
+      id: `folder:${session.sourceId}:${isLocalSession(session) ? root.toLowerCase() : root}`,
       label,
       kind: 'Folder',
       basis: label,
-      legacyIds: legacyGroupIds(session, id),
     };
   }
   return {
@@ -301,7 +273,6 @@ function detectedGroup(session: Session): Group {
     label: 'No location',
     kind: 'No location',
     basis: 'No repository or folder was recorded',
-    legacyIds: [],
   };
 }
 
@@ -314,12 +285,7 @@ function matchesFacets(
   const { statusFilters, groupFilters, machineFilters, agentFilters } = preferences;
   if (skip !== 'status' && statusFilters.length > 0 && !statusFilters.includes(boardStatusKey(session)))
     return false;
-  if (
-    skip !== 'group' &&
-    groupFilters.length > 0 &&
-    !groupFilters.some((filter) => filter === group.id || group.legacyIds.includes(filter))
-  )
-    return false;
+  if (skip !== 'group' && groupFilters.length > 0 && !groupFilters.includes(group.id)) return false;
   if (skip !== 'machine' && machineFilters.length > 0 && !machineFilters.includes(session.sourceId))
     return false;
   if (skip !== 'agent' && agentFilters.length > 0 && !agentFilters.includes(session.agent)) return false;
@@ -1105,23 +1071,13 @@ export function CoslashLayout({
 
   const sessionGroups = useMemo(() => {
     const groupsById = new Map<string, Group>();
-    const legacyIdsByGroup = new Map<string, Set<string>>();
-    const sessionGroupIds: [string, string][] = [];
-    for (const session of sessions) {
-      const group = detectedGroup(session);
-      const existing = groupsById.has(group.id);
-      if (existing) {
-        const legacyIds = legacyIdsByGroup.get(group.id)!;
-        for (const legacyId of group.legacyIds) legacyIds.add(legacyId);
-      } else {
-        groupsById.set(group.id, group);
-        legacyIdsByGroup.set(group.id, new Set(group.legacyIds));
-      }
-      sessionGroupIds.push([sessionKey(session), group.id]);
-    }
-    for (const [id, group] of groupsById) group.legacyIds = [...legacyIdsByGroup.get(id)!];
     const result = new Map<string, Group>();
-    for (const [key, id] of sessionGroupIds) result.set(key, groupsById.get(id)!);
+    for (const session of sessions) {
+      const detected = detectedGroup(session);
+      const group = groupsById.get(detected.id) ?? detected;
+      groupsById.set(group.id, group);
+      result.set(sessionKey(session), group);
+    }
     return result;
   }, [sessions]);
   const groups = useMemo(
@@ -1183,15 +1139,12 @@ export function CoslashLayout({
         ? preferences.statusFilters.filter((value) => value !== status)
         : [...preferences.statusFilters, status],
     });
-  const toggleGroup = (group: Group) => {
-    const ids = new Set([group.id, ...group.legacyIds]);
-    const selected = preferences.groupFilters.some((value) => ids.has(value));
+  const toggleGroup = (group: Group) =>
     patchPreferences({
-      groupFilters: selected
-        ? preferences.groupFilters.filter((value) => !ids.has(value))
+      groupFilters: preferences.groupFilters.includes(group.id)
+        ? preferences.groupFilters.filter((value) => value !== group.id)
         : [...preferences.groupFilters, group.id],
     });
-  };
   const toggleMachine = (id: string) =>
     patchPreferences({
       machineFilters: preferences.machineFilters.includes(id)
@@ -1302,9 +1255,7 @@ export function CoslashLayout({
         id: group.id,
         label: group.label,
         count: facetCounts.group.get(group.id) ?? 0,
-        selected: preferences.groupFilters.some(
-          (filter) => filter === group.id || group.legacyIds.includes(filter),
-        ),
+        selected: preferences.groupFilters.includes(group.id),
         onClick: () => toggleGroup(group),
       }));
   const groupSections = GROUP_KINDS.map((kind) => ({ kind, options: groupOptions(kind) })).filter(
@@ -1323,7 +1274,7 @@ export function CoslashLayout({
     ...preferences.groupFilters.map((value) => ({
       kind: 'Group',
       value,
-      label: groups.find((group) => group.id === value || group.legacyIds.includes(value))?.label ?? value,
+      label: groups.find((group) => group.id === value)?.label ?? value,
       remove: () =>
         patchPreferences({ groupFilters: preferences.groupFilters.filter((item) => item !== value) }),
     })),
