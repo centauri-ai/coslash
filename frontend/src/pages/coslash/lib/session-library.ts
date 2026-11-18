@@ -1,46 +1,4 @@
-import { isLocalSession, type Session, type ShareEligibility, type SourceClass } from './session';
-
-export type SessionLibraryFilters = {
-  search: string;
-  repository: string;
-  source: 'all' | SourceClass;
-  shareState: 'all' | ShareEligibility;
-};
-
-export const ALL_REPOSITORIES = 'all-repositories';
-
-const sessionSearchDocuments = new WeakMap<Session, string>();
-const searchableDigestCategories = new Set(['first_prompt', 'user', 'question', 'recap', 'plan']);
-
-function sessionSearchDocument(session: Session): string {
-  const cached = sessionSearchDocuments.get(session);
-  if (cached != null) return cached;
-
-  const fields: (string | null | undefined)[] = [session.name, session.repo, session.branch, session.agent];
-  if (isLocalSession(session)) {
-    fields.push(session.firstPrompt, session.summary, session.declaredGoal);
-    for (const entry of session.digest) {
-      if (searchableDigestCategories.has(entry.category)) {
-        fields.push(entry.description, entry.answer);
-      }
-    }
-    if (session.synthesis != null) {
-      fields.push(
-        ...session.synthesis.goals,
-        session.synthesis.outcome,
-        ...session.synthesis.keyDecisions,
-        session.synthesis.nextStep,
-      );
-    }
-  }
-
-  const document = fields
-    .filter((value): value is string => value != null)
-    .join('\n')
-    .toLowerCase();
-  sessionSearchDocuments.set(session, document);
-  return document;
-}
+import { type Session } from './session';
 
 /**
  * A source may return a cached older revision beside a freshly collected
@@ -60,18 +18,4 @@ export function libraryRepositories(sessions: readonly Pick<Session, 'repo'>[]):
   return [...new Set(sessions.flatMap((session) => (session.repo?.trim() ? [session.repo] : [])))].sort(
     (a, b) => a.localeCompare(b),
   );
-}
-
-export function filterSessionLibrary<T extends Session>(
-  sessions: readonly T[],
-  filters: SessionLibraryFilters,
-): T[] {
-  const search = filters.search.trim().toLowerCase();
-  return sessions.filter((session) => {
-    if (filters.repository !== ALL_REPOSITORIES && session.repo !== filters.repository) return false;
-    if (filters.source !== 'all' && session.sourceClass !== filters.source) return false;
-    if (filters.shareState !== 'all' && session.shareEligibility !== filters.shareState) return false;
-    if (!search) return true;
-    return sessionSearchDocument(session).includes(search);
-  });
 }
