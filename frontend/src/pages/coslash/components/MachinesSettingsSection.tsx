@@ -356,7 +356,7 @@ export function MachinesSettingsSection({
         const hint =
           test.actionRequired === 'verify_host_key'
             ? ` Verify the identity and host key for ${sshAlias} in Terminal before trying again.`
-            : test.reason === 'connection_failed' || test.reason === 'host_key_failed'
+            : test.reason === 'connection_failed'
               ? ` Run ssh ${sshAlias} once in Terminal, complete any prompt, then try again.`
               : '';
         setMessage(`${testResultCopy(test)}.${hint}`);

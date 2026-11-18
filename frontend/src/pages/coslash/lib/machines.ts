@@ -21,7 +21,6 @@ export const MACHINE_REASONS = [
   'history_truncated',
   'refresh_timeout',
   'authentication_failed',
-  'host_key_failed',
   'host_key_confirmation_required',
   'host_key_changed',
   'connection_failed',
