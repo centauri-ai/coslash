@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
@@ -640,19 +641,7 @@ func writeUpdateOutcome(id, outcome string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(dir, ".result-*")
-	if err != nil {
-		return err
-	}
-	tmp := file.Name()
-	defer os.Remove(tmp)
-	_, writeErr := file.WriteString(outcome)
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(dir, id))
+	return atomicfile.Write(filepath.Join(dir, id), []byte(outcome), 0o600, nil)
 }
 
 func consumeUpdateFailure(queue *syncv4.Queue) bool {

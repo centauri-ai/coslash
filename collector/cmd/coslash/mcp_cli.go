@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/tailscale/hujson"
+
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 )
 
 const (
@@ -277,21 +279,5 @@ func writeMCPJSONCConfig(path, endpoint string) error {
 }
 
 func replaceMCPConfig(path string, data []byte) error {
-	file, err := os.CreateTemp(filepath.Dir(path), ".mcp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	if err := file.Chmod(0o600); err != nil {
-		file.Close()
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), path)
+	return atomicfile.Write(path, data, 0o600, nil)
 }
