@@ -43,7 +43,7 @@ func TestPlanFamiliesRejectsAmbiguousLineage(t *testing.T) {
 				writeSummary(t, dirs[0], `{"info":{"id":"a"},"chat_format_version":1,"session_kind":"subagent","parent_session_id":"b"}`)
 				writeSummary(t, dirs[1], `{"info":{"id":"b"},"chat_format_version":1,"session_kind":"subagent","parent_session_id":"a"}`)
 			}
-			if _, err := PlanFamiliesContext(t.Context(), dirs); err == nil {
+			if _, err := PlanFamilies(t.Context(), dirs); err == nil {
 				t.Fatal("ambiguous family accepted")
 			}
 		})
@@ -67,7 +67,7 @@ func TestPlanFamiliesKeepsNestedChildrenAndIndependentForks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	refs, err := PlanFamiliesContext(t.Context(), append(dirs, dirs[0]))
+	refs, err := PlanFamilies(t.Context(), append(dirs, dirs[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,15 +85,15 @@ func TestPlanFamiliesKeepsNestedChildrenAndIndependentForks(t *testing.T) {
 		if ref.ID != "root" {
 			continue
 		}
-		selected, _, err := ParseFamiliesContext(t.Context(), []FamilyRef{ref})
+		selected, _, err := ParseFamilies(t.Context(), []FamilyRef{ref})
 		if err != nil || len(selected) != 3 || selected[0].Session.ID != "root" {
 			t.Fatalf("selected family=%+v err=%v", selected, err)
 		}
 	}
-	if _, _, err := ParseFamiliesContext(t.Context(), []FamilyRef{{ID: "root", Dirs: []string{dirs[0]}}}); err == nil {
+	if _, _, err := ParseFamilies(t.Context(), []FamilyRef{{ID: "root", Dirs: []string{dirs[0]}}}); err == nil {
 		t.Fatal("unverified missing children accepted")
 	}
-	parsed, _, err := ParseDirsContext(t.Context(), dirs)
+	parsed, _, err := parseDirs(t.Context(), dirs, nil)
 	if err != nil || len(parsed) != 5 {
 		t.Fatalf("parsed=%v err=%v", parsed, err)
 	}
@@ -109,13 +109,13 @@ func TestPlanFamiliesKeepsNestedChildrenAndIndependentForks(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := PlanFamiliesContext(ctx, dirs); !errors.Is(err, context.Canceled) {
+	if _, err := PlanFamilies(ctx, dirs); !errors.Is(err, context.Canceled) {
 		t.Fatalf("plan cancel=%v", err)
 	}
-	if _, _, err := ParseFamiliesContext(ctx, refs); !errors.Is(err, context.Canceled) {
+	if _, _, err := ParseFamilies(ctx, refs); !errors.Is(err, context.Canceled) {
 		t.Fatalf("planned parse cancel=%v", err)
 	}
-	if _, _, err := ParseDirsContext(ctx, dirs); !errors.Is(err, context.Canceled) {
+	if _, _, err := parseDirs(ctx, dirs, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("parse cancel=%v", err)
 	}
 }
@@ -126,14 +126,14 @@ func TestParseDirsUsesSuppliedFixtureWithoutRootRescan(t *testing.T) {
 	dir := filepath.Join(home, "sessions", "group", "finished")
 	copyFixture(t, filepath.Join("testdata", "finished"), dir)
 	writeSummary(t, filepath.Join(home, "sessions", "group", "unrelated"), `{`)
-	parsed, _, err := ParseDirsContext(t.Context(), []string{dir})
+	parsed, _, err := parseDirs(t.Context(), []string{dir}, nil)
 	if err != nil || len(parsed) != 1 || parsed[0].Session.ID != "01a0f48a-42bb-7802-b584-f5def46d1e75" || len(parsed[0].Session.Tokens) != 1 {
 		t.Fatalf("fixture=%+v err=%v", parsed, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	wrapped := &cancelOnCheck{Context: ctx, cancel: cancel, after: 1}
-	if _, err := PlanFamiliesContext(wrapped, []string{dir}); !errors.Is(err, context.Canceled) {
+	if _, err := PlanFamilies(wrapped, []string{dir}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("mid-plan cancellation=%v", err)
 	}
 }
@@ -141,7 +141,7 @@ func TestParseDirsUsesSuppliedFixtureWithoutRootRescan(t *testing.T) {
 func TestDiscoveryMetadataStopsOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := loadMetadataContext(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := loadMetadata(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("metadata cancellation=%v", err)
 	}
 }

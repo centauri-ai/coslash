@@ -38,7 +38,7 @@ func parseOutputSessionKind(t *testing.T, kind string, rows ...string) (*session
 	if err := os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(strings.Join(rows, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseSession(dir)
+	parsed, err := parseSession(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

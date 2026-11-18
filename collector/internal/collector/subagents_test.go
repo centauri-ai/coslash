@@ -44,7 +44,7 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 		write(filepath.Join(meta, "output.json"), `{"schema_version":1,"output":"done"}`)
 	}
 
-	parsed, metadata, err := grok.CollectContext(context.Background(), 0)
+	parsed, metadata, err := grok.Collect(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestGrokSinceWindowKeepsSubagentFamiliesTogether(t *testing.T) {
 				}
 			}
 
-			parsed, metadata, err := grok.CollectContext(context.Background(), now.Add(-48*time.Hour).UnixMilli())
+			parsed, metadata, err := grok.Collect(context.Background(), now.Add(-48*time.Hour).UnixMilli())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +129,7 @@ func TestGrokSinceWindowUsesParentMetaWhenChildOmitsParent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, metadata, err := grok.CollectContext(context.Background(), now.Add(-48*time.Hour).UnixMilli())
+	parsed, metadata, err := grok.Collect(context.Background(), now.Add(-48*time.Hour).UnixMilli())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	refs, err := grok.PlanFamiliesContext(t.Context(), dirs)
+	refs, err := grok.PlanFamilies(t.Context(), dirs)
 	if err != nil || len(refs) != 3 {
 		t.Fatalf("families=%v err=%v", refs, err)
 	}
@@ -201,21 +201,21 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 	}
 	want := map[string][]string{"root": {"child"}, "fork": {}, "worktree": {}}
 	t.Run("live all time", func(t *testing.T) {
-		parsed, metadata, err := grok.CollectContext(t.Context(), 0)
+		parsed, metadata, err := grok.Collect(t.Context(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		check(t, parsed, metadata, want)
 	})
 	t.Run("recent independent roots exclude old origin", func(t *testing.T) {
-		parsed, metadata, err := grok.CollectContext(t.Context(), time.Unix(2000, 0).UnixMilli())
+		parsed, metadata, err := grok.Collect(t.Context(), time.Unix(2000, 0).UnixMilli())
 		if err != nil {
 			t.Fatal(err)
 		}
 		check(t, parsed, metadata, map[string][]string{"fork": {}, "worktree": {}})
 	})
 	t.Run("planned", func(t *testing.T) {
-		parsed, metadata, err := grok.ParseFamiliesContext(t.Context(), refs)
+		parsed, metadata, err := grok.ParseFamilies(t.Context(), refs)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -243,7 +243,7 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 				writeGrokFile(t, dest, string(body))
 				proofs = append(proofs, dest)
 			}
-			family, err := grok.ParseFrozenFamilyContext(t.Context(), ref, frozenDirs, proofs)
+			family, err := grok.ParseFrozenFamily(t.Context(), ref, frozenDirs, proofs)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -253,7 +253,7 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 	})
 	for _, id := range []string{"root", "fork", "worktree"} {
 		t.Run("detail "+id, func(t *testing.T) {
-			facts, err := grok.GetSessionFacts(id)
+			facts, err := grok.GetSessionFacts(t.Context(), id)
 			if err != nil || facts == nil || facts.Session.ID != id {
 				t.Fatalf("facts=%+v err=%v", facts, err)
 			}

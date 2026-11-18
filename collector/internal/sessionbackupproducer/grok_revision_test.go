@@ -107,7 +107,7 @@ func TestGrokSourceRevisionPreservesPreparationClassification(t *testing.T) {
 	for _, oversized := range []bool{false, true} {
 		t.Run(map[bool]string{false: "missing", true: "oversize"}[oversized], func(t *testing.T) {
 			home, group, selection := grokFixture(t)
-			refs, err := grok.PlanFamiliesContext(t.Context(), []string{filepath.Join(group, "root"), filepath.Join(group, "child"), filepath.Join(group, "grandchild"), filepath.Join(group, "fork"), filepath.Join(group, "worktree")})
+			refs, err := grok.PlanFamilies(t.Context(), []string{filepath.Join(group, "root"), filepath.Join(group, "child"), filepath.Join(group, "grandchild"), filepath.Join(group, "fork"), filepath.Join(group, "worktree")})
 			if err != nil {
 				t.Fatal(err)
 			}

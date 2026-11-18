@@ -129,7 +129,7 @@ func (manager *Manager) captureGrok(ctx context.Context, staging string, selecti
 	if err != nil || !reflect.DeepEqual(inputs, currentInputs) || !reflect.DeepEqual(ids, currentIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, "", true)
 	}
-	parsed, err := grok.ParseFrozenFamilyContext(ctx, family, frozenDirs, proofs)
+	parsed, err := grok.ParseFrozenFamily(ctx, family, frozenDirs, proofs)
 	if err != nil {
 		return nil, processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 	}
@@ -253,7 +253,7 @@ func grokCaptureFamilies(ctx context.Context, root string) ([]grok.FamilyRef, ma
 			dirs = append(dirs, dir)
 		}
 	}
-	families, oversizedMembers, err := grok.PlanFamiliesContextWithTranscriptLimit(ctx, dirs, sessionbackupv1.MaxArtifactBytes)
+	families, oversizedMembers, err := grok.PlanFamiliesWithTranscriptLimit(ctx, dirs, sessionbackupv1.MaxArtifactBytes)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, nil, ctxErr
 	}

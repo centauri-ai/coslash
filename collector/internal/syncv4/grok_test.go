@@ -481,7 +481,7 @@ func TestGrokIncompleteAccountingDiscoveryAndMetadata(t *testing.T) {
 					t.Fatal("live root hidden")
 				}
 				check("root", root)
-				parsed, metadata, err := grok.CollectContext(t.Context(), 0)
+				parsed, metadata, err := grok.Collect(t.Context(), 0)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -63,10 +63,9 @@ var vendorSources = func() []vendorSource {
 			health:     cursor.Health,
 		},
 		{
-			name: vendors.AgentGrok, collect: grok.CollectContext,
-			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return grok.GetSessionFacts(id) },
+			name: vendors.AgentGrok, collect: grok.Collect, loadFacts: grok.GetSessionFacts,
 			loadFamily: grok.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return grok.Health() },
+			health:     grok.Health,
 		},
 	}
 	if vendors.PiCollectionSupported() {
