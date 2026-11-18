@@ -104,7 +104,7 @@ func TestInstallPluginDoesNotDowngradeWhenVersionIsUnknown(t *testing.T) {
 			if err := os.WriteFile(path, want, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := installPlugin(directory); err == nil {
+			if err := installPlugin(t.Context(), directory); err == nil {
 				t.Fatal("installPlugin succeeded with an unknown OpenCode version")
 			}
 			got, err := os.ReadFile(path)
@@ -125,11 +125,11 @@ func TestManagedPluginSourceRechecksVersion(t *testing.T) {
 		versions = versions[1:]
 		return version, nil
 	})
-	v1, err := managedPluginSource()
+	v1, err := managedPluginSource(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	v2, err := managedPluginSource()
+	v2, err := managedPluginSource(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,10 +150,10 @@ func TestCollectRetriesPluginInstallation(t *testing.T) {
 		versions = versions[1:]
 		return version, nil
 	})
-	if err := EnsurePlugin(); err == nil {
+	if err := EnsurePlugin(t.Context()); err == nil {
 		t.Fatal("initial plugin installation succeeded without OpenCode")
 	}
-	if _, _, err := Collect(0); err != nil {
+	if _, _, err := Collect(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
 	path, err := pluginPath()
@@ -167,7 +167,7 @@ func TestCollectRetriesPluginInstallation(t *testing.T) {
 	if !bytes.Equal(installed, pluginSourceForVersion("1.18.28")) {
 		t.Fatal("collection did not install the detected OpenCode plugin")
 	}
-	if _, _, err := Collect(0); err != nil {
+	if _, _, err := Collect(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(versions) != 1 {

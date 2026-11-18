@@ -396,7 +396,7 @@ func TestRemoteTerminalCommandLoadsPerUserAgentSetup(t *testing.T) {
 
 func TestCursorCLICommandResumesValidatedSession(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	command, _, err := cliCommand(vendors.AgentCursor, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "")
+	command, _, err := cliCommand(t.Context(), vendors.AgentCursor, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestCursorCLICommandResumesValidatedSession(t *testing.T) {
 
 func TestCursorFreshSessionLeavesHandoffForClipboard(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	command, path, err := cliCommand(vendors.AgentCursor, "", NewSession, "handoff")
+	command, path, err := cliCommand(t.Context(), vendors.AgentCursor, "", NewSession, "handoff", "")
 	if err != nil {
 		t.Fatal(err)
 	}

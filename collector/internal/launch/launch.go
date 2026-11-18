@@ -244,7 +244,7 @@ func ReviewCLIAvailable(ctx context.Context, reviewer string) bool {
 	defer cancel()
 	bin := reviewer
 	if reviewer == vendors.AgentPi {
-		spec, err := reviewCLICommand(reviewer, "", "", "")
+		spec, err := reviewCLICommand(ctx, reviewer, "", "", "")
 		if err != nil {
 			return false
 		}
@@ -300,7 +300,7 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		}
 		prompt += snapshot
 	}
-	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, prompt)
+	spec, err := reviewCLICommand(ctx, request.Reviewer, workingDirectory, request.Name, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -456,7 +456,7 @@ func cleanupRemoteReview(destination settings.SSHDestination, marker string) {
 	}
 }
 
-func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
+func reviewCLICommand(ctx context.Context, reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
 	switch reviewer {
 	case vendors.AgentPi:
 		if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
@@ -489,7 +489,7 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 			"--sandbox", "read-only", "--skip-git-repo-check", "-",
 		}, stdin: prompt}, nil
 	case vendors.AgentOpenCode:
-		major, err := openCodeMajorVersion()
+		major, err := openCodeMajorVersion(ctx)
 		if err != nil {
 			return reviewCommandSpec{}, fmt.Errorf("detect OpenCode version: %w", err)
 		}
@@ -559,8 +559,8 @@ func openCodeV2ReviewCommand(workingDirectory, name, prompt string) (reviewComma
 	}, nil
 }
 
-func openCodeHandoffArguments(cli string) ([]string, error) {
-	major, err := openCodeMajorVersion()
+func openCodeHandoffArguments(ctx context.Context, cli string) ([]string, error) {
+	major, err := openCodeMajorVersion(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("detect OpenCode version: %w", err)
 	}
@@ -689,7 +689,7 @@ func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, 
 	if err := ValidateWorkingDirectory(workingDirectory); err != nil {
 		return err
 	}
-	command, handoffPath, err := cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt)
+	command, handoffPath, err := cliCommand(ctx, agent, sessionID, mode, handoff, prompt)
 	if err != nil {
 		return err
 	}
@@ -802,11 +802,7 @@ func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName
 	return cleanup + setup + changeDirectory + " || exit 1; " + command, nil
 }
 
-func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) {
-	return cliCommandWithPrompt(agent, sessionID, mode, handoff, "")
-}
-
-func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (string, string, error) {
+func cliCommand(ctx context.Context, agent, sessionID, mode, handoff, prompt string) (string, string, error) {
 	cli, err := cliName(agent)
 	if err != nil {
 		return "", "", err
@@ -830,7 +826,7 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 		if handoff == "" {
 			return withGrokHome(agent, localCommandJoin(cli)), "", nil
 		}
-		command, name, err := handoffCommand(agent, cli, handoff, prompt)
+		command, name, err := handoffCommand(ctx, agent, cli, handoff, prompt)
 		return withGrokHome(agent, command), name, err
 	case ResumeSession:
 		if prompt != "" {

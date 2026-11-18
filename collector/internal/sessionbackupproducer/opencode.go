@@ -17,7 +17,7 @@ import (
 )
 
 func (manager *Manager) captureOpenCode(ctx context.Context, staging string, selection Selection, home string) (*Prepared, error) {
-	captured, err := opencode.CaptureFamilyContext(ctx, selection.SessionID)
+	captured, err := opencode.CaptureFamily(ctx, selection.SessionID)
 	if err != nil {
 		switch {
 		case errors.Is(err, opencode.ErrUnattributable):

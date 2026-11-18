@@ -30,11 +30,7 @@ var errMalformedSession = errors.New("malformed OpenCode session data")
 
 const promptOnlyBusyWindow = 2 * time.Minute
 
-func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
-	return parseContext(context.Background(), tx, row)
-}
-
-func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSession, error) {
+func parse(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSession, error) {
 	if err := ctx.Err(); err != nil {
 		return parsedSession{}, err
 	}
@@ -49,16 +45,16 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 	var messages []storedMessage
 	var err error
 	if row.v2 {
-		messages, err = loadV2MessagesContext(ctx, tx, row.id)
+		messages, err = loadV2Messages(ctx, tx, row.id)
 	} else {
-		messages, err = loadMessagesContext(ctx, tx, row.id)
+		messages, err = loadMessages(ctx, tx, row.id)
 	}
 	if err != nil {
 		return parsedSession{}, err
 	}
 	todos := []session.Todo{}
 	if !row.v2 {
-		todos, err = loadTodosContext(ctx, tx, row.id)
+		todos, err = loadTodos(ctx, tx, row.id)
 		if err != nil {
 			return parsedSession{}, err
 		}
@@ -400,7 +396,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 	if editedFileCount == 0 && row.summaryFiles.Valid {
 		editedFileCount = int(row.summaryFiles.Int64)
 	}
-	entrypoint := sessionEntrypointContext(ctx, row.id, clientStateDir())
+	entrypoint := sessionEntrypoint(ctx, row.id, clientStateDir())
 	if err := ctx.Err(); err != nil {
 		return parsedSession{}, err
 	}
@@ -462,7 +458,7 @@ func deref(value *string) string {
 	return *value
 }
 
-func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
+func loadV2Messages(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT type, data, time_created FROM session_message WHERE session_id = ? ORDER BY seq`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("query v2 messages: %w", err)
@@ -757,7 +753,7 @@ func normalizeFilePath(cwd, path string) string {
 	return path
 }
 
-func loadMessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
+func loadMessages(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT message.id, message.data, part.data, part.time_updated
 		FROM message
@@ -811,7 +807,7 @@ func loadMessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]s
 	return messages, nil
 }
 
-func loadTodosContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]session.Todo, error) {
+func loadTodos(ctx context.Context, tx *sql.Tx, sessionID string) ([]session.Todo, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT content, status
 		FROM todo

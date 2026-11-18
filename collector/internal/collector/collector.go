@@ -50,12 +50,9 @@ var vendorSources = func() []vendorSource {
 			health:     codex.Health,
 		},
 		{
-			name: vendors.AgentOpenCode, collect: opencode.CollectContext,
-			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) {
-				return opencode.GetSessionFacts(id)
-			},
+			name: vendors.AgentOpenCode, collect: opencode.Collect, loadFacts: opencode.GetSessionFacts,
 			loadFamily: opencode.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return opencode.Health() },
+			health:     opencode.Health,
 		},
 		{
 			name: vendors.AgentCursor, collect: cursor.Collect, loadFacts: cursor.GetSessionFacts,

@@ -12,11 +12,7 @@ import (
 	"time"
 )
 
-func listTUIProcesses() ([]tuiProcess, error) {
-	return listTUIProcessesContext(context.Background())
-}
-
-func listTUIProcessesContext(ctx context.Context) ([]tuiProcess, error) {
+func listTUIProcesses(ctx context.Context) ([]tuiProcess, error) {
 	output, err := exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
 	if err != nil {
 		return nil, err
@@ -55,11 +51,7 @@ func parseTUIProcesses(output string) []tuiProcess {
 	return processes
 }
 
-func processWorkingDirectory(pid int) string {
-	return processWorkingDirectoryContext(context.Background(), pid)
-}
-
-func processWorkingDirectoryContext(ctx context.Context, pid int) string {
+func processWorkingDirectory(ctx context.Context, pid int) string {
 	output, err := exec.CommandContext(
 		ctx,
 		"lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn",
