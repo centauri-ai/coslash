@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/agentexec"
+	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
 )
 
@@ -107,4 +108,24 @@ func killSendChildren() error {
 		}
 	}
 	return nil
+}
+
+func headlessArgs(target, access, cwd string) ([]string, error) {
+	if target == "claude" {
+		tools := "Read,Glob,Grep"
+		if access == "workspace-write" {
+			tools += ",Edit,Write"
+		}
+		return []string{"-p", "--output-format", "stream-json", "--verbose", "--session-id", uuid.NewString(), "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--tools", tools, "--allowedTools", tools}, nil
+	}
+	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins", "--disable", "apps", "--disable", "multi_agent", "--disable", "shell_snapshot", "--disable", "skill_search", "--disable", "skill_mcp_dependency_install", "--disable", "memories", "--sandbox", access, "--skip-git-repo-check", "--color", "never"}
+	for _, setting := range []string{`approval_policy="never"`, "project_doc_max_bytes=0", "mcp_servers={}", "skills.include_instructions=false", "skills.bundled.enabled=false", "memories.use_memories=false", "memories.generate_memories=false", "shell_environment_policy.experimental_use_profile=false", `web_search="disabled"`, "sandbox_workspace_write.network_access=false", "sandbox_workspace_write.exclude_tmpdir_env_var=true", "sandbox_workspace_write.exclude_slash_tmp=true"} {
+		args = append(args, "-c", setting)
+	}
+	// Override the entire table: Codex splits dotted override keys literally.
+	projects, err := codexProjectsSetting(cwd)
+	if err != nil {
+		return nil, err
+	}
+	return append(args, "-c", projects, "-"), nil
 }
