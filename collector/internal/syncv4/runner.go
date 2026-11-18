@@ -1020,7 +1020,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	r.configVersion, r.config = version, config
 	results := r.Queue.Results()
 	logLimit := maxLogBatch
-	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
+	if r.scaleSupported && hubclient.ScaleImportEnabled() {
 		logLimit = maxScaleLogBatch
 	}
 	lines, through := r.Queue.PendingLogLimit(r.now(), logLimit)
@@ -1029,10 +1029,10 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	}
 	progress := r.Queue.progressAt(r.now())
 	policyProgress := hubclient.SyncPolicyEnabled() && r.Queue.HubAdvertises(hubclient.CapabilitySyncPolicy) && config.ImportPlan != nil
-	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" || policyProgress {
+	if r.scaleSupported && hubclient.ScaleImportEnabled() || policyProgress {
 		progress.Import = r.importProgress(ctx, r.now())
 	}
-	if !r.scaleSupported || os.Getenv("COSLASH_SCALE_IMPORT") == "0" {
+	if !r.scaleSupported || !hubclient.ScaleImportEnabled() {
 		progress.Inventory = nil
 		update := r.Queue.PendingUpdate()
 		results = slices.DeleteFunc(results, func(result hubclient.V4CommandResult) bool {
@@ -1085,7 +1085,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	if progress.Import != nil {
 		r.lastReportedPhase = progress.Import.Phase
 	}
-	r.scaleEnabled = os.Getenv("COSLASH_SCALE_IMPORT") != "0" && slices.Contains(result.Capabilities, "scale-import/v1")
+	r.scaleEnabled = hubclient.ScaleImportEnabled() && slices.Contains(result.Capabilities, "scale-import/v1")
 	r.scaleSupported = slices.Contains(result.Capabilities, "scale-import/v1")
 	if err := r.Queue.AcknowledgeResults(results); err != nil {
 		return err
@@ -1197,7 +1197,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		return hubclient.V4Problem{Code: "client_update_required"}
 	}
 	r.checkInGeneration.Add(1)
-	if !wasScaleSupported && r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
+	if !wasScaleSupported && r.scaleSupported && hubclient.ScaleImportEnabled() {
 		return r.refreshConsent(ctx)
 	}
 	return r.allowed(ctx, hubclient.V4Session{})
