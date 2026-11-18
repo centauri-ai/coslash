@@ -466,13 +466,6 @@ export function displayStatusLabel(
   return `Last seen ${STATUSES[seen].label.toLowerCase()}`;
 }
 
-export function sumTokens(
-  tokens: Session['tokens'],
-  key: Exclude<keyof Session['tokens'][string], 'cost'>,
-): number {
-  return Object.values(tokens).reduce((sum, modelTokens) => sum + modelTokens[key], 0);
-}
-
 const tokenCounterKeys = [
   'input_tokens',
   'output_tokens',
@@ -485,23 +478,6 @@ function hasValidTokenCounters(values: ModelTokens[]): boolean {
   return values.every((modelTokens) =>
     tokenCounterKeys.every((key) => Number.isFinite(modelTokens[key]) && modelTokens[key] >= 0),
   );
-}
-
-export function getTotalTokens(tokens: Session['tokens']): number | null {
-  if (Object.keys(tokens).length === 0) return null;
-  const values = Object.values(tokens);
-  if (!hasValidTokenCounters(values)) return null;
-  const total = values.reduce(
-    (sum, modelTokens) =>
-      sum +
-      modelTokens.input_tokens +
-      modelTokens.output_tokens +
-      modelTokens.cache_creation_input_tokens +
-      modelTokens.cache_creation_1h_input_tokens +
-      modelTokens.cache_read_input_tokens,
-    0,
-  );
-  return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
 type Accounting = Pick<

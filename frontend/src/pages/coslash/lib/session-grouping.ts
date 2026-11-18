@@ -95,7 +95,3 @@ export function groupSessions(sessions: readonly Session[], groupBy: BoardGroupB
   if (order == null) return ordered;
   return ordered.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 }
-
-export function boardGroupKey(session: Session, groupBy: BoardGroupBy): string {
-  return DIMENSIONS[groupBy].of(session).key;
-}

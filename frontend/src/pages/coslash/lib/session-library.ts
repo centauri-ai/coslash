@@ -13,9 +13,3 @@ export function latestLogicalSessions<T extends Session>(sessions: readonly T[])
   }
   return [...latest.values()];
 }
-
-export function libraryRepositories(sessions: readonly Pick<Session, 'repo'>[]): string[] {
-  return [...new Set(sessions.flatMap((session) => (session.repo?.trim() ? [session.repo] : [])))].sort(
-    (a, b) => a.localeCompare(b),
-  );
-}

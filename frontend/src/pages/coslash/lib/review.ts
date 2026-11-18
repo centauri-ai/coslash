@@ -110,10 +110,6 @@ function originShortID(name: string | null): string | null {
   return REVIEW_NAME.exec(name)?.[1] ?? null;
 }
 
-export function isReviewSessionName(name: string | null): boolean {
-  return originShortID(name) != null;
-}
-
 export function buildReviewIndex<T extends ReviewableSession>(sessions: readonly T[]): ReviewIndex<T> {
   const links = new Map<string, ReviewLink<T>>();
   const activeOrigins = new Set<string>();
