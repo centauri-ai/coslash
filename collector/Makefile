@@ -25,7 +25,7 @@ GO_REQUIRED := $(shell sed -n 's/^go //p' go.mod)
 NODE_REQUIRED := $(shell tr -d 'v\n' < $(FRONTEND)/.nvmrc)
 VERSION_AT_LEAST = awk -v actual="$(1)" -v required="$(2)" 'BEGIN { if (actual !~ /^[0-9]+(\.[0-9]+)*$$/ || required !~ /^[0-9]+(\.[0-9]+)*$$/) exit 1; actual_count = split(actual, actual_parts, "."); required_count = split(required, required_parts, "."); count = actual_count > required_count ? actual_count : required_count; for (i = 1; i <= count; i++) { actual_part = i <= actual_count ? actual_parts[i] + 0 : 0; required_part = i <= required_count ? required_parts[i] + 0 : 0; if (actual_part > required_part) exit 0; if (actual_part < required_part) exit 1 } }'
 
-.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models check-go check-node \
+.PHONY: build run test check lint tidy clean release stage unstage smoke smoke-dev dist models check-go check-node \
 	helper helper-dist helper-assets test-embedded-helpers
 
 check-go:
@@ -168,6 +168,12 @@ check: check-go
 	@unformatted=$$(gofmt -l .); \
 		test -z "$$unformatted" || { echo "gofmt needed:"; echo "$$unformatted"; exit 1; }
 	go vet ./...
+
+# Needs golangci-lint v2 on PATH. Each platform has its own files.
+lint: check-go
+	GOOS=darwin CGO_ENABLED=0 golangci-lint run ./...
+	GOOS=linux CGO_ENABLED=0 golangci-lint run ./...
+	GOOS=windows CGO_ENABLED=0 golangci-lint run --build-tags realhelper ./...
 
 # Checks the release binary over HTTP; run `make release` first.
 smoke:
