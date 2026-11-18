@@ -58,7 +58,6 @@ All routes are loopback-only and protected by the process access-token guard.
 | `GET /api/session-detail?source=…&agent=…&session=…&revision=…` | Read an exact local or cached SSH session revision |
 | `GET /api/diff?id=…&path=…` | Read one local session file diff (legacy path-based form) |
 | `GET /api/diff?source=…&agent=…&session=…&revision=…&change=…` | Read selected changes from an exact local or cached SSH session revision; repeat `change` to select multiple changes |
-| `GET /api/share-preview` | Build the exact privacy-bounded Hub preview for a local or SSH revision |
 | `GET /api/settings` | Read validated settings and cached backend/model options; `options.refreshing` signals background discovery |
 | `PUT /api/settings` | Save settings and optional remote-helper ownership action |
 | `POST /api/launch` | Resume or start fresh with a handoff in the configured terminal/agent |

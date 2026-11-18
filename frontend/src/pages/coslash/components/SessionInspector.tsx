@@ -13,7 +13,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
-  EyeIcon,
   InfoIcon,
   LoaderCircleIcon,
   PlayIcon,
@@ -41,7 +40,6 @@ import {
   SubagentModelBadge,
   TokenBreakdown,
 } from '@/pages/coslash/components/SessionCard';
-import { SnapshotPreviewDialog } from '@/pages/coslash/components/SnapshotPreviewDialog';
 import { SynthesisCosts } from '@/pages/coslash/components/SynthesisCosts';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
@@ -73,7 +71,6 @@ import {
 } from '@/pages/coslash/lib/format';
 import { copyHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
-import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   boardStatusKey,
   canResumeSession,
@@ -1042,8 +1039,8 @@ function HandoffSection({
             : detail.agent === 'pi'
               ? 'Pi terminal actions are available locally only. You can still copy this handoff.'
               : remoteLaunchable
-                ? 'Remote terminal actions open through SSH. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'
-                : 'Remote terminal actions are available when SSH reconnects. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'}
+                ? 'Remote terminal actions open through SSH. Exact cached details, commands, and file diffs stay available locally; synthesis and Hub sharing remain local-only.'
+                : 'Remote terminal actions are available when SSH reconnects. Exact cached details, commands, and file diffs stay available locally; synthesis and Hub sharing remain local-only.'}
         </div>
       )}
     </div>
@@ -1764,9 +1761,6 @@ function InspectorFooter({
   remoteLaunchable: boolean;
   remoteResumeHint?: string;
 }) {
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const showTeamPreview =
-    isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
   const opensCursor =
     isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
@@ -1789,19 +1783,6 @@ function InspectorFooter({
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        {showTeamPreview && (
-          <>
-            <Button variant="outline" onClick={() => setPreviewOpen(true)}>
-              <EyeIcon /> Team sharing preview
-            </Button>
-            <SnapshotPreviewDialog
-              detail={detail}
-              open={previewOpen}
-              onOpenChange={setPreviewOpen}
-              previewOnly
-            />
-          </>
-        )}
         <ResumeSessionButton detail={detail} disabledHint={remoteResumeHint} />
       </div>
     </SheetFooter>
