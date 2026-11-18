@@ -37,6 +37,11 @@ The reflection test makes additions to the source model require a new decision.
 sessions, metadata arrays, and one or more fingerprints are required. A stale
 family also requires `stale_reason`. Empty optional strings are omitted.
 
+`parser_version` is `ParserVersion(vendor)`: the shared `vendors.ParserVersion`
+joined with the parser version of the vendor package. The helper stamps it and
+the Mac compares it. A cached family with another value is reparsed by both
+transports, so a bump of either version invalidates remote caches.
+
 | Value | v1 bound |
 | --- | ---: |
 | IDs, parser version, opaque keys | 200 UTF-8 bytes; no whitespace/control |
