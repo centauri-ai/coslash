@@ -15,6 +15,7 @@ Package and directory level only. Each line names what the unit owns.
 ### Collector internal packages (`collector/internal`)
 
 - `agentexec` - child-process environment for launched agents, including removal of parent session markers and Windows shims.
+- `atomicfile` - file replacement that a reader or a crash sees as either the old or the complete new content.
 - `backgroundexec` - child processes without a console window when Local runs detached on Windows.
 - `collector` - local session collection across all vendor packages and composition with remote facts.
 - `diagnostics` - content-free readiness checks for `coslash doctor` and the diagnostics dialog.
