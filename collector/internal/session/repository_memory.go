@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 )
 
 const (
@@ -69,19 +71,5 @@ func writeFileAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(dir, ".repositories-*")
-	if err != nil {
-		return err
-	}
-	_, writeErr := file.Write(data)
-	if closeErr := file.Close(); writeErr == nil {
-		writeErr = closeErr
-	}
-	if writeErr == nil {
-		writeErr = os.Rename(file.Name(), path)
-	}
-	if writeErr != nil {
-		os.Remove(file.Name())
-	}
-	return writeErr
+	return atomicfile.Write(path, data, 0o600, nil)
 }
