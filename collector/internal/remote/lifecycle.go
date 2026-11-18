@@ -22,7 +22,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
@@ -164,23 +163,6 @@ type TrustStore struct {
 // This closes the replay hole that signatures alone cannot address.
 type MetadataSequenceStore interface {
 	Accept(uint64) error
-}
-
-// MemoryMetadataSequenceStore is useful for one-process callers and tests.
-// Production callers should use FileMetadataSequenceStore.
-type MemoryMetadataSequenceStore struct {
-	mu      sync.Mutex
-	highest uint64
-}
-
-func (store *MemoryMetadataSequenceStore) Accept(sequence uint64) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	if sequence < store.highest {
-		return ErrHelperMetadataRollback
-	}
-	store.highest = sequence
-	return nil
 }
 
 func (trust TrustStore) Verify(document SignedReleaseMetadata) (ReleaseMetadata, error) {

@@ -3,6 +3,7 @@ package remote
 import (
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -21,4 +22,19 @@ func TestFileMetadataSequenceStorePersistsHighWaterMark(t *testing.T) {
 	if err := (&FileMetadataSequenceStore{Path: path}).Accept(5); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type MemoryMetadataSequenceStore struct {
+	mu      sync.Mutex
+	highest uint64
+}
+
+func (store *MemoryMetadataSequenceStore) Accept(sequence uint64) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if sequence < store.highest {
+		return ErrHelperMetadataRollback
+	}
+	store.highest = sequence
+	return nil
 }
