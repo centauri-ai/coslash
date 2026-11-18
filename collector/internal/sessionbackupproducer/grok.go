@@ -52,7 +52,7 @@ func (manager *Manager) captureGrok(ctx context.Context, staging string, selecti
 			paths = append(paths, input.path)
 		}
 	}
-	before, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, root, paths)
+	before, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, root, paths)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, "", true)
 	}
@@ -117,7 +117,7 @@ func (manager *Manager) captureGrok(ctx context.Context, staging string, selecti
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, "", true)
 		}
 	}
-	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, root, paths)
+	after, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, root, paths)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, "", true)
 	}

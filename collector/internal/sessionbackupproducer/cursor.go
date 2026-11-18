@@ -42,7 +42,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 	if len(paths) == 0 || len(plan.Files) > sessionbackupv1.MaxMembers {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 	}
-	before, err := vendors.FingerprintSourceFilesContext(ctx, handle.Source, handle.Home, paths)
+	before, err := vendors.FingerprintSourceFiles(ctx, handle.Source, handle.Home, paths)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -105,7 +105,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
 	}
-	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, paths)
+	after, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, handle.Home, paths)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}

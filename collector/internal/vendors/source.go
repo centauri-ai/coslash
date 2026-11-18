@@ -35,20 +35,9 @@ func (reader ContextReader) Read(destination []byte) (int, error) {
 	return reader.Reader.Read(destination)
 }
 
-// ParseFiles parses concurrently while preserving source order.
-func ParseFiles[T any](
-	files []string,
-	parse func(string) (*T, error),
-) []*T {
-	parsed, _ := ParseFilesContext(context.Background(), files, func(_ context.Context, path string) (*T, error) {
-		return parse(path)
-	})
-	return parsed
-}
-
-// ParseFilesContext parses concurrently while preserving source order and
+// ParseFiles parses concurrently while preserving source order and
 // waits for started workers before returning from cancellation.
-func ParseFilesContext[T any](
+func ParseFiles[T any](
 	ctx context.Context,
 	files []string,
 	parse func(context.Context, string) (*T, error),
@@ -107,20 +96,12 @@ func ParseFilesContext[T any](
 
 // ParseSourceFiles parses concurrently while preserving source order.
 func ParseSourceFiles[T any](
-	source ReadSource,
-	files []string,
-	parse func(ReadSource, string) (*T, error),
-) []*T {
-	return ParseFiles(files, func(path string) (*T, error) { return parse(source, path) })
-}
-
-func ParseSourceFilesContext[T any](
 	ctx context.Context,
 	source ReadSource,
 	files []string,
 	parse func(context.Context, ReadSource, string) (*T, error),
 ) ([]*T, error) {
-	return ParseFilesContext(ctx, files, func(ctx context.Context, path string) (*T, error) {
+	return ParseFiles(ctx, files, func(ctx context.Context, path string) (*T, error) {
 		return parse(ctx, source, path)
 	})
 }
@@ -138,50 +119,6 @@ type FileFailure struct {
 // per-family isolation must exclude a failed file's whole family from the
 // returned results themselves; this function does not know about families.
 func ParseSourceFilesStrict[T any](
-	source ReadSource,
-	files []string,
-	parse func(ReadSource, string) (*T, error),
-) ([]*T, []FileFailure, error) {
-	results := make([]*T, len(files))
-	failures := make([]error, len(files))
-	workers := make(chan struct{}, maxParseWorkers)
-	var wg sync.WaitGroup
-	for index, file := range files {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			workers <- struct{}{}
-			defer func() { <-workers }()
-			parsed, err := parse(source, file)
-			if err != nil {
-				failures[index] = err
-				return
-			}
-			results[index] = parsed
-		}()
-	}
-	wg.Wait()
-
-	parsed := make([]*T, 0, len(files))
-	var fileFailures []FileFailure
-	var joined []error
-	for index, result := range results {
-		if failures[index] != nil {
-			fileFailures = append(fileFailures, FileFailure{Path: files[index], Err: failures[index]})
-			joined = append(joined, fmt.Errorf("%s: %w", files[index], failures[index]))
-			continue
-		}
-		if result != nil {
-			parsed = append(parsed, result)
-		}
-	}
-	if len(joined) > 0 {
-		return parsed, fileFailures, errors.Join(joined...)
-	}
-	return parsed, nil, nil
-}
-
-func ParseSourceFilesStrictContext[T any](
 	ctx context.Context,
 	source ReadSource,
 	files []string,

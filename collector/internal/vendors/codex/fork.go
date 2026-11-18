@@ -41,7 +41,7 @@ func applyForkedUsageSourceContext(
 	if knownActiveFiles == nil && archivedDir != "" {
 		activeDir := filepath.Join(filepath.Dir(archivedDir), "sessions")
 		var err error
-		knownActiveFiles, err = vendors.JSONLFilesUnderSourceContext(ctx, source, activeDir)
+		knownActiveFiles, err = vendors.JSONLFilesUnderSource(ctx, source, activeDir)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -59,7 +59,7 @@ func applyForkedUsageSourceContext(
 		}
 	}
 	if archivedDir != "" {
-		files, err := vendors.JSONLFilesUnderSourceContext(ctx, source, archivedDir)
+		files, err := vendors.JSONLFilesUnderSource(ctx, source, archivedDir)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

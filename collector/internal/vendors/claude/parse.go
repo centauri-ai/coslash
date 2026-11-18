@@ -197,7 +197,7 @@ func analyzeClaudeSessionSource(
 	source vendors.ReadSource,
 	file string,
 ) (*claudeSessionAnalysis, error) {
-	rows, err := vendors.ParseJSONLSourceContext[claudeSessionRecord](ctx, source, file)
+	rows, err := vendors.ParseJSONLSource[claudeSessionRecord](ctx, source, file)
 	if err != nil {
 		return nil, err
 	}

@@ -108,7 +108,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	for _, input := range inputs {
 		paths = append(paths, input.path)
 	}
-	before, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, paths)
+	before, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, handle.Home, paths)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -202,7 +202,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	for _, input := range toolInputs {
 		toolPaths = append(toolPaths, input.path)
 	}
-	toolBefore, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, toolPaths)
+	toolBefore, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, handle.Home, toolPaths)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 	}
@@ -218,11 +218,11 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
 	}
-	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, paths)
+	after, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, handle.Home, paths)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}
-	toolAfter, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, toolPaths)
+	toolAfter, err := vendors.FingerprintSourceFilesFresh(ctx, handle.Source, handle.Home, toolPaths)
 	if err != nil || !reflect.DeepEqual(toolBefore, toolAfter) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 	}

@@ -28,7 +28,7 @@ func ParseFamilyFilesSource(
 }
 
 func ParseFamilyFilesSourceContext(ctx context.Context, source vendors.ReadSource, files []string) ([]*vendors.ParsedSession, error) {
-	parsed, _, err := vendors.ParseSourceFilesStrictContext(ctx, source, files, parseSourceContext)
+	parsed, _, err := vendors.ParseSourceFilesStrict(ctx, source, files, parseSourceContext)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func CompleteFamilyFilesSourceContext(ctx context.Context, source vendors.ReadSo
 }
 
 func ValidateCompleteTranscriptSourceContext(ctx context.Context, source vendors.ReadSource, file string) error {
-	rows, err := vendors.ParseJSONLSourceContext[claudeSessionRecord](ctx, source, file)
+	rows, err := vendors.ParseJSONLSource[claudeSessionRecord](ctx, source, file)
 	if err != nil || len(rows) == 0 {
 		return vendors.ErrInvalidData
 	}
@@ -94,7 +94,7 @@ func ValidateCompleteSidecarSourceContext(ctx context.Context, source vendors.Re
 			return vendors.ErrInvalidData
 		}
 	case "workflow-journal":
-		rows, err := vendors.ParseJSONLSourceContext[workflowJournalEntry](ctx, source, file)
+		rows, err := vendors.ParseJSONLSource[workflowJournalEntry](ctx, source, file)
 		if err != nil || len(rows) == 0 {
 			return vendors.ErrInvalidData
 		}

@@ -246,7 +246,7 @@ func analyzeCodexSessionSource(
 	file string,
 	needsApproval func(string, string) bool,
 ) (*codexSessionAnalysis, error) {
-	rows, err := vendors.ParseJSONLSourceContext[codexRow](ctx, source, file)
+	rows, err := vendors.ParseJSONLSource[codexRow](ctx, source, file)
 	if err != nil {
 		return nil, err
 	}

@@ -98,7 +98,7 @@ func ParseFamilyFilesSourceContext(
 	files []string,
 	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, error) {
-	parsed, _, err := vendors.ParseSourceFilesStrictContext(ctx, source, files,
+	parsed, _, err := vendors.ParseSourceFilesStrict(ctx, source, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
 			return parseSourceContext(ctx, source, path, func(string, string) bool { return true })
 		})
