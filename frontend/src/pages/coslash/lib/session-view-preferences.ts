@@ -5,8 +5,8 @@ import {
   type BoardGroupBy,
   type BoardRowGroupBy,
 } from '@/pages/coslash/lib/session-grouping';
+import { SESSION_RANGES, type SessionRange } from '@/pages/coslash/lib/session-range';
 
-export type SessionRange = 'today' | 'this-week' | 'week' | 'month' | 'all';
 export type SessionListDensity = 'comfortable' | 'compact';
 export type SessionView = 'list' | 'board' | 'insights';
 export type SessionSort = {
@@ -30,7 +30,7 @@ export type SessionViewPreferences = {
 
 const STORAGE_KEY = 'coslash.session-view-preferences.v2';
 const LEGACY_STORAGE_KEY = 'coslash.session-view-preferences.v1';
-const RANGES = new Set<SessionRange>(['today', 'this-week', 'week', 'month', 'all']);
+const RANGES = new Set<SessionRange>(SESSION_RANGES.map(({ value }) => value));
 const STATUSES = new Set<StatusKey>(STATUS_ORDER);
 const VIEWS = new Set<SessionView>(['list', 'board', 'insights']);
 const DENSITIES = new Set<SessionListDensity>(['comfortable', 'compact']);

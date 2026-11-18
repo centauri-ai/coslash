@@ -1,28 +1,8 @@
 import type { Group } from '@/pages/coslash/lib/detected-groups';
 import { boardStatusKey, sessionCost, sessionDisplayTitle, type Session } from '@/pages/coslash/lib/session';
-import type {
-  SessionRange,
-  SessionSort,
-  SessionViewPreferences,
-} from '@/pages/coslash/lib/session-view-preferences';
-import { DAY } from '@/pages/coslash/lib/time';
+import type { SessionSort, SessionViewPreferences } from '@/pages/coslash/lib/session-view-preferences';
 
 export type FacetKey = 'status' | 'machine' | 'agent' | 'group';
-
-export function rangeStart(range: SessionRange): number | null {
-  const now = new Date();
-  if (range === 'all') return null;
-  if (range === 'today') {
-    now.setHours(0, 0, 0, 0);
-    return now.getTime();
-  }
-  if (range === 'this-week') {
-    now.setHours(0, 0, 0, 0);
-    now.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    return now.getTime();
-  }
-  return Date.now() - (range === 'week' ? 7 : 30) * DAY;
-}
 
 export function matchesFacets(
   session: Session,
