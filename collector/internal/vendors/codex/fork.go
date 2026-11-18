@@ -11,7 +11,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func applyForkedUsageSourceContext(
+func applyForkedUsage(
 	ctx context.Context,
 	source vendors.ReadSource,
 	archivedDir string,
@@ -92,10 +92,10 @@ func applyForkedUsageSourceContext(
 		for i, sample := range fork.samples {
 			forkSeq[i] = sample.usage
 		}
-		parentUsages, err := parentForkUsagesSourceContext(ctx, source, parentPath, forkSeq)
+		parentUsages, err := parentForkUsages(ctx, source, parentPath, forkSeq)
 		if fallback := archivedFallbacks[fork.forkedFromID]; err != nil && fallback != "" {
 			parentPath = fallback
-			parentUsages, err = parentForkUsagesSourceContext(ctx, source, parentPath, forkSeq)
+			parentUsages, err = parentForkUsages(ctx, source, parentPath, forkSeq)
 		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -116,7 +116,7 @@ func applyForkedUsageSourceContext(
 	return nil
 }
 
-func parentForkUsagesSourceContext(
+func parentForkUsages(
 	ctx context.Context,
 	source vendors.ReadSource,
 	path string,

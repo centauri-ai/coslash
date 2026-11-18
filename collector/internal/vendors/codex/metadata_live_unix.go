@@ -8,7 +8,7 @@ import (
 	"os/exec"
 )
 
-func loadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
+func loadLiveSessions(ctx context.Context) (map[string]struct{}, error) {
 	openCodexSessions, err := exec.CommandContext(ctx, "lsof", "-a", "-c", "codex", "-Fn").Output()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -26,6 +26,6 @@ func loadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
 	return LiveSessionIDs(string(openCodexSessions)), nil
 }
 
-func loadLiveSessionsForFilesContext(ctx context.Context, _ []string) (map[string]struct{}, error) {
-	return loadLiveSessionsContext(ctx)
+func loadLiveSessionsForFiles(ctx context.Context, _ []string) (map[string]struct{}, error) {
+	return loadLiveSessions(ctx)
 }

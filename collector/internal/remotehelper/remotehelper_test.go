@@ -655,7 +655,7 @@ func testOptions(home string) Options {
 	return Options{Home: home, CodexLiveSessions: noCodexLiveSessions}
 }
 
-func noCodexLiveSessions() (map[string]struct{}, error) {
+func noCodexLiveSessions(context.Context) (map[string]struct{}, error) {
 	return map[string]struct{}{}, nil
 }
 

@@ -21,11 +21,11 @@ type cachedExtra struct {
 	Samples      []cachedSample `json:"samples,omitempty"`
 }
 
-// parseSourceCachedContext parses through the local parse cache; the
+// parseSourceCached parses through the local parse cache; the
 // fingerprint is taken before the file is read so a change during the parse
 // forces a re-parse next time. A rollout the parser hides (a guardian
 // subagent) is cached as an absence.
-func parseSourceCachedContext(
+func parseSourceCached(
 	ctx context.Context,
 	source vendors.ReadSource,
 	path string,
@@ -33,11 +33,11 @@ func parseSourceCachedContext(
 ) (*parsedSession, error) {
 	cache := vendors.LocalParseCache(source)
 	if cache == nil {
-		return parseSourceContext(ctx, source, path, needsApproval)
+		return parseSource(ctx, source, path, needsApproval)
 	}
 	info, err := source.Stat(path)
 	if err != nil {
-		return parseSourceContext(ctx, source, path, needsApproval)
+		return parseSource(ctx, source, path, needsApproval)
 	}
 	key := vendors.CacheKey{Agent: vendors.AgentCodex, Identity: path, Version: ParserVersion, Fingerprint: vendors.StatFingerprint(info)}
 	if payload, ok := cache.Lookup(key); ok {
@@ -45,7 +45,7 @@ func parseSourceCachedContext(
 			return parsed, nil
 		}
 	}
-	parsed, err := parseSourceContext(ctx, source, path, needsApproval)
+	parsed, err := parseSource(ctx, source, path, needsApproval)
 	if err != nil {
 		return nil, err
 	}

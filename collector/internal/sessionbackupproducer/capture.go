@@ -190,11 +190,11 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	if selection.Agent == vendors.AgentClaude {
 		return manager.captureClaude(ctx, staging, selection, handle)
 	}
-	activeScan, err := codex.ScanSourceContext(ctx, handle.Source, codex.SessionsRoot(handle.Home))
+	activeScan, err := codex.Scan(ctx, handle.Source, codex.SessionsRoot(handle.Home))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
-	archivedScan, err := codex.ScanSourceContext(ctx, handle.Source, codex.ArchivedDir(handle.Home))
+	archivedScan, err := codex.Scan(ctx, handle.Source, codex.ArchivedDir(handle.Home))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -217,7 +217,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 		}
 	}
-	headers, err := codex.HeadersSourceContext(ctx, handle.Source, allFiles)
+	headers, err := codex.Headers(ctx, handle.Source, allFiles)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -313,7 +313,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 	}
-	indexRows, indexPresent, err := codex.ReadSessionIndexRowsContext(ctx, handle.Source, handle.Home, indexIDs)
+	indexRows, indexPresent, err := codex.ReadSessionIndexRows(ctx, handle.Source, handle.Home, indexIDs)
 	if err != nil {
 		return nil, sourceReadFailure(err, sessionbackupv1.KindRawSidecar)
 	}
@@ -408,7 +408,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			activeFamilyFiles = append(activeFamilyFiles, file)
 		}
 	}
-	parsed, err := codex.ParseFamilyFilesSourceContext(ctx, frozenSource, handle.Home, familyFiles, activeFamilyFiles)
+	parsed, err := codex.ParseFamilyFiles(ctx, frozenSource, handle.Home, familyFiles, activeFamilyFiles)
 	if err != nil || len(parsed) != len(memberIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}

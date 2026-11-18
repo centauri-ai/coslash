@@ -37,7 +37,7 @@ func (manager *Manager) MissingLocalFamilies(ctx context.Context, selections []S
 		if agent == vendors.AgentCodex {
 			var files []string
 			for _, root := range []string{codex.SessionsRoot(handle.Home), codex.ArchivedDir(handle.Home)} {
-				scan, err := codex.ScanSourceContext(ctx, handle.Source, root)
+				scan, err := codex.Scan(ctx, handle.Source, root)
 				if err != nil {
 					return nil, err
 				}
@@ -46,7 +46,7 @@ func (manager *Manager) MissingLocalFamilies(ctx context.Context, selections []S
 				}
 				files = append(files, scan.Files...)
 			}
-			headers, err := codex.HeadersSourceContext(ctx, handle.Source, files)
+			headers, err := codex.Headers(ctx, handle.Source, files)
 			if err != nil {
 				return nil, err
 			}

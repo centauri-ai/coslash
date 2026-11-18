@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -41,17 +42,21 @@ func main() {
 			fail()
 		}
 	}
+	ctx := context.Background()
 	result := report{SchemaVersion: "session-backup-source-measurement/v1", CollectorVersion: *version}
 	files := []string{}
 	for _, scanRoot := range codexRoots(*root, *archivedRoot) {
-		scan, err := codex.ScanSource(vendors.LocalReadSource, scanRoot)
+		scan, err := codex.Scan(ctx, vendors.LocalReadSource, scanRoot)
 		if err != nil {
 			fail()
 		}
 		result.UnreadableCount += scan.SkippedTotal
 		files = append(files, scan.Files...)
 	}
-	headers := codex.HeadersSource(vendors.LocalReadSource, files)
+	headers, err := codex.Headers(ctx, vendors.LocalReadSource, files)
+	if err != nil {
+		fail()
+	}
 	roots := codex.FamilyRoots(headers)
 	families := map[string]int64{}
 	for _, name := range files {

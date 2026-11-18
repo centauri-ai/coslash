@@ -341,7 +341,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	localParsed, localMetadata, err := codex.CollectContext(t.Context(), 0)
+	localParsed, localMetadata, err := codex.Collect(t.Context(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +610,7 @@ func TestClaudeOversizedRefreshKeepsSourceCurrent(t *testing.T) {
 func remoteHelperOptions(home string) remotehelper.Options {
 	return remotehelper.Options{
 		Home: home,
-		CodexLiveSessions: func() (map[string]struct{}, error) {
+		CodexLiveSessions: func(context.Context) (map[string]struct{}, error) {
 			return map[string]struct{}{}, nil
 		},
 	}
@@ -624,7 +624,7 @@ func TestCodexRemoteFamiliesSelectRecentChildOfOldRoot(t *testing.T) {
 	child := writeCodexFixture(fs, childID, rootID, time.Unix(2000, 0))
 
 	families, _, _, _, _, _, _, _, err := codex.BuildRemoteFamilies(
-		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
+		t.Context(), newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("BuildRemoteFamilies: %v", err)
@@ -646,7 +646,7 @@ func TestCodexRemoteFamiliesSelectLiveChildOfOldRoot(t *testing.T) {
 	writeCodexFixture(fs, childID, rootID, time.Unix(1000, 0))
 
 	families, _, _, _, _, _, _, _, err := codex.BuildRemoteFamilies(
-		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(),
+		t.Context(), newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(),
 		map[string]string{childID: "interactive"}, nil,
 	)
 	if err != nil {
@@ -664,7 +664,7 @@ func TestCodexRemoteFamiliesExcludeOldUnreadableFileOutsideWindow(t *testing.T) 
 	fs.writeFile(file, "{not valid json", time.Unix(1000, 0))
 
 	families, _, _, _, failed, _, _, _, err := codex.BuildRemoteFamilies(
-		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
+		t.Context(), newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("BuildRemoteFamilies: %v", err)

@@ -29,7 +29,7 @@ type Options struct {
 	Limits            Limits
 	Deadline          time.Duration
 	ProcessAlive      func(int) bool
-	CodexLiveSessions func() (map[string]struct{}, error)
+	CodexLiveSessions func(context.Context) (map[string]struct{}, error)
 }
 
 // Outcome reports what the response contained. RequestComplete is false when a
@@ -137,7 +137,7 @@ func collectVendor(
 	home string,
 	now time.Time,
 	alive func(int) bool,
-	codexLiveSessions func() (map[string]struct{}, error),
+	codexLiveSessions func(context.Context) (map[string]struct{}, error),
 ) (vendorResult, error) {
 	started := time.Now()
 	scanned := scanVendor(ctx, vendor, source, home, request, now, alive, codexLiveSessions)
@@ -612,7 +612,7 @@ func codexHeadersStillMatch(ctx context.Context, scanned *vendorScan, item *fami
 	for _, mapping := range item.headerMappings {
 		expected[mapping.Key] = mapping
 	}
-	headers, err := codex.HeadersSourceContext(ctx, scanned.source, item.files)
+	headers, err := codex.Headers(ctx, scanned.source, item.files)
 	if err != nil {
 		return false
 	}
@@ -704,7 +704,7 @@ func scanVendor(
 	request remoteprotocol.Request,
 	now time.Time,
 	alive func(int) bool,
-	codexLiveSessions func() (map[string]struct{}, error),
+	codexLiveSessions func(context.Context) (map[string]struct{}, error),
 ) *vendorScan {
 	switch vendor {
 	case vendors.AgentClaude:
