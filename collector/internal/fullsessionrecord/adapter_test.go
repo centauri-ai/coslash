@@ -334,7 +334,7 @@ func TestParsedFamilyRejectsMissingPortableTimestamps(t *testing.T) {
 		Spawns: map[string]vendors.SpawnState{},
 	}}
 
-	if _, err := FromParsedFamily(
+	if _, err := FromParsedFamily(t.Context(),
 		"r_0123456789abcdef", "codex", vendors.LocalReadSource,
 		parsed, vendors.EmptySessionMetadata(),
 	); err == nil {
@@ -366,7 +366,7 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 	}
 
 	parsed := family()
-	withoutLive, err := FromParsedFamily(
+	withoutLive, err := FromParsedFamily(t.Context(),
 		"r_0123456789abcdef", "codex", vendors.LocalReadSource,
 		parsed, vendors.EmptySessionMetadata(),
 	)
@@ -376,7 +376,7 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 	live := vendors.EmptySessionMetadata()
 	live.Session("root").Live = "interactive"
 	live.Session("child").Live = "interactive"
-	withLive, err := FromParsedFamily(
+	withLive, err := FromParsedFamily(t.Context(),
 		"r_0123456789abcdef", "codex", vendors.LocalReadSource, family(), live,
 	)
 	if err != nil {
@@ -385,7 +385,7 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 	if !reflect.DeepEqual(withoutLive, withLive) {
 		t.Fatalf("portable records differ with live metadata:\nwithout = %#v\nwith = %#v", withoutLive, withLive)
 	}
-	repeated, err := FromParsedFamily(
+	repeated, err := FromParsedFamily(t.Context(),
 		"r_0123456789abcdef", "codex", vendors.LocalReadSource,
 		parsed, vendors.EmptySessionMetadata(),
 	)
@@ -427,7 +427,7 @@ func TestParsedFamilyPreservesCompleteDescendantSessions(t *testing.T) {
 		{Session: &session.Session{Agent: "codex", ID: "grandchild", StartedAt: 12, LastActivityTime: 22, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, ParentID: "child", Spawns: map[string]vendors.SpawnState{}},
 	}
 
-	records, err := FromParsedFamily("r_0123456789abcdef", "codex", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	records, err := FromParsedFamily(t.Context(), "r_0123456789abcdef", "codex", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestParsedFamilyPopulatesPerModelCosts(t *testing.T) {
 		Spawns: map[string]vendors.SpawnState{},
 	}}
 
-	records, err := FromParsedFamily(
+	records, err := FromParsedFamily(t.Context(),
 		"r_0123456789abcdef", "codex", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata(),
 	)
 	if err != nil {
@@ -476,7 +476,7 @@ func TestParsedFamilyDoesNotMutateMetadataTokenCosts(t *testing.T) {
 		"gpt-5": {InputTokens: 1_000_000},
 	}
 
-	if _, err := FromParsedFamily(
+	if _, err := FromParsedFamily(t.Context(),
 		"r_0123456789abcdef", "codex", vendors.LocalReadSource, parsed, metadata,
 	); err != nil {
 		t.Fatal(err)
@@ -682,7 +682,7 @@ func TestGrokSourceAccountingSurvivesPortableFamily(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			records, err := FromParsedFamily("local", "grok", vendors.LocalReadSource, parsed, metadata)
+			records, err := FromParsedFamily(t.Context(), "local", "grok", vendors.LocalReadSource, parsed, metadata)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -732,7 +732,7 @@ func TestGrokNestedFamilyAccountingIsNotRolledIntoParent(t *testing.T) {
 		{ParentID: "root", Session: &session.Session{Agent: "grok", ID: "child", StartedAt: 1, LastActivityTime: 2, UnattributedTokens: &session.ModelTokens{InputTokens: 7}}},
 		{ParentID: "child", Session: &session.Session{Agent: "grok", ID: "grandchild", StartedAt: 1, LastActivityTime: 2, Tokens: map[string]session.ModelTokens{"grok-4.7": {InputTokens: 5}}}},
 	}
-	records, err := FromParsedFamily("local", "grok", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	records, err := FromParsedFamily(t.Context(), "local", "grok", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -820,7 +820,11 @@ func TestCloneParsedFamilyPreservesIndependentSourceCostPresence(t *testing.T) {
 		Session: &session.Session{}, CostIncomplete: true,
 		RecordedModelCosts: map[string]float64{"positive": 1, "zero": 0},
 	}
-	cloned := cloneParsedFamily([]*vendors.ParsedSession{original})[0]
+	clones, err := cloneParsedFamily(t.Context(), []*vendors.ParsedSession{original})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned := clones[0]
 	if !cloned.CostIncomplete || !reflect.DeepEqual(cloned.RecordedModelCosts, original.RecordedModelCosts) {
 		t.Fatalf("source cost provenance lost: %+v", cloned)
 	}
@@ -860,7 +864,7 @@ func TestGrokCounterlessModelCostRejectsWithoutHidingRoot(t *testing.T) {
 							item.RecordedCost = &cost
 						}
 					}
-					records, servable, err := FromParsedFamilyWithServabilityContext(t.Context(), "root", "local", "grok", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+					records, servable, err := FromParsedFamilyWithServability(t.Context(), "root", "local", "grok", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
 					if err == nil || !servable || len(records) != 0 {
 						t.Fatalf("records=%d servable=%v err=%v", len(records), servable, err)
 					}

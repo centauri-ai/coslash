@@ -34,7 +34,7 @@ func TestFamilySkillRollupRetainsVariantsAndLeavesInputUnchanged(t *testing.T) {
 		}
 		parsed = append(parsed, item)
 	}
-	records, err := FromParsedFamily("local", "codex", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	records, err := FromParsedFamily(t.Context(), "local", "codex", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
 	if err != nil {
 		t.Fatal(err)
 	}

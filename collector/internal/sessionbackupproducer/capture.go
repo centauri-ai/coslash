@@ -424,7 +424,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 		}
 	}
-	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentCodex, frozenSource, parsed, metadata)
+	records, err := fullsessionrecord.FromParsedFamily(ctx, selection.SourceID, vendors.AgentCodex, frozenSource, parsed, metadata)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}

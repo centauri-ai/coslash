@@ -141,7 +141,7 @@ func (manager *Manager) captureGrok(ctx context.Context, staging string, selecti
 			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, "", false)
 		}
 	}
-	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentGrok, vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	records, err := fullsessionrecord.FromParsedFamily(ctx, selection.SourceID, vendors.AgentGrok, vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
 	if err != nil {
 		return nil, processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 	}

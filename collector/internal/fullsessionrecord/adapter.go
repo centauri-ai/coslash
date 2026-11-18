@@ -18,25 +18,21 @@ import (
 
 // FromParsedFamily runs portable composition on a clone before freezing one
 // complete record for every rooted family member.
-func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
-	return FromParsedFamilyContext(context.Background(), sourceID, vendor, source, parsed, metadata)
-}
-
-func FromParsedFamilyContext(ctx context.Context, sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
-	records, _, err := FromParsedFamilyWithServabilityContext(ctx, "", sourceID, vendor, source, parsed, metadata)
+func FromParsedFamily(ctx context.Context, sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
+	records, _, err := FromParsedFamilyWithServability(ctx, "", sourceID, vendor, source, parsed, metadata)
 	return records, err
 }
 
-// FromParsedFamilyWithServabilityContext composes once and reports whether the
+// FromParsedFamilyWithServability composes once and reports whether the
 // family root survives composition even when freezing a complete record fails.
-func FromParsedFamilyWithServabilityContext(
+func FromParsedFamilyWithServability(
 	ctx context.Context,
 	familyID, sourceID, vendor string,
 	source vendors.ReadSource,
 	parsed []*vendors.ParsedSession,
 	metadata *vendors.SessionMetadata,
 ) ([]fullsessionv1.Record, bool, error) {
-	composed, err := composePortableFamilyContext(ctx, vendor, source, parsed, metadata)
+	composed, err := composePortableFamily(ctx, vendor, source, parsed, metadata)
 	if err != nil {
 		return nil, false, err
 	}
@@ -83,22 +79,21 @@ func FromParsedFamilyWithServabilityContext(
 // IsServableFamily reports whether portable composition retains the family's
 // root. Session-meta-only and synthesis-generated roots are intentionally not
 // durable remote families.
-func IsServableFamily(familyID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) bool {
-	for _, item := range composePortableFamily(vendor, source, parsed, metadata) {
+func IsServableFamily(ctx context.Context, familyID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) (bool, error) {
+	composed, err := composePortableFamily(ctx, vendor, source, parsed, metadata)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range composed {
 		if item.Session.ID == familyID {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
-func composePortableFamily(vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) []collector.PortableSession {
-	composed, _ := composePortableFamilyContext(context.Background(), vendor, source, parsed, metadata)
-	return composed
-}
-
-func composePortableFamilyContext(ctx context.Context, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]collector.PortableSession, error) {
-	cloned, err := cloneParsedFamilyContext(ctx, parsed)
+func composePortableFamily(ctx context.Context, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]collector.PortableSession, error) {
+	cloned, err := cloneParsedFamily(ctx, parsed)
 	if err != nil {
 		return nil, err
 	}
@@ -448,12 +443,7 @@ func tokensFromUsage(usage []fullsessionv1.ModelUsage, pi bool) map[string]sessi
 	return tokens
 }
 
-func cloneParsedFamily(parsed []*vendors.ParsedSession) []*vendors.ParsedSession {
-	cloned, _ := cloneParsedFamilyContext(context.Background(), parsed)
-	return cloned
-}
-
-func cloneParsedFamilyContext(ctx context.Context, parsed []*vendors.ParsedSession) ([]*vendors.ParsedSession, error) {
+func cloneParsedFamily(ctx context.Context, parsed []*vendors.ParsedSession) ([]*vendors.ParsedSession, error) {
 	cloned := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
 		if err := ctx.Err(); err != nil {

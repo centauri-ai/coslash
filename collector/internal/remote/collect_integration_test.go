@@ -345,7 +345,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	localRecords, err := fullsessionrecord.FromParsedFamily(
+	localRecords, err := fullsessionrecord.FromParsedFamily(t.Context(),
 		baseline.SourceID, vendors.AgentCodex, vendors.LocalReadSource, localParsed, localMetadata,
 	)
 	if err != nil || len(localRecords) != 1 {
@@ -482,7 +482,7 @@ func TestClaudeFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	localRecords, err := fullsessionrecord.FromParsedFamily(
+	localRecords, err := fullsessionrecord.FromParsedFamily(t.Context(),
 		baseline.SourceID, vendors.AgentClaude, vendors.LocalReadSource, localParsed, localMetadata,
 	)
 	if err != nil || len(localRecords) != 2 {
