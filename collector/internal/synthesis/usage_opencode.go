@@ -171,6 +171,7 @@ func readOpenCodeScratchUsage(path, sessionID string, v2 bool) (UsageReport, int
 		return unknownUsage(), 0, false
 	}
 	defer db.Close()
+	// Usage is read after a cancelled run too, so spent tokens stay accounted.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	query := `SELECT raw, size FROM (
