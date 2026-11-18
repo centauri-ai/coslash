@@ -251,7 +251,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
-	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentClaude, frozenSource, parsed, vendors.EmptySessionMetadata())
+	records, err := fullsessionrecord.FromParsedFamily(ctx, selection.SourceID, vendors.AgentClaude, frozenSource, parsed, vendors.EmptySessionMetadata())
 	if err != nil || len(records) > len(memberIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
 	}

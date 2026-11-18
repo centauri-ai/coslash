@@ -138,6 +138,9 @@ func collectVendorFamilies(ctx context.Context, in vendorFamilyInput) vendorOutc
 	var familyFailures []error
 	intentionallyAbsent := map[string]bool{}
 	for id, composite := range changed {
+		if err := ctx.Err(); err != nil {
+			return vendorOutcome{Err: err}
+		}
 		if unstableFamilies[id] {
 			records = append(records, remoteprotocol.Record{
 				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonUnstableFile,
@@ -164,7 +167,7 @@ func collectVendorFamilies(ctx context.Context, in vendorFamilyInput) vendorOutc
 		var complete []fullsessionv1.Record
 		var fullErr error
 		if in.Vendor == vendors.AgentCodex || (in.Vendor == vendors.AgentClaude && in.SourceID != "") {
-			complete, fullErr = fullsessionrecord.FromParsedFamily(in.SourceID, in.Vendor, in.Source, sessions, in.Metadata)
+			complete, fullErr = fullsessionrecord.FromParsedFamily(ctx, in.SourceID, in.Vendor, in.Source, sessions, in.Metadata)
 			if fullErr != nil && in.Vendor == vendors.AgentCodex {
 				records = append(records, remoteprotocol.Record{
 					Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonInvalidData,
@@ -177,9 +180,15 @@ func collectVendorFamilies(ctx context.Context, in vendorFamilyInput) vendorOutc
 				continue
 			}
 		}
-		if (fullErr != nil || in.SourceID == "") && !fullsessionrecord.IsServableFamily(id, in.Vendor, in.Source, sessions, in.Metadata) {
-			intentionallyAbsent[id] = true
-			continue
+		if fullErr != nil || in.SourceID == "" {
+			servable, err := fullsessionrecord.IsServableFamily(ctx, id, in.Vendor, in.Source, sessions, in.Metadata)
+			if err != nil {
+				return vendorOutcome{Err: err}
+			}
+			if !servable {
+				intentionallyAbsent[id] = true
+				continue
+			}
 		}
 		family, err := remotefacts.FromParsed(
 			in.Vendor, id, in.ParserVersion, remotefacts.StateComplete, "",
@@ -218,6 +227,9 @@ func collectVendorFamilies(ctx context.Context, in vendorFamilyInput) vendorOutc
 		records = append(records, record)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return vendorOutcome{Err: err}
+	}
 	allSet := make(map[string]struct{}, len(in.AllFamilyIDs))
 	for _, id := range in.AllFamilyIDs {
 		if intentionallyAbsent[id] {

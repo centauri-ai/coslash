@@ -23,7 +23,7 @@ type compositionInterruptedContext struct {
 
 func (ctx *compositionInterruptedContext) Err() error {
 	pc, _, _, _ := runtime.Caller(1)
-	if strings.HasSuffix(runtime.FuncForPC(pc).Name(), ".cloneParsedFamilyContext") {
+	if strings.HasSuffix(runtime.FuncForPC(pc).Name(), ".cloneParsedFamily") {
 		ctx.interrupted.Store(true)
 		ctx.cancel()
 	}

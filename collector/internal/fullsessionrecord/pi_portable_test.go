@@ -39,7 +39,7 @@ func TestPiPortableRevisionExcludesRuntimeEntrypoint(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			records, err := FromParsedFamily("local", "pi", vendors.LocalReadSource, parsed, metadata)
+			records, err := FromParsedFamily(t.Context(), "local", "pi", vendors.LocalReadSource, parsed, metadata)
 			if err != nil || len(records) != 1 {
 				t.Fatalf("%s: records=%d err=%v", modality, len(records), err)
 			}
@@ -60,7 +60,7 @@ func TestPiPortableRevisionExcludesRuntimeEntrypoint(t *testing.T) {
 			}
 		}
 		*parsed[0].Session.Digest[0].ContextSelected = false
-		changed, err := FromParsedFamily("local", "pi", vendors.LocalReadSource, parsed, nil)
+		changed, err := FromParsedFamily(t.Context(), "local", "pi", vendors.LocalReadSource, parsed, nil)
 		if err != nil || len(changed) != 1 {
 			t.Fatalf("changed context: records=%d err=%v", len(changed), err)
 		}
@@ -77,7 +77,7 @@ func TestPortableCompositionPreservesOtherVendorEntrypoints(t *testing.T) {
 			metadata := vendors.EmptySessionMetadata()
 			metadata.Session("s").Entrypoint = "sdk"
 			parsed := []*vendors.ParsedSession{{Session: &session.Session{Agent: agent, ID: "s", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}}}
-			records, err := FromParsedFamily("local", agent, vendors.LocalReadSource, parsed, metadata)
+			records, err := FromParsedFamily(t.Context(), "local", agent, vendors.LocalReadSource, parsed, metadata)
 			if err != nil || len(records) != 1 {
 				t.Fatalf("records=%d err=%v", len(records), err)
 			}
@@ -100,7 +100,7 @@ func TestPiPortableCompositionPreservesAccountingAndContext(t *testing.T) {
 	value.SetPullRequestLinks([]session.PullRequestLink{{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2}})
 	before := session.Clone(value)
 	parsed := []*vendors.ParsedSession{{Session: value, RecordedCost: &cost}}
-	records, err := FromParsedFamily("local", "pi", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	records, err := FromParsedFamily(t.Context(), "local", "pi", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
 	if err != nil || len(records) != 1 {
 		t.Fatalf("records=%d err=%v", len(records), err)
 	}
@@ -127,7 +127,7 @@ func TestPiPortableCompositionPreservesAccountingAndContext(t *testing.T) {
 	if err != nil || changed.RevisionID == record.RevisionID || *record.Session.Digest[0].Active {
 		t.Fatalf("context revision/ownership: %v", err)
 	}
-	remote, err := FromParsedFamily("remote", "pi", struct{ vendors.ReadSource }{vendors.LocalReadSource}, parsed, vendors.EmptySessionMetadata())
+	remote, err := FromParsedFamily(t.Context(), "remote", "pi", struct{ vendors.ReadSource }{vendors.LocalReadSource}, parsed, vendors.EmptySessionMetadata())
 	if err != nil || len(remote) != 0 {
 		t.Fatalf("Pi entered SSH composition: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestPiCollectedForksComposeAsIndependentRecords(t *testing.T) {
 	if err != nil || len(parsed) != 3 {
 		t.Fatalf("collected=%d err=%v", len(parsed), err)
 	}
-	records, err := FromParsedFamily("local", "pi", vendors.LocalReadSource, parsed, metadata)
+	records, err := FromParsedFamily(t.Context(), "local", "pi", vendors.LocalReadSource, parsed, metadata)
 	if err != nil || len(records) != 3 {
 		t.Fatalf("records=%d err=%v", len(records), err)
 	}
@@ -194,7 +194,7 @@ func TestPiCollectedForksComposeAsIndependentRecords(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if records, err := FromParsedFamilyContext(ctx, "local", "pi", vendors.LocalReadSource, parsed, metadata); err != context.Canceled || records != nil {
+	if records, err := FromParsedFamily(ctx, "local", "pi", vendors.LocalReadSource, parsed, metadata); err != context.Canceled || records != nil {
 		t.Fatalf("cancellation: records=%d err=%v", len(records), err)
 	}
 }
