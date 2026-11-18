@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
 import type { Session } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import { InsightsView } from './InsightsView';
 
 vi.mock('@/pages/coslash/hooks/use-synthesis-costs', () => ({ useSynthesisCosts: vi.fn() }));
@@ -166,21 +167,17 @@ it('keeps the synthesis recovery control present while retrying', () => {
 it('labels combined known subtotal when coding alone has unpriced usage', () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 9, 2));
-  const session = {
-    sourceId: 'local',
-    agent: 'codex',
+  const session = makeSession({
     id: 'one',
     logicalSessionId: 'local:codex:one',
     revision: 1,
-    eligibleForAggregates: true,
     mtime: new Date(2026, 9, 1).getTime(),
     repo: 'app',
-    tokens: {},
     observedModels: [],
     model: 'gpt-5',
     cost: 1,
     unpricedModels: ['unpriced'],
-  } as unknown as Session;
+  });
   const complete = {
     sourceId: 'local',
     trackingStartedAtMs: 0,

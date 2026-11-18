@@ -15,6 +15,7 @@ import {
 } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { LOCAL_SOURCE_ID, withLocalSourceDefaults, type Session } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import type { TimeWindow } from '@/pages/coslash/lib/time-window';
 
 vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
@@ -24,9 +25,8 @@ vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
 
 function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
   const local = sourceId === LOCAL_SOURCE_ID;
-  return {
+  return makeSession({
     sourceId,
-    sourceLabel: local ? 'Local Mac' : 'SSH workspace',
     sourceClass: local ? 'local' : 'ssh_workspace',
     logicalSessionId: `${sourceId}:codex:${id}`,
     revision: 1,
@@ -34,46 +34,12 @@ function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
     completion: 'complete',
     privacy: 'shareable',
     shareEligibility: 'eligible',
-    eligibleForAggregates: true,
-    displayStale: false,
-    agent: 'codex',
     id,
-    name: null,
-    summary: null,
-    status: null,
     cwd: '/tmp',
-    branch: null,
-    repo: null,
-    repoLocalOnly: false,
-    files: 0,
-    durationMs: null,
-    tokens: {},
     cost: 0,
-    unpricedModels: [],
-    subagents: [],
     mtime: 1,
-    entrypoint: null,
-    synthesis: null,
-    synthesisPending: false,
-    declaredGoal: null,
-    model: null,
     observedModels: [],
-    contextTokens: null,
-    contextWindow: null,
-    turns: 0,
-    toolUses: 0,
-    errors: 0,
-    compactions: 0,
-    firstPrompt: null,
-    commands: [],
-    commits: [],
-    prs: 0,
-    todos: [],
-    digest: [],
-    fileEdits: [],
-    git: null,
-    lastEditAt: null,
-  };
+  });
 }
 
 describe('decodeSessionsResponse', () => {

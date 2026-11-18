@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { apiFetch } from '../lib/api';
 import { handoffBrief } from '../lib/handoff';
 import type { Session } from '../lib/session';
+import { makeSession } from '../lib/session-fixture';
 import { detailRequestKey, useSessionDetail } from './SessionInspector';
 
 // Exercise the real hook's effects without adding a DOM test dependency.
@@ -46,49 +47,14 @@ function renderDetail(session: Session) {
   return result;
 }
 
-const session: Session = {
-  sourceId: 'local',
-  sourceLabel: 'Local Mac',
+const session = makeSession({
   agent: 'pi',
   id: 'same-session',
   detailRevision: 'leaf-a',
   mtime: 10,
-  name: null,
-  summary: null,
-  firstPrompt: null,
-  declaredGoal: null,
-  synthesis: null,
-  todos: [],
-  digest: [],
-  fileEdits: [],
-  commits: [],
-  subagents: [],
-  tokens: {},
-  cost: null,
-  repo: null,
-  branch: null,
   cwd: '/repo',
   status: 'idle',
-  errors: 0,
-  unpricedModels: [],
-  displayStale: false,
-  eligibleForAggregates: true,
-  repoLocalOnly: false,
-  files: 0,
-  durationMs: null,
-  entrypoint: null,
-  synthesisPending: false,
-  model: null,
-  contextTokens: null,
-  contextWindow: null,
-  turns: 0,
-  toolUses: 0,
-  compactions: 0,
-  commands: [],
-  prs: 0,
-  git: null,
-  lastEditAt: null,
-};
+});
 
 beforeEach(() => {
   hooks.index = 0;

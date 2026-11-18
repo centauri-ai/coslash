@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Session } from './session';
+import { makeSession } from './session-fixture';
 import { ALL_REPOSITORIES, filterSessionLibrary, latestLogicalSessions } from './session-library';
 
 function session(overrides: Partial<Session> = {}): Session {
-  return {
-    sourceId: 'local',
-    sourceLabel: 'Local Mac',
+  return makeSession({
     sourceClass: 'local',
     logicalSessionId: 'local:codex:one',
     revision: 10,
@@ -13,46 +12,15 @@ function session(overrides: Partial<Session> = {}): Session {
     completion: 'complete',
     privacy: 'shareable',
     shareEligibility: 'eligible',
-    eligibleForAggregates: true,
-    displayStale: false,
-    agent: 'codex',
     id: 'one',
     name: 'Fix the compiler',
-    summary: null,
-    status: null,
     cwd: '/private/work/compiler',
     branch: 'main',
     repo: 'compiler',
-    repoLocalOnly: false,
-    files: 0,
-    durationMs: null,
-    tokens: {},
     cost: 0,
-    unpricedModels: [],
-    subagents: [],
     mtime: 10,
-    entrypoint: null,
-    synthesis: null,
-    synthesisPending: false,
-    declaredGoal: null,
-    model: null,
-    contextTokens: null,
-    contextWindow: null,
-    turns: 0,
-    toolUses: 0,
-    errors: 0,
-    compactions: 0,
-    firstPrompt: null,
-    commands: [],
-    commits: [],
-    prs: 0,
-    todos: [],
-    digest: [],
-    fileEdits: [],
-    git: null,
-    lastEditAt: null,
     ...overrides,
-  };
+  });
 }
 
 function search(rows: Session[], query: string): Session[] {
