@@ -135,6 +135,7 @@ cd collector
 make release       # staged frontend + embedded remote helpers + local binary
 make test          # Go, OpenCode plugin, and embedded-helper tests
 make check         # formatting and go vet
+make lint          # golangci-lint for darwin, linux, and windows
 make dist          # reproducible darwin/arm64 and darwin/amd64 archives
 ./bin/coslash
 ```

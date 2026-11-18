@@ -52,5 +52,5 @@ against local processes running as the same user, which can read the token file.
 
 ## Verification
 
-- Run focused package tests while iterating, then `make check` and `make test` from `collector/`.
+- Run focused package tests while iterating, then `make check`, `make lint`, and `make test` from `collector/`.
 - Run `make release && make smoke` when changing startup, embedded assets, helper packaging, or the frontend/collector integration.
