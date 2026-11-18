@@ -70,6 +70,13 @@ jobs:
           node-version-file: frontend/.nvmrc
       - name: Check collector
         run: make check
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          install-only: true
+      - name: Lint collector
+        run: make lint
       - name: Test collector
         run: make test
       - name: Cross-build collector for Windows amd64
