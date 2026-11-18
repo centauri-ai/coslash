@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -81,20 +82,7 @@ func writeRuntime(baseURL string) error {
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(home, ".runtime-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if _, err := temporary.Write(append(data, '\n')); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, filepath.Join(home, runtimeFilename))
+	return atomicfile.Write(filepath.Join(home, runtimeFilename), append(data, '\n'), 0o600, nil)
 }
 
 func removeRuntime(baseURL, token string) error {
