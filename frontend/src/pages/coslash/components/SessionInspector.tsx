@@ -1164,7 +1164,7 @@ function readInspectorWidth(): number | null {
   }
 }
 
-function DebriefProse({
+export function DebriefProse({
   blocks,
   empty = '—',
   tone,
@@ -1192,7 +1192,9 @@ function DebriefProse({
         <DebriefBlocks blocks={shown} tone={tone} />
       </div>
       {canExpand && (
-        <div
+        <button
+          type="button"
+          aria-expanded={expanded}
           className="text-brand flex w-fit cursor-pointer items-center gap-1 text-xs select-none"
           onClick={() => setExpanded((value) => !value)}
         >
@@ -1204,7 +1206,7 @@ function DebriefProse({
                 ? `show full · ${preview.hiddenCount} more`
                 : 'show full'}
           </span>
-        </div>
+        </button>
       )}
     </div>
   );
@@ -1634,15 +1636,22 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
 
   return (
     <div className="pt-4">
-      <div className="flex cursor-pointer items-center gap-2" onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2"
+        onClick={() => setOpen(!open)}
+      >
         {open ? (
           <ChevronDownIcon className="text-coslash-muted size-3" />
         ) : (
           <ChevronRightIcon className="text-coslash-muted size-3" />
         )}
-        <FieldLabel>{`${detail.commands.length} COMMANDS`}</FieldLabel>
-        <div className="flex-1 border-b" />
-      </div>
+        <span className="text-coslash-muted pb-1 text-xs font-semibold tracking-wide">
+          {`${detail.commands.length} COMMANDS`}
+        </span>
+        <span className="flex-1 border-b" />
+      </button>
       {open && (
         <div className="bg-coslash-soft max-h-44 overflow-x-hidden overflow-y-auto rounded-lg p-3">
           <pre className="text-coslash-ink font-mono text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">

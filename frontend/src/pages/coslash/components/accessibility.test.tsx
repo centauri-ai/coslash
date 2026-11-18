@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import axe from 'axe-core';
 import { describe, expect, it } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
+import { DebriefProse } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog } from '@/pages/coslash/components/SettingsDialog';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
@@ -101,6 +102,26 @@ describe('coSlash accessibility', () => {
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
     await expectAxeClean(dialog!);
+    await act(async () => root.unmount());
+  });
+
+  it('exposes the debrief show-more toggle as an expandable button', async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+      true;
+    const blocks = ['One.', 'Two.', 'Three.', 'Four.', 'Five.'].map((text) => ({
+      kind: 'paragraph' as const,
+      text,
+    }));
+    const mount = document.createElement('div');
+    document.body.replaceChildren(mount);
+    const root = createRoot(mount);
+    await act(async () => root.render(<DebriefProse blocks={blocks} tone="goal" />));
+    const toggle = mount.querySelector('button[aria-expanded]')!;
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => (toggle as HTMLButtonElement).click());
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(mount.textContent).toContain('Five.');
     await act(async () => root.unmount());
   });
 });
