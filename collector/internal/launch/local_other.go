@@ -14,8 +14,6 @@ func openTerminalForAgent(ctx context.Context, terminal, _ string, workingDirect
 	return openTerminal(ctx, terminal, workingDirectory, command)
 }
 
-func Available(terminal string) bool { return AvailableContext(context.Background(), terminal) }
-
-func AvailableContext(context.Context, string) bool {
+func Available(context.Context, string) bool {
 	return false
 }

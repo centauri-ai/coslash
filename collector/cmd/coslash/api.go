@@ -494,7 +494,7 @@ func handleSend(
 		http.Error(w, "Grok handoff is supported only on macOS and Windows", http.StatusBadRequest)
 		return
 	}
-	if (target == vendors.AgentPi && !launch.PiAvailable()) || (target != vendors.AgentPi && !targetAvailable(target)) {
+	if (target == vendors.AgentPi && !launch.PiAvailable(r.Context())) || (target != vendors.AgentPi && !targetAvailable(target)) {
 		http.Error(w, "target is not installed or supported", http.StatusBadRequest)
 		return
 	}

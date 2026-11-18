@@ -227,10 +227,10 @@ func TestPiMinimumReleaseAndTargetAvailability(t *testing.T) {
 		}
 		_, _, err := cliCommand(t.Context(), vendors.AgentPi, "", NewSession, "", "")
 		verified := test.allowed
-		if available := PiAvailable(); available != verified {
+		if available := PiAvailable(t.Context()); available != verified {
 			t.Fatalf("PiAvailable(%s) = %v, want %v", version, available, verified)
 		}
-		for _, target := range HandoffTargetOptions(context.Background()) {
+		for _, target := range HandoffTargetOptions(t.Context()) {
 			if target.Agent == vendors.AgentPi && target.Available != verified {
 				t.Fatalf("Pi target availability for %s = %v, want %v", version, target.Available, verified)
 			}
