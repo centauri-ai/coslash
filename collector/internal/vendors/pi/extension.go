@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -65,27 +66,9 @@ func ensureExtension() error {
 	if err := protectExtensionDirectories(filepath.Dir(target)); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(filepath.Dir(target), ".coslash-extension-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	if err := file.Chmod(0o600); err != nil {
-		file.Close()
-		return err
-	}
-	if err := protectExtensionFile(file); err != nil {
-		file.Close()
-		return err
-	}
-	if _, err := file.Write(extensionSource); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), target)
+	return atomicfile.Write(target, extensionSource, 0o600, func(_ string, file *os.File) error {
+		return protectExtensionFile(file)
+	})
 }
 
 func protectInstalledExtension(path string) error {
