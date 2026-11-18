@@ -77,27 +77,20 @@ import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardG
 import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
 import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
 import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
-import { statusDot, styles, tokenTotal } from '@/pages/coslash/components/session-list/styles';
+import {
+  FacetRow,
+  FacetRows,
+  SidebarSection,
+  type FacetOption,
+  type FacetSection,
+} from '@/pages/coslash/components/session-list/SidebarSection';
+import { styles, tokenTotal } from '@/pages/coslash/components/session-list/styles';
 import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 
 const SessionBoard = lazy(() =>
   import('@/pages/coslash/components/SessionBoard').then((module) => ({ default: module.SessionBoard })),
 );
 
-type FacetOption = {
-  id: string;
-  label: string;
-  count: number;
-  selected: boolean;
-  onClick: () => void;
-  context?: string;
-  title?: string;
-  highlight?: string;
-  status?: StatusKey;
-  icon?: ReactNode;
-  indicator?: ReactNode;
-};
-type FacetSection = { id: FacetKey; label: string; options: FacetOption[] };
 const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'this-week', label: 'This week' },
@@ -192,102 +185,6 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
         <span className="text-coslash-muted max-actions:hidden">· {unpriced.length} not priced</span>
       )}
       <span className="text-meta text-coslash-muted max-actions:hidden">at list API prices</span>
-    </div>
-  );
-}
-
-function FacetRow({
-  label,
-  context,
-  title,
-  highlight,
-  count,
-  selected,
-  icon,
-  indicator,
-  status,
-  onClick,
-}: FacetOption) {
-  const index = highlight ? label.toLowerCase().indexOf(highlight) : -1;
-  return (
-    <div
-      className={cn(styles.facet, 'relative gap-1.5', {
-        'bg-coslash-tint text-coslash-accent-ink font-semibold': selected,
-      })}
-    >
-      {/* Stretched over the row, so the whole row still toggles the facet. */}
-      <button
-        type="button"
-        className="flex min-w-0 cursor-pointer items-center gap-[9px] text-left after:absolute after:inset-0 [&>svg]:size-3.5"
-        title={title}
-        aria-pressed={selected}
-        onClick={onClick}
-      >
-        {status ? <span className={cn('size-[7px] shrink-0 rounded-full', statusDot(status))} /> : icon}
-        <span className="min-w-0">
-          <span className="block truncate">
-            {index < 0 ? (
-              label
-            ) : (
-              <>
-                {label.slice(0, index)}
-                <mark className="bg-coslash-tint text-coslash-accent-ink">
-                  {label.slice(index, index + highlight!.length)}
-                </mark>
-                {label.slice(index + highlight!.length)}
-              </>
-            )}
-          </span>
-          {context && (
-            <span className="text-coslash-muted text-meta block truncate" title={context}>
-              {context}
-            </span>
-          )}
-        </span>
-      </button>
-      {indicator && <span className="relative flex">{indicator}</span>}
-      <span className="text-meta ml-auto tabular-nums">{count}</span>
-    </div>
-  );
-}
-
-function FacetRows({ options }: { options: FacetOption[] }) {
-  return options.map((option) => <FacetRow key={option.id} {...option} />);
-}
-
-function SidebarSection({
-  section,
-  open,
-  isLoading,
-  onToggle,
-}: {
-  section: FacetSection;
-  open: boolean;
-  isLoading: boolean;
-  onToggle: () => void;
-}) {
-  const contentId = `coslash-${section.id}`;
-  return (
-    <div className="pb-3.5">
-      <div className="flex items-center">
-        <button
-          className={styles.sideHeading}
-          aria-expanded={open}
-          aria-controls={contentId}
-          onClick={onToggle}
-        >
-          <ChevronRight className={cn('size-[13px] transition-transform', { 'rotate-90': open })} />
-          <span className="flex flex-1 items-center justify-between">
-            {section.label}
-            {isLoading && <InlineSpinner />}
-          </span>
-        </button>
-      </div>
-      {open && (
-        <div id={contentId}>
-          <FacetRows options={section.options} />
-        </div>
-      )}
     </div>
   );
 }
