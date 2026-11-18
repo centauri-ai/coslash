@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { DigestSection } from '@/pages/coslash/components/session-inspector/DigestSection';
 import { TokenBreakdown } from '../components/SessionCard';
-import { DigestSection } from '../components/SessionInspector';
 import { handoffTargetsPath } from './directed-handoff';
 import { formatEstimatedCost, formatTokens } from './format';
 import { handoffBrief } from './handoff';
