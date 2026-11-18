@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestSourceCustomIdentityDedupAndConflict(t *testing.T) {
@@ -493,4 +495,9 @@ func TestUnsupportedHeaderDiscoversProjectOverride(t *testing.T) {
 			}
 		})
 	}
+}
+
+func discover(ctx context.Context) (*vendors.SourceScan, string, error) {
+	scan, root, _, err := discoverHeaders(ctx)
+	return scan, root, err
 }
