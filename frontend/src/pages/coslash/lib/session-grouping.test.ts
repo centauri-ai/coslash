@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
-import { boardGroupKey, groupSessions } from '@/pages/coslash/lib/session-grouping';
+import { groupSessions } from '@/pages/coslash/lib/session-grouping';
 
 describe('groupSessions', () => {
   it('orders status columns by board priority, not by the order sessions arrive in', () => {
@@ -55,11 +55,11 @@ describe('groupSessions', () => {
   });
 });
 
-describe('boardGroupKey', () => {
-  it('matches the key a session was grouped under, so cells find their column', () => {
+describe('remote session keys', () => {
+  it('groups a remote session under its status and repository keys', () => {
     const remote = makeSession({ sourceId: 'remote', status: null, repo: 'github.com/centauri-ai/coslash' });
 
-    expect(boardGroupKey(remote, 'status')).toBe('inactive');
-    expect(boardGroupKey(remote, 'repo')).toBe('github.com/centauri-ai/coslash');
+    expect(groupSessions([remote], 'status')[0].key).toBe('inactive');
+    expect(groupSessions([remote], 'repo')[0].key).toBe('github.com/centauri-ai/coslash');
   });
 });

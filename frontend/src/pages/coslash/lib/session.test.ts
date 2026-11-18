@@ -7,7 +7,6 @@ import {
   freshLaunchDisabledHint,
   getModality,
   getSessionVendors,
-  getTotalTokens,
   LOCAL_SOURCE_ID,
   resolveGoal,
   resumeDisabled,
@@ -129,7 +128,6 @@ describe('token totals', () => {
       },
     };
 
-    expect(getTotalTokens(tokens)).toBeNull();
     expect(sessionTotalTokens({ tokens })).toBeNull();
   });
 });
