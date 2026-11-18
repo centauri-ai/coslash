@@ -105,54 +105,6 @@ func (c *Client) Destination(ctx context.Context) (DestinationResult, error) {
 	return result, nil
 }
 
-type authorizationResponse struct {
-	ID                      string    `json:"id"`
-	DeviceCode              string    `json:"deviceCode"`
-	UserCode                string    `json:"userCode"`
-	VerificationURI         string    `json:"verificationUri"`
-	VerificationURIComplete string    `json:"verificationUriComplete"`
-	ExpiresAt               time.Time `json:"expiresAt"`
-	IntervalSeconds         int       `json:"intervalSeconds"`
-}
-
-func (c *Client) BeginPairing(ctx context.Context) (PairingResult, error) {
-	if !c.configured() {
-		return PairingResult{}, errors.New("Hub server is not configured")
-	}
-	fields := map[string]string{"deviceName": c.DeviceName}
-	c.addPairIdentity(fields)
-	response, err := c.postPairingJSON(ctx, "/v1/device-authorizations", fields, "begin Hub pairing")
-	if err != nil {
-		return PairingResult{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusCreated {
-		return PairingResult{}, remoteError(response)
-	}
-	var authorization authorizationResponse
-	if err := decodeBounded(response.Body, &authorization); err != nil {
-		return PairingResult{}, fmt.Errorf("decode Hub pairing: %w", err)
-	}
-	if authorization.ID == "" || authorization.DeviceCode == "" || authorization.UserCode == "" ||
-		time.Now().After(authorization.ExpiresAt) ||
-		!c.validVerificationURL(authorization.VerificationURI, authorization.DeviceCode) ||
-		authorization.VerificationURIComplete != "" &&
-			!c.validVerificationURL(authorization.VerificationURIComplete, authorization.DeviceCode) {
-		return PairingResult{}, errors.New("decode Hub pairing: incomplete authorization")
-	}
-	c.pairingMu.Lock()
-	if c.pairings == nil {
-		c.pairings = make(map[string]pairingSecret)
-	}
-	c.pairings[authorization.ID] = pairingSecret{deviceCode: authorization.DeviceCode, expiresAt: authorization.ExpiresAt}
-	c.pairingMu.Unlock()
-	return PairingResult{
-		State: "pending", PairingID: authorization.ID, UserCode: authorization.UserCode,
-		VerificationURI: authorization.VerificationURI, VerificationURIComplete: authorization.VerificationURIComplete,
-		ExpiresAt: authorization.ExpiresAt, IntervalSeconds: authorization.IntervalSeconds,
-	}, nil
-}
-
 func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResult, error) {
 	c.pairingMu.Lock()
 	secret, ok := c.pairings[pairingID]
@@ -257,16 +209,6 @@ func (c *Client) forgetPairing(id string) {
 	c.pairingMu.Lock()
 	delete(c.pairings, id)
 	c.pairingMu.Unlock()
-}
-
-func (c *Client) validVerificationURL(raw, forbidden string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil || !parsed.IsAbs() || parsed.User != nil ||
-		parsed.Scheme != c.BaseURL.Scheme || parsed.Host != c.BaseURL.Host {
-		return false
-	}
-	decoded, _ := url.QueryUnescape(raw)
-	return forbidden == "" || !strings.Contains(raw, forbidden) && !strings.Contains(decoded, forbidden)
 }
 
 type Problem struct {

@@ -129,50 +129,6 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		}
 		return client
 	}
-	api.HandleFunc("GET /api/hub/destination", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil {
-			writeJSON(w, hubclient.DestinationResult{ContractVersion: hubclient.ContractVersion, State: "signed_out", Configured: false})
-			return
-		}
-		result, err := client.Destination(request.Context())
-		if err != nil {
-			http.Error(w, "could not load Hub destination", http.StatusBadGateway)
-			return
-		}
-		writeJSON(w, result)
-	})
-	api.HandleFunc("POST /api/hub/pairings", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil {
-			http.Error(w, "Hub server is not configured", http.StatusConflict)
-			return
-		}
-		result, err := client.BeginPairing(request.Context())
-		if err != nil {
-			http.Error(w, "could not begin Hub pairing", http.StatusBadGateway)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(result)
-	})
-	api.HandleFunc("POST /api/hub/pairings/{id}/poll", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil {
-			http.Error(w, "Hub server is not configured", http.StatusConflict)
-			return
-		}
-		result, err := client.PollPairing(request.Context(), request.PathValue("id"))
-		if err != nil {
-			writeJSON(w, hubclient.PairingResult{State: hubclient.PairingStateRetrying})
-			return
-		}
-		if result.State == hubclient.PairingStatePaired && onboardings != nil {
-			onboardings.ensureSync(client)
-		}
-		writeJSON(w, result)
-	})
 	api.HandleFunc("POST /api/hub/onboarding/activate", func(w http.ResponseWriter, request *http.Request) {
 		if onboardings == nil {
 			http.Error(w, "Hub onboarding is unavailable", http.StatusServiceUnavailable)
