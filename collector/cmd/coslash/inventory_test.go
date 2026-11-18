@@ -19,6 +19,19 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 )
 
+// waitForTicks rescans once per tick until the context ends. A nil channel
+// never ticks, so the inventory runs only its first scan.
+func waitForTicks(ticks <-chan struct{}) func(context.Context, time.Duration, time.Time) (bool, bool, bool) {
+	return func(ctx context.Context, _ time.Duration, _ time.Time) (bool, bool, bool) {
+		select {
+		case <-ctx.Done():
+			return false, false, false
+		case <-ticks:
+			return true, false, false
+		}
+	}
+}
+
 type inventorySyncHub struct{}
 
 func (inventorySyncHub) V4Binding(context.Context) (string, error) {
@@ -64,7 +77,7 @@ func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runInventory(ctx, fingerprints, queue, wake, tracker, func(context.Context) bool { return true })
+		runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, func(context.Context) bool { return true }, waitForTicks(nil), nil)
 	}()
 	select {
 	case <-wake:
@@ -245,7 +258,7 @@ func TestRunInventoryWakesSyncLoopWhenAnOlderSessionChanges(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runInventoryWithTicks(ctx, fingerprints, queue, wake, &inventory.Tracker{}, func(context.Context) bool { return true }, ticks, scanned)
+		runInventoryWithSchedule(ctx, fingerprints, queue, wake, &inventory.Tracker{}, func(context.Context) bool { return true }, waitForTicks(ticks), scanned)
 	}()
 	<-scanned
 	select {
@@ -354,7 +367,7 @@ func TestInventoryWakeRefreshesOlderSessionInOneScan(t *testing.T) {
 	inventoryDone := make(chan struct{})
 	go func() {
 		defer close(inventoryDone)
-		runInventoryWithTicks(ctx, fingerprints, queue, inventoryWake, &inventory.Tracker{}, func(context.Context) bool { return true }, ticks, scanned)
+		runInventoryWithSchedule(ctx, fingerprints, queue, inventoryWake, &inventory.Tracker{}, func(context.Context) bool { return true }, waitForTicks(ticks), scanned)
 	}()
 	<-scanned
 	select {
@@ -448,7 +461,7 @@ func TestRunInventoryWaitsForPairing(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runInventory(ctx, fingerprints, queue, wake, tracker, func(context.Context) bool { return paired.Load() })
+		runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, func(context.Context) bool { return paired.Load() }, waitForTicks(nil), nil)
 	}()
 	select {
 	case <-wake:
