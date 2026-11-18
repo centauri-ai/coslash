@@ -156,7 +156,7 @@ const styles = {
   banner:
     'flex items-center gap-2.5 border-b border-danger-fg bg-danger-bg px-5 py-2.5 text-xs text-danger-fg [&>svg]:size-4',
   sidebar:
-    'coslash-sidebar w-[214px] shrink-0 overflow-y-auto border-r border-coslash-line bg-coslash-surface px-3 py-5 [scrollbar-width:none] max-sidebar:hidden [&::-webkit-scrollbar]:hidden',
+    'coslash-sidebar w-[214px] shrink-0 no-scrollbar overflow-y-auto border-r border-coslash-line bg-coslash-surface px-3 py-5 max-sidebar:hidden',
   sideHeading:
     'flex min-h-[30px] w-full cursor-pointer items-center gap-[7px] rounded-[7px] px-2.5 py-1.5 text-left text-meta font-[650] tracking-[.09em] text-coslash-muted uppercase transition-colors hover:bg-coslash-soft hover:text-coslash-ink',
   facet:
@@ -1406,7 +1406,7 @@ export function CoslashLayout({
                     <X />
                   </button>
                 )}
-                <div className="flex min-w-0 flex-1 [scrollbar-width:none] items-center gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+                <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
                   {activeChips.map((chip) => (
                     <span className={styles.chip} key={`${chip.kind}:${chip.value}`}>
                       <span className="font-normal opacity-70">{chip.kind}:</span> {chip.label}
