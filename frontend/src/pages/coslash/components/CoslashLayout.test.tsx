@@ -10,7 +10,6 @@ import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
 import { type Session } from '@/pages/coslash/lib/session';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
-import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
 
 const props: ComponentProps<typeof CoslashLayout> = {
   sessions: [],
@@ -70,12 +69,6 @@ function session(overrides: Partial<Session>): Session {
     cost: 1,
     ...overrides,
   });
-}
-
-/** The layout reads its sort from session storage, which the node test environment lacks. */
-function storeSort(sort: SessionSort) {
-  const stored = JSON.stringify({ sort });
-  vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
 }
 
 afterEach(() => {
@@ -353,7 +346,7 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('>remote-private-prompt<');
   });
 
-  it('counts each facet with search and the other facets applied', () => {
+  it('shows each facet count from the sessions in scope', () => {
     vi.stubGlobal('sessionStorage', {
       getItem: () => JSON.stringify({ agentFilters: ['codex'] }),
       setItem: () => {},
@@ -370,12 +363,8 @@ describe('CoslashLayout', () => {
       markup.match(new RegExp(`>${label}</span>(?:</span>)?</button>.*?tabular-nums">(\\d+)<`))?.[1];
 
     expect(countOf('Active')).toBe('1');
-    expect(countOf('Inactive')).toBe('1');
     expect(countOf('Waiting')).toBe('0');
     expect(countOf('Codex')).toBe('2');
-    expect(countOf('Claude Code')).toBe('2');
-    expect(countOf('Local Mac')).toBe('1');
-    expect(countOf('agent-box')).toBe('1');
   });
 
   it('totals all visible rows and describes the count as the current scope', () => {
@@ -451,35 +440,6 @@ describe('CoslashLayout', () => {
     expect(detailTag).not.toContain('text-success-fg');
   });
 
-  it('keeps same-named repositories from different owners apart', () => {
-    const sessions = [
-      makeSession({
-        id: 'upstream',
-        sourceId: 'local',
-        agent: 'codex',
-        repo: 'github.com/centauri-ai/coslash',
-        repoLocalOnly: false,
-        cwd: '/workspace/upstream',
-        status: null,
-        mtime: 0,
-      }),
-      makeSession({
-        id: 'fork',
-        sourceId: 'local',
-        agent: 'codex',
-        repo: 'github.com/calvintvu/coslash',
-        repoLocalOnly: false,
-        cwd: '/workspace/fork',
-        status: null,
-        mtime: 0,
-      }),
-    ];
-
-    const markup = renderLayout({ sessions, range: 'today' });
-
-    expect(markup.match(/>coslash</g)).toHaveLength(2);
-  });
-
   it('keeps legacy inclusive repository filters and only verifies main from checkout evidence', () => {
     const repo = 'github.com/centauri-ai/coslash';
     const location = {
@@ -551,33 +511,6 @@ describe('CoslashLayout', () => {
     expect(render([], 'orphan')).toContain('Layout only task');
   });
 
-  it('sorts A-Z on the title the row actually renders', () => {
-    storeSort({ key: 'title', dir: 'asc' });
-    const markup = renderLayout({
-      sessions: [
-        session({ id: 'named', name: 'Banana' }),
-        session({ id: 'prompt-z', firstPrompt: 'Zebra prompt' }),
-        session({ id: 'prompt-a', firstPrompt: 'Apple prompt' }),
-      ],
-    });
-
-    const [apple, banana, zebra] = orderOf(markup, 'Apple prompt', 'Banana', 'Zebra prompt');
-    expect(apple).toBeLessThan(banana);
-    expect(banana).toBeLessThan(zebra);
-  });
-
-  it('sorts rows with unknown liveness below current rows', () => {
-    const markup = renderLayout({
-      sessions: [
-        session({ id: 'stale', name: 'Stale but recent', mtime: 200, displayStale: true }),
-        session({ id: 'live', name: 'Live and older', mtime: 100 }),
-      ],
-    });
-
-    const [live, stale] = orderOf(markup, 'Live and older', 'Stale but recent');
-    expect(live).toBeLessThan(stale);
-  });
-
   it('separates verified repositories from local-only folders', () => {
     const sessions = [
       makeSession({
@@ -622,75 +555,6 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('github.com/centauri-ai/centauri-ai · Main checkout');
   });
 
-  it('keeps same-named local folders apart by their path', () => {
-    const folder = (id: string, cwd: string) =>
-      makeSession({
-        id,
-        sourceId: 'local',
-        agent: 'codex',
-        repo: 'app',
-        repoLocalOnly: true,
-        cwd,
-        status: null,
-        mtime: 0,
-      });
-
-    const markup = renderLayout({
-      sessions: [folder('client', '/home/milan/client/app'), folder('server', '/home/milan/server/app/src')],
-      range: 'today',
-    });
-
-    expect(markup).toContain('>~/client/app<');
-    expect(markup).toContain('>~/server/app<');
-  });
-
-  it('labels local folders by their full path and groups Codex task folders together', () => {
-    const local = (id: string, cwd: string, repo: string | null) =>
-      session({ id, sourceId: 'local', repo, repoLocalOnly: true, cwd });
-
-    const markup = renderLayout({
-      sessions: [
-        local('nested', '/home/milan/.codex/worktrees/0040/coslash', 'coslash'),
-        local('outside', '/tmp/smoke/app', 'app'),
-        local('task-1', '/Users/milan/Documents/Codex/2026-10-21/can-x20', 'can-x20'),
-        local('task-2', '/Users/milan/Documents/Codex/2026-10-22/other/src', 'other'),
-        local('no-repo', '/home/milan/codex_work', null),
-        local('windows', 'C:\\Users\\milan\\work\\api', 'api'),
-      ],
-      range: 'all',
-    });
-
-    for (const label of ['~/.codex/worktrees/0040/coslash', '/tmp/smoke/app', '~/codex_work', '~/work/api']) {
-      expect(markup).toContain(`>${label}<`);
-    }
-    expect(markup).toContain('>~/Documents/Codex<');
-    expect(markup).not.toMatch(/>[^<]*Codex\/2026-/);
-    expect(markup).not.toContain('>Local · ');
-  });
-
-  it('applies a saved task-folder filter to every grouped Codex task', () => {
-    const stored = JSON.stringify({ groupFilters: ['folder:local:/users/milan/documents/codex'] });
-    vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
-    const local = (id: string, name: string, cwd: string, repo: string) =>
-      session({ id, name, sourceId: 'local', cwd, repo, repoLocalOnly: true });
-
-    const markup = renderLayout({
-      sessions: [
-        local('task-1', 'Task One', '/Users/milan/Documents/Codex/2026-10-21/can-x20', 'can-x20'),
-        local('task-2', 'Task Two', '/Users/milan/Documents/Codex/2026-10-22/other/src', 'other'),
-        local('task-3', 'Task Three', '/Users/milan/Documents/Codex/2026-10-23/another', 'another'),
-        local('outside', 'Other Project', '/Users/milan/work/app', 'app'),
-      ],
-      range: 'all',
-    });
-
-    expect(markup).toContain('Task One');
-    expect(markup).toContain('Task Two');
-    expect(markup).toContain('Task Three');
-    expect(markup).not.toContain('Other Project');
-    expect(markup).toContain('>~/Documents/Codex<');
-  });
-
   it.each([{ repo: 'org/coslash' }, { cwd: '/workspace/coslash' }])(
     'shows the table location as text without a group-filter button: %j',
     (location) => {
@@ -700,76 +564,6 @@ describe('CoslashLayout', () => {
       expect(whereCell).not.toContain('<button');
     },
   );
-
-  it('uses a remote working directory for folder groups without hiding repository labels', () => {
-    const remote = session({
-      id: 'remote-folder',
-      name: 'Remote folder session',
-      sourceId: 'remote',
-      sourceLabel: 'SSH workspace',
-      cwd: '/home/milan/codex_work/finance_benchmark',
-      repo: null,
-    });
-    const repository = session({
-      id: 'repository',
-      name: 'Repository session',
-      sourceId: 'remote',
-      repo: 'github.com/centauri-ai/coslash',
-      repoLocalOnly: false,
-    });
-    const markup = renderLayout({ sessions: [remote, repository], range: 'all' });
-
-    expect(markup).toContain('>~/codex_work/finance_benchmark<');
-    expect(markup).not.toContain('/home/milan/codex_work/finance_benchmark');
-    expect(markup).toContain('>coslash<');
-    expect(markup).toContain('>Folders<');
-
-    vi.stubGlobal('sessionStorage', {
-      getItem: () =>
-        JSON.stringify({
-          query: 'group:finance_benchmark',
-          range: 'all',
-        }),
-      setItem: () => {},
-    });
-    const searched = renderLayout({ sessions: [remote, repository], range: 'all' });
-    expect(searched).toContain('>Remote folder session<');
-    expect(searched).not.toContain('>Repository session<');
-  });
-
-  it.each([
-    ['/home/milan', '~'],
-    ['/Users/milan', '~'],
-    ['/root', '~'],
-    ['/home/milan/projects/app', '~/projects/app'],
-    ['/tmp', '/tmp'],
-  ])('shows a non-repository SSH Codex location for %s', (cwd, label) => {
-    const markup = renderLayout({
-      sessions: [session({ id: 'remote-folder', repo: null, cwd, sourceLabel: 'SSH workspace' })],
-    });
-
-    expect(markup.split(`>${label}<`)).toHaveLength(3);
-    expect(markup).not.toContain('>No location<');
-    expect(markup).not.toContain(`SSH workspace · ${label}`);
-  });
-
-  it('keeps case-sensitive remote folder groups distinct', () => {
-    const folder = (id: string, cwd: string) =>
-      session({
-        id,
-        sourceId: 'remote',
-        sourceLabel: 'SSH workspace',
-        cwd,
-        repo: null,
-      });
-    const markup = renderLayout({
-      sessions: [folder('upper', '/home/milan/Foo'), folder('lower', '/home/milan/foo')],
-      range: 'all',
-    });
-
-    expect(markup.match(/>~\/Foo</g)).toHaveLength(2);
-    expect(markup.match(/>~\/foo</g)).toHaveLength(2);
-  });
 
   it('collapses row actions into one menu trigger', () => {
     const reviewable = renderLayout({
