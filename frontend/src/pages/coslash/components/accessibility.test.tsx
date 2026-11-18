@@ -3,7 +3,7 @@ import { act, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import axe from 'axe-core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { DebriefProse } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog } from '@/pages/coslash/components/SettingsDialog';
@@ -103,6 +103,36 @@ describe('coSlash accessibility', () => {
     expect(dialog).not.toBeNull();
     await expectAxeClean(dialog!);
     await act(async () => root.unmount());
+  });
+
+  it.each(['list', 'board'])('selects a session once per title click in the %s view', async (view) => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+      true;
+    sessionStorage.setItem('coslash.session-view-preferences.v2', JSON.stringify({ view }));
+    const session = makeSession({ id: 'click', name: 'Click target' });
+    const onSelectSession = vi.fn();
+    const mount = document.createElement('div');
+    document.body.replaceChildren(mount);
+    const root = createRoot(mount);
+    await act(async () =>
+      root.render(
+        <CoslashLayout
+          {...layoutProps}
+          sessions={[session]}
+          reviewIndex={buildReviewIndex([session])}
+          onSelectSession={onSelectSession}
+        />,
+      ),
+    );
+    await act(async () => import('@/pages/coslash/components/SessionBoard'));
+    const title = [...mount.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Click target',
+    );
+    await act(async () => title!.click());
+
+    expect(onSelectSession).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    sessionStorage.clear();
   });
 
   it('exposes the debrief show-more toggle as an expandable button', async () => {

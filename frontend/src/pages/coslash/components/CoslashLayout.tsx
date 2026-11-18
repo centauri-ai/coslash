@@ -642,7 +642,6 @@ function SessionRow({
           <button
             type="button"
             className="text-ui group-hover:text-coslash-accent min-w-0 flex-1 cursor-pointer truncate px-1.5 py-px text-left leading-[1.35] font-semibold transition-colors"
-            onClick={onSelect}
           >
             {sessionDisplayTitle(session)}
           </button>
