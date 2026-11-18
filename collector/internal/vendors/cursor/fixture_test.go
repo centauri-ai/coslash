@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -20,4 +21,8 @@ func selectForTest(t *testing.T, source vendors.ReadSource, files []string, sinc
 		t.Fatal(err)
 	}
 	return selected
+}
+
+func parseTranscript(ctx context.Context, source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
+	return parseTranscriptFragments(ctx, source, []string{path})
 }
