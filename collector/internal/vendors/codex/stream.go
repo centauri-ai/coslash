@@ -15,23 +15,11 @@ type cachedHeader struct {
 	ParentID  string `json:"parentId,omitempty"`
 }
 
-// ParseFilesContext parses exactly the given local rollouts, which must be
-// whole families, with fork normalization. Streamed discovery calls it per
-// batch of families.
-func ParseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
-	return parseFilesContext(ctx, files)
-}
-
-// LoadMetadataForFilesContext loads live status for the given rollouts.
-func LoadMetadataForFilesContext(ctx context.Context, files []string) (*vendors.SessionMetadata, error) {
-	return loadMetadataForFilesContext(ctx, files)
-}
-
-// FamiliesContext groups local rollouts by their topmost parent-less
+// Families groups local rollouts by their topmost parent-less
 // session, reading each file's first row through the parse cache. A file
 // whose header cannot be read is its own family keyed by its filename ID,
 // or by its path when it has none.
-func FamiliesContext(ctx context.Context, files []string) (map[string][]string, error) {
+func Families(ctx context.Context, files []string) (map[string][]string, error) {
 	cache := vendors.ActiveParseCache()
 	headers := make(map[string]cachedHeader, len(files))
 	for _, file := range files {
@@ -51,7 +39,7 @@ func FamiliesContext(ctx context.Context, files []string) (map[string][]string, 
 				}
 			}
 		}
-		id, parentID, err := readHeaderSourceContext(ctx, vendors.LocalReadSource, file)
+		id, parentID, err := readHeader(ctx, vendors.LocalReadSource, file)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()

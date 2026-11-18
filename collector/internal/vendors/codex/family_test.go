@@ -23,7 +23,7 @@ func TestParseFamilyFilesSourceDoesNotExposePromptAsName(t *testing.T) {
 	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, []string{file}, []string{file})
+	parsed, err := ParseFamilyFiles(t.Context(), vendors.LocalReadSource, home, []string{file}, []string{file})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestParseTranscriptCountsTopLevelCompactions(t *testing.T) {
 	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscript(file)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, file, func(command, cwd string) bool { return commandNeedsApproval(t.Context(), command, cwd) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,10 @@ func TestForkedRolloutUsesThreadIDDespiteRootSessionID(t *testing.T) {
 		t.Fatalf("forked rollout ID = %q, want thread ID %q", got, firstForkID)
 	}
 	files := []string{root, firstFork, secondFork}
-	headers := HeadersSource(vendors.LocalReadSource, files)
+	headers, headersErr := Headers(t.Context(), vendors.LocalReadSource, files)
+	if headersErr != nil {
+		t.Fatal(headersErr)
+	}
 	for file, want := range map[string]FileHeader{
 		root:       {SessionID: rootID},
 		firstFork:  {SessionID: firstForkID},
@@ -84,7 +87,7 @@ func TestForkedRolloutUsesThreadIDDespiteRootSessionID(t *testing.T) {
 		}
 	}
 
-	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, files, files)
+	parsed, err := ParseFamilyFiles(t.Context(), vendors.LocalReadSource, home, files, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +109,7 @@ func TestForkedRolloutWithoutClientMetadataUsesThreadID(t *testing.T) {
 	threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
 	file := writeFamilyTestRollout(t, home, rootID+"_"+threadID, rootID)
 
-	id, parentID, err := readHeader(file)
+	id, parentID, err := readHeader(t.Context(), vendors.LocalReadSource, file)
 	if err != nil || id != threadID || parentID != "" {
 		t.Fatalf("readHeader = %q, %q, %v; want thread ID %q", id, parentID, err, threadID)
 	}
@@ -123,7 +126,7 @@ func TestChainedForkedRolloutUsesFinalThreadID(t *testing.T) {
 			home := t.TempDir()
 			file := writeFamilyTestRollout(t, home, rootID+"_"+middleID+"_"+threadID, headerID)
 
-			id, _, err := readHeader(file)
+			id, _, err := readHeader(t.Context(), vendors.LocalReadSource, file)
 			if err != nil || id != threadID {
 				t.Fatalf("readHeader = %q, %v; want thread ID %q", id, err, threadID)
 			}
@@ -153,11 +156,11 @@ func TestForkedRolloutPrefersItsOwnInlinedMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, parentID, err := readHeader(file)
+	id, parentID, err := readHeader(t.Context(), vendors.LocalReadSource, file)
 	if err != nil || id != threadID || parentID != "" {
 		t.Fatalf("readHeader = %q, %q, %v; want thread ID %q unparented", id, parentID, err, threadID)
 	}
-	parsed, err := parseTranscript(file)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, file, func(command, cwd string) bool { return commandNeedsApproval(t.Context(), command, cwd) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +188,7 @@ func TestChainedForkedRolloutPrefersNewestMatchingMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseSource(vendors.LocalReadSource, file, func(string, string) bool { return true })
+	parsed, err := parseSource(t.Context(), vendors.LocalReadSource, file, func(string, string) bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +236,7 @@ func TestForkedUsageFindsUnchangedActiveParentWithoutRescan(t *testing.T) {
 	}
 
 	source := &readDirCountSource{ReadSource: vendors.LocalReadSource}
-	parsed, err := ParseFamilyFilesSource(source, home, []string{fork}, []string{root, fork})
+	parsed, err := ParseFamilyFiles(t.Context(), source, home, []string{fork}, []string{root, fork})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +258,7 @@ func TestForkedUsageFindsUnchangedActiveParentWithoutRescan(t *testing.T) {
 	if err := os.Rename(root, filepath.Join(archivedDir, filepath.Base(root))); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err = ParseFamilyFilesSource(source, home, []string{fork}, []string{root, fork})
+	parsed, err = ParseFamilyFiles(t.Context(), source, home, []string{fork}, []string{root, fork})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +293,10 @@ func TestHeadersMarkOnlyGuardianRolloutHidden(t *testing.T) {
 	worker := write(workerID, `,"parent_thread_id":"`+rootID+`","source":{"subagent":{"other":"worker"}}`)
 	files := []string{root, guardian, worker}
 
-	headers := HeadersSource(vendors.LocalReadSource, files)
+	headers, headersErr := Headers(t.Context(), vendors.LocalReadSource, files)
+	if headersErr != nil {
+		t.Fatal(headersErr)
+	}
 	for file, want := range map[string]FileHeader{
 		root:     {SessionID: rootID},
 		guardian: {SessionID: guardianID, ParentID: rootID, Hidden: true},
@@ -300,7 +306,7 @@ func TestHeadersMarkOnlyGuardianRolloutHidden(t *testing.T) {
 			t.Fatalf("header for %q = %#v, want %#v", filepath.Base(file), got, want)
 		}
 	}
-	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, files, files)
+	parsed, err := ParseFamilyFiles(t.Context(), vendors.LocalReadSource, home, files, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +326,7 @@ func TestForkedRolloutStillRejectsUnrelatedHeaderID(t *testing.T) {
 	threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
 	file := writeFamilyTestRollout(t, home, rootID+"_"+threadID, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
 
-	_, _, err := readHeader(file)
+	_, _, err := readHeader(t.Context(), vendors.LocalReadSource, file)
 	if !errors.Is(err, vendors.ErrInvalidData) {
 		t.Fatalf("readHeader error = %v, want invalid data", err)
 	}

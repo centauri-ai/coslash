@@ -140,7 +140,7 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 		t.Fatal(err)
 	}
 	approve := func(string, string) bool { return false }
-	parsed, err := parseSourceContext(t.Context(), vendors.LocalReadSource, path, approve)
+	parsed, err := parseSource(t.Context(), vendors.LocalReadSource, path, approve)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 	cache := codexTestParseCache{{Agent: vendors.AgentCodex, Identity: path, Version: "codex-3", Fingerprint: vendors.StatFingerprint(info)}: payload}
 	vendors.SetParseCache(cache)
 	t.Cleanup(func() { vendors.SetParseCache(nil) })
-	got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path, approve)
+	got, err := parseSourceCached(t.Context(), vendors.LocalReadSource, path, approve)
 	if err != nil || len(got.transcript.Session.PullRequestLinks) != 1 || got.transcript.Session.PullRequests != 1 {
 		t.Fatalf("entry cached before PR links was not reparsed: %#v, %v", got.transcript.Session, err)
 	}
