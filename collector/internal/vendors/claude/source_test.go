@@ -2,7 +2,9 @@ package claude
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,6 +20,32 @@ func TestLocalSSHMirrorIDsReturnsCancellation(t *testing.T) {
 	_, err := localSSHMirrorIDs(ctx, t.TempDir(), []string{"session.jsonl"})
 	if err != context.Canceled {
 		t.Fatalf("mirror ID scan error = %v, want %v", err, context.Canceled)
+	}
+}
+
+type cancelOnOpenSource struct {
+	vendors.ReadSource
+	cancel context.CancelFunc
+}
+
+func (source cancelOnOpenSource) Open(name string) (io.ReadCloser, error) {
+	source.cancel()
+	return source.ReadSource.Open(name)
+}
+
+func TestParseFilesStopsWhenReadCancelsContext(t *testing.T) {
+	root := t.TempDir()
+	id := "33333333-3333-3333-3333-333333333333"
+	transcript := filepath.Join(root, "project", id+".jsonl")
+	child := filepath.Join(root, "project", id, "subagents", "agent-child.jsonl")
+	writeTranscript(t, transcript, id, "/work")
+	writeTranscript(t, child, "agent-child", "/work")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	got, err := ParseFiles(ctx, cancelOnOpenSource{ReadSource: vendors.LocalReadSource, cancel: cancel}, []string{transcript, child})
+	if !errors.Is(err, context.Canceled) || got != nil {
+		t.Fatalf("ParseFiles = %d sessions, %v; want context.Canceled", len(got), err)
 	}
 }
 
