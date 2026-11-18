@@ -4,29 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
 import type { ReviewIndex } from '@/pages/coslash/lib/review';
 import { sessionKey, type Session } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import type { BoardGroupBy, BoardRowGroupBy } from '@/pages/coslash/lib/session-grouping';
 
 function session(id: string, overrides: Partial<Session> = {}): Session {
-  return {
-    id,
-    sourceId: 'remote',
-    sourceLabel: 'SSH workspace',
-    agent: 'codex',
-    cwd: '/workspace/app',
-    branch: id,
-    repo: null,
-    status: null,
-    mtime: 0,
-    tokens: {},
-    cost: null,
-    unpricedModels: [],
-    subagents: [],
-    displayStale: false,
-    compactions: 0,
-    name: id,
-    firstPrompt: null,
-    ...overrides,
-  } as Session;
+  return makeSession({ id, sourceId: 'remote', branch: id, name: id, ...overrides });
 }
 
 const reviewIndex: ReviewIndex<Session> = {

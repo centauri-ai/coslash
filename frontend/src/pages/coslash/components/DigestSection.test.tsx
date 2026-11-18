@@ -3,15 +3,16 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { DigestSection } from '@/pages/coslash/components/SessionInspector';
-import { decodeSession } from '@/pages/coslash/hooks/use-sessions';
+import type { DigestEntry } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 
-it.each([
+it.each<{ categories: DigestEntry['category'][] }>([
   { categories: ['first_prompt', 'user', 'compaction'] },
   { categories: ['user', 'compaction'] },
   { categories: ['user'] },
 ])('cycles ordinary clicks through only, excluded, and all: $categories', async ({ categories }) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const detail = decodeSession({
+  const detail = makeSession({
     agent: 'codex',
     id: 'filters',
     digest: categories.map((category, turn) => ({ category, turn, description: category })),

@@ -10,52 +10,25 @@ import {
   remoteTestRequestInit,
 } from '@/pages/coslash/lib/remote-api';
 import { LOCAL_SOURCE_ID, type SessionDetail } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import { decodeRemoteHostSettings, decodeSettingsResponse } from '@/pages/coslash/lib/settings';
 
 function remoteDetail(): SessionDetail {
-  return {
+  return makeSession({
     sourceId: 'r_0123456789abcdef',
     sourceLabel: 'gpu-server',
     detailRevision: 'a'.repeat(64),
-    eligibleForAggregates: true,
-    displayStale: false,
-    agent: 'codex',
     id: 'sess-1',
     name: 'Remote work',
     summary: 'Did the thing',
     status: 'idle',
     cwd: '',
-    branch: null,
-    repo: null,
-    repoLocalOnly: false,
-    files: 0,
     durationMs: 60_000,
-    tokens: {},
     cost: 0,
-    unpricedModels: [],
-    subagents: [],
     mtime: 1,
-    entrypoint: null,
-    synthesis: null,
-    synthesisPending: false,
-    declaredGoal: null,
-    model: null,
-    contextTokens: null,
-    contextWindow: null,
     turns: 2,
-    toolUses: 0,
-    errors: 0,
-    compactions: 0,
     firstPrompt: 'Start',
-    commands: [],
-    commits: [],
-    prs: 0,
-    todos: [],
-    digest: [],
-    fileEdits: [],
-    git: null,
-    lastEditAt: null,
-  };
+  });
 }
 
 describe('handoffBrief', () => {

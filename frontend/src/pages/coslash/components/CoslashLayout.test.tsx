@@ -9,6 +9,7 @@ import { machineRetryable } from '@/pages/coslash/lib/machine-status';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
 import { type Session } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
 
 const props: ComponentProps<typeof CoslashLayout> = {
@@ -55,12 +56,8 @@ function renderLayout(overrides: Partial<ComponentProps<typeof CoslashLayout>> =
 }
 
 function session(overrides: Partial<Session>): Session {
-  return {
+  return makeSession({
     sourceId: 'remote',
-    agent: 'codex',
-    cwd: '/workspace/app',
-    status: null,
-    mtime: 0,
     tokens: {
       'gpt-5': {
         input_tokens: 1000,
@@ -71,13 +68,8 @@ function session(overrides: Partial<Session>): Session {
       },
     },
     cost: 1,
-    unpricedModels: [],
-    eligibleForAggregates: true,
-    displayStale: false,
-    name: null,
-    firstPrompt: null,
     ...overrides,
-  } as Session;
+  });
 }
 
 /** The layout reads its sort from session storage, which the node test environment lacks. */
@@ -285,8 +277,15 @@ describe('CoslashLayout', () => {
   it('offers agent facets for the vendors present, not the reviewer CLIs installed', () => {
     const markup = renderLayout({
       sessions: [
-        { id: 'one', sourceId: 'remote', agent: 'opencode', cwd: '/workspace/app', status: null, mtime: 0 },
-      ] as Session[],
+        makeSession({
+          id: 'one',
+          sourceId: 'remote',
+          agent: 'opencode',
+          cwd: '/workspace/app',
+          status: null,
+          mtime: 0,
+        }),
+      ],
       range: 'today',
     });
 
@@ -410,7 +409,7 @@ describe('CoslashLayout', () => {
 
   it('keeps same-named repositories from different owners apart', () => {
     const sessions = [
-      {
+      makeSession({
         id: 'upstream',
         sourceId: 'local',
         agent: 'codex',
@@ -419,8 +418,8 @@ describe('CoslashLayout', () => {
         cwd: '/workspace/upstream',
         status: null,
         mtime: 0,
-      },
-      {
+      }),
+      makeSession({
         id: 'fork',
         sourceId: 'local',
         agent: 'codex',
@@ -429,8 +428,8 @@ describe('CoslashLayout', () => {
         cwd: '/workspace/fork',
         status: null,
         mtime: 0,
-      },
-    ] as Session[];
+      }),
+    ];
 
     const markup = renderLayout({ sessions, range: 'today' });
 
@@ -466,7 +465,7 @@ describe('CoslashLayout', () => {
 
   it('separates verified repositories from local-only folders', () => {
     const sessions = [
-      {
+      makeSession({
         id: 'folder',
         sourceId: 'local',
         agent: 'codex',
@@ -475,8 +474,8 @@ describe('CoslashLayout', () => {
         cwd: '/workspace/folders/centauri-ai',
         status: null,
         mtime: 0,
-      },
-      {
+      }),
+      makeSession({
         id: 'repository',
         sourceId: 'local',
         agent: 'codex',
@@ -485,8 +484,8 @@ describe('CoslashLayout', () => {
         cwd: '/workspace/repos/centauri-ai',
         status: null,
         mtime: 0,
-      },
-      {
+      }),
+      makeSession({
         id: 'folder-duplicate',
         sourceId: 'local',
         agent: 'codex',
@@ -495,8 +494,8 @@ describe('CoslashLayout', () => {
         cwd: '/workspace/other/centauri-ai',
         status: null,
         mtime: 0,
-      },
-    ] as Session[];
+      }),
+    ];
 
     const markup = renderLayout({ sessions, range: 'today' });
     const repositoryHeading = markup.indexOf('Repositories');
@@ -510,7 +509,7 @@ describe('CoslashLayout', () => {
 
   it('keeps same-named local folders apart by their path', () => {
     const folder = (id: string, cwd: string) =>
-      ({
+      makeSession({
         id,
         sourceId: 'local',
         agent: 'codex',
@@ -519,7 +518,7 @@ describe('CoslashLayout', () => {
         cwd,
         status: null,
         mtime: 0,
-      }) as Session;
+      });
 
     const markup = renderLayout({
       sessions: [folder('client', '/home/milan/client/app'), folder('server', '/home/milan/server/app/src')],
@@ -661,9 +660,7 @@ describe('CoslashLayout', () => {
 
   it('collapses row actions into one menu trigger', () => {
     const reviewable = renderLayout({
-      sessions: [
-        session({ id: 'with-cwd', sourceId: 'local', agent: 'claude', cwd: '/workspace/app' }),
-      ] as Session[],
+      sessions: [session({ id: 'with-cwd', sourceId: 'local', agent: 'claude', cwd: '/workspace/app' })],
     });
 
     expect(reviewable).toContain('aria-label="Session actions"');

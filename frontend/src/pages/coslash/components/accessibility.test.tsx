@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { SettingsDialog } from '@/pages/coslash/components/SettingsDialog';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
-import { type Session } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 import { type SettingsResponse } from '@/pages/coslash/lib/settings';
 
 const layoutProps: ComponentProps<typeof CoslashLayout> = {
@@ -65,22 +65,13 @@ describe('coSlash accessibility', () => {
   it('passes axe checks on the main session table and Settings dialog', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
       true;
-    const session = {
-      sourceId: 'local',
-      agent: 'codex',
+    const session = makeSession({
       id: 'axe-table',
       name: 'Accessible row',
       hubSyncChip: 'parked_failed',
       hubSyncFailureCode: 'unreadable_source',
-      cwd: '/workspace/app',
-      status: null,
-      mtime: 0,
-      tokens: {},
       cost: 0,
-      unpricedModels: [],
-      eligibleForAggregates: true,
-      displayStale: false,
-    } as unknown as Session;
+    });
     document.body.innerHTML = renderToStaticMarkup(
       <CoslashLayout {...layoutProps} sessions={[session]} reviewIndex={buildReviewIndex([session])} />,
     );

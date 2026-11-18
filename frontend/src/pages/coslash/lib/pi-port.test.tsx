@@ -19,6 +19,7 @@ import {
   sumKnown,
   type Session,
 } from './session';
+import { makeSession } from './session-fixture';
 
 const usage = {
   input_tokens: 10,
@@ -30,31 +31,14 @@ const usage = {
 const accounting = { tokens: { model: usage }, cost: 0, unattributedTokens: usage };
 
 function pi(overrides: Partial<Session> = {}): Session {
-  return {
-    sourceId: 'local',
+  return makeSession({
     agent: 'pi',
     id: 'pi-session',
     cwd: '/repo',
-    name: null,
-    summary: null,
-    synthesis: null,
-    firstPrompt: null,
-    declaredGoal: null,
-    todos: [],
-    digest: [],
-    fileEdits: [],
-    commits: [],
-    repo: null,
-    branch: null,
-    durationMs: null,
-    errors: 0,
-    subagents: [],
-    unpricedModels: [],
-    eligibleForAggregates: true,
     mtime: new Date(2026, 8, 3).getTime(),
     ...accounting,
     ...overrides,
-  } as Session;
+  });
 }
 
 describe('Pi accounting and local affordances', () => {

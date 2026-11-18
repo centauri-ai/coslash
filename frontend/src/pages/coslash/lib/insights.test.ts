@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildInsights } from './insights';
 import type { Session } from './session';
+import { makeSession } from './session-fixture';
 
 const usage: Session['tokens'][string] = {
   input_tokens: 1,
@@ -11,22 +12,17 @@ const usage: Session['tokens'][string] = {
 };
 
 function sample(id: string, day: number, overrides: Partial<Session> = {}): Session {
-  return {
-    sourceId: 'local',
-    agent: 'codex',
+  return makeSession({
     id,
     logicalSessionId: `local:codex:${id}`,
     revision: day,
-    eligibleForAggregates: true,
     mtime: new Date(2026, 7, day, 12).getTime(),
     repo: 'github.com/team/app',
-    tokens: {},
     observedModels: [],
     model: 'gpt-5',
     cost: 1,
-    unpricedModels: [],
     ...overrides,
-  } as Session;
+  });
 }
 
 describe('buildInsights', () => {

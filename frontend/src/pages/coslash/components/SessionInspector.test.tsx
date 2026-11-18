@@ -25,15 +25,14 @@ import {
   synthesisSettlement,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
-import type { Session } from '@/pages/coslash/lib/session';
+import { makeSession } from '@/pages/coslash/lib/session-fixture';
 
-const session = {
+const session = makeSession({
   sourceId: 'r_0123456789abcdef',
-  agent: 'codex',
   id: 'same-session',
   detailRevision: '',
   name: 'Bounded remote summary',
-} as Session;
+});
 
 const selection: FileSelection = {
   sourceId: session.sourceId,
@@ -130,9 +129,7 @@ describe('SessionInspector exact-detail boundaries', () => {
   it('shows a full plan with a timeline filter and expansion control', () => {
     const plan = '# Plan\n' + 'Keep the full plan text. '.repeat(20) + 'Done.';
     const markup = renderToStaticMarkup(
-      <DigestSection
-        detail={{ ...session, digest: [{ turn: 1, category: 'plan', description: plan }] } as Session}
-      />,
+      <DigestSection detail={{ ...session, digest: [{ turn: 1, category: 'plan', description: plan }] }} />,
     );
     expect(markup).toContain('PLAN');
     expect(markup).toContain('expand full plan');
@@ -191,7 +188,7 @@ describe('SessionInspector exact-detail boundaries', () => {
   });
 
   it('retains the loaded snapshot as the session list advances', () => {
-    const current = { ...session, detailRevision: 'revision-2', status: 'busy' } as Session;
+    const current = { ...session, detailRevision: 'revision-2', status: 'busy' };
     const displayed = { ...current, detailRevision: 'revision-1' };
     expect(detailRequestKey(current)).toBe(detailRequestKey(displayed));
     expect(snapshotMayBeStale(displayed, current)).toBe(true);
@@ -201,7 +198,7 @@ describe('SessionInspector exact-detail boundaries', () => {
   });
 
   it('starts a separate synthesis attempt when the local revision advances', () => {
-    const oldRevision = { ...session, sourceId: 'local', detailRevision: 'revision-1' } as Session;
+    const oldRevision = { ...session, sourceId: 'local', detailRevision: 'revision-1' };
     const newRevision = { ...oldRevision, detailRevision: 'revision-2' };
     expect(detailRequestKey(oldRevision)).toBe(detailRequestKey(newRevision));
     expect(synthesisAttemptKey(oldRevision)).not.toBe(synthesisAttemptKey(newRevision));
@@ -212,7 +209,7 @@ describe('SessionInspector exact-detail boundaries', () => {
   });
 
   it('retains detail but exposes a failed refresh attempt and its retry', () => {
-    const key = detailRequestKey({ ...session, detailRevision: 'revision-1' } as Session);
+    const key = detailRequestKey({ ...session, detailRevision: 'revision-1' });
     const loaded = { key, retryToken: 0 };
     expect(detailAttemptState(loaded, null, key, 1)).toEqual({
       hasSnapshot: true,
@@ -280,7 +277,7 @@ describe('SessionInspector exact-detail boundaries', () => {
       lastEditAt: 10,
       launchable: false,
       subagents: [],
-    } as Session;
+    };
     const current = {
       ...loaded,
       mtime: 200,
@@ -409,7 +406,7 @@ it('refreshes Pi runtime modality without changing exact detail content', () => 
     entrypoint: 'pi-tui',
     detailRevision: 'stable-revision',
     mtime: 100,
-  } as Session;
+  };
   expect(overlayLiveSessionFields(loaded, { ...loaded, entrypoint: 'pi-rpc' })).toMatchObject({
     entrypoint: 'pi-rpc',
     detailRevision: 'stable-revision',
