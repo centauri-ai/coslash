@@ -183,7 +183,7 @@ func TestPlannedContentCancellationDuringPrepareLeavesEntryPending(t *testing.T)
 	go func() { done <- runner.syncPlannedContent(ctx, plan) }()
 	<-started
 	cancel()
-	_ = <-done
+	<-done
 
 	got := queue.Entries()[0]
 	if got.FailureCode != "" || !pending(got) {
@@ -218,7 +218,7 @@ func TestWarmStartCancellationDuringPrepareLeavesEntryPending(t *testing.T) {
 	go func() { done <- runner.warmStart(ctx, plan, now, time.Minute, 0) }()
 	<-started
 	cancel()
-	_ = <-done
+	<-done
 
 	got := queue.Entries()[0]
 	if got.FailureCode != "" || !pending(got) {
@@ -546,7 +546,6 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 	if err := q.FreezeCatchUp(plan); err != nil {
 		t.Fatal(err)
 	}
-	entry = q.Entries()[0]
 	hub := &asyncCompletionHub{planHub: &planHub{plan: &plan}}
 	runner := &Runner{Queue: q, Backup: manager,
 		Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true,
