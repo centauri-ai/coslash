@@ -331,41 +331,7 @@ export function CoslashLayout({
           : { key, dir: key === 'title' ? 'asc' : 'desc' },
     });
 
-  if (preferences.view === 'insights') {
-    const showOnboarding = !isLoading && loadError == null && sessions.length === 0 && emptyContent != null;
-    return (
-      <TooltipProvider>
-        <div className={cn(styles.shell, { 'inspector-open': inspectorOpen })}>
-          <CoslashHeader
-            machines={machines}
-            diagnostics={diagnostics}
-            onSettings={onSettings}
-            theme={theme}
-            onThemeChange={onThemeChange}
-            themeDisabled={themeDisabled}
-            onRetry={onRetry}
-            retrying={retrying}
-            actions={headerActions}
-          />
-          {banner}
-          <div className={cn(styles.main, { 'overflow-y-auto': showOnboarding })}>
-            <div className="flex justify-end pb-4">
-              <ViewSwitch view={preferences.view} onChange={changeView} />
-            </div>
-            {showOnboarding && <div className="shrink-0">{emptyContent}</div>}
-            <InsightsView
-              sessions={sessions}
-              isLoading={isLoading}
-              loadError={loadError}
-              synthesisCostVersion={synthesisCostVersion}
-              onRetry={onRetrySessions}
-              inPageFlow={showOnboarding}
-            />
-          </div>
-        </div>
-      </TooltipProvider>
-    );
-  }
+  const showOnboarding = !isLoading && loadError == null && sessions.length === 0 && emptyContent != null;
 
   const facetSections: FacetSection[] = [
     {
@@ -480,318 +446,370 @@ export function CoslashLayout({
           actions={headerActions}
         />
         {banner}
-        <div className="flex min-h-0 flex-1">
-          <div className={styles.sidebar} role="region" aria-label="Filters">
-            {facetSections.map((section) => (
-              <SidebarSection
-                key={section.id}
-                id={section.id}
-                label={section.label}
-                open={sideOpen[section.id]}
-                isLoading={isLoading}
-                onToggle={() => setSideOpen((state) => ({ ...state, [section.id]: !state[section.id] }))}
-              >
-                <FacetRows options={section.options} />
-              </SidebarSection>
-            ))}
-            <SidebarSection
-              id="group"
-              label="Locations"
-              open={sideOpen.group}
+        {preferences.view === 'insights' ? (
+          <div className={cn(styles.main, { 'overflow-y-auto': showOnboarding })}>
+            <div className="flex justify-end pb-4">
+              <ViewSwitch view={preferences.view} onChange={changeView} />
+            </div>
+            {showOnboarding && <div className="shrink-0">{emptyContent}</div>}
+            <InsightsView
+              sessions={sessions}
               isLoading={isLoading}
-              onToggle={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
-              headerClassName="bg-coslash-surface sticky top-[-20px] z-20 pb-1"
-              headerExtra={
-                sideOpen.group && (
-                  <div className="border-coslash-line bg-coslash-bg text-coslash-muted focus-within:border-coslash-accent mx-2 mt-1 mb-1.5 flex items-center gap-1.5 rounded-[7px] border px-2 py-1.5 [&>svg]:size-3.5">
-                    <Search />
-                    <input
-                      type="search"
-                      value={groupQuery}
-                      onChange={(event) => setGroupQuery(event.target.value)}
-                      ref={locationInput}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape') setGroupQuery('');
-                      }}
-                      placeholder="Find a location"
-                      aria-label="Find a location"
-                      className="text-coslash-ink min-w-0 flex-1 bg-transparent text-xs outline-none [&::-webkit-search-cancel-button]:hidden"
-                    />
-                    {groupQuery && (
-                      <button
-                        type="button"
-                        className="hover:bg-coslash-soft grid size-5 cursor-pointer place-items-center rounded transition-colors [&>svg]:size-3"
-                        onClick={() => {
-                          setGroupQuery('');
-                          locationInput.current?.focus();
-                        }}
-                        aria-label="Clear location search"
-                      >
-                        <X />
-                      </button>
-                    )}
-                  </div>
-                )
-              }
-            >
-              {choices.repositories.length > 0 && (
-                <section>
-                  <h3 className={locationHeading}>Repositories</h3>
-                  {choices.repositories.map(({ group, worktrees, unknown }) => {
-                    const expanded = !!normalizedGroupQuery || !!expandedRepos[group.id];
-                    return (
-                      <div key={group.id}>
-                        <FacetRow {...locationOption(group)} />
-                        {unknown && (
-                          <div className="border-coslash-line ml-3 border-l pl-1">
-                            <FacetRow {...locationOption(unknown)} />
-                          </div>
-                        )}
-                        {worktrees.length > 0 && (
-                          <div className="border-coslash-line ml-3 border-l pl-1">
-                            <button
-                              type="button"
-                              aria-expanded={expanded}
-                              aria-label={'Worktrees in ' + group.label}
-                              disabled={!!normalizedGroupQuery}
-                              onClick={() =>
-                                setExpandedRepos((state) => ({ ...state, [group.id]: !state[group.id] }))
-                              }
-                              className="text-meta text-coslash-muted hover:text-coslash-ink flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1 font-medium disabled:cursor-default"
-                            >
-                              <ChevronRight
-                                className={cn('size-3 transition-transform', { 'rotate-90': expanded })}
-                              />
-                              Worktrees
-                            </button>
-                            {expanded && (
-                              <div className="border-coslash-line ml-3 border-l pl-1">
-                                <FacetRows options={worktrees.map(locationOption)} />
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </section>
-              )}
-              {choices.others.length > 0 && (
-                <section>
-                  <h3 className={locationHeading}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span tabIndex={0} className="cursor-default">
-                          Other worktrees
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="coslash-shell max-w-64">
-                        These are verified worktrees. Their parent repository could not be identified.
-                      </TooltipContent>
-                    </Tooltip>
-                  </h3>
-                  <FacetRows options={choices.others.map(locationOption)} />
-                </section>
-              )}
-              {choices.folders.length > 0 && (
-                <section>
-                  <h3 className={locationHeading}>Folders</h3>
-                  <FacetRows options={choices.folders.map(locationOption)} />
-                </section>
-              )}
-              <FacetRows options={choices.unlocated.map(locationOption)} />
-              {!choices.repositories.length &&
-                !choices.others.length &&
-                !choices.folders.length &&
-                !choices.unlocated.length && (
-                  <div className="text-coslash-muted px-2.5 py-2 text-xs">
-                    {normalizedGroupQuery ? 'No matching locations.' : 'No locations yet.'}
-                  </div>
-                )}
-            </SidebarSection>
+              loadError={loadError}
+              synthesisCostVersion={synthesisCostVersion}
+              onRetry={onRetrySessions}
+              inPageFlow={showOnboarding}
+            />
           </div>
-
-          <div className={styles.main}>
-            <div className="flex shrink-0 flex-col gap-3">
-              <div className={styles.search}>
-                {activeChips.length > 0 && (
-                  <button
-                    type="button"
-                    className="border-coslash-tint-line bg-coslash-tint text-coslash-accent-ink hover:bg-coslash-tint-line grid size-6 shrink-0 cursor-pointer place-items-center rounded-md border [&>svg]:size-3"
-                    onClick={clearFacets}
-                    aria-label="Clear all scopes"
-                    title="Clear all scopes"
-                  >
-                    <X />
-                  </button>
-                )}
-                <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
-                  {activeChips.map((chip) => (
-                    <span className={styles.chip} key={`${chip.kind}:${chip.value}`}>
-                      <span className="font-normal opacity-70">{chip.kind}:</span> {chip.label}
-                      <button
-                        type="button"
-                        className="hover:bg-coslash-tint-line grid size-4 cursor-pointer place-items-center rounded [&>svg]:size-2.5"
-                        aria-label={`Remove ${chip.label}`}
-                        onClick={chip.remove}
-                      >
-                        <X />
-                      </button>
-                    </span>
-                  ))}
-                  {activeChips.length === 0 && (
-                    <Search className="text-coslash-muted size-4 shrink-0" aria-hidden="true" />
-                  )}
-                  <input
-                    type="search"
-                    value={preferences.query}
-                    onChange={(event) => patchPreferences({ query: event.target.value })}
-                    placeholder="Search sessions — prompts, decisions, file paths…"
-                    aria-label="Search sessions and decisions"
-                    title="Search may match titles, repositories, branches, prompts, answers, plans, recaps, goals, outcomes, next steps, decisions and their reasons and alternatives, commit subjects, commands, file paths, and pull request links."
-                    className="text-ui min-w-32 flex-1 bg-transparent outline-none [&::-webkit-search-cancel-button]:hidden"
-                  />
-                </div>
-                {preferences.query && (
-                  <button
-                    type="button"
-                    className="hover:bg-coslash-soft grid size-7 cursor-pointer place-items-center rounded-[7px] [&>svg]:size-4"
-                    onClick={() => patchPreferences({ query: '' })}
-                    aria-label="Clear search"
-                  >
-                    <X />
-                  </button>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <Rollup sessions={visibleSessions} isLoading={isLoading} />
-                <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
-                  {preferences.view === 'board' && (
-                    <>
-                      <BoardGroupByMenu<BoardGroupBy>
-                        label="Columns"
-                        value={preferences.boardColumns}
-                        options={BOARD_GROUP_BY_OPTIONS}
-                        onChange={(boardColumns) => patchPreferences({ boardColumns })}
+        ) : (
+          <div className="flex min-h-0 flex-1">
+            <div className={styles.sidebar} role="region" aria-label="Filters">
+              {facetSections.map((section) => (
+                <SidebarSection
+                  key={section.id}
+                  id={section.id}
+                  label={section.label}
+                  open={sideOpen[section.id]}
+                  isLoading={isLoading}
+                  onToggle={() => setSideOpen((state) => ({ ...state, [section.id]: !state[section.id] }))}
+                >
+                  <FacetRows options={section.options} />
+                </SidebarSection>
+              ))}
+              <SidebarSection
+                id="group"
+                label="Locations"
+                open={sideOpen.group}
+                isLoading={isLoading}
+                onToggle={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
+                headerClassName="bg-coslash-surface sticky top-[-20px] z-20 pb-1"
+                headerExtra={
+                  sideOpen.group && (
+                    <div className="border-coslash-line bg-coslash-bg text-coslash-muted focus-within:border-coslash-accent mx-2 mt-1 mb-1.5 flex items-center gap-1.5 rounded-[7px] border px-2 py-1.5 [&>svg]:size-3.5">
+                      <Search />
+                      <input
+                        type="search"
+                        value={groupQuery}
+                        onChange={(event) => setGroupQuery(event.target.value)}
+                        ref={locationInput}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') setGroupQuery('');
+                        }}
+                        placeholder="Find a location"
+                        aria-label="Find a location"
+                        className="text-coslash-ink min-w-0 flex-1 bg-transparent text-xs outline-none [&::-webkit-search-cancel-button]:hidden"
                       />
-                      <BoardGroupByMenu<BoardRowGroupBy>
-                        label="Rows"
-                        value={preferences.boardRows}
-                        options={BOARD_ROW_GROUP_BY_OPTIONS}
-                        onChange={(boardRows) => patchPreferences({ boardRows })}
-                      />
-                    </>
+                      {groupQuery && (
+                        <button
+                          type="button"
+                          className="hover:bg-coslash-soft grid size-5 cursor-pointer place-items-center rounded transition-colors [&>svg]:size-3"
+                          onClick={() => {
+                            setGroupQuery('');
+                            locationInput.current?.focus();
+                          }}
+                          aria-label="Clear location search"
+                        >
+                          <X />
+                        </button>
+                      )}
+                    </div>
+                  )
+                }
+              >
+                {choices.repositories.length > 0 && (
+                  <section>
+                    <h3 className={locationHeading}>Repositories</h3>
+                    {choices.repositories.map(({ group, worktrees, unknown }) => {
+                      const expanded = !!normalizedGroupQuery || !!expandedRepos[group.id];
+                      return (
+                        <div key={group.id}>
+                          <FacetRow {...locationOption(group)} />
+                          {unknown && (
+                            <div className="border-coslash-line ml-3 border-l pl-1">
+                              <FacetRow {...locationOption(unknown)} />
+                            </div>
+                          )}
+                          {worktrees.length > 0 && (
+                            <div className="border-coslash-line ml-3 border-l pl-1">
+                              <button
+                                type="button"
+                                aria-expanded={expanded}
+                                aria-label={'Worktrees in ' + group.label}
+                                disabled={!!normalizedGroupQuery}
+                                onClick={() =>
+                                  setExpandedRepos((state) => ({ ...state, [group.id]: !state[group.id] }))
+                                }
+                                className="text-meta text-coslash-muted hover:text-coslash-ink flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1 font-medium disabled:cursor-default"
+                              >
+                                <ChevronRight
+                                  className={cn('size-3 transition-transform', { 'rotate-90': expanded })}
+                                />
+                                Worktrees
+                              </button>
+                              {expanded && (
+                                <div className="border-coslash-line ml-3 border-l pl-1">
+                                  <FacetRows options={worktrees.map(locationOption)} />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </section>
+                )}
+                {choices.others.length > 0 && (
+                  <section>
+                    <h3 className={locationHeading}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={0} className="cursor-default">
+                            Other worktrees
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="coslash-shell max-w-64">
+                          These are verified worktrees. Their parent repository could not be identified.
+                        </TooltipContent>
+                      </Tooltip>
+                    </h3>
+                    <FacetRows options={choices.others.map(locationOption)} />
+                  </section>
+                )}
+                {choices.folders.length > 0 && (
+                  <section>
+                    <h3 className={locationHeading}>Folders</h3>
+                    <FacetRows options={choices.folders.map(locationOption)} />
+                  </section>
+                )}
+                <FacetRows options={choices.unlocated.map(locationOption)} />
+                {!choices.repositories.length &&
+                  !choices.others.length &&
+                  !choices.folders.length &&
+                  !choices.unlocated.length && (
+                    <div className="text-coslash-muted px-2.5 py-2 text-xs">
+                      {normalizedGroupQuery ? 'No matching locations.' : 'No locations yet.'}
+                    </div>
                   )}
-                  {searchActive && <span className="text-xs">Relevance · All time (search)</span>}
-                  <div className={styles.segmented} aria-label="Time range">
-                    {RANGE_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={cn(
-                          'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
-                          range === option.value &&
-                            'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
-                        )}
-                        disabled={searchActive}
-                        onClick={() => onRangeChange(option.value)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                  <ViewSwitch view={preferences.view} onChange={changeView} />
-                  {preferences.view === 'list' && (
-                    <>
-                      <span className="bg-coslash-line h-7 w-px" aria-hidden="true" />
-                      <button
-                        type="button"
-                        className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-[9px] border [&>svg]:size-3.5"
-                        aria-label={
-                          preferences.density === 'comfortable' ? 'Use compact rows' : 'Use comfortable rows'
-                        }
-                        title={
-                          preferences.density === 'comfortable' ? 'Use compact rows' : 'Use comfortable rows'
-                        }
-                        onClick={() =>
-                          patchPreferences({
-                            density: preferences.density === 'comfortable' ? 'compact' : 'comfortable',
-                          })
-                        }
-                      >
-                        {preferences.density === 'comfortable' ? (
-                          <Rows3 aria-hidden="true" />
-                        ) : (
-                          <Rows4 aria-hidden="true" />
-                        )}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+              </SidebarSection>
             </div>
 
-            {searchActive && (
-              <div role="status" className="text-coslash-muted px-3 py-2 text-xs">
-                {search.results
-                  ? search.results.truncated
-                    ? 'Results truncated. Add more words to narrow your search.'
-                    : ''
-                  : search.state === 'ready' || search.state === 'checking'
-                    ? 'Searching…'
-                    : !canFallbackSearch(preferences.query)
-                      ? `This search needs the index, which is ${search.state === 'building' ? 'still building' : 'unavailable'}.`
-                      : `Search index ${search.state}; using browser search.`}
-              </div>
-            )}
-            {ranked && !isLoading && (
-              <SearchDecisions
-                decisions={search.results!.decisions}
-                sessions={visibleSessions}
-                onSelect={onSelectSession}
-              />
-            )}
-            <div className={cn(styles.tableWrap, 'mt-3')}>
-              <LoadingSpinner isLoading={isLoading && (searchActive || sessions.length === 0)}>
-                {loadError ? (
-                  <div className={styles.empty} role="alert">
-                    <AlertTriangle className="text-coslash-muted size-6" />
-                    <h3 className="text-[15px] font-[650]">Sessions could not be loaded</h3>
-                    <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">{loadError}</p>
-                    <Button variant="outline" onClick={onRetrySessions}>
-                      Try again
-                    </Button>
+            <div className={styles.main}>
+              <div className="flex shrink-0 flex-col gap-3">
+                <div className={styles.search}>
+                  {activeChips.length > 0 && (
+                    <button
+                      type="button"
+                      className="border-coslash-tint-line bg-coslash-tint text-coslash-accent-ink hover:bg-coslash-tint-line grid size-6 shrink-0 cursor-pointer place-items-center rounded-md border [&>svg]:size-3"
+                      onClick={clearFacets}
+                      aria-label="Clear all scopes"
+                      title="Clear all scopes"
+                    >
+                      <X />
+                    </button>
+                  )}
+                  <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+                    {activeChips.map((chip) => (
+                      <span className={styles.chip} key={`${chip.kind}:${chip.value}`}>
+                        <span className="font-normal opacity-70">{chip.kind}:</span> {chip.label}
+                        <button
+                          type="button"
+                          className="hover:bg-coslash-tint-line grid size-4 cursor-pointer place-items-center rounded [&>svg]:size-2.5"
+                          aria-label={`Remove ${chip.label}`}
+                          onClick={chip.remove}
+                        >
+                          <X />
+                        </button>
+                      </span>
+                    ))}
+                    {activeChips.length === 0 && (
+                      <Search className="text-coslash-muted size-4 shrink-0" aria-hidden="true" />
+                    )}
+                    <input
+                      type="search"
+                      value={preferences.query}
+                      onChange={(event) => patchPreferences({ query: event.target.value })}
+                      placeholder="Search sessions — prompts, decisions, file paths…"
+                      aria-label="Search sessions and decisions"
+                      title="Search may match titles, repositories, branches, prompts, answers, plans, recaps, goals, outcomes, next steps, decisions and their reasons and alternatives, commit subjects, commands, file paths, and pull request links."
+                      className="text-ui min-w-32 flex-1 bg-transparent outline-none [&::-webkit-search-cancel-button]:hidden"
+                    />
                   </div>
-                ) : visibleSessions.length === 0 ? (
-                  (emptyContent ?? (
-                    <div className={styles.empty}>
-                      <Search className="text-coslash-muted size-6" />
-                      <h3 className="text-[15px] font-[650]">Nothing in this scope</h3>
-                      <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">
-                        No sessions match the current search and filters.
-                      </p>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          patchPreferences({ query: '' });
-                          clearFacets();
-                          onRangeChange('all');
-                        }}
-                      >
-                        Clear everything
+                  {preferences.query && (
+                    <button
+                      type="button"
+                      className="hover:bg-coslash-soft grid size-7 cursor-pointer place-items-center rounded-[7px] [&>svg]:size-4"
+                      onClick={() => patchPreferences({ query: '' })}
+                      aria-label="Clear search"
+                    >
+                      <X />
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Rollup sessions={visibleSessions} isLoading={isLoading} />
+                  <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
+                    {preferences.view === 'board' && (
+                      <>
+                        <BoardGroupByMenu<BoardGroupBy>
+                          label="Columns"
+                          value={preferences.boardColumns}
+                          options={BOARD_GROUP_BY_OPTIONS}
+                          onChange={(boardColumns) => patchPreferences({ boardColumns })}
+                        />
+                        <BoardGroupByMenu<BoardRowGroupBy>
+                          label="Rows"
+                          value={preferences.boardRows}
+                          options={BOARD_ROW_GROUP_BY_OPTIONS}
+                          onChange={(boardRows) => patchPreferences({ boardRows })}
+                        />
+                      </>
+                    )}
+                    {searchActive && <span className="text-xs">Relevance · All time (search)</span>}
+                    <div className={styles.segmented} aria-label="Time range">
+                      {RANGE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={cn(
+                            'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
+                            range === option.value &&
+                              'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
+                          )}
+                          disabled={searchActive}
+                          onClick={() => onRangeChange(option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <ViewSwitch view={preferences.view} onChange={changeView} />
+                    {preferences.view === 'list' && (
+                      <>
+                        <span className="bg-coslash-line h-7 w-px" aria-hidden="true" />
+                        <button
+                          type="button"
+                          className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-[9px] border [&>svg]:size-3.5"
+                          aria-label={
+                            preferences.density === 'comfortable'
+                              ? 'Use compact rows'
+                              : 'Use comfortable rows'
+                          }
+                          title={
+                            preferences.density === 'comfortable'
+                              ? 'Use compact rows'
+                              : 'Use comfortable rows'
+                          }
+                          onClick={() =>
+                            patchPreferences({
+                              density: preferences.density === 'comfortable' ? 'compact' : 'comfortable',
+                            })
+                          }
+                        >
+                          {preferences.density === 'comfortable' ? (
+                            <Rows3 aria-hidden="true" />
+                          ) : (
+                            <Rows4 aria-hidden="true" />
+                          )}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {searchActive && (
+                <div role="status" className="text-coslash-muted px-3 py-2 text-xs">
+                  {search.results
+                    ? search.results.truncated
+                      ? 'Results truncated. Add more words to narrow your search.'
+                      : ''
+                    : search.state === 'ready' || search.state === 'checking'
+                      ? 'Searching…'
+                      : !canFallbackSearch(preferences.query)
+                        ? `This search needs the index, which is ${search.state === 'building' ? 'still building' : 'unavailable'}.`
+                        : `Search index ${search.state}; using browser search.`}
+                </div>
+              )}
+              {ranked && !isLoading && (
+                <SearchDecisions
+                  decisions={search.results!.decisions}
+                  sessions={visibleSessions}
+                  onSelect={onSelectSession}
+                />
+              )}
+              <div className={cn(styles.tableWrap, 'mt-3')}>
+                <LoadingSpinner isLoading={isLoading && (searchActive || sessions.length === 0)}>
+                  {loadError ? (
+                    <div className={styles.empty} role="alert">
+                      <AlertTriangle className="text-coslash-muted size-6" />
+                      <h3 className="text-[15px] font-[650]">Sessions could not be loaded</h3>
+                      <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">{loadError}</p>
+                      <Button variant="outline" onClick={onRetrySessions}>
+                        Try again
                       </Button>
                     </div>
-                  ))
-                ) : preferences.view === 'board' ? (
-                  <Suspense fallback={<div className={styles.empty}>Loading board…</div>}>
-                    <SessionBoard
-                      sessions={visibleSessions}
+                  ) : visibleSessions.length === 0 ? (
+                    (emptyContent ?? (
+                      <div className={styles.empty}>
+                        <Search className="text-coslash-muted size-6" />
+                        <h3 className="text-[15px] font-[650]">Nothing in this scope</h3>
+                        <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">
+                          No sessions match the current search and filters.
+                        </p>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            patchPreferences({ query: '' });
+                            clearFacets();
+                            onRangeChange('all');
+                          }}
+                        >
+                          Clear everything
+                        </Button>
+                      </div>
+                    ))
+                  ) : preferences.view === 'board' ? (
+                    <Suspense fallback={<div className={styles.empty}>Loading board…</div>}>
+                      <SessionBoard
+                        sessions={visibleSessions}
+                        handoffs={latestHandoffs}
+                        onOpenHandoffTarget={onOpenHandoffTarget}
+                        displayedGroups={displayedGroups}
+                        columnGroupBy={preferences.boardColumns}
+                        rowGroupBy={preferences.boardRows}
+                        selectedSessionKey={selectedSessionKey}
+                        onSelectSession={onSelectSession}
+                        review={{
+                          index: reviewIndex,
+                          reviewerOptions,
+                          remoteReviewerOptions,
+                          remoteUnavailableReason: remoteReviewUnavailableReason,
+                          canRetryRemoteReviewers,
+                          onRetryRemoteReviewers,
+                          onStarted: onReviewStarted,
+                          onSelectRelated: onSelectSession,
+                        }}
+                      />
+                    </Suspense>
+                  ) : (
+                    <SessionListView
+                      sections={ranked ? [{ status: 'idle', rows: visibleSessions }] : sections}
+                      ranked={ranked}
+                      searchHits={searchHits}
                       handoffs={latestHandoffs}
-                      onOpenHandoffTarget={onOpenHandoffTarget}
-                      displayedGroups={displayedGroups}
-                      columnGroupBy={preferences.boardColumns}
-                      rowGroupBy={preferences.boardRows}
+                      groups={displayedGroups}
                       selectedSessionKey={selectedSessionKey}
+                      compact={preferences.density === 'compact'}
+                      sort={preferences.sort}
+                      openSections={openSections}
+                      sectionLimits={sectionLimits}
+                      onSort={setSortKey}
+                      onToggleSection={(status) =>
+                        setOpenSections((state) => ({ ...state, [status]: !state[status] }))
+                      }
+                      onShowMore={(status, limit) =>
+                        setSectionLimits((limits) => ({ ...limits, [status]: limit + 50 }))
+                      }
                       onSelectSession={onSelectSession}
                       review={{
                         index: reviewIndex,
@@ -804,43 +822,12 @@ export function CoslashLayout({
                         onSelectRelated: onSelectSession,
                       }}
                     />
-                  </Suspense>
-                ) : (
-                  <SessionListView
-                    sections={ranked ? [{ status: 'idle', rows: visibleSessions }] : sections}
-                    ranked={ranked}
-                    searchHits={searchHits}
-                    handoffs={latestHandoffs}
-                    groups={displayedGroups}
-                    selectedSessionKey={selectedSessionKey}
-                    compact={preferences.density === 'compact'}
-                    sort={preferences.sort}
-                    openSections={openSections}
-                    sectionLimits={sectionLimits}
-                    onSort={setSortKey}
-                    onToggleSection={(status) =>
-                      setOpenSections((state) => ({ ...state, [status]: !state[status] }))
-                    }
-                    onShowMore={(status, limit) =>
-                      setSectionLimits((limits) => ({ ...limits, [status]: limit + 50 }))
-                    }
-                    onSelectSession={onSelectSession}
-                    review={{
-                      index: reviewIndex,
-                      reviewerOptions,
-                      remoteReviewerOptions,
-                      remoteUnavailableReason: remoteReviewUnavailableReason,
-                      canRetryRemoteReviewers,
-                      onRetryRemoteReviewers,
-                      onStarted: onReviewStarted,
-                      onSelectRelated: onSelectSession,
-                    }}
-                  />
-                )}
-              </LoadingSpinner>
+                  )}
+                </LoadingSpinner>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </TooltipProvider>
   );
