@@ -34,7 +34,13 @@ import {
   type Session,
   type StatusKey,
 } from '@/pages/coslash/lib/session';
-import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
+import {
+  countFacets,
+  matchesFacets,
+  rangeStart,
+  sortSessions,
+  type FacetKey,
+} from '@/pages/coslash/lib/session-filter';
 import {
   BOARD_GROUP_BY_OPTIONS,
   BOARD_ROW_GROUP_BY_OPTIONS,
@@ -224,28 +230,15 @@ export function CoslashLayout({
       ),
     [preferences, searchMatches, sessionGroups, sessionsInRange],
   );
-  // Each facet counts the sessions that pass search and every other facet.
-  const facetCounts = useMemo(() => {
-    const valueOf: Record<FacetKey, (session: Session, group: Group) => string> = {
-      status: (session) => boardStatusKey(session),
-      machine: (session) => session.sourceId,
-      agent: (session) => session.agent,
-      group: (_session, group) => group.id,
-    };
-    const counts = {} as Record<FacetKey, Map<string, number>>;
-    for (const facet of Object.keys(valueOf) as FacetKey[]) {
-      const facetCount = new Map<string, number>();
-      for (const session of sessionsInRange) {
-        const group = sessionGroups.get(sessionKey(session))!;
-        if (!searchMatches.get(sessionKey(session)) || !matchesFacets(session, group, preferences, facet))
-          continue;
-        const value = valueOf[facet](session, group);
-        facetCount.set(value, (facetCount.get(value) ?? 0) + 1);
-      }
-      counts[facet] = facetCount;
-    }
-    return counts;
-  }, [preferences, searchMatches, sessionGroups, sessionsInRange]);
+  const facetCounts = useMemo(
+    () =>
+      countFacets(
+        sessionsInRange.filter((session) => searchMatches.get(sessionKey(session))),
+        (session) => sessionGroups.get(sessionKey(session))!,
+        preferences,
+      ),
+    [preferences, searchMatches, sessionGroups, sessionsInRange],
+  );
   const toggleFilter = <K extends FilterKey>(key: K, value: SessionViewPreferences[K][number]) => {
     const values: string[] = preferences[key];
     patchPreferences({
