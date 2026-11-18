@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
-  ChevronDown,
   ChevronRight,
   Ellipsis,
   Folder,
@@ -27,8 +26,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -79,7 +76,6 @@ import {
 import {
   BOARD_GROUP_BY_OPTIONS,
   BOARD_ROW_GROUP_BY_OPTIONS,
-  boardGroupByLabel,
   type BoardGroupBy,
   type BoardRowGroupBy,
 } from '@/pages/coslash/lib/session-grouping';
@@ -92,6 +88,7 @@ import {
   type SessionViewPreferences,
 } from '@/pages/coslash/lib/session-view-preferences';
 import './coslash-layout.css';
+import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
 import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
 import { statusDot, styles, tokenTotal } from '@/pages/coslash/components/session-list/styles';
 import { detectedGroup, type Group } from '@/pages/coslash/lib/detected-groups';
@@ -660,43 +657,6 @@ function SessionRow({
         )}
       </td>
     </tr>
-  );
-}
-
-function BoardGroupByMenu<T extends BoardRowGroupBy>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: readonly { value: T; label: string }[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft text-meta flex min-h-8 cursor-pointer items-center gap-1.5 rounded-[9px] border px-2.5 whitespace-nowrap [&>svg]:size-3"
-          aria-label={`${label} grouped by ${boardGroupByLabel(value)}`}
-        >
-          {label}
-          <span className="text-coslash-ink font-[550]">{boardGroupByLabel(value)}</span>
-          <ChevronDown aria-hidden="true" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="coslash-shell min-w-40">
-        <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
-          {options.map((option) => (
-            <DropdownMenuRadioItem key={option.value} value={option.value} className="text-meta">
-              {option.label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
