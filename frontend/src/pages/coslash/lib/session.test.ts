@@ -16,10 +16,8 @@ import {
   sessionLocationFact,
   sessionReadiness,
   sessionsForAggregates,
-  sessionShareEligibility,
   sessionTotalTokens,
   sumKnown,
-  withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
 import { HOUR } from '@/pages/coslash/lib/time';
@@ -74,26 +72,6 @@ describe('sessionKey', () => {
     expect(sessionKey({ sourceId: 'r_0123456789abcdef', agent: 'codex', id: 'abc' })).toBe(
       'r_0123456789abcdef:codex:abc',
     );
-  });
-});
-
-describe('withLocalSourceDefaults', () => {
-  it('fills omitted legacy source fields as local', () => {
-    expect(withLocalSourceDefaults({ agent: 'codex', id: 'abc' })).toEqual({
-      agent: 'codex',
-      id: 'abc',
-      sourceId: 'local',
-      sourceLabel: 'Local Mac',
-      sourceClass: 'local',
-      logicalSessionId: 'local:codex:abc',
-      revision: 0,
-      detailRevision: '0',
-      completion: 'complete',
-      privacy: 'shareable',
-      shareEligibility: 'eligible',
-      eligibleForAggregates: true,
-      displayStale: false,
-    });
   });
 });
 
@@ -153,52 +131,6 @@ describe('token totals', () => {
 
     expect(getTotalTokens(tokens)).toBeNull();
     expect(sessionTotalTokens({ tokens })).toBeNull();
-  });
-});
-
-describe('sessionShareEligibility', () => {
-  it('fails closed for every non-ready local or SSH source condition', () => {
-    expect(
-      sessionShareEligibility({
-        repoLocalOnly: true,
-        status: null,
-        displayStale: false,
-        eligibleForAggregates: true,
-      }),
-    ).toBe('private');
-    expect(
-      sessionShareEligibility({
-        repoLocalOnly: false,
-        status: 'busy',
-        displayStale: false,
-        eligibleForAggregates: true,
-      }),
-    ).toBe('running');
-    expect(
-      sessionShareEligibility({
-        repoLocalOnly: false,
-        status: null,
-        displayStale: true,
-        eligibleForAggregates: true,
-      }),
-    ).toBe('stale');
-    expect(
-      sessionShareEligibility({
-        repoLocalOnly: false,
-        status: null,
-        displayStale: false,
-        eligibleForAggregates: false,
-      }),
-    ).toBe('incomplete');
-    expect(
-      sessionShareEligibility({
-        shareEligibility: 'offline',
-        repoLocalOnly: false,
-        status: null,
-        displayStale: false,
-        eligibleForAggregates: true,
-      }),
-    ).toBe('offline');
   });
 });
 

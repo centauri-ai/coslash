@@ -1,12 +1,4 @@
-import {
-  isLocalSession,
-  sessionLogicalId,
-  sessionRevision,
-  sessionShareEligibility,
-  type Session,
-  type ShareEligibility,
-  type SourceClass,
-} from './session';
+import { isLocalSession, type Session, type ShareEligibility, type SourceClass } from './session';
 
 export type SessionLibraryFilters = {
   search: string;
@@ -58,9 +50,8 @@ function sessionSearchDocument(session: Session): string {
 export function latestLogicalSessions<T extends Session>(sessions: readonly T[]): T[] {
   const latest = new Map<string, T>();
   for (const session of sessions) {
-    const key = sessionLogicalId(session);
-    const prior = latest.get(key);
-    if (prior == null || sessionRevision(session) > sessionRevision(prior)) latest.set(key, session);
+    const prior = latest.get(session.logicalSessionId);
+    if (prior == null || session.revision > prior.revision) latest.set(session.logicalSessionId, session);
   }
   return [...latest.values()];
 }
@@ -79,7 +70,7 @@ export function filterSessionLibrary<T extends Session>(
   return sessions.filter((session) => {
     if (filters.repository !== ALL_REPOSITORIES && session.repo !== filters.repository) return false;
     if (filters.source !== 'all' && session.sourceClass !== filters.source) return false;
-    if (filters.shareState !== 'all' && sessionShareEligibility(session) !== filters.shareState) return false;
+    if (filters.shareState !== 'all' && session.shareEligibility !== filters.shareState) return false;
     if (!search) return true;
     return sessionSearchDocument(session).includes(search);
   });
