@@ -155,9 +155,7 @@ jobs:
         shell: powershell
         run: go vet ./...
 
-  # Opt-in native proof against the real published v0.4.2 Windows helper. It is
-  # deliberately not part of the `Windows` aggregate below until it has passed
-  # on a pushed head; the Windows update gate stays off until then.
+  # Native proof against the real published v0.4.2 Windows helper.
   windows-real-helper:
     name: Windows real legacy helper
     runs-on: blacksmith-4vcpu-windows-2025
@@ -206,17 +204,23 @@ jobs:
     name: Windows
     needs:
       - windows-tests
+      - windows-real-helper
       - windows-release-smoke
     if: ${{ always() }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - name: Require Windows tests and release smoke
+      - name: Require Windows tests, real legacy helper, and release smoke
         env:
           WINDOWS_TESTS_RESULT: ${{ needs.windows-tests.result }}
+          WINDOWS_REAL_HELPER_RESULT: ${{ needs.windows-real-helper.result }}
           WINDOWS_RELEASE_SMOKE_RESULT: ${{ needs.windows-release-smoke.result }}
         run: |
           if [[ "$WINDOWS_TESTS_RESULT" != success ]]; then
             echo "::error::Windows tests completed with $WINDOWS_TESTS_RESULT."
+            exit 1
+          fi
+          if [[ "$WINDOWS_REAL_HELPER_RESULT" != success ]]; then
+            echo "::error::Windows real legacy helper completed with $WINDOWS_REAL_HELPER_RESULT."
             exit 1
           fi
           if [[ "$WINDOWS_RELEASE_SMOKE_RESULT" != success ]]; then
