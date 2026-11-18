@@ -47,7 +47,8 @@ func AssertPrivateACL(t testing.TB, path string, directory bool) {
 	if control&windows.SE_DACL_PROTECTED == 0 {
 		t.Fatalf("DACL is not protected: %s", descriptor.String())
 	}
-	token, err := windows.OpenCurrentProcessToken()
+	var token windows.Token
+	err = windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
 		t.Fatal(err)
 	}

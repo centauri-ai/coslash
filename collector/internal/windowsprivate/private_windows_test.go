@@ -47,7 +47,8 @@ func TestProtectHandleRejectsForeignOwner(t *testing.T) {
 	originalGet, originalIdentity := getSecurityInfo, currentIdentity
 	t.Cleanup(func() { getSecurityInfo, currentIdentity = originalGet, originalIdentity })
 
-	token, err := windows.OpenCurrentProcessToken()
+	var token windows.Token
+	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,8 @@ func TestProtectHandleClaimsAdministratorsOwnedState(t *testing.T) {
 		getSecurityInfo, setSecurityInfo, currentIdentity, openOwnershipHandle, closeHandle = originalGet, originalSet, originalIdentity, originalOpen, originalClose
 	})
 
-	token, err := windows.OpenCurrentProcessToken()
+	var token windows.Token
+	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
 		t.Fatal(err)
 	}
