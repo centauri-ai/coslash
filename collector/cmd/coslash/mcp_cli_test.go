@@ -35,14 +35,57 @@ func TestMCPConfigPreservesOtherServersAndHasNoCredential(t *testing.T) {
 	if strings.Contains(string(data), "Bearer") || strings.Contains(string(data), "token") {
 		t.Fatalf("credential text in MCP config: %s", data)
 	}
+	if err := writeMCPConfig(path, "mcpServers", "https://other.example/mcp", false); err == nil {
+		t.Fatal("setup replaced an existing coSlash endpoint")
+	}
+	created := filepath.Join(t.TempDir(), ".cursor", "mcp.json")
+	if err := writeMCPConfig(created, "mcpServers", mcpDefaultURL, false); err != nil {
+		t.Fatal(err)
+	}
 	if runtime.GOOS != "windows" {
-		info, err := os.Stat(path)
+		info, err := os.Stat(created)
 		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("new MCP config mode: %v %v", info, err)
+		}
+	}
+}
+
+func TestMCPConfigSetupKeepsKeyOrderFormattingAndMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	original := "{\n    \"zeta\": 1,\n    \"mcpServers\": {\n        \"other\": {\"url\": \"https://other.example/mcp\"}\n    },\n    \"alpha\": [1, 2]\n}\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMCPConfig(path, "mcpServers", mcpDefaultURL, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n    \"zeta\": 1,\n    \"mcpServers\": {\n        \"other\": {\"url\": \"https://other.example/mcp\"},\n        \"coslash\": {\n            \"url\": \"" + mcpDefaultURL + "\"\n        }\n    },\n    \"alpha\": [1, 2]\n}\n"
+	if string(data) != want {
+		t.Fatalf("MCP config =\n%s\nwant\n%s", data, want)
+	}
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o644 {
 			t.Fatalf("MCP config mode: %v %v", info, err)
 		}
 	}
-	if err := writeMCPConfig(path, "mcpServers", "https://other.example/mcp", false); err == nil {
-		t.Fatal("setup replaced an existing coSlash endpoint")
+	if err := os.WriteFile(path, []byte(`{"zeta":1,"mcpServers":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMCPConfig(path, "mcpServers", mcpDefaultURL, false); err != nil {
+		t.Fatal(err)
+	}
+	if data, err = os.ReadFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"zeta":1,"mcpServers":{"coslash":{"url":"` + mcpDefaultURL + `"}}}`; string(data) != want {
+		t.Fatalf("compact MCP config = %s, want %s", data, want)
 	}
 }
 
@@ -61,7 +104,7 @@ func TestOpenCodeJSONCSetupPreservesCommentsAndExistingSettings(t *testing.T) {
 	if err != nil || selected != path {
 		t.Fatalf("selected config: %q %v", selected, err)
 	}
-	if err := writeMCPJSONCConfig(selected, mcpDefaultURL); err != nil {
+	if err := writeMCPConfig(selected, "mcp", mcpDefaultURL, true); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -73,10 +116,14 @@ func TestOpenCodeJSONCSetupPreservesCommentsAndExistingSettings(t *testing.T) {
 			t.Fatalf("missing %q in config: %s", expected, data)
 		}
 	}
-	if err := writeMCPJSONCConfig(selected, mcpDefaultURL); err != nil {
+	want := "{\n  // Keep this setting\n  \"model\": \"example/model\",\n  \"mcp\": {\n    \"other\": {\"type\": \"remote\", \"url\": \"https://other.example/mcp\"},\n    \"coslash\": {\n      \"enabled\": true,\n      \"oauth\": {\n        \"scope\": \"mcp:read mcp:ask\"\n      },\n      \"type\": \"remote\",\n      \"url\": \"" + mcpDefaultURL + "\"\n    },\n  },\n}\n"
+	if string(data) != want {
+		t.Fatalf("OpenCode config =\n%s\nwant\n%s", data, want)
+	}
+	if err := writeMCPConfig(selected, "mcp", mcpDefaultURL, true); err != nil {
 		t.Fatalf("idempotent setup: %v", err)
 	}
-	if err := writeMCPJSONCConfig(selected, "https://other.example/mcp"); err == nil {
+	if err := writeMCPConfig(selected, "mcp", "https://other.example/mcp", true); err == nil {
 		t.Fatal("setup replaced an existing coSlash endpoint")
 	}
 	if err := os.WriteFile(strings.TrimSuffix(path, "c"), []byte("{}"), 0o600); err != nil {
