@@ -2,6 +2,7 @@ package pi
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -90,13 +91,13 @@ type ExtensionHealth struct {
 	Err             error
 }
 
-func ExtensionDiagnostics() ExtensionHealth {
+func ExtensionDiagnostics(ctx context.Context) ExtensionHealth {
 	if !vendors.PiCollectionSupported() {
 		return ExtensionHealth{}
 	}
-	return extensionDiagnostics()
+	return extensionDiagnostics(ctx)
 }
-func extensionDiagnostics() ExtensionHealth {
+func extensionDiagnostics(ctx context.Context) ExtensionHealth {
 	target, err := ExtensionPath()
 	health := ExtensionHealth{Path: target, Err: err}
 	if err != nil {
@@ -120,13 +121,13 @@ func extensionDiagnostics() ExtensionHealth {
 		health.Err = err
 		return health
 	}
-	records, err := runtimeRecords()
+	records, err := runtimeRecords(ctx)
 	if err != nil {
 		health.Err = err
 		return health
 	}
 	for _, record := range records {
-		if ownerState(record) == "live" && record.Record.StartedAtMs < info.ModTime().UnixMilli() {
+		if ownerState(ctx, record) == "live" && record.Record.StartedAtMs < info.ModTime().UnixMilli() {
 			health.RestartRequired = true
 			break
 		}

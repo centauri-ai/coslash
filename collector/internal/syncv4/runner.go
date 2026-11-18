@@ -407,7 +407,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		return err
 	}
 	if piPlan == nil && len(piDiscoveryEntries(sessions, r.Queue.InstallID())) > 0 {
-		piPlan, err = pi.PlanSourcesContext(ctx)
+		piPlan, err = pi.PlanSources(ctx)
 		if err != nil {
 			return err
 		}

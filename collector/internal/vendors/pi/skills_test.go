@@ -31,7 +31,7 @@ func TestSkillsCollectedFromSuccessfulReads(t *testing.T) {
 		`{"type":"message","id":"p","parentId":"r","message":{"role":"toolResult","toolCallId":"pr","isError":false,"content":[{"type":"text","text":"https://github.com/example/project/pull/42"}]}}`,
 	)
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", filepath.Dir(tr.Path))
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("collect = %d sessions, %v", len(items), err)
 	}
@@ -44,7 +44,7 @@ func TestSkillsCollectedFromSuccessfulReads(t *testing.T) {
 	if items[0].Session.PullRequests != 1 || len(items[0].Session.PullRequestLinks) != 1 {
 		t.Fatalf("PR links = %+v", items[0].Session.PullRequestLinks)
 	}
-	facts, err := GetSessionFacts(tr.Header.ID)
+	facts, err := GetSessionFacts(t.Context(), tr.Header.ID)
 	if err != nil || facts == nil {
 		t.Fatalf("session facts = %v, %v", facts, err)
 	}
@@ -59,7 +59,7 @@ func TestSkillsDistinguishNULInAssistantAndToolCallIDs(t *testing.T) {
 		`{"type":"message","id":"a","parentId":"a\u0000b","message":{"role":"assistant","content":[{"type":"toolCall","id":"b\u0000c","name":"read","arguments":{"path":"skills/second/SKILL.md"}}]}}`,
 		`{"type":"message","id":"firstResult","parentId":"a\u0000b","message":{"role":"toolResult","toolCallId":"c","content":"first skill content"}}`,
 	)
-	parsed, err := projectLeaf(tr, nil, "firstResult", false)
+	parsed, err := projectLeaf(t.Context(), tr, nil, "firstResult", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestSkillsIgnoreFailedMalformedAndUnmatchedResults(t *testing.T) {
 				`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":"read","arguments":{"path":"skills/review/SKILL.md"}}]}}`,
 				fmt.Sprintf(`{"type":"message","id":"bad","parentId":"a","message":%s}`, tc.message),
 			}
-			parsed, err := projectLeaf(projectionFixture(t, "invalid-skill", "", rows...), nil, "bad", false)
+			parsed, err := projectLeaf(t.Context(), projectionFixture(t, "invalid-skill", "", rows...), nil, "bad", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,7 +96,7 @@ func TestSkillsIgnoreFailedMalformedAndUnmatchedResults(t *testing.T) {
 				t.Fatalf("invalid evidence produced skills: %#v", parsed.Session.Skills)
 			}
 			rows = append(rows, `{"type":"message","id":"good","parentId":"bad","message":{"role":"toolResult","toolCallId":"read","content":"observed"}}`)
-			parsed, err = projectLeaf(projectionFixture(t, "recovered-skill", "", rows...), nil, "good", false)
+			parsed, err = projectLeaf(t.Context(), projectionFixture(t, "recovered-skill", "", rows...), nil, "good", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -127,7 +127,7 @@ func TestSkillsRequireNativeManifestCalls(t *testing.T) {
 				fmt.Sprintf(`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":%q,"arguments":{"path":%s}}]}}`, tc.tool, path),
 				`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"read","content":"body"}}`,
 			)
-			parsed, err := projectLeaf(tr, nil, "a", false)
+			parsed, err := projectLeaf(t.Context(), tr, nil, "a", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,7 +144,7 @@ func TestSkillsRequireNativeManifestCalls(t *testing.T) {
 		`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":"read","arguments":{"path":"skills/review/SKILL.md","command":42}}]}}`,
 		`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"read","content":"body"}}`,
 	)
-	parsed, err := projectLeaf(tr, nil, "r", false)
+	parsed, err := projectLeaf(t.Context(), tr, nil, "r", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestSkillsKeepObservationOrderAcrossBranches(t *testing.T) {
 	)
 	want := []session.Skill{{Name: "other", Content: "first"}, {Name: "review", Content: "first"}, {Name: "review", Content: "second"}}
 	for _, leaf := range []string{"rb", "compacted"} {
-		parsed, err := projectLeaf(tr, nil, leaf, false)
+		parsed, err := projectLeaf(t.Context(), tr, nil, leaf, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,7 +194,7 @@ func TestSkillsRequireNativeMessageEvidence(t *testing.T) {
 					fmt.Sprintf(`{"type":%q,"id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":"read","arguments":{"path":"skills/review/SKILL.md"}}]}}`, callType),
 					fmt.Sprintf(`{"type":%q,"id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"read","content":"body"}}`, resultType),
 				)
-				parsed, err := projectLeaf(tr, nil, "r", false)
+				parsed, err := projectLeaf(t.Context(), tr, nil, "r", false)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -214,7 +214,7 @@ func TestSkillsRequireNativeMessageEvidence(t *testing.T) {
 		`{"type":"message","id":"r","parentId":"metadata","message":{"role":"toolResult","toolCallId":"read","content":"body"}}`,
 		`{"type":"message","id":"p","parentId":"r","message":{"role":"toolResult","toolCallId":"pr","content":"https://github.com/example/project/pull/42"}}`,
 	)
-	parsed, err := projectLeaf(tr, nil, "p", false)
+	parsed, err := projectLeaf(t.Context(), tr, nil, "p", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestSkillsRejectCollidingCallIDs(t *testing.T) {
 				`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"shared","content":"Successfully wrote file"}}`,
 				`{"type":"message","id":"valid","parentId":"r","message":{"role":"toolResult","toolCallId":"unique","content":"observed"}}`,
 			)
-			parsed, err := projectLeaf(tr, nil, "valid", false)
+			parsed, err := projectLeaf(t.Context(), tr, nil, "valid", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -262,7 +262,7 @@ func TestSkillsKeepEmptyAndBoundedCapturedBodies(t *testing.T) {
 			`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":"read","arguments":{"path":"skills/review/SKILL.md"}}]}}`,
 			fmt.Sprintf(`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"read","content":%s}}`, raw),
 		)
-		parsed, err := projectLeaf(tr, nil, "r", false)
+		parsed, err := projectLeaf(t.Context(), tr, nil, "r", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -279,7 +279,7 @@ func TestSkillsKeepEmptyAndBoundedCapturedBodies(t *testing.T) {
 			`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"read","name":"read","arguments":{"path":"skills/review/SKILL.md"}}]}}`,
 			fmt.Sprintf(`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"read","content":%s}}`, raw),
 		)
-		parsed, err := projectLeaf(tr, nil, "r", false)
+		parsed, err := projectLeaf(t.Context(), tr, nil, "r", false)
 		if err != nil {
 			t.Fatal(err)
 		}

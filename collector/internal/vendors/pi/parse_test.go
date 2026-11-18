@@ -34,7 +34,7 @@ func fixture(t *testing.T) []byte {
 func TestSchema3ReadOnlyFacts(t *testing.T) {
 	data := fixture(t)
 	path := writeTranscript(t, data)
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestReadOnlyFinalRecords(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			data := append(fixture(t), []byte(test.tail)...)
 			path := writeTranscript(t, data)
-			parsed, err := parseTranscript(path)
+			parsed, err := parseTranscript(t.Context(), path)
 			if (err != nil) != test.wantError {
 				t.Fatalf("error: %v", err)
 			}
@@ -109,26 +109,26 @@ func TestInvalidIdentitySchemaAndOrphans(t *testing.T) {
 	data := fixture(t)
 	for _, version := range []string{"0", "1", "2", "4"} {
 		path := writeTranscript(t, bytes.Replace(data, []byte(`"version":3`), []byte(`"version":`+version), 1))
-		if _, err := parseTranscript(path); err == nil || !strings.Contains(err.Error(), "unsupported Pi transcript schema") {
+		if _, err := parseTranscript(t.Context(), path); err == nil || !strings.Contains(err.Error(), "unsupported Pi transcript schema") {
 			t.Fatalf("version %s: %v", version, err)
 		}
 	}
 	path := writeTranscript(t, bytes.Replace(data, []byte(`"version":3,`), nil, 1))
-	if _, err := parseTranscript(path); err == nil {
+	if _, err := parseTranscript(t.Context(), path); err == nil {
 		t.Fatal("missing schema accepted")
 	}
 	path = writeTranscript(t, append(data, []byte(`{"type":"custom","id":"user","parentId":null}`+"\n")...))
-	if _, err := parseTranscript(path); err == nil || !strings.Contains(err.Error(), "duplicate entry ID") {
+	if _, err := parseTranscript(t.Context(), path); err == nil || !strings.Contains(err.Error(), "duplicate entry ID") {
 		t.Fatalf("duplicate: %v", err)
 	}
 	path = writeTranscript(t, bytes.Replace(data, []byte(`"parentId":"info"`), []byte(`"parentId":"absent"`), 1))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), path)
 	if err != nil || len(parsed.Entries) != 14 || len(parsed.Diagnostics) != 1 || !strings.Contains(parsed.Diagnostics[0], "orphan parent") {
 		t.Fatalf("orphan: %v %+v", err, parsed)
 	}
 	for _, pair := range [][2]string{{`"input":1,`, `"input":-1,`}, {`"total":0.5`, `"total":-0.5`}} {
 		path := writeTranscript(t, bytes.Replace(data, []byte(pair[0]), []byte(pair[1]), 1))
-		if _, err := parseTranscript(path); err == nil || !strings.Contains(err.Error(), "invalid negative usage") {
+		if _, err := parseTranscript(t.Context(), path); err == nil || !strings.Contains(err.Error(), "invalid negative usage") {
 			t.Fatalf("negative accounting: %v", err)
 		}
 	}
@@ -149,7 +149,7 @@ func TestLargeLineAndMissingAccounting(t *testing.T) {
 		records = append(records, '\n')
 	}
 	path := writeTranscript(t, records)
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestTranscriptResourceBudgets(t *testing.T) {
 			if err = f.Close(); err != nil {
 				t.Fatal(err)
 			}
-			parsed, err := parseTranscript(path)
+			parsed, err := parseTranscript(t.Context(), path)
 			if parsed != nil || err == nil || !strings.Contains(err.Error(), kind+" limit") {
 				t.Fatalf("expected %s limit rejection without partial transcript, got parsed=%v error=%v", kind, parsed != nil, err)
 			}
@@ -233,7 +233,7 @@ func TestBoundedRecordFraming(t *testing.T) {
 
 func TestUsageAttributionCannotBeOverridden(t *testing.T) {
 	row := `{"type":"message","id":"usage-override","message":{"role":"assistant","provider":"native","model":"requested","responseModel":"resolved","usage":{"input":1,"output":2,"cacheRead":0,"cacheWrite":0,"cost":{"total":1},"source":"tool_result","provider":"override","model":"override","raw":null,"tokensMissing":true,"zeroTokens":true}}}`
-	parsed, err := parseTranscript(writeTranscript(t, append(fixture(t), []byte(row+"\n")...)))
+	parsed, err := parseTranscript(t.Context(), writeTranscript(t, append(fixture(t), []byte(row+"\n")...)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestUsageAttributionCannotBeOverridden(t *testing.T) {
 }
 func TestUsageOneHourCacheIsNotZero(t *testing.T) {
 	row := `{"type":"usage","id":"hour-cache","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":7,"cost":{"total":1}}}`
-	parsed, err := parseTranscript(writeTranscript(t, append(fixture(t), []byte(row+"\n")...)))
+	parsed, err := parseTranscript(t.Context(), writeTranscript(t, append(fixture(t), []byte(row+"\n")...)))
 	if err != nil {
 		t.Fatal(err)
 	}

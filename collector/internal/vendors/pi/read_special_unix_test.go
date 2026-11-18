@@ -32,21 +32,21 @@ func TestAncestorFIFOIsUnavailableEvidence(t *testing.T) {
 	}
 	fork := captureTranscript(t, "fork", evidence, assistantRow("a", "", "useful", 3))
 	captureEnvironment(t, filepath.Dir(fork))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), "fork")
+	inputs, err := plan.SessionInputs(t.Context(), "fork")
 	if err != nil || inputs.complete || len(inputs.Files) != 1 {
 		t.Fatalf("FIFO established provenance: %+v, %v", inputs, err)
 	}
-	parsed, _, err := ParseFrozenSessionContext(t.Context(), inputs, freezeInputs(t, inputs))
+	parsed, _, err := ParseFrozenSession(t.Context(), inputs, freezeInputs(t, inputs))
 	if err != nil || !parsed.Session.TokensUnavailable || !parsed.Session.CostUnavailable || !parsed.Session.DetailsIncomplete || parsed.RecordedCost != nil || parsed.ParentID != "" {
 		t.Fatalf("unavailable FIFO ancestor = %+v, %v", parsed, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := plan.SessionInputsContext(ctx, "fork"); !errors.Is(err, context.Canceled) {
+	if _, err := plan.SessionInputs(ctx, "fork"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("planning cancellation = %v", err)
 	}
 }

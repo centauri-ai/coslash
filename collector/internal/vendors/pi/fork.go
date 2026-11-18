@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"path/filepath"
 	"reflect"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func canonicalPath(path string) string {
@@ -21,7 +22,7 @@ func canonicalPath(path string) string {
 }
 
 // Pi preserves non-label identities. A clone may bypass labels in parent links.
-func inheritedEntriesContext(ctx context.Context, t, parent *transcript) (map[string]bool, bool) {
+func inheritedEntries(ctx context.Context, t, parent *transcript) (map[string]bool, bool) {
 	inherited := map[string]bool{}
 	if t.Header.ParentSession == "" {
 		return inherited, true
@@ -145,11 +146,7 @@ func labelParents(ctx context.Context, t *transcript) func(*string) (string, boo
 	}
 }
 
-// Parent files are parsed once per collection, including parents outside discovered roots.
-func parentCache(items []*transcript, scans ...*vendors.SourceScan) func(*transcript) *transcript {
-	return parentCacheContext(context.Background(), items, scans...)
-}
-func parentCacheContext(ctx context.Context, items []*transcript, scans ...*vendors.SourceScan) func(*transcript) *transcript {
+func parentCache(ctx context.Context, items []*transcript, scans ...*vendors.SourceScan) func(*transcript) *transcript {
 	cache := map[string]*transcript{}
 	for _, t := range items {
 		cache[canonicalPath(t.Path)] = t
@@ -171,7 +168,7 @@ func parentCacheContext(ctx context.Context, items []*transcript, scans ...*vend
 		if t, ok := cache[path]; ok {
 			return t
 		}
-		t, _ := parseTranscriptContext(ctx, path)
+		t, _ := parseTranscript(ctx, path)
 		cache[path] = t
 		return t
 	}
@@ -197,7 +194,7 @@ func parentCacheContext(ctx context.Context, items []*transcript, scans ...*vend
 			if parent == nil || parent.Header.ID == current.Header.ID {
 				return nil
 			}
-			if _, ok := inheritedEntriesContext(ctx, current, parent); !ok {
+			if _, ok := inheritedEntries(ctx, current, parent); !ok {
 				return nil
 			}
 			if immediate == nil {

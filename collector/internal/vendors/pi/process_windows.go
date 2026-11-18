@@ -11,10 +11,7 @@ import (
 )
 
 // ProcessStartIdentity matches PowerShell StartTime.ToFileTimeUtc without rounding.
-func ProcessStartIdentity(pid int) (string, error) {
-	return processStartIdentityContext(context.Background(), pid)
-}
-func processStartIdentityContext(ctx context.Context, pid int) (string, error) {
+func ProcessStartIdentity(ctx context.Context, pid int) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -34,10 +31,7 @@ func processStartIdentityContext(ctx context.Context, pid int) (string, error) {
 	return "windows:" + strconv.FormatUint(ticks, 10), nil
 }
 
-func processAbsent(pid int) bool {
-	return processAbsentContext(context.Background(), pid)
-}
-func processAbsentContext(ctx context.Context, pid int) bool {
+func processAbsent(ctx context.Context, pid int) bool {
 	if ctx.Err() != nil {
 		return false
 	}

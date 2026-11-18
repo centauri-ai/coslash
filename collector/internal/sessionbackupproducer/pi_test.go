@@ -37,11 +37,11 @@ func piFixture(t *testing.T) (string, string, Selection) {
 
 func piInputs(t *testing.T, id string) pi.SessionInputs {
 	t.Helper()
-	plan, err := pi.PlanSourcesContext(t.Context())
+	plan, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), id)
+	inputs, err := plan.SessionInputs(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestPiAccountingAndObservedOutputs(t *testing.T) {
 
 func writePiOwner(t *testing.T, path, id, leaf, modality string, sequence int64) {
 	t.Helper()
-	identity, err := pi.ProcessStartIdentity(os.Getpid())
+	identity, err := pi.ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +394,7 @@ func TestPiSourceRevisionTracksEffectiveLeafWithoutRuntimeIdentity(t *testing.T)
 		}
 	}
 	writePiOwner(t, path, selection.SessionID, "a", "pi-tui", 5)
-	snapshot, err := pi.LoadRuntimeSnapshotContext(t.Context())
+	snapshot, err := pi.LoadRuntimeSnapshot(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,11 +542,11 @@ func TestPiPrepareCustomRootHeaderIdentityAndReopen(t *testing.T) {
 	home, path, selection := piFixture(t)
 	spool := t.TempDir()
 	manager := grokManager(spool, home, nil)
-	plan, err := pi.PlanSourcesContext(t.Context())
+	plan, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), selection.SessionID)
+	inputs, err := plan.SessionInputs(t.Context(), selection.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}

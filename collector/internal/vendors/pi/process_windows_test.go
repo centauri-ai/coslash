@@ -12,7 +12,7 @@ import (
 )
 
 func TestWindowsProcessIdentityUsesExactFiletime(t *testing.T) {
-	identity, err := ProcessStartIdentity(os.Getpid())
+	identity, err := ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,14 +26,14 @@ func TestWindowsProcessIdentityUsesExactFiletime(t *testing.T) {
 	if identity != want {
 		t.Fatalf("identity %q want %q", identity, want)
 	}
-	if processAbsent(os.Getpid()) {
+	if processAbsent(t.Context(), os.Getpid()) {
 		t.Fatal("current process reported absent")
 	}
 	for _, pid := range []int{0, -1} {
-		if identity, err := ProcessStartIdentity(pid); err == nil || identity != "" {
+		if identity, err := ProcessStartIdentity(t.Context(), pid); err == nil || identity != "" {
 			t.Fatalf("invalid PID %d identity %q error %v", pid, identity, err)
 		}
-		if !processAbsent(pid) {
+		if !processAbsent(t.Context(), pid) {
 			t.Fatalf("invalid PID %d not absent", pid)
 		}
 	}
@@ -54,7 +54,7 @@ func TestWindowsExitedOwner(t *testing.T) {
 	}
 	record := testRecord()
 	record.PID = pid
-	if got := ownerState(runtimeEvidence{Record: record}); got != "dead" {
+	if got := ownerState(t.Context(), runtimeEvidence{Record: record}); got != "dead" {
 		t.Fatalf("exited owner state %q", got)
 	}
 }

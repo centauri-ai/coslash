@@ -165,7 +165,7 @@ func TestPiCollectedForksComposeAsIndependentRecords(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, metadata, err := pi.CollectContext(t.Context(), 0)
+	parsed, metadata, err := pi.Collect(t.Context(), 0)
 	if err != nil || len(parsed) != 3 {
 		t.Fatalf("collected=%d err=%v", len(parsed), err)
 	}
