@@ -357,6 +357,31 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('>remote-private-prompt<');
   });
 
+  it('counts each facet with search and the other facets applied', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ agentFilters: ['codex'] }),
+      setItem: () => {},
+    });
+    const markup = renderLayout({
+      sessions: [
+        session({ id: 'local-codex', sourceId: 'local', agent: 'codex', status: 'busy' }),
+        session({ id: 'local-claude', sourceId: 'local', agent: 'claude', status: 'busy' }),
+        session({ id: 'remote-codex', agent: 'codex' }),
+        session({ id: 'remote-claude', agent: 'claude' }),
+      ],
+    });
+    const countOf = (label: string) =>
+      markup.match(new RegExp(`>${label}</span></button>.*?tabular-nums">(\\d+)<`))?.[1];
+
+    expect(countOf('Active')).toBe('1');
+    expect(countOf('Inactive')).toBe('1');
+    expect(countOf('Waiting')).toBe('0');
+    expect(countOf('Codex')).toBe('2');
+    expect(countOf('Claude Code')).toBe('2');
+    expect(countOf('Local Mac')).toBe('1');
+    expect(countOf('agent-box')).toBe('1');
+  });
+
   it('totals all visible rows and describes the count as the current scope', () => {
     const markup = renderLayout({
       sessions: [
