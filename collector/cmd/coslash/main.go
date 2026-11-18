@@ -814,15 +814,15 @@ func routesWithOnboarding(
 		}
 		w.WriteHeader(http.StatusAccepted)
 	})
-	getCanonicalSession := func(agent, id string) (*session.Session, error) {
-		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
+	getCanonicalSession := func(ctx context.Context, agent, id string) (*session.Session, error) {
+		return canonicalSession(ctx, agent, id, mgr, collector.GetSessionForPreview)
 	}
 	api.HandleFunc("GET /api/search", func(w http.ResponseWriter, r *http.Request) { handleSearch(w, r, service.search) })
 	api.HandleFunc("GET /api/search/status", func(w http.ResponseWriter, r *http.Request) { handleSearchStatus(w, r, service.search) })
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Coslash-Synthesis-Cost-Version", mgr.AccountingVersion())
 		if r.URL.Query().Has("id") {
-			handleExactSession(w, r, collector.GetSessionForPreviewByAgent)
+			handleExactSession(w, r, collector.GetSessionForPreview)
 			return
 		}
 		handleList(w, r, mgr, reviewManager, remoteManager)
@@ -838,7 +838,7 @@ func routesWithOnboarding(
 			return
 		}
 		query := r.URL.Query()
-		handleSynthesis(w, query.Get("agent"), query.Get("id"), mgr)
+		handleSynthesis(r.Context(), w, query.Get("agent"), query.Get("id"), mgr)
 	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("session") {
@@ -872,8 +872,8 @@ func routesWithOnboarding(
 				launch.RemoteReviewerOptions, reviewManager.Start)
 			return
 		}
-		getSession := func(agent, id string) (*session.Session, error) {
-			found, err := collector.GetSessionForPreviewByAgent(agent, id, 0)
+		getSession := func(ctx context.Context, agent, id string) (*session.Session, error) {
+			found, err := collector.GetSessionForPreview(ctx, agent, id)
 			if found != nil {
 				found.Synthesis = contextSynthesis(mgr, found)
 			}

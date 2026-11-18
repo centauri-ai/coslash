@@ -24,17 +24,17 @@ type cachedExtra struct {
 	Background bool                   `json:"background,omitempty"`
 }
 
-// parseSourceCachedContext parses through the local parse cache. The
+// parseSourceCached parses through the local parse cache. The
 // fingerprint is taken before the file is read, so a file that changes during
 // the parse is re-parsed on the next pass rather than served stale.
-func parseSourceCachedContext(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+func parseSourceCached(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
 	cache := vendors.LocalParseCache(source)
 	if cache == nil {
-		return parseSourceContext(ctx, source, path)
+		return parseSource(ctx, source, path)
 	}
 	fingerprint, err := transcriptFingerprint(source, path)
 	if err != nil {
-		return parseSourceContext(ctx, source, path)
+		return parseSource(ctx, source, path)
 	}
 	key := vendors.CacheKey{Agent: vendors.AgentClaude, Identity: path, Version: ParserVersion, Fingerprint: fingerprint}
 	if payload, ok := cache.Lookup(key); ok {
@@ -42,7 +42,7 @@ func parseSourceCachedContext(ctx context.Context, source vendors.ReadSource, pa
 			return parsed, nil
 		}
 	}
-	parsed, err := parseSourceContext(ctx, source, path)
+	parsed, err := parseSource(ctx, source, path)
 	if err != nil {
 		return nil, err
 	}

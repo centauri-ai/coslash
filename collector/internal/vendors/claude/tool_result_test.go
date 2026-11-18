@@ -28,10 +28,10 @@ func TestArtifactResultTypeObjectIsValidAndNotAnEdit(t *testing.T) {
 		`{"type":{"url":"https://example.test/type","release":"r1","latest":"r1"},"url":"https://example.test/doc","path":"doc.html"}`,
 		`{"type":"create","filePath":"/repo/notes.md","content":"one\ntwo\n","structuredPatch":[]}`,
 	)
-	if err := ValidateCompleteTranscriptSourceContext(t.Context(), vendors.LocalReadSource, path); err != nil {
+	if err := ValidateCompleteTranscript(t.Context(), vendors.LocalReadSource, path); err != nil {
 		t.Fatalf("validate = %v", err)
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestArtifactResultTypeObjectIsValidAndNotAnEdit(t *testing.T) {
 
 func TestMistypedToolResultFieldStillInvalid(t *testing.T) {
 	path := writeToolResultTranscript(t, `{"type":"update","filePath":7}`)
-	if err := ValidateCompleteTranscriptSourceContext(t.Context(), vendors.LocalReadSource, path); !errors.Is(err, vendors.ErrInvalidData) {
+	if err := ValidateCompleteTranscript(t.Context(), vendors.LocalReadSource, path); !errors.Is(err, vendors.ErrInvalidData) {
 		t.Fatalf("validate = %v, want ErrInvalidData", err)
 	}
 }
@@ -52,7 +52,7 @@ func TestUnsupportedToolResultTypeShapesAreInvalid(t *testing.T) {
 	for _, kind := range []string{`1`, `true`, `[]`, `null`} {
 		t.Run(kind, func(t *testing.T) {
 			path := writeToolResultTranscript(t, `{"type":`+kind+`,"filePath":"/repo/notes.md","content":"ignored"}`)
-			if err := ValidateCompleteTranscriptSourceContext(t.Context(), vendors.LocalReadSource, path); !errors.Is(err, vendors.ErrInvalidData) {
+			if err := ValidateCompleteTranscript(t.Context(), vendors.LocalReadSource, path); !errors.Is(err, vendors.ErrInvalidData) {
 				t.Fatalf("validate = %v, want ErrInvalidData", err)
 			}
 		})

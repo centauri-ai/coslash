@@ -37,19 +37,8 @@ func ParentIDFromPath(path string) string {
 	}
 	return ""
 }
-func Files() ([]string, error) {
-	return FilesContext(context.Background())
-}
 
-func FilesContext(ctx context.Context) ([]string, error) {
-	root, err := Root()
-	if err != nil {
-		return nil, err
-	}
-	return FilesSourceContext(ctx, vendors.LocalReadSource, root)
-}
-
-func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
+func Files(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
 	files, err := vendors.JSONLFilesUnderSource(ctx, source, root)
 	if err != nil {
 		return nil, err
@@ -57,23 +46,7 @@ func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root str
 	return filterWorkflowTranscripts(files), nil
 }
 
-func Scan() (*vendors.SourceScan, error) {
-	return ScanContext(context.Background())
-}
-
-func ScanContext(ctx context.Context) (*vendors.SourceScan, error) {
-	root, err := Root()
-	if err != nil {
-		return nil, err
-	}
-	return ScanSourceContext(ctx, vendors.LocalReadSource, root)
-}
-
-func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
-	return ScanSourceContext(context.Background(), source, root)
-}
-
-func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
+func Scan(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
 	scan, err := vendors.ScanSource(ctx, source, root)
 	if err != nil {
 		return nil, err
@@ -102,8 +75,10 @@ func AcceptsTranscript(file string) bool {
 	return !strings.Contains(normalized, "/subagents/workflows/") || strings.HasPrefix(filepath.Base(normalized), "agent-")
 }
 
-func FilesSinceContext(ctx context.Context, files []string, live map[string]string, since int64) ([]string, error) {
-	selected, err := FilesSinceSourceContext(ctx, vendors.LocalReadSource, files, live, since)
+// familyFilesSince selects like FilesSince and adds every file of each selected
+// local family.
+func familyFilesSince(ctx context.Context, files []string, live map[string]string, since int64) ([]string, error) {
+	selected, err := FilesSince(ctx, vendors.LocalReadSource, files, live, since)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +91,7 @@ func FilesSinceContext(ctx context.Context, files []string, live map[string]stri
 		if ParentIDFromPath(file) != "" {
 			continue
 		}
-		family, err := familyFilesContext(ctx, vendors.LocalReadSource, files, IDFromPath(file))
+		family, err := familyFiles(ctx, vendors.LocalReadSource, files, IDFromPath(file))
 		if err != nil {
 			return nil, err
 		}
@@ -136,17 +111,7 @@ func FilesSinceContext(ctx context.Context, files []string, live map[string]stri
 	return selected, nil
 }
 
-func FilesSinceSource(
-	source vendors.ReadSource,
-	files []string,
-	live map[string]string,
-	since int64,
-) []string {
-	files, _ = FilesSinceSourceContext(context.Background(), source, files, live, since)
-	return files
-}
-
-func FilesSinceSourceContext(
+func FilesSince(
 	ctx context.Context,
 	source vendors.ReadSource,
 	files []string,

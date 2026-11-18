@@ -29,7 +29,7 @@ type claudeInput struct {
 }
 
 func (manager *Manager) captureClaude(ctx context.Context, staging string, selection Selection, handle SourceHandle) (*Prepared, error) {
-	files, err := claude.CompleteFamilyFilesSourceContext(ctx, handle.Source, handle.Home, selection.SessionID)
+	files, err := claude.CompleteFamilyFiles(ctx, handle.Source, handle.Home, selection.SessionID)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
 	}
@@ -166,7 +166,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		if input.kind != sessionbackupv1.KindRawTranscript {
 			continue
 		}
-		references, err := claude.ToolResultFilesSourceContext(ctx, transcriptSource, input.path)
+		references, err := claude.ToolResultFiles(ctx, transcriptSource, input.path)
 		if err != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemInvalid, input.kind, false)
 		}
@@ -231,7 +231,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 		}
 	}
-	currentFiles, err := claude.CompleteFamilyFilesSourceContext(ctx, handle.Source, handle.Home, selection.SessionID)
+	currentFiles, err := claude.CompleteFamilyFiles(ctx, handle.Source, handle.Home, selection.SessionID)
 	if err != nil || !sameClaudeFiles(files, currentFiles) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -239,15 +239,15 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 	for _, input := range inputs {
 		var err error
 		if input.kind == sessionbackupv1.KindRawTranscript {
-			err = claude.ValidateCompleteTranscriptSourceContext(ctx, frozenSource, input.path)
+			err = claude.ValidateCompleteTranscript(ctx, frozenSource, input.path)
 		} else {
-			err = claude.ValidateCompleteSidecarSourceContext(ctx, frozenSource, input.path, input.key)
+			err = claude.ValidateCompleteSidecar(ctx, frozenSource, input.path, input.key)
 		}
 		if err != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemInvalid, input.kind, false)
 		}
 	}
-	parsed, err := claude.ParseFamilyFilesSourceContext(ctx, frozenSource, files)
+	parsed, err := claude.ParseFamilyFiles(ctx, frozenSource, files)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}

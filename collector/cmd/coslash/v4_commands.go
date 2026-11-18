@@ -62,7 +62,7 @@ func v4CommandRunner(queue *syncv4.Queue, local *settings.Store, relay *remote.M
 				if entry.Selection.SourceKind != sessionbackupv1.SourceLocal {
 					return errors.New("unsupported session source")
 				}
-				found, err := collector.GetSessionFactsByAgent(entry.Selection.Agent, entry.Selection.SessionID)
+				found, err := collector.GetSessionFacts(ctx, entry.Selection.Agent, entry.Selection.SessionID)
 				if err != nil {
 					return err
 				}

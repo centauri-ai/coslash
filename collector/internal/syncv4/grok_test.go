@@ -485,7 +485,7 @@ func TestGrokIncompleteAccountingDiscoveryAndMetadata(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				family, err := collector.ComposePortableContext(t.Context(), vendors.LocalReadSource, map[string]vendors.RemoteCollection{"grok": {Sessions: parsed, Metadata: metadata}})
+				family, err := collector.ComposePortable(t.Context(), vendors.LocalReadSource, map[string]vendors.RemoteCollection{"grok": {Sessions: parsed, Metadata: metadata}})
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -64,7 +64,7 @@ func (manager *Manager) MissingLocalFamilies(ctx context.Context, selections []S
 				present[id] = true
 			}
 		} else {
-			scan, err := claude.ScanSourceContext(ctx, handle.Source, claude.ProjectsRoot(handle.Home))
+			scan, err := claude.Scan(ctx, handle.Source, claude.ProjectsRoot(handle.Home))
 			if err != nil {
 				return nil, err
 			}

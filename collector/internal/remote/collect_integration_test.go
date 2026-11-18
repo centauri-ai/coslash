@@ -478,7 +478,7 @@ func TestClaudeFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *test
 			t.Fatal(err)
 		}
 	}
-	localParsed, localMetadata, err := claude.CollectContext(t.Context(), 0)
+	localParsed, localMetadata, err := claude.Collect(t.Context(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

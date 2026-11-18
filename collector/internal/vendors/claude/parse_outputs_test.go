@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func bashRows(calls ...string) string {
@@ -52,7 +53,7 @@ func TestBashOutputsPairByToolUseID(t *testing.T) {
 	)
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 	writeOutputTranscript(t, path, rows)
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestBashOutputsPairByToolUseID(t *testing.T) {
 func TestSessionWithoutCommandsHasNoOutputs(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 	writeOutputTranscript(t, path, bashRows(`{"type":"user","timestamp":"2026-09-23T10:00:00Z","message":{"content":"hi"}}`))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func TestSubagentCommandsCarryOutputs(t *testing.T) {
 		bashUse("s2", "pwd"),
 		bashResult("s1", `"file.txt\n"`, false),
 	))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestPullRequestLinksComeFromSuccessfulCreates(t *testing.T) {
 	)
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 	writeOutputTranscript(t, path, rows)
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,7 @@ func TestLoadMetadataUsesUserConfigDirectory(t *testing.T) {
 	home := t.TempDir()
 	setClaudeTestHome(t, home)
 
-	metadata, err := LoadMetadata()
+	metadata, err := LoadMetadata(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestLoadMetadataUsesUserConfigDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err = LoadMetadata()
+	metadata, err = LoadMetadata(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

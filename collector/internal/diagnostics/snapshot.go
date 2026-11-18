@@ -249,7 +249,7 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	snapshot.Storage.Home = displayPath(userHome, storageHome)
 	snapshot.Storage.Error = displayError(userHome, snapshot.Storage.Error)
 
-	for _, health := range collector.Sources() {
+	for _, health := range collector.Sources(ctx) {
 		source := collectSource(ctx, userHome, health, includeVersions)
 		snapshot.Sources = append(snapshot.Sources, source)
 		if source.Agent == vendors.AgentPi && source.CLI.Found {

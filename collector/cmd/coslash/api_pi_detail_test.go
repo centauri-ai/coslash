@@ -23,7 +23,7 @@ func TestLocalPiDetailAcceptsOpaqueIdentityButRemoteRefuses(t *testing.T) {
 	for _, id := range []string{"normal", "../SDK custom/ identity"} {
 		value := exactDetailSession("package main\n")
 		value.Agent, value.ID = "pi", id
-		reader := func(agent, sessionID string) (*session.Session, error) {
+		reader := func(_ context.Context, agent, sessionID string) (*session.Session, error) {
 			if agent != "pi" || sessionID != id {
 				t.Fatalf("identity changed: %s/%s", agent, sessionID)
 			}
@@ -136,7 +136,7 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 		}
 		if sequence > 0 {
 			response := httptest.NewRecorder()
-			handleSynthesis(response, "pi", id, manager)
+			handleSynthesis(t.Context(), response, "pi", id, manager)
 			var result struct {
 				Synthesis *session.SessionSynthesis
 				Revision  int64
@@ -155,7 +155,7 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 		// A new manager represents a server restart and reads the persisted opaque-ID cache.
 		manager = synthesis.NewManager(nil, nil)
 		response := httptest.NewRecorder()
-		handleSynthesis(response, "pi", id, manager)
+		handleSynthesis(t.Context(), response, "pi", id, manager)
 		if response.Code != http.StatusOK {
 			t.Fatalf("synthesis = %d", response.Code)
 		}
