@@ -601,10 +601,8 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('>Local · ');
   });
 
-  it('keeps saved task-folder filters active after grouping Codex tasks together', () => {
-    const stored = JSON.stringify({
-      groupFilters: ['folder:local:/users/milan/documents/codex/2026-10-22/other'],
-    });
+  it('applies a saved task-folder filter to every grouped Codex task', () => {
+    const stored = JSON.stringify({ groupFilters: ['folder:local:/users/milan/documents/codex'] });
     vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
     const local = (id: string, name: string, cwd: string, repo: string) =>
       session({ id, name, sourceId: 'local', cwd, repo, repoLocalOnly: true });
