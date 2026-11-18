@@ -4,7 +4,7 @@ import { handoffBrief } from '../lib/handoff';
 import type { Session } from '../lib/session';
 import { detailRequestKey } from '../lib/session-detail';
 import { makeSession } from '../lib/session-fixture';
-import { useSessionDetail } from './SessionInspector';
+import { useSessionDetail } from './use-session-detail';
 
 // Exercise the real hook's effects without adding a DOM test dependency.
 const hooks = vi.hoisted(() => ({ index: 0, slots: [] as unknown[], pending: [] as (() => void)[] }));
