@@ -1,6 +1,7 @@
 package remotehelper
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
@@ -77,11 +78,11 @@ func (s *scan) finish(metadata *vendors.SessionMetadata) {
 		sort.Slice(item.fingerprints, func(i, j int) bool {
 			return item.fingerprints[i].Key < item.fingerprints[j].Key
 		})
-		item.fingerprints = dedupeFingerprints(item.fingerprints)
+		item.fingerprints = slices.CompactFunc(item.fingerprints, func(a, b vendors.FileFingerprint) bool { return a.Key == b.Key })
 		sort.Slice(item.headerMappings, func(i, j int) bool {
 			return item.headerMappings[i].Key < item.headerMappings[j].Key
 		})
-		item.sessionIDs = dedupeStrings(item.sessionIDs)
+		item.sessionIDs = slices.Compact(item.sessionIDs)
 		item.fingerprint = aggregateFingerprint(item, metadata)
 	}
 }
@@ -112,30 +113,4 @@ func (s *scan) inventory(limit int) ([]string, bool) {
 // and the helper never resolves one that arrives in a request.
 func aggregateFingerprint(item *family, metadata *vendors.SessionMetadata) string {
 	return vendors.AggregateFingerprint(item.id, item.fingerprints, item.sessionIDs, metadata)
-}
-
-func dedupeFingerprints(items []vendors.FileFingerprint) []vendors.FileFingerprint {
-	result := items[:0]
-	previous := ""
-	for _, item := range items {
-		if item.Key == previous {
-			continue
-		}
-		previous = item.Key
-		result = append(result, item)
-	}
-	return result
-}
-
-func dedupeStrings(items []string) []string {
-	result := items[:0]
-	previous := ""
-	for index, item := range items {
-		if index > 0 && item == previous {
-			continue
-		}
-		previous = item
-		result = append(result, item)
-	}
-	return result
 }
