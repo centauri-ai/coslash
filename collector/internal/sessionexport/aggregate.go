@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
@@ -210,10 +211,10 @@ func cloneTruncation(values []snapshotv1.Truncation) []snapshotv1.Truncation {
 	result := make([]snapshotv1.Truncation, len(values))
 	for i, item := range values {
 		result[i] = item
-		result[i].OriginalBytes = copyIntPointer(item.OriginalBytes)
-		result[i].ExportedBytes = copyIntPointer(item.ExportedBytes)
-		result[i].OriginalItems = copyIntPointer(item.OriginalItems)
-		result[i].ExportedItems = copyIntPointer(item.ExportedItems)
+		result[i].OriginalBytes = session.ClonePointer(item.OriginalBytes)
+		result[i].ExportedBytes = session.ClonePointer(item.ExportedBytes)
+		result[i].OriginalItems = session.ClonePointer(item.OriginalItems)
+		result[i].ExportedItems = session.ClonePointer(item.ExportedItems)
 	}
 	return result
 }

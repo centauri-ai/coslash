@@ -412,7 +412,7 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 			parentID = familyID
 			f.State = StatePartial
 		}
-		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, PullRequestLinks: slices.Clone(s.PullRequestLinks), Display: *display}
+		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: session.ClonePointer(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: session.ClonePointer(s.ContextTokens), ContextWindow: session.ClonePointer(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, PullRequestLinks: slices.Clone(s.PullRequestLinks), Display: *display}
 		fact.Display.Locations = nil
 		fact.Display.PullRequestLinks = nil // the fact field is the only copy that survives compaction
 		if p.StatusHint != nil {
@@ -438,7 +438,7 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 		sort.Strings(spawnKeys)
 		for _, key := range spawnKeys {
 			spawn := p.Spawns[key]
-			fact.Spawns = append(fact.Spawns, Spawn{Key: key, Turn: cloneInt(spawn.Turn), Completed: spawn.Completed})
+			fact.Spawns = append(fact.Spawns, Spawn{Key: key, Turn: session.ClonePointer(spawn.Turn), Completed: spawn.Completed})
 		}
 		n := min(len(p.Commands), MaxCommands)
 		for _, command := range p.Commands[:n] {
@@ -586,10 +586,10 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 		if fact.Display.ID != "" && fact.Display.WorkingDirectory != "" {
 			branch = optional(fact.Display.Branch, MaxDisplayBytes)
 		}
-		s.Branch, s.DurationMs = pointer(branch), cloneInt(fact.DurationMs)
+		s.Branch, s.DurationMs = pointer(branch), session.ClonePointer(fact.DurationMs)
 		s.StartedAt, s.LastActivityTime = fact.StartedAtMs, fact.LastActivityAtMs
 		s.Entrypoint, s.EditedFileCount = pointer(fact.Entrypoint), fact.Counts.EditedFiles
-		s.Model, s.ContextTokens, s.ContextWindow = pointer(fact.Model), cloneInt(fact.ContextTokens), cloneInt(fact.ContextWindow)
+		s.Model, s.ContextTokens, s.ContextWindow = pointer(fact.Model), session.ClonePointer(fact.ContextTokens), session.ClonePointer(fact.ContextWindow)
 		s.Turns, s.ToolUses, s.Errors = fact.Counts.Turns, fact.Counts.ToolUses, fact.Counts.Errors
 		s.Compactions, s.PullRequests = fact.Counts.Compactions, fact.Counts.PullRequests
 		s.PullRequestLinks = slices.Clone(fact.PullRequestLinks)
@@ -603,7 +603,7 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 			p.RecordedCost = &value
 		}
 		for _, spawn := range fact.Spawns {
-			p.Spawns[spawn.Key] = vendors.SpawnState{Turn: cloneInt(spawn.Turn), Completed: spawn.Completed}
+			p.Spawns[spawn.Key] = vendors.SpawnState{Turn: session.ClonePointer(spawn.Turn), Completed: spawn.Completed}
 		}
 		p.Commands = append(p.Commands, fact.Commands...)
 		parsed = append(parsed, p)
@@ -662,12 +662,5 @@ func pointer(value string) *string {
 		return nil
 	}
 	copy := value
-	return &copy
-}
-func cloneInt(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	copy := *value
 	return &copy
 }
