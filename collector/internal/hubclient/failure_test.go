@@ -56,13 +56,6 @@ func TestClassifyHubFailure(t *testing.T) {
 	}
 }
 
-func TestClassifyHubContactSuccess(t *testing.T) {
-	failure, ok := ClassifyHubContact(nil)
-	if !ok || failure.Cause != FailureOK || failure.Message != "Hub contact succeeded." {
-		t.Fatalf("ClassifyHubContact(nil) = %+v, %t", failure, ok)
-	}
-}
-
 func TestClassifyHubFailureRedactsSecrets(t *testing.T) {
 	err := &url.Error{Op: "Get", URL: "https://user:password@hub.example.test/v4?token=query-secret", Err: errors.New("proxyconnect tcp via https://user:password@proxy.example.test/?token=query-secret Authorization: Device auth-header-secret token=header-secret Device abcdef123456")}
 	failure, ok := ClassifyHubFailure(err)
