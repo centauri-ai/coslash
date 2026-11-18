@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/agentexec"
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 	"github.com/centauri-ai/coslash/collector/internal/grokcli"
 	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -416,7 +417,7 @@ func reviewGitSnapshot(ctx context.Context, workingDirectory string) (string, er
 	var snapshot strings.Builder
 	snapshot.WriteString("\nBEGIN UNTRUSTED WORKTREE DATA\n")
 	for _, args := range [][]string{{"status", "--short", "--untracked-files=all"}, {"diff", "--no-ext-diff", "--no-textconv"}, {"diff", "--cached", "--no-ext-diff", "--no-textconv"}} {
-		command := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false"}, args...)...)
+		command := backgroundexec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false"}, args...)...)
 		command.Dir = workingDirectory
 		command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		output := boundedBuffer{limit: 64 << 10}
