@@ -124,7 +124,7 @@ func ReadSessionIndexRowsContext(ctx context.Context, source vendors.ReadSource,
 		return nil, true, err
 	}
 	defer file.Close()
-	reader := bufio.NewReaderSize(contextReader{ctx: ctx, reader: file}, 64*1024)
+	reader := bufio.NewReaderSize(vendors.ContextReader{Ctx: ctx, Reader: file}, 64*1024)
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, true, err

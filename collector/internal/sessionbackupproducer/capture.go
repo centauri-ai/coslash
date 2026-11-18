@@ -697,7 +697,7 @@ func (writes *artifactWriter) stream(ctx context.Context, artifact sessionbackup
 	hash := sha256.New()
 	maximum := min(sessionbackupv1.MaxArtifactBytes, sessionbackupv1.MaxTotalBytes-writes.totalBytes)
 	bounded := &boundedWriter{writer: io.MultiWriter(output, hash), remaining: maximum}
-	count, copyErr := io.CopyBuffer(bounded, &contextReader{ctx: ctx, reader: source}, make([]byte, 128*1024))
+	count, copyErr := io.CopyBuffer(bounded, vendors.ContextReader{Ctx: ctx, Reader: source}, make([]byte, 128*1024))
 	outputErr := output.Close()
 	sourceErr := source.Close()
 	if copyErr != nil || outputErr != nil || sourceErr != nil {
@@ -740,11 +740,6 @@ func (writes *artifactWriter) bytes(artifact sessionbackupv1.Artifact, data []by
 	})
 }
 
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
 type snapshotSource struct {
 	vendors.ReadSource
 	files   map[string]string
@@ -775,13 +770,6 @@ func (source snapshotSource) Stat(name string) (fs.FileInfo, error) {
 		return os.Stat(frozen)
 	}
 	return source.ReadSource.Stat(name)
-}
-
-func (reader *contextReader) Read(destination []byte) (int, error) {
-	if err := reader.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return reader.reader.Read(destination)
 }
 
 func hashStrings(values []string) string {

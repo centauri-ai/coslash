@@ -383,7 +383,7 @@ func ParseJSONLSourceContext[T any](ctx context.Context, source ReadSource, path
 		return nil, err
 	}
 	defer file.Close()
-	decoder := json.NewDecoder(contextReader{ctx: ctx, reader: file})
+	decoder := json.NewDecoder(ContextReader{Ctx: ctx, Reader: file})
 	var records []T
 	for {
 		if err := ctx.Err(); err != nil {
