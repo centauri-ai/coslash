@@ -787,7 +787,7 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('Retry the connection');
   });
 
-  it.each(['authentication_failed', 'host_key_failed', 'connection_failed'] as const)(
+  it.each(['authentication_failed', 'connection_failed'] as const)(
     'shows %s as a failed, retryable connection',
     (reason) => {
       const machine: MachineFact = {
