@@ -30,43 +30,6 @@ func TestLoadContextStopsBeforeOpeningTransaction(t *testing.T) {
 	}
 }
 
-func TestNewSessionFactsLoaderFromDBIndexesActiveRoots(t *testing.T) {
-	db := testDB(t)
-	if _, err := db.Exec(`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`); err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range []string{
-		`INSERT INTO session (id, parent_id, directory) VALUES ('root', NULL, '/work')`,
-		`INSERT INTO session (id, parent_id, directory) VALUES ('child', 'root', '/work')`,
-		`INSERT INTO session (id, parent_id, directory, time_archived) VALUES ('archived', NULL, '/work', 1)`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	load, err := newSessionFactsLoader(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, err := load("root")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if root == nil || root.Session.ID != "root" || root.Session.WorkingDirectory != "/work" {
-		t.Fatalf("root = %#v", root)
-	}
-	for _, id := range []string{"child", "archived", "missing"} {
-		found, err := load(id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if found != nil {
-			t.Fatalf("load(%q) = %#v, want nil", id, found)
-		}
-	}
-}
-
 func TestMixedOpenCodeSchemasPreferV2AndKeepV1(t *testing.T) {
 	db := testDB(t)
 	for _, statement := range []string{

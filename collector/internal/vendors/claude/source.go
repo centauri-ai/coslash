@@ -400,21 +400,6 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	return parseTranscript(newest)
 }
 
-func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), error) {
-	files, err := Files()
-	if err != nil {
-		return nil, err
-	}
-	byID := newestRootPaths(files)
-	return func(id string) (*vendors.ParsedSession, error) {
-		file := byID[id]
-		if file == "" {
-			return nil, nil
-		}
-		return parseTranscript(file)
-	}, nil
-}
-
 func newestRootPaths(files []string) map[string]string {
 	byID := make(map[string]string, len(files))
 	modified := make(map[string]int64, len(files))
