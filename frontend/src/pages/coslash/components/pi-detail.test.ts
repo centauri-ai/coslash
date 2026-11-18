@@ -2,8 +2,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { apiFetch } from '../lib/api';
 import { handoffBrief } from '../lib/handoff';
 import type { Session } from '../lib/session';
+import { detailRequestKey } from '../lib/session-detail';
 import { makeSession } from '../lib/session-fixture';
-import { detailRequestKey, useSessionDetail } from './SessionInspector';
+import { useSessionDetail } from './SessionInspector';
 
 // Exercise the real hook's effects without adding a DOM test dependency.
 const hooks = vi.hoisted(() => ({ index: 0, slots: [] as unknown[], pending: [] as (() => void)[] }));
