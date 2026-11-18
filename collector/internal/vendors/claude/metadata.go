@@ -52,11 +52,7 @@ type metadataName struct {
 // Names holds the metadata-side winner of the name precedence — live user-name
 // → job user-name → desktop title → job name → live name; the transcript name
 // (Parsed.Name) is resolveNames' fallback.
-func LoadMetadata() (*vendors.SessionMetadata, error) {
-	return LoadMetadataContext(context.Background())
-}
-
-func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
+func LoadMetadata(ctx context.Context) (*vendors.SessionMetadata, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -65,7 +61,7 @@ func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) 
 	if err != nil {
 		return nil, err
 	}
-	return loadMetadataContext(ctx, metadataPaths{
+	return loadMetadata(ctx, metadataPaths{
 		sessions: filepath.Join(home, ".claude", "sessions"),
 		jobs:     filepath.Join(home, ".claude", "jobs"),
 		desktop:  filepath.Join(config, "Claude", "claude-code-sessions"),
@@ -73,39 +69,33 @@ func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) 
 }
 
 func LoadRemoteMetadata(
+	ctx context.Context,
 	source vendors.ReadSource,
 	home string,
 	now time.Time,
 	processAlive func(int) bool,
 ) (*vendors.SessionMetadata, error) {
-	return loadRemoteMetadata(source, metadataPaths{
+	metadata, live, jobs, err := loadCoreMetadata(ctx, source, metadataPaths{
 		sessions: vendors.SourcePathJoin(source, home, ".claude", "sessions"),
 		jobs:     vendors.SourcePathJoin(source, home, ".claude", "jobs"),
 	}, now, processAlive)
-}
-
-func loadRemoteMetadata(
-	source vendors.ReadSource,
-	paths metadataPaths,
-	now time.Time,
-	processAlive func(int) bool,
-) (*vendors.SessionMetadata, error) {
-	metadata, live, jobs, err := loadCoreMetadata(source, paths, now, processAlive)
 	if err != nil {
 		return nil, err
 	}
-	resolveMetadataNames(metadata, live, jobs, nil)
+	if err := resolveMetadataNames(ctx, metadata, live, jobs, nil); err != nil {
+		return nil, err
+	}
 	return metadata, nil
 }
 
-func loadMetadataContext(
+func loadMetadata(
 	ctx context.Context,
 	paths metadataPaths,
 	now time.Time,
 	processAlive func(int) bool,
 ) (*vendors.SessionMetadata, error) {
 	desktopTitles := map[string]string{}
-	metadata, live, jobs, err := loadCoreMetadataContext(
+	metadata, live, jobs, err := loadCoreMetadata(
 		ctx,
 		vendors.LocalReadSource, paths, now, processAlive,
 	)
@@ -157,22 +147,13 @@ func loadMetadataContext(
 		return nil, err
 	}
 
-	if err := resolveMetadataNamesContext(ctx, metadata, live, jobs, desktopTitles); err != nil {
+	if err := resolveMetadataNames(ctx, metadata, live, jobs, desktopTitles); err != nil {
 		return nil, err
 	}
 	return metadata, nil
 }
 
 func loadCoreMetadata(
-	source vendors.ReadSource,
-	paths metadataPaths,
-	now time.Time,
-	processAlive func(int) bool,
-) (*vendors.SessionMetadata, map[string]metadataName, map[string]metadataName, error) {
-	return loadCoreMetadataContext(context.Background(), source, paths, now, processAlive)
-}
-
-func loadCoreMetadataContext(
 	ctx context.Context,
 	source vendors.ReadSource,
 	paths metadataPaths,
@@ -237,15 +218,6 @@ func loadCoreMetadataContext(
 }
 
 func resolveMetadataNames(
-	metadata *vendors.SessionMetadata,
-	live map[string]metadataName,
-	jobs map[string]metadataName,
-	desktopTitles map[string]string,
-) {
-	_ = resolveMetadataNamesContext(context.Background(), metadata, live, jobs, desktopTitles)
-}
-
-func resolveMetadataNamesContext(
 	ctx context.Context,
 	metadata *vendors.SessionMetadata,
 	live map[string]metadataName,

@@ -35,7 +35,7 @@ func TestHeadlessSendUsesCanonicalContextAndRejectsInvalidInput(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(previous) })
 	name := "Canonical session"
 	found := &session.Session{Agent: "codex", ID: "source", Name: &name, WorkingDirectory: t.TempDir()}
-	load := func(agent, id string) (*session.Session, error) {
+	load := func(_ context.Context, agent, id string) (*session.Session, error) {
 		if agent != "codex" || id != "source" {
 			t.Fatal("source changed")
 		}

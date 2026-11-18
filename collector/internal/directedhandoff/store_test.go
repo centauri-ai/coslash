@@ -320,7 +320,7 @@ func TestCustomHandoffCompletesAfterTranscriptRecapTruncation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, failures, err := claude.ParseRemoteFiles(vendors.LocalReadSource, []string{path})
+	parsed, failures, err := claude.ParseRemoteFiles(t.Context(), vendors.LocalReadSource, []string{path})
 	if err != nil || len(failures) != 0 || len(parsed) != 1 {
 		t.Fatalf("parse transcript: err=%v, failures=%v, sessions=%d", err, failures, len(parsed))
 	}

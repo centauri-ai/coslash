@@ -128,9 +128,13 @@ func helperRefreshWithOpen(
 	if collectErr == nil {
 		repairRemoteDisplay(ctx, &snapshot, baseline.SourceID, sshTarget{alias: alias, options: open}.gitFacts)
 	}
+	sessions, composeErr := composeFromGeneration(ctx, toGeneration(snapshot), nullReadSource{}, nil, since)
+	if composeErr != nil {
+		return refreshOutcome{}, composeErr
+	}
 	outcome := refreshOutcome{
 		Snapshot: snapshot,
-		Sessions: composeFromGeneration(toGeneration(snapshot), nullReadSource{}, nil, since),
+		Sessions: sessions,
 		Stderr:   result.Stderr, RoundTrip: result.RoundTrip,
 		Metrics: CollectionMetrics{RequestBytes: result.RequestBytes, ResponseBytes: result.ResponseBytes, Records: result.Records, RoundTripMs: result.RoundTrip.Milliseconds()},
 	}

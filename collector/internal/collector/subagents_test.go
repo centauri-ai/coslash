@@ -48,7 +48,7 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+	roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 	if len(roots) != 1 || roots[0].Session.ID != "parent" {
 		t.Fatalf("roots = %+v", roots)
 	}
@@ -69,7 +69,7 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 	if err != nil || len(family) != 3 {
 		t.Fatalf("family = %v, err = %v", family, err)
 	}
-	if roots := finalizeSessions(family, map[string]*vendors.SessionMetadata{vendors.AgentGrok: familyMetadata}); len(roots) != 1 || len(roots[0].Session.Subagents) != 2 {
+	if roots := finalizeForTest(t, family, map[string]*vendors.SessionMetadata{vendors.AgentGrok: familyMetadata}); len(roots) != 1 || len(roots[0].Session.Subagents) != 2 {
 		t.Fatalf("family roots = %+v", roots)
 	}
 }
@@ -102,7 +102,7 @@ func TestGrokSinceWindowKeepsSubagentFamiliesTogether(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+			roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 			if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 {
 				t.Fatalf("listed roots = %+v", roots)
 			}
@@ -133,7 +133,7 @@ func TestGrokSinceWindowUsesParentMetaWhenChildOmitsParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+	roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 	if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 || roots[0].Session.Subagents[0].ID != "child" {
 		t.Fatalf("listed roots = %+v", roots)
 	}
@@ -182,7 +182,7 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 	}
 	check := func(t *testing.T, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, want map[string][]string) {
 		t.Helper()
-		roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+		roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 		got := map[string][]string{}
 		for _, root := range roots {
 			got[root.Session.ID] = []string{}
@@ -285,7 +285,7 @@ func TestSubagentPullRequestLinksReachEveryAncestor(t *testing.T) {
 		member("child", "root", link(2)),
 		member("grandchild", "child", link(2), link(3)),
 	}
-	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{})
+	roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{})
 	if len(roots) != 1 || roots[0].Session.ID != "root" {
 		t.Fatalf("roots = %+v", roots)
 	}

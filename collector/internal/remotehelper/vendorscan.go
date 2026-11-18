@@ -63,7 +63,7 @@ func scanClaude(
 	metadata := vendors.BestEffortMetadata(
 		vendors.AgentClaude,
 		func() (*vendors.SessionMetadata, error) {
-			return claude.LoadRemoteMetadata(source, home, now, alive)
+			return claude.LoadRemoteMetadata(ctx, source, home, now, alive)
 		},
 	)
 	result := &vendorScan{
@@ -73,11 +73,11 @@ func scanClaude(
 		metadata:  metadata,
 		fileFacts: map[string]vendors.FileFingerprint{},
 		parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
-			return claude.ParseFamilyFilesSourceContext(ctx, source, files)
+			return claude.ParseFamilyFiles(ctx, source, files)
 		},
 	}
 	root := claude.ProjectsRoot(home)
-	found, err := claude.ScanSourceContext(ctx, source, root)
+	found, err := claude.Scan(ctx, source, root)
 	if err != nil {
 		result.scan.incompleteWhy = boundedReason(err)
 		return result
@@ -89,7 +89,7 @@ func scanClaude(
 	result.scan.candidateFiles = len(found.Files)
 	selected := found.Files
 	if since > 0 {
-		selected, err = claude.FilesSinceSourceContext(ctx, source, found.Files, metadata.LiveSessions(), selectionSince(since))
+		selected, err = claude.FilesSince(ctx, source, found.Files, metadata.LiveSessions(), selectionSince(since))
 	}
 	if err == nil {
 		selected, _, err = vendors.LimitNewestSourceFileFamilies(

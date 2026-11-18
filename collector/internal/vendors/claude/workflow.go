@@ -38,15 +38,7 @@ type workflowJournalEntry struct {
 	Result  json.RawMessage `json:"result"`
 }
 
-func WorkflowAgentsSource(
-	source vendors.ReadSource,
-	parsed []*vendors.ParsedSession,
-) map[string]*WorkflowAgent {
-	agents, _ := WorkflowAgentsSourceContext(context.Background(), source, parsed)
-	return agents
-}
-
-func WorkflowAgentsSourceContext(
+func WorkflowAgents(
 	ctx context.Context,
 	source vendors.ReadSource,
 	parsed []*vendors.ParsedSession,
@@ -99,7 +91,7 @@ func WorkflowAgentsSourceContext(
 		results, cached := journals[statePath]
 		if !cached {
 			var err error
-			results, err = workflowJournalResultsSourceContext(
+			results, err = workflowJournalResults(
 				ctx,
 				source,
 				vendors.SourcePathJoin(source, vendors.SourcePathDir(source, p.LogPath), "journal.jsonl"),
@@ -122,7 +114,7 @@ func WorkflowAgentsSourceContext(
 	return agents, nil
 }
 
-func workflowJournalResultsSourceContext(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
+func workflowJournalResults(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
 	entries, err := vendors.ParseJSONLSource[workflowJournalEntry](ctx, source, path)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

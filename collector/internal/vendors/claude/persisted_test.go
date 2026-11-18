@@ -47,7 +47,7 @@ func TestPersistedOutputUsesFileInsideOwnToolResults(t *testing.T) {
 		// The home prefix differs from this machine; only the last three parts count.
 		"a": wrapper(persistedHome+persistedRoot+"/tool-results/big.txt", "preview text"),
 	})
-	parsed, err := parseTranscript(transcript)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, transcript)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestPersistedOutputUsesFileInsideOwnToolResults(t *testing.T) {
 	if len(got) != 1 || got[0] == nil || *got[0] != session.TruncateOutput(full) || strings.Contains(*got[0], "preview text") {
 		t.Fatalf("output len %d want %d", len(*got[0]), len(session.TruncateOutput(full)))
 	}
-	files, err := ToolResultFilesSourceContext(context.Background(), vendors.LocalReadSource, transcript)
+	files, err := ToolResultFiles(context.Background(), vendors.LocalReadSource, transcript)
 	if err != nil || len(files) != 1 || files[0] != filepath.Join(projects, persistedRoot, "tool-results", "big.txt") {
 		t.Fatalf("files = %v, err %v", files, err)
 	}
@@ -81,7 +81,7 @@ func TestPersistedOutputFallsBackToPreviewWithoutPath(t *testing.T) {
 		results[id] = wrapper(path, "preview of "+id)
 	}
 	persistedTranscript(t, transcript, results)
-	parsed, err := parseTranscript(transcript)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, transcript)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestPersistedOutputFallsBackToPreviewWithoutPath(t *testing.T) {
 			t.Fatalf("%s output leaks: %q", id, *output)
 		}
 	}
-	files, err := ToolResultFilesSourceContext(context.Background(), vendors.LocalReadSource, transcript)
+	files, err := ToolResultFiles(context.Background(), vendors.LocalReadSource, transcript)
 	if err != nil || len(files) != 1 {
 		// absent and backslash name the same file inside the session directory; the rest are refused
 		t.Fatalf("files = %v, err %v", files, err)
@@ -109,7 +109,7 @@ func TestPersistedOutputOfSubagentUsesParentSessionDirectory(t *testing.T) {
 	persistedTranscript(t, transcript, map[string]string{
 		"s": wrapper(persistedHome+persistedRoot+"/tool-results/sub.txt", "preview"),
 	})
-	parsed, err := parseTranscript(transcript)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, transcript)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestPersistedOutputNeverKeepsPathOfUnknownWrapperShape(t *testing.T) {
 		"no-closing": "<persisted-output>\nOutput too large (1KB). Full output saved to: " + persistedHome + persistedRoot + "/tool-results/gone.txt\n\nPreview (first 2KB):\nkept preview",
 	}
 	persistedTranscript(t, transcript, shapes)
-	parsed, err := parseTranscript(transcript)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, transcript)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestPersistedOutputRefusesSymbolicLink(t *testing.T) {
 		t.Skip("symbolic links are not available:", err)
 	}
 	persistedTranscript(t, transcript, map[string]string{"a": wrapper(persistedHome+persistedRoot+"/tool-results/link.txt", "preview only")})
-	parsed, err := parseTranscript(transcript)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, transcript)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestPersistedOutputRefusesSymbolicLinkedDirectory(t *testing.T) {
 		t.Skip("symbolic links are not available:", err)
 	}
 	persistedTranscript(t, transcript, map[string]string{"a": wrapper(persistedHome+persistedRoot+"/tool-results/x.txt", "preview only")})
-	parsed, err := parseTranscript(transcript)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, transcript)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -189,10 +189,10 @@ func parseSince(value string) (int64, error) {
 func handleDiff(
 	w http.ResponseWriter,
 	r *http.Request,
-	getSession func(string) (*session.Session, error),
+	getSession localDetailReader,
 ) {
 	query := r.URL.Query()
-	found, err := getSession(query.Get("id"))
+	found, err := getSession(r.Context(), "", query.Get("id"))
 	if err != nil {
 		log.Printf("diff: %v", err)
 		http.Error(w, "could not load diff", http.StatusInternalServerError)
@@ -224,12 +224,12 @@ func handleDiff(
 // when eligible. Loads one session, never the whole machine; GetSessionFacts skips fork,
 // subagents, and name/status resolution because BuildInput and Eligible read
 // none of those.
-func handleSynthesis(w http.ResponseWriter, agent, id string, mgr *synthesis.Manager) {
+func handleSynthesis(ctx context.Context, w http.ResponseWriter, agent, id string, mgr *synthesis.Manager) {
 	if agent == "" {
 		http.Error(w, "agent is required", http.StatusBadRequest)
 		return
 	}
-	found, err := collector.GetSessionFactsByAgent(agent, id)
+	found, err := collector.GetSessionFacts(ctx, agent, id)
 	if err != nil {
 		log.Printf("synthesis: %v", err)
 		http.Error(w, "could not load synthesis", http.StatusInternalServerError)
@@ -304,11 +304,11 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	var found *session.Session
 	alias := ""
 	if sourceID == localSourceID {
+		agent := ""
 		if query.Get("agent") == vendors.AgentPi {
-			found, err = collector.GetSessionFactsByAgent(vendors.AgentPi, query.Get("id"))
-		} else {
-			found, err = collector.GetSessionFacts(query.Get("id"))
+			agent = vendors.AgentPi
 		}
+		found, err = collector.GetSessionFacts(r.Context(), agent, query.Get("id"))
 		if err != nil {
 			log.Printf("launch: %v", err)
 			http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -385,14 +385,14 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 func handleHandoff(
 	w http.ResponseWriter,
 	r *http.Request,
-	getSession func(string, string) (*session.Session, error),
+	getSession localDetailReader,
 ) {
 	agent := r.URL.Query().Get("agent")
 	if agent == "" {
 		http.Error(w, "agent is required", http.StatusBadRequest)
 		return
 	}
-	found, err := getSession(agent, r.URL.Query().Get("id"))
+	found, err := getSession(r.Context(), agent, r.URL.Query().Get("id"))
 	if err != nil {
 		log.Printf("handoff: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -414,14 +414,15 @@ func contextSynthesis(mgr *synthesis.Manager, value *session.Session) *session.S
 }
 
 func canonicalSession(
+	ctx context.Context,
 	agent, id string,
 	mgr *synthesis.Manager,
-	load func(string, string, int64) (*session.Session, error),
+	load localDetailReader,
 ) (*session.Session, error) {
 	if agent == "" || id == "" {
 		return nil, nil
 	}
-	found, err := load(agent, id, 0)
+	found, err := load(ctx, agent, id)
 	if err != nil {
 		return nil, err
 	}
@@ -437,10 +438,10 @@ func canonicalSession(
 func handleExactSession(
 	w http.ResponseWriter,
 	r *http.Request,
-	load func(string, string, int64) (*session.Session, error),
+	load localDetailReader,
 ) {
 	query := r.URL.Query()
-	found, err := load(query.Get("agent"), query.Get("id"), 0)
+	found, err := load(r.Context(), query.Get("agent"), query.Get("id"))
 	if err != nil {
 		log.Printf("exact session: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -462,7 +463,7 @@ func handleSend(
 	w http.ResponseWriter,
 	r *http.Request,
 	settingsStore *settings.Store,
-	getSession func(string, string) (*session.Session, error),
+	getSession localDetailReader,
 	targetAvailable func(string) bool,
 	open promptLauncher,
 	headless headlessSender,
@@ -508,7 +509,7 @@ func handleSend(
 		http.Error(w, "agent is required", http.StatusBadRequest)
 		return
 	}
-	found, err := getSession(agent, r.URL.Query().Get("id"))
+	found, err := getSession(r.Context(), agent, r.URL.Query().Get("id"))
 	if err != nil {
 		log.Printf("send: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -733,7 +734,7 @@ func handleReview(
 	w http.ResponseWriter,
 	r *http.Request,
 	settingsStore *settings.Store,
-	getSession func(string, string) (*session.Session, error),
+	getSession localDetailReader,
 	reviewerAvailable func(string) bool,
 	startReview reviewStarter,
 ) {
@@ -758,7 +759,7 @@ func handleReview(
 		http.Error(w, "agent is required", http.StatusBadRequest)
 		return
 	}
-	found, err := getSession(originAgent, query.Get("id"))
+	found, err := getSession(r.Context(), originAgent, query.Get("id"))
 	if err != nil {
 		log.Printf("review: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
