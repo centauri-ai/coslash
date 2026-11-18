@@ -51,7 +51,7 @@ func connectClaimFailure(response *http.Response) error {
 		}
 		delay = int(seconds)
 	} else if retryAt, err := http.ParseTime(value); err == nil {
-		seconds := retryAt.Sub(time.Now()).Seconds()
+		seconds := time.Until(retryAt).Seconds()
 		if seconds > 86400 {
 			delay = 86400
 		} else if seconds > 0 {
