@@ -388,7 +388,7 @@ func TestRunSessionsFiltersAgentBeforeSelectingRecent(t *testing.T) {
 }
 
 func TestHandleExactSessionReturnsOneOrNone(t *testing.T) {
-	load := func(agent, id string, _ int64) (*session.Session, error) {
+	load := func(_ context.Context, agent, id string) (*session.Session, error) {
 		if agent == "" && id == "abc-123" {
 			return &session.Session{Agent: "claude", ID: id}, nil
 		}
@@ -804,7 +804,7 @@ func TestRunCLIReportsServerErrors(t *testing.T) {
 func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	name := "Test"
 	found := &session.Session{Agent: "codex", ID: "session-1", Name: &name, WorkingDirectory: "/workspace"}
-	getSession := func(agent, id string) (*session.Session, error) {
+	getSession := func(_ context.Context, agent, id string) (*session.Session, error) {
 		if agent != found.Agent || id != found.ID {
 			t.Fatalf("identity = %q/%q", agent, id)
 		}
@@ -840,7 +840,7 @@ func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 func TestHandleSendUsesHeadlessForTaskAndReturnsResult(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	workingDirectory := t.TempDir()
-	getSession := func(string, string) (*session.Session, error) {
+	getSession := func(context.Context, string, string) (*session.Session, error) {
 		return &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: workingDirectory}, nil
 	}
 	called, opened := false, false
@@ -924,7 +924,7 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 	copied := ""
 	writeCursorClipboard = func(_ context.Context, value string) error { copied = value; return nil }
 	launched := false
-	getSession := func(string, string) (*session.Session, error) {
+	getSession := func(context.Context, string, string) (*session.Session, error) {
 		return &session.Session{Agent: "opencode", ID: "session-1", WorkingDirectory: workingDirectory}, nil
 	}
 	open := func(context.Context, string, string, string, string, string, string, string) error {
@@ -996,7 +996,7 @@ func TestHandleSendCursorCancelsClipboardBeforeLaunch(t *testing.T) {
 	go func() {
 		defer close(done)
 		handleSend(response, request, settings.Open(),
-			func(string, string) (*session.Session, error) {
+			func(context.Context, string, string) (*session.Session, error) {
 				return &session.Session{Agent: "opencode", ID: "session-1", WorkingDirectory: workingDirectory}, nil
 			},
 			func(string) bool { return true },
@@ -1032,7 +1032,7 @@ func TestHandleSendDoesNotLaunchAfterRequestCancellation(t *testing.T) {
 	cancel()
 	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil).WithContext(ctx)
 	response := httptest.NewRecorder()
-	handleSend(response, request, store, func(string, string) (*session.Session, error) {
+	handleSend(response, request, store, func(context.Context, string, string) (*session.Session, error) {
 		return found, nil
 	}, func(string) bool { return true }, open, nil)
 	if launched {
@@ -1057,7 +1057,7 @@ func TestHandleSendReportsUnavailableWorkingDirectory(t *testing.T) {
 		response,
 		httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil),
 		settings.Open(),
-		func(string, string) (*session.Session, error) {
+		func(context.Context, string, string) (*session.Session, error) {
 			return &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: "/missing"}, nil
 		},
 		func(string) bool { return true },
@@ -1079,7 +1079,7 @@ func TestHandleSendRejectsUnavailableTarget(t *testing.T) {
 		response,
 		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=codex", nil),
 		settings.Open(),
-		func(string, string) (*session.Session, error) {
+		func(context.Context, string, string) (*session.Session, error) {
 			return &session.Session{Agent: "claude", ID: "session-1", WorkingDirectory: "/workspace"}, nil
 		},
 		func(string) bool { return false },
@@ -1106,7 +1106,7 @@ func TestHandleSendRejectsOversizedGeneratedHandoff(t *testing.T) {
 		response,
 		httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil),
 		settings.Open(),
-		func(string, string) (*session.Session, error) { return found, nil },
+		func(context.Context, string, string) (*session.Session, error) { return found, nil },
 		func(string) bool { return true },
 		func(context.Context, string, string, string, string, string, string, string) error {
 			launched = true
@@ -1129,7 +1129,7 @@ func TestHandleSendHidesInvalidSettingsDetails(t *testing.T) {
 		response,
 		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil),
 		settings.Open(),
-		func(string, string) (*session.Session, error) {
+		func(context.Context, string, string) (*session.Session, error) {
 			t.Fatal("loaded session with invalid settings")
 			return nil, nil
 		},
@@ -1146,9 +1146,9 @@ func TestCanonicalSessionUsesListedNameAndSynthesis(t *testing.T) {
 	name := "Resolved name"
 	value := &session.Session{ID: "session-1", Name: &name, LastActivityTime: 42}
 	mgr := synthesis.NewManager(nil, nil)
-	found, err := canonicalSession("codex", "session-1", mgr, func(agent, id string, revision int64) (*session.Session, error) {
-		if agent != "codex" || id != "session-1" || revision != 0 {
-			t.Fatalf("load = %q/%q/%d", agent, id, revision)
+	found, err := canonicalSession(t.Context(), "codex", "session-1", mgr, func(_ context.Context, agent, id string) (*session.Session, error) {
+		if agent != "codex" || id != "session-1" {
+			t.Fatalf("load = %q/%q", agent, id)
 		}
 		return value, nil
 	})

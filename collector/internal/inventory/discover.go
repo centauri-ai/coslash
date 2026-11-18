@@ -226,7 +226,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 	}
 	// Claude: families follow paths; the parser reads no header.
 	if files := byAgent[vendors.AgentClaude]; len(files) > 0 {
-		metadata, err := claude.LoadMetadataContext(ctx)
+		metadata, err := claude.LoadMetadata(ctx)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -505,7 +505,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		parsed = append(parsed, item)
 	}
 	if paths := files[vendors.AgentClaude]; len(paths) > 0 {
-		items, err := claude.ParseFilesContext(ctx, paths)
+		items, err := claude.ParseFiles(ctx, vendors.LocalReadSource, paths)
 		if err != nil {
 			return nil, err
 		}
@@ -545,7 +545,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		}
 		metadata[vendors.AgentOpenCode] = plan.metadata[vendors.AgentOpenCode]
 	}
-	return collector.FinalizeBatchContext(ctx, parsed, metadata)
+	return collector.FinalizeBatch(ctx, parsed, metadata)
 }
 
 // mergeMetadata overlays batch metadata on the pass-level metadata without

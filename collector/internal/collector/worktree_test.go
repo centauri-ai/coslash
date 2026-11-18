@@ -43,7 +43,7 @@ func TestLinkedCheckoutInSessionList(t *testing.T) {
 		{Session: &session.Session{Agent: "codex", ID: "two", WorkingDirectory: sub}},
 		{Session: &session.Session{Agent: "codex", ID: "three", WorkingDirectory: filepath.Join(dir, ".superset", "worktrees", "fake")}},
 	}
-	if err := probeGitEnvironmentContext(context.Background(), rows); err != nil {
+	if err := probeGitEnvironment(context.Background(), rows); err != nil {
 		t.Fatal(err)
 	}
 	var id string
@@ -79,7 +79,7 @@ func TestLinkedCheckoutInSessionList(t *testing.T) {
 	probe := func(key, cwd string, at int64) *session.Session {
 		t.Helper()
 		value := &session.Session{ID: key, Agent: "codex", WorkingDirectory: cwd, LastActivityTime: at}
-		if err := probeGitEnvironmentContext(t.Context(), []*vendors.ParsedSession{{Session: value}}); err != nil {
+		if err := probeGitEnvironment(t.Context(), []*vendors.ParsedSession{{Session: value}}); err != nil {
 			t.Fatal(err)
 		}
 		return value
@@ -113,7 +113,7 @@ func TestLinkedCheckoutInSessionList(t *testing.T) {
 	run("-C", main, "remote", "remove", "origin")
 	unrelated := "example.org/unrelated/project"
 	record := &session.Session{ID: "independent-origin", Agent: "codex", WorkingDirectory: work, Repository: &unrelated, LastActivityTime: 3}
-	if err := probeGitEnvironmentContext(t.Context(), []*vendors.ParsedSession{{Session: record}}); err != nil {
+	if err := probeGitEnvironment(t.Context(), []*vendors.ParsedSession{{Session: record}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(record.Locations) != 1 || record.Locations[0].Repo != "" || record.Repository == nil || *record.Repository != unrelated {

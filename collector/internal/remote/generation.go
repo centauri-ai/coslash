@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"io"
 	"io/fs"
 	"log"
@@ -93,11 +94,12 @@ func mergeMetadataInto(dst *vendors.SessionMetadata, src *vendors.SessionMetadat
 // liveness in particular can go stale for a family whose transcript fingerprint
 // did not change.
 func composeFromGeneration(
+	ctx context.Context,
 	gen remoteprotocol.Generation,
 	source vendors.ReadSource,
 	freshMetadata map[string]*vendors.SessionMetadata,
 	since int64,
-) []*session.Session {
+) ([]*session.Session, error) {
 	parsedByVendor := map[string][]*vendors.ParsedSession{
 		vendors.AgentClaude: {}, vendors.AgentCodex: {},
 	}
@@ -121,7 +123,7 @@ func composeFromGeneration(
 		}
 		collections[vendor] = vendors.RemoteCollection{Sessions: parsedByVendor[vendor], Metadata: metadata}
 	}
-	return collector.ListRemote(source, collections, since)
+	return collector.ListRemote(ctx, source, collections, since)
 }
 
 // nullReadSource treats every path as absent. It composes a snapshot loaded

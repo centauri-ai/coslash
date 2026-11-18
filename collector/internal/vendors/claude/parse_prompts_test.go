@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestPromptTextSkipsHarnessBlocks(t *testing.T) {
@@ -59,7 +60,7 @@ func TestReminderPrefixedPromptRetainsAssistantRecap(t *testing.T) {
 				bashResult("a", `"PASS"`, false),
 				`{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Fixed sharing."}]}}`,
 			))
-			parsed, err := parseTranscript(path)
+			parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +89,7 @@ func TestWorktreeOpeningPromptStartsTimeline(t *testing.T) {
 		`{"type":"user","message":{"content":"Not now"}}`,
 		`{"type":"user","message":{"content":"hi"}}`,
 	))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestArraySlashCommandStillStartsTurn(t *testing.T) {
 		`{"type":"user","message":{"content":[{"type":"text","text":"<command-name>/review</command-name><command-args>diff</command-args>"}]}}`,
 		`{"type":"user","isMeta":true,"message":{"content":"skill instructions"}}`,
 	))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}

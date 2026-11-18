@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,7 +54,7 @@ func TestLatestLocalDetailReturnsParsedRevisionAfterListChanges(t *testing.T) {
 	response := httptest.NewRecorder()
 	handleSessionDetail(response, httptest.NewRequest(http.MethodGet,
 		"/api/session-detail?source=local&agent=codex&session=same-session&revision=latest", nil),
-		func(string, string) (*session.Session, error) { return &current, nil }, remote.NewManager(remote.Options{}))
+		func(context.Context, string, string) (*session.Session, error) { return &current, nil }, remote.NewManager(remote.Options{}))
 	if response.Code != http.StatusOK {
 		t.Fatalf("detail status = %d: %s", response.Code, response.Body.String())
 	}
@@ -73,7 +74,7 @@ func TestLocalDetailReturnsParentSynthesisRevision(t *testing.T) {
 	response := httptest.NewRecorder()
 	handleSessionDetail(response, httptest.NewRequest(http.MethodGet,
 		"/api/session-detail?source=local&agent=codex&session=same-session&revision=latest", nil),
-		func(string, string) (*session.Session, error) { return &current, nil }, remote.NewManager(remote.Options{}))
+		func(context.Context, string, string) (*session.Session, error) { return &current, nil }, remote.NewManager(remote.Options{}))
 	if response.Code != http.StatusOK {
 		t.Fatalf("detail status = %d: %s", response.Code, response.Body.String())
 	}
@@ -136,7 +137,7 @@ func TestLocalDetailRevisionIgnoresCollectionTimeFallback(t *testing.T) {
 func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	local := exactDetailSession("@@\n-local old\n+local new\n")
 	revision := mustLocalDetailRevision(t, local)
-	reader := func(agent, sessionID string) (*session.Session, error) {
+	reader := func(_ context.Context, agent, sessionID string) (*session.Session, error) {
 		if agent != vendors.AgentCodex || sessionID != local.ID {
 			t.Fatalf("local identity = %q/%q", agent, sessionID)
 		}
@@ -212,7 +213,7 @@ func TestExactLocalDetailAcceptsGrokSessions(t *testing.T) {
 	local := exactDetailSession("")
 	local.Agent = vendors.AgentGrok
 	revision := mustLocalDetailRevision(t, local)
-	reader := func(agent, sessionID string) (*session.Session, error) {
+	reader := func(_ context.Context, agent, sessionID string) (*session.Session, error) {
 		if agent != vendors.AgentGrok || sessionID != local.ID {
 			t.Fatalf("local identity = %q/%q", agent, sessionID)
 		}
@@ -233,7 +234,7 @@ func TestExactLocalDetailAcceptsCursorSessions(t *testing.T) {
 	local := exactDetailSession("")
 	local.Agent = vendors.AgentCursor
 	revision := mustLocalDetailRevision(t, local)
-	reader := func(agent, sessionID string) (*session.Session, error) {
+	reader := func(_ context.Context, agent, sessionID string) (*session.Session, error) {
 		if agent != vendors.AgentCursor || sessionID != local.ID {
 			t.Fatalf("local identity = %q/%q", agent, sessionID)
 		}
@@ -260,7 +261,7 @@ func TestExactLocalChangeIDsRemainBoundAfterFileReordering(t *testing.T) {
 	local.SessionDetails.FileEdits = edits.Edits
 	revision := mustLocalDetailRevision(t, local)
 
-	reader := func(string, string) (*session.Session, error) {
+	reader := func(context.Context, string, string) (*session.Session, error) {
 		copy := local
 		return &copy, nil
 	}
@@ -319,7 +320,7 @@ func TestExactLocalChangeIDsRemainBoundAfterFileReordering(t *testing.T) {
 }
 
 func TestExactDiffRejectsDuplicateAndOversizedChangeSelections(t *testing.T) {
-	reader := func(string, string) (*session.Session, error) {
+	reader := func(context.Context, string, string) (*session.Session, error) {
 		t.Fatal("invalid selections must be rejected before reading session detail")
 		return nil, nil
 	}
@@ -405,11 +406,11 @@ func TestSessionDetailReportsMissingAndUnreadableLocalStates(t *testing.T) {
 		code   string
 	}{
 		{
-			name: "missing", reader: func(string, string) (*session.Session, error) { return nil, nil },
+			name: "missing", reader: func(context.Context, string, string) (*session.Session, error) { return nil, nil },
 			status: http.StatusNotFound, code: errCodeDetailMissing,
 		},
 		{
-			name: "unreadable", reader: func(string, string) (*session.Session, error) { return nil, errors.New("parse failed") },
+			name: "unreadable", reader: func(context.Context, string, string) (*session.Session, error) { return nil, errors.New("parse failed") },
 			status: http.StatusInternalServerError, code: errCodeDetailCorrupt,
 		},
 	} {
@@ -436,7 +437,7 @@ func TestSessionDetailLogsUnreadableLocalCause(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet,
 		"/api/session-detail?source=local&agent=codex&session=same-session&revision=2000", nil)
 	response := httptest.NewRecorder()
-	handleSessionDetail(response, request, func(string, string) (*session.Session, error) {
+	handleSessionDetail(response, request, func(context.Context, string, string) (*session.Session, error) {
 		return nil, errors.New("parse failed")
 	}, remote.NewManager(remote.Options{}))
 
@@ -488,7 +489,7 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 	}
 
 	localCalls := 0
-	localReader := func(string, string) (*session.Session, error) {
+	localReader := func(context.Context, string, string) (*session.Session, error) {
 		localCalls++
 		return nil, errors.New("remote request reached local parser")
 	}
@@ -518,7 +519,7 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 	if !detail.CachedOffline || localCalls != 0 || len(detail.Session.FileEdits) != 1 || len(detail.Session.FileEdits[0].ChangeIDs) != 1 {
 		t.Fatalf("cached detail = %#v, local calls=%d", detail, localCalls)
 	}
-	localParityReader := func(agent, sessionID string) (*session.Session, error) {
+	localParityReader := func(_ context.Context, agent, sessionID string) (*session.Session, error) {
 		if agent != remoteSession.Agent || sessionID != remoteSession.ID {
 			t.Fatalf("local parity identity = %q/%q", agent, sessionID)
 		}
@@ -628,7 +629,7 @@ func TestRemoteClaudeDetailAndDiffRemainBoundToCachedRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localReader := func(string, string) (*session.Session, error) {
+	localReader := func(context.Context, string, string) (*session.Session, error) {
 		return nil, errors.New("remote request reached local parser")
 	}
 	detailTarget := "/api/session-detail?source=" + testRemoteSourceID + "&agent=claude&session=" + remoteSession.ID + "&revision=" + record.RevisionID

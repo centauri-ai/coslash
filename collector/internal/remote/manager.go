@@ -915,7 +915,12 @@ func (manager *Manager) readCache(sourceID string) (cachedView, error) {
 		return cachedView{}, err
 	}
 	if ok {
-		sessions := composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0)
+		// Cached facts compose in memory against nullReadSource, so there is no
+		// remote work to cancel.
+		sessions, err := composeFromGeneration(context.Background(), toGeneration(v2), nullReadSource{}, nil, 0)
+		if err != nil {
+			return cachedView{}, err
+		}
 		if err := session.RecordLocations(context.Background(), v2.SourceID, sessions, nil); err != nil {
 			return cachedView{}, err
 		}

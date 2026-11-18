@@ -8,7 +8,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func applyForkedUsageSourceContext(ctx context.Context, source vendors.ReadSource, parsed []*parsedSession) error {
+func applyForkedUsage(ctx context.Context, source vendors.ReadSource, parsed []*parsedSession) error {
 	type entry struct {
 		p     *parsedSession
 		usage map[string]messageUsage
@@ -138,7 +138,7 @@ func fileCreationTime(source vendors.ReadSource, path string) int64 {
 	return info.ModTime().UnixMilli()
 }
 
-func collapseBackgroundRehomesContext(ctx context.Context, parsed []*parsedSession) ([]*parsedSession, error) {
+func collapseBackgroundRehomes(ctx context.Context, parsed []*parsedSession) ([]*parsedSession, error) {
 	roots := []*parsedSession{}
 	for _, p := range parsed {
 		if err := ctx.Err(); err != nil {

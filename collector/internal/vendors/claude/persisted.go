@@ -133,10 +133,10 @@ func readPersistedOutput(source vendors.ReadSource, file string) (string, error)
 	return session.TruncateOutputReader(input)
 }
 
-// ToolResultFilesSourceContext lists, sorted and without duplicates, the files
+// ToolResultFiles lists, sorted and without duplicates, the files
 // that the command outputs of a transcript read. The parser and the complete
 // capture both call it, so they agree on which files belong to a session.
-func ToolResultFilesSourceContext(ctx context.Context, source vendors.ReadSource, transcript string) ([]string, error) {
+func ToolResultFiles(ctx context.Context, source vendors.ReadSource, transcript string) ([]string, error) {
 	rows, err := vendors.ParseJSONLSource[claudeSessionRecord](ctx, source, transcript)
 	if err != nil {
 		return nil, err

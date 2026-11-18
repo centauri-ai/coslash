@@ -78,23 +78,15 @@ type taskEntry struct {
 	status  string
 }
 
-func parseTranscript(path string) (*vendors.ParsedSession, error) {
-	return parseTranscriptSource(vendors.LocalReadSource, path)
-}
-
-func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
-	parsed, err := parseSource(source, path)
+func parseTranscript(ctx context.Context, source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
+	parsed, err := parseSource(ctx, source, path)
 	if err != nil {
 		return nil, err
 	}
 	return parsed.transcript, nil
 }
 
-func parseSource(source vendors.ReadSource, path string) (*parsedSession, error) {
-	return parseSourceContext(context.Background(), source, path)
-}
-
-func parseSourceContext(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+func parseSource(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
 	analysis, err := analyzeClaudeSessionSource(ctx, source, path)
 	if err != nil {
 		return nil, err
@@ -139,7 +131,7 @@ func parseSourceContext(ctx context.Context, source vendors.ReadSource, path str
 	}, nil
 }
 
-func commitObservationsByToolUseContext(ctx context.Context, rows []claudeSessionRecord) ([]session.CommitObservation, error) {
+func commitObservationsByToolUse(ctx context.Context, rows []claudeSessionRecord) ([]session.CommitObservation, error) {
 	commands := map[string]string{}
 	observations := []session.CommitObservation{}
 	for _, row := range rows {
@@ -201,7 +193,7 @@ func analyzeClaudeSessionSource(
 	if err != nil {
 		return nil, err
 	}
-	commitLog, err := commitObservationsByToolUseContext(ctx, rows)
+	commitLog, err := commitObservationsByToolUse(ctx, rows)
 	if err != nil {
 		return nil, err
 	}

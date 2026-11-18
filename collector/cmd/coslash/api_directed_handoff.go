@@ -35,7 +35,7 @@ type directedHandoffRequest struct {
 
 var (
 	directedLocalTargets           = launch.HandoffTargetOptions
-	directedLocalSession           = collector.GetSessionForPreviewByAgent
+	directedLocalSession           = collector.GetSessionForPreview
 	directedLocalTerminal          = launch.TerminalWithPrompt
 	directedLocalReviewerAvailable = launch.ReviewCLIAvailable
 	directedLocalReview            = launch.Review
@@ -172,7 +172,7 @@ func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *d
 	var origin *session.Session
 	alias := ""
 	if sourceID == localSourceID {
-		origin, err = directedLocalSession(input.Agent, input.ID, 0)
+		origin, err = directedLocalSession(r.Context(), input.Agent, input.ID)
 		if origin != nil {
 			origin.Synthesis = contextSynthesis(synthesisManager, origin)
 		}

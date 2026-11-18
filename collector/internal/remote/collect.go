@@ -261,8 +261,8 @@ func collectVendorFamilies(ctx context.Context, in vendorFamilyInput) vendorOutc
 }
 
 func collectClaudeVendor(ctx context.Context, source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
-	metadata := claude.RemoteMetadata(source, home, now)
-	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.LiveSessions())
+	metadata := claude.RemoteMetadata(ctx, source, home, now)
+	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(ctx, source, home, since, metadata.LiveSessions())
 	if err != nil {
 		return vendorOutcome{Err: fmt.Errorf("collect Claude remote data: %w", err)}
 	}
@@ -283,7 +283,7 @@ func collectClaudeVendor(ctx context.Context, source vendors.ReadSource, sourceI
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
 		SessionIDs: sessionIDs,
 		Parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-			return claude.ParseRemoteFilesContext(ctx, source, files)
+			return claude.ParseRemoteFiles(ctx, source, files)
 		},
 		Fingerprint: func(ctx context.Context, files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(
@@ -675,7 +675,10 @@ func collectIncremental(
 		freshMetadata[vendors.AgentCodex] = codexOut.outcome.Metadata
 	}
 	probes := repairRemoteDisplay(ctx, &snapshot, baseline.SourceID, source.ssh.gitFacts)
-	sessions := composeFromGeneration(toGeneration(snapshot), source, freshMetadata, since)
+	sessions, err := composeFromGeneration(ctx, toGeneration(snapshot), source, freshMetadata, since)
+	if err != nil {
+		return CachedSnapshotV2{}, nil, failures, err
+	}
 	if err := session.RecordLocations(ctx, baseline.SourceID, sessions, probes); err != nil {
 		return snapshot, nil, failures, err
 	}

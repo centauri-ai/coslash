@@ -142,7 +142,7 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 			item, revision, err = sessionbackupproducer.PiSourceSnapshot(ctx, inputs)
 		}
 		if err == nil {
-			cards, composeErr := collector.FinalizeBatchContext(ctx, []*vendors.ParsedSession{item}, map[string]*vendors.SessionMetadata{vendors.AgentPi: metadata})
+			cards, composeErr := collector.FinalizeBatch(ctx, []*vendors.ParsedSession{item}, map[string]*vendors.SessionMetadata{vendors.AgentPi: metadata})
 			err = composeErr
 			if err == nil && len(cards) == 1 {
 				candidate := discoveredEntries(cards, r.Queue.InstallID(), nil, nil, map[string]string{id: "pending"})

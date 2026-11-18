@@ -39,10 +39,13 @@ func TestClaudeWorkflowSidecarsUseRemotePOSIXPaths(t *testing.T) {
 	fs.writeFile(statePath, `{"durationMs":1,"workflowProgress":[]}`, time.Unix(100, 0))
 	fs.writeFile(journalPath, `{"type":"result","agentId":"child","result":"finished"}`+"\n", time.Unix(100, 0))
 	source := newFakeSource(fs, Limits{}).ForVendor(1024)
-	agents := claude.WorkflowAgentsSource(source, []*vendors.ParsedSession{{
+	agents, err := claude.WorkflowAgents(t.Context(), source, []*vendors.ParsedSession{{
 		Session: &session.Session{ID: "agent-child"},
 		LogPath: logPath,
 	}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	agent := agents["agent-child"]
 	if agent == nil || agent.Status() != session.SubagentReturned || agent.ResultPreview != "finished" {
 		t.Fatalf("workflow agent = %#v", agent)
