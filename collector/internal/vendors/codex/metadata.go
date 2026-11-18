@@ -25,17 +25,6 @@ const (
 	maxSessionIndexAttributedSize = int64(512 << 20)
 )
 
-// LoadMetadata reads liveness from open rollout handles and names from
-// session_index.jsonl. Live rollouts get the "interactive" convention so
-// resolveStatus applies the busy/idle refinement.
-func LoadMetadata() (*vendors.SessionMetadata, error) {
-	return LoadMetadataContext(context.Background())
-}
-
-func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
-	return loadMetadataContext(ctx, loadLiveSessionsContext)
-}
-
 func loadMetadataForFilesContext(ctx context.Context, files []string) (*vendors.SessionMetadata, error) {
 	return loadMetadataContext(ctx, func(ctx context.Context) (map[string]struct{}, error) {
 		return loadLiveSessionsForFilesContext(ctx, files)
@@ -185,10 +174,6 @@ func jsonString(raw json.RawMessage) (string, bool) {
 		return "", false
 	}
 	return value, true
-}
-
-func loadThreadNames() (map[string]string, error) {
-	return loadThreadNamesContext(context.Background())
 }
 
 func loadThreadNamesContext(ctx context.Context) (map[string]string, error) {

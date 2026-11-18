@@ -128,9 +128,6 @@ func ancestry(t *transcript, leaf string) ([]int, bool) {
 	return path, true
 }
 
-func project(t *transcript, parent *transcript) (*vendors.ParsedSession, error) {
-	return projectContext(context.Background(), t, parent)
-}
 func projectContext(ctx context.Context, t *transcript, parent *transcript) (*vendors.ParsedSession, error) {
 	leaf := ""
 	if len(t.Entries) > 0 {

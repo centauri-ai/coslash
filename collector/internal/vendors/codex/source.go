@@ -12,10 +12,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	return CollectContext(context.Background(), since)
-}
-
 func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	files, err := FilesContext(ctx)
 	if err != nil {

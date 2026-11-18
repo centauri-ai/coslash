@@ -8,19 +8,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// Fork assigns each usage-bearing message.id shared by more than one root
-// transcript to the file furthest upstream in the fork lineage — forking
-// copies the parent's rows verbatim, usage included — then subtracts the
-// non-owned ids' usage from each file's Tokens. Ownership resolution is
-// deliberately conservative: an unresolvable tie leaves full usage on both
-// sides rather than dropping tokens.
-//
-// Upstream priority: containment (a fork's ids strictly contain its parent's),
-// then file birthtime, then id count, then a tie yielding no owner.
-func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) {
-	_ = applyForkedUsageSourceContext(context.Background(), source, parsed)
-}
-
 func applyForkedUsageSourceContext(ctx context.Context, source vendors.ReadSource, parsed []*parsedSession) error {
 	type entry struct {
 		p     *parsedSession
@@ -151,12 +138,6 @@ func fileCreationTime(source vendors.ReadSource, path string) int64 {
 	return info.ModTime().UnixMilli()
 }
 
-// collapseBackgroundRehomes drops a root that a background re-home superseded
-func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
-	result, _ := collapseBackgroundRehomesContext(context.Background(), parsed)
-	return result
-}
-
 func collapseBackgroundRehomesContext(ctx context.Context, parsed []*parsedSession) ([]*parsedSession, error) {
 	roots := []*parsedSession{}
 	for _, p := range parsed {
@@ -220,7 +201,7 @@ func collapseBackgroundRehomesContext(ctx context.Context, parsed []*parsedSessi
 			continue
 		}
 		// Subagent transcripts stay keyed to the predecessor's uuid on disk,
-		// so composeSessions orphans them unless they follow the survivor.
+		// so composeSessionsContext orphans them unless they follow the survivor.
 		if successor, ok := supersededBy[p.transcript.ParentID]; ok {
 			p.transcript.ParentID = survivorOf(successor).transcript.Session.ID
 		}

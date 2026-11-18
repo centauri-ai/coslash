@@ -67,10 +67,6 @@ func ScanSourceContext(ctx context.Context, source ReadSource, root string) (*So
 	return scan, nil
 }
 
-func JSONLFilesUnderSource(source ReadSource, root string) ([]string, error) {
-	return JSONLFilesUnderSourceContext(context.Background(), source, root)
-}
-
 func JSONLFilesUnderSourceContext(ctx context.Context, source ReadSource, root string) ([]string, error) {
 	scan, err := ScanSourceContext(ctx, source, root)
 	if err != nil {

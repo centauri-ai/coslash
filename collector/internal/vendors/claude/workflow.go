@@ -122,11 +122,6 @@ func WorkflowAgentsSourceContext(
 	return agents, nil
 }
 
-func workflowJournalResultsSource(source vendors.ReadSource, path string) map[string]string {
-	results, _ := workflowJournalResultsSourceContext(context.Background(), source, path)
-	return results
-}
-
 func workflowJournalResultsSourceContext(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
 	entries, err := vendors.ParseJSONLSourceContext[workflowJournalEntry](ctx, source, path)
 	if err != nil {
