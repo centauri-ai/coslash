@@ -16,9 +16,13 @@ import {
   type SubagentCommand,
 } from '@/pages/coslash/lib/session';
 
+const SHORT_SESSION_ID_LENGTH = 12;
+
+/** A UUID shows its first group; any other long ID shows its start. The badge still copies the full ID. */
 function shortenSessionId(id: string): string {
   const dashIndex = id.indexOf('-');
-  return dashIndex === -1 ? id : id.slice(0, dashIndex);
+  if (dashIndex !== -1) return id.slice(0, dashIndex);
+  return id.length > SHORT_SESSION_ID_LENGTH ? `${id.slice(0, SHORT_SESSION_ID_LENGTH)}…` : id;
 }
 
 export function SessionVendorBadge({ agent }: { agent: string }) {
