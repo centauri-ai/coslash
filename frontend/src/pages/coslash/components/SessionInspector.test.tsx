@@ -8,15 +8,12 @@ import {
   SnapshotStalenessNotice,
   SummaryOnlyBanner,
 } from '@/pages/coslash/components/session-inspector/DetailStatus';
+import { GrokFreshSessionControl } from '@/pages/coslash/components/session-inspector/HandoffSection';
 import {
   SessionInspectorTitle,
   SessionModelUsage,
 } from '@/pages/coslash/components/session-inspector/InspectorHeader';
-import {
-  DigestSection,
-  GrokFreshSessionControl,
-  inspectorWidthForKey,
-} from '@/pages/coslash/components/SessionInspector';
+import { DigestSection, inspectorWidthForKey } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
 import {
