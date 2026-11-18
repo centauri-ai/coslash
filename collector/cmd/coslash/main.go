@@ -508,7 +508,7 @@ func localPiSourcePlan(ctx context.Context) (*pi.SourcePlan, error) {
 	if !vendors.PiCollectionSupported() {
 		return nil, ctx.Err()
 	}
-	plan, err := pi.PlanSourcesContext(ctx)
+	plan, err := pi.PlanSources(ctx)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}

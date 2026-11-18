@@ -207,7 +207,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 				}
 				activityMs = info.ModTime().UnixMilli()
 			}
-			inputs, err := opts.Pi.SessionInputsContext(ctx, ref.ID)
+			inputs, err := opts.Pi.SessionInputs(ctx, ref.ID)
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -492,7 +492,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		for _, path := range inputs.Files {
 			files[path] = path
 		}
-		item, _, err := pi.ParseFrozenSessionContext(ctx, inputs, files)
+		item, _, err := pi.ParseFrozenSession(ctx, inputs, files)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

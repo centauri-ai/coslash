@@ -16,7 +16,7 @@ func TestPiReadersRequireRegularFilesAndPreserveCancellation(t *testing.T) {
 		read func(context.Context, string) error
 	}{
 		{"header", func(ctx context.Context, path string) error { _, err := readTranscriptHeader(ctx, path); return err }},
-		{"transcript", func(ctx context.Context, path string) error { _, err := parseTranscriptContext(ctx, path); return err }},
+		{"transcript", func(ctx context.Context, path string) error { _, err := parseTranscript(ctx, path); return err }},
 		{"project settings", func(ctx context.Context, path string) error { _, err := readProjectSettings(ctx, path); return err }},
 	}
 	regular := captureTranscript(t, "regular", "")

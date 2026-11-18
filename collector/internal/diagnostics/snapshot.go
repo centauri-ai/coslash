@@ -239,7 +239,7 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 		snapshot.openCodePluginError = displayError(userHome, snapshot.openCodePlugin.Err.Error())
 	}
 
-	snapshot.piExtension = pi.ExtensionDiagnostics()
+	snapshot.piExtension = pi.ExtensionDiagnostics(ctx)
 	snapshot.piExtension.Path = displayPath(userHome, snapshot.piExtension.Path)
 	if snapshot.piExtension.Err != nil {
 		snapshot.piExtensionError = displayError(userHome, snapshot.piExtension.Err.Error())

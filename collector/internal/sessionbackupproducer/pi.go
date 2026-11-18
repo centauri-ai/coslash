@@ -140,7 +140,7 @@ func (frozen *piFrozen) project(ctx context.Context, inputs pi.SessionInputs) (f
 }
 
 func (frozen *piFrozen) projectSnapshot(ctx context.Context, inputs pi.SessionInputs) (*vendors.ParsedSession, fullsessionv1.Record, string, error) {
-	parsed, selection, err := pi.ParseFrozenSessionContext(ctx, inputs, frozen.files)
+	parsed, selection, err := pi.ParseFrozenSession(ctx, inputs, frozen.files)
 	if err != nil {
 		return nil, fullsessionv1.Record{}, "", processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 	}
@@ -155,11 +155,11 @@ func (frozen *piFrozen) projectSnapshot(ctx context.Context, inputs pi.SessionIn
 
 func (frozen *piFrozen) projectionFailure(ctx context.Context, inputs pi.SessionInputs, failure error) error {
 	unstable := captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
-	plan, err := pi.PlanSourcesContext(ctx)
+	plan, err := pi.PlanSources(ctx)
 	if err != nil {
 		return unstable
 	}
-	current, err := plan.SessionInputsContext(ctx, inputs.ID)
+	current, err := plan.SessionInputs(ctx, inputs.ID)
 	if err != nil || current.ID != inputs.ID || current.Path != inputs.Path || !slices.Equal(current.Files, inputs.Files) {
 		return unstable
 	}
@@ -195,11 +195,11 @@ func (manager *Manager) capturePi(ctx context.Context, staging string, selection
 	if handle.Source != vendors.LocalReadSource {
 		return nil, captureFailure(sessionbackupv1.ProblemUnsupported, "", false)
 	}
-	plan, err := pi.PlanSourcesContext(ctx)
+	plan, err := pi.PlanSources(ctx)
 	if err != nil {
 		return nil, sourceReadFailure(err, sessionbackupv1.KindRawTranscript)
 	}
-	inputs, err := plan.SessionInputsContext(ctx, selection.SessionID)
+	inputs, err := plan.SessionInputs(ctx, selection.SessionID)
 	if err != nil {
 		return nil, sourceReadFailure(err, sessionbackupv1.KindRawTranscript)
 	}
@@ -214,12 +214,12 @@ func (manager *Manager) capturePi(ctx context.Context, staging string, selection
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
 	}
-	freshRuntime, _ := pi.LoadRuntimeSnapshotContext(ctx)
-	currentPlan, err := pi.PlanSourcesContext(pi.WithRuntimeSnapshot(ctx, freshRuntime))
+	freshRuntime, _ := pi.LoadRuntimeSnapshot(ctx)
+	currentPlan, err := pi.PlanSources(pi.WithRuntimeSnapshot(ctx, freshRuntime))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}
-	current, err := currentPlan.SessionInputsContext(ctx, selection.SessionID)
+	current, err := currentPlan.SessionInputs(ctx, selection.SessionID)
 	if err != nil || current.ID != inputs.ID || current.Path != inputs.Path || !slices.Equal(current.Files, inputs.Files) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}

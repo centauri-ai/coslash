@@ -83,7 +83,7 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity, err := pi.ProcessStartIdentity(os.Getpid())
+	identity, err := pi.ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -66,12 +66,7 @@ var vendorSources = func() []vendorSource {
 		},
 	}
 	if vendors.PiCollectionSupported() {
-		sources = append([]vendorSource{{
-			name: vendors.AgentPi, collect: pi.CollectContext,
-			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return pi.GetSessionFacts(id) },
-			loadFamily: pi.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return pi.Health() },
-		}}, sources...)
+		sources = append([]vendorSource{{name: vendors.AgentPi, collect: pi.Collect, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health}}, sources...)
 	}
 	return sources
 }()

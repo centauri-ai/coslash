@@ -13,10 +13,7 @@ import (
 )
 
 // ProcessStartIdentity matches the extension's OS-derived identity, not its clock.
-func ProcessStartIdentity(pid int) (string, error) {
-	return processStartIdentityContext(context.Background(), pid)
-}
-func processStartIdentityContext(ctx context.Context, pid int) (string, error) {
+func ProcessStartIdentity(ctx context.Context, pid int) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -46,9 +43,9 @@ func processStartIdentityContext(ctx context.Context, pid int) (string, error) {
 	return "ps:" + value, nil
 }
 
-func processAbsentContext(ctx context.Context, pid int) bool {
+func processAbsent(ctx context.Context, pid int) bool {
 	// A permission-related signal failure is not proof of exit.
-	if _, err := processStartIdentityContext(ctx, pid); err == nil {
+	if _, err := ProcessStartIdentity(ctx, pid); err == nil {
 		return false
 	}
 	err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "pid=").Run()

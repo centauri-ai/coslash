@@ -60,10 +60,7 @@ func stateHome() string {
 func validRecord(r RuntimeRecord) bool {
 	return r.Version == 1 && r.RuntimeID != "" && r.PID > 0 && r.StartedAtMs > 0 && r.SessionID != "" && filepath.IsAbs(r.TranscriptPath) && r.Sequence > 0 && r.UpdatedAtMs > 0 && (r.WorkState == "busy" || r.WorkState == "idle" || r.WorkState == "unknown")
 }
-func runtimeRecords() ([]runtimeEvidence, error) {
-	return runtimeRecordsContext(context.Background())
-}
-func runtimeRecordsContext(ctx context.Context) ([]runtimeEvidence, error) {
+func runtimeRecords(ctx context.Context) ([]runtimeEvidence, error) {
 	byOwnerPath := map[string]runtimeEvidence{}
 	for _, kind := range []string{"pi-history", "pi-runtime"} {
 		if err := ctx.Err(); err != nil {
@@ -131,16 +128,12 @@ func runtimeRecordsContext(ctx context.Context) ([]runtimeEvidence, error) {
 	return result, nil
 }
 
-// ownerState is live, dead, or unknown. A reused PID proves the recorded owner died.
-func ownerState(e runtimeEvidence) string {
-	return ownerStateContext(context.Background(), e)
-}
-func ownerStateContext(ctx context.Context, e runtimeEvidence) string {
+func ownerState(ctx context.Context, e runtimeEvidence) string {
 	if e.Exited {
 		return "dead"
 	}
 	if !session.IsProcessAlive(e.Record.PID) {
-		if processAbsentContext(ctx, e.Record.PID) {
+		if processAbsent(ctx, e.Record.PID) {
 			return "dead"
 		}
 		return "unknown"
@@ -148,7 +141,7 @@ func ownerStateContext(ctx context.Context, e runtimeEvidence) string {
 	if e.Record.ProcessStartIdentity == "" {
 		return "unknown"
 	}
-	identity, err := processStartIdentityContext(ctx, e.Record.PID)
+	identity, err := ProcessStartIdentity(ctx, e.Record.PID)
 	if err != nil {
 		return "unknown"
 	}
@@ -233,11 +226,8 @@ func entrypointFor(owners []runtimeEvidence, verify func(runtimeEvidence) string
 	return ""
 }
 
-func LoadMetadata() (*vendors.SessionMetadata, error) {
-	return LoadMetadataContext(context.Background())
-}
-func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
-	snapshot, err := snapshotContext(ctx)
+func LoadMetadata(ctx context.Context) (*vendors.SessionMetadata, error) {
+	snapshot, err := currentSnapshot(ctx)
 	var records []runtimeEvidence
 	if snapshot != nil {
 		records = snapshot.records
@@ -265,12 +255,8 @@ func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) 
 	return metadata, nil
 }
 
-// RuntimeTranscriptPaths includes retained exited owners; it is independent of liveness.
-func RuntimeTranscriptPaths() ([]string, error) {
-	return RuntimeTranscriptPathsContext(context.Background())
-}
-func RuntimeTranscriptPathsContext(ctx context.Context) ([]string, error) {
-	snapshot, err := snapshotContext(ctx)
+func RuntimeTranscriptPaths(ctx context.Context) ([]string, error) {
+	snapshot, err := currentSnapshot(ctx)
 	var records []runtimeEvidence
 	if snapshot != nil {
 		records = snapshot.records
@@ -315,11 +301,8 @@ type RuntimeSnapshot struct {
 func runtimeOwnerKey(e runtimeEvidence) string {
 	return e.Record.RuntimeID + "\x00" + e.Record.TranscriptPath
 }
-func LoadRuntimeSnapshot() (*RuntimeSnapshot, error) {
-	return LoadRuntimeSnapshotContext(context.Background())
-}
-func LoadRuntimeSnapshotContext(ctx context.Context) (*RuntimeSnapshot, error) {
-	records, err := runtimeRecordsContext(ctx)
+func LoadRuntimeSnapshot(ctx context.Context) (*RuntimeSnapshot, error) {
+	records, err := runtimeRecords(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +320,7 @@ func LoadRuntimeSnapshotContext(ctx context.Context) (*RuntimeSnapshot, error) {
 			var found bool
 			state, found = processStates[processKey]
 			if !found {
-				state = ownerStateContext(ctx, record)
+				state = ownerState(ctx, record)
 				if err := ctx.Err(); err != nil {
 					return nil, err
 				}
@@ -351,7 +334,7 @@ func LoadRuntimeSnapshotContext(ctx context.Context) (*RuntimeSnapshot, error) {
 	}
 	return snapshot, nil
 }
-func snapshotContext(ctx context.Context) (*RuntimeSnapshot, error) {
+func currentSnapshot(ctx context.Context) (*RuntimeSnapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -361,7 +344,7 @@ func snapshotContext(ctx context.Context) (*RuntimeSnapshot, error) {
 		}
 		return snapshot, nil
 	}
-	return LoadRuntimeSnapshotContext(ctx)
+	return LoadRuntimeSnapshot(ctx)
 }
 func WithRuntimeSnapshot(ctx context.Context, snapshot *RuntimeSnapshot) context.Context {
 	return context.WithValue(ctx, runtimeSnapshotKey{}, snapshot)
@@ -382,17 +365,8 @@ func (s *RuntimeSnapshot) Leaf(id, path string) (string, bool) {
 	}
 	return leaf, found
 }
-func runtimeLeafContext(ctx context.Context, id, path string) (string, bool) {
-	snapshot, err := snapshotContext(ctx)
-	if err != nil {
-		return "", false
-	}
-	return snapshot.Leaf(id, path)
-}
-
-// RuntimeLeaf returns evidence only when verified live owners agree on the leaf.
-func RuntimeLeaf(id, path string) (string, bool) {
-	snapshot, err := LoadRuntimeSnapshot()
+func runtimeLeaf(ctx context.Context, id, path string) (string, bool) {
+	snapshot, err := currentSnapshot(ctx)
 	if err != nil {
 		return "", false
 	}

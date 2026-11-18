@@ -128,12 +128,12 @@ func ancestry(t *transcript, leaf string) ([]int, bool) {
 	return path, true
 }
 
-func projectContext(ctx context.Context, t *transcript, parent *transcript) (*vendors.ParsedSession, error) {
+func project(ctx context.Context, t *transcript, parent *transcript) (*vendors.ParsedSession, error) {
 	leaf := ""
 	if len(t.Entries) > 0 {
 		leaf = t.Entries[len(t.Entries)-1].ID
 	}
-	liveLeaf, live := runtimeLeafContext(ctx, t.Header.ID, t.Path)
+	liveLeaf, live := runtimeLeaf(ctx, t.Header.ID, t.Path)
 	if live {
 		if _, ok := t.ByID[liveLeaf]; ok {
 			leaf = liveLeaf
@@ -141,13 +141,10 @@ func projectContext(ctx context.Context, t *transcript, parent *transcript) (*ve
 			live = false
 		}
 	}
-	return projectLeafContext(ctx, t, parent, leaf, live)
+	return projectLeaf(ctx, t, parent, leaf, live)
 }
 
-func projectLeaf(t *transcript, parent *transcript, leaf string, live bool) (*vendors.ParsedSession, error) {
-	return projectLeafContext(context.Background(), t, parent, leaf, live)
-}
-func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, leaf string, live bool) (*vendors.ParsedSession, error) {
+func projectLeaf(ctx context.Context, t *transcript, parent *transcript, leaf string, live bool) (*vendors.ParsedSession, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -160,7 +157,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		s.StartedAt = stamp.UnixMilli()
 	}
 	s.LastActivityTime = s.StartedAt
-	inherited, verified := inheritedEntriesContext(ctx, t, parent)
+	inherited, verified := inheritedEntries(ctx, t, parent)
 	path, pathOK := ancestry(t, leaf)
 	selected := map[string]bool{}
 	for _, i := range path {

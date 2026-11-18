@@ -65,7 +65,7 @@ func TestPiDiscoveryKeepsForkEvidenceOutsideWindowAndBatch(t *testing.T) {
 	parent := piDiscoveryFile(t, home, "parent", "", 10*24*time.Hour, oldPrompt, oldResponse)
 	piDiscoveryFile(t, home, "fork.custom_01", parent, time.Hour, oldPrompt, oldResponse,
 		`{"type":"message","id":"b","parentId":"a","timestamp":"2026-09-29T12:00:03Z","message":{"role":"assistant","model":"m","content":"new","usage":{"input":2,"output":1,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.2}}}}`)
-	sources, err := pi.PlanSourcesContext(t.Context())
+	sources, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestPiDiscoveryUsesRecordedActivityInsteadOfMtimeForWindow(t *testing.T) {
 	piDiscoveryFile(t, home, "actually-old", "", 10*24*time.Hour,
 		strings.ReplaceAll(piDiscoveryPrompt, "2026-09-29", "2026-09-19"),
 		strings.ReplaceAll(piDiscoveryResponse, "2026-09-29", "2026-09-19"))
-	sources, err := pi.PlanSourcesContext(t.Context())
+	sources, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestPiDiscoveryUsesRecordedActivityInsteadOfMtimeForWindow(t *testing.T) {
 func TestPiDiscoveryRevisitsUnchangedMtimeAfterCursor(t *testing.T) {
 	home := piDiscoveryHome(t)
 	piDiscoveryFile(t, home, "root", "", time.Hour, piDiscoveryPrompt)
-	sources, err := pi.PlanSourcesContext(t.Context())
+	sources, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestPiDiscoveryFailureKeepsHealthySourceAndIncompleteCursor(t *testing.T) {
 	home := piDiscoveryHome(t)
 	piDiscoveryFile(t, home, "bad", "", 0, `{invalid}`)
 	piDiscoveryFile(t, home, "good", "", time.Hour, piDiscoveryPrompt)
-	sources, err := pi.PlanSourcesContext(t.Context())
+	sources, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

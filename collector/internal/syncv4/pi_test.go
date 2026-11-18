@@ -120,7 +120,7 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	grokQueueWrite(t, path, append(append([]byte(nil), valid...), []byte("{invalid}\n")...))
-	sources, err := pi.PlanSourcesContext(t.Context())
+	sources, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 		t.Fatalf("lost verified pending capture: %+v", blocked)
 	}
 	grokQueueWrite(t, path, valid)
-	sources, err = pi.PlanSourcesContext(t.Context())
+	sources, err = pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	sources, err = pi.PlanSourcesContext(t.Context())
+	sources, err = pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestPiSourceFailurePreservesPendingCaptureUntilRepair(t *testing.T) {
 
 func TestPiBatchRefreshPairsCardAndRevisionFromOneSnapshot(t *testing.T) {
 	_, path, original := piQueueSource(t)
-	sources, err := pi.PlanSourcesContext(t.Context())
+	sources, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestPiAutomaticQueueLeafOnlyUpdatesAndRestart(t *testing.T) {
 	home, path, data := piQueueSource(t)
 	data = append(data, []byte(`{"type":"message","id":"skill-call","parentId":"u","timestamp":"2026-10-01T12:00:04Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"skill-read","name":"read","arguments":{"path":"skills/queue/SKILL.md"}}]}}`+"\n"+`{"type":"message","id":"skill-result","parentId":"skill-call","timestamp":"2026-10-01T12:00:05Z","message":{"role":"toolResult","toolCallId":"skill-read","content":"synthetic observed skill"}}`+"\n")...)
 	grokQueueWrite(t, path, data)
-	identity, err := pi.ProcessStartIdentity(os.Getpid())
+	identity, err := pi.ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestPiAutomaticQueueLeafOnlyUpdatesAndRestart(t *testing.T) {
 			sources, ok := pi.SourcePlanFromContext(ctx)
 			if !ok {
 				var err error
-				sources, err = pi.PlanSourcesContext(ctx)
+				sources, err = pi.PlanSources(ctx)
 				if err != nil {
 					return err
 				}
@@ -325,7 +325,7 @@ func TestPiRevisionWorkHonorsPolicyAndOutOfWindowSources(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, path, valid := piQueueSource(t)
 			grokQueueWrite(t, path, append(valid, []byte("{invalid}\n")...))
-			sources, err := pi.PlanSourcesContext(t.Context())
+			sources, err := pi.PlanSources(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}

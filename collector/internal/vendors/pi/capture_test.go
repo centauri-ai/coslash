@@ -58,7 +58,7 @@ func freezeInputs(t *testing.T, inputs SessionInputs) map[string]string {
 func TestSourcePlanUsesHeaderIdentityAndRejectsDuplicates(t *testing.T) {
 	path := captureTranscript(t, "custom.session_01", "")
 	captureEnvironment(t, filepath.Dir(path), filepath.Dir(path))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil || !reflect.DeepEqual(plan.Sources, []SourceRef{{ID: "custom.session_01", Path: path}}) || len(plan.Scan.Files) != 1 {
 		t.Fatalf("plan = %+v, %v", plan, err)
 	}
@@ -69,11 +69,11 @@ func TestSourcePlanUsesHeaderIdentityAndRejectsDuplicates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "duplicate.jsonl"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	plan, err = PlanSourcesContext(t.Context())
+	plan, err = PlanSources(t.Context())
 	if err != nil || len(plan.Sources) != 0 || plan.Scan.SkippedTotal != 2 {
 		t.Fatalf("ambiguous plan = %+v, %v", plan, err)
 	}
-	if _, err := plan.SessionInputsContext(t.Context(), "custom.session_01"); err == nil {
+	if _, err := plan.SessionInputs(t.Context(), "custom.session_01"); err == nil {
 		t.Fatal("ambiguous identity selected")
 	}
 }
@@ -85,11 +85,11 @@ func TestFrozenSessionKeepsExternalAncestorsWithoutLiveReads(t *testing.T) {
 	parent := captureTranscript(t, "parent", grandparent, r, a, b)
 	fork := captureTranscript(t, "fork", parent, r, a, b, assistantRow("c", "b", "novel", 3))
 	captureEnvironment(t, filepath.Dir(fork))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil || len(plan.Sources) != 1 {
 		t.Fatalf("plan = %+v, %v", plan, err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), "fork")
+	inputs, err := plan.SessionInputs(t.Context(), "fork")
 	if err != nil || !reflect.DeepEqual(inputs.Files, []string{fork, parent, grandparent}) {
 		t.Fatalf("inputs = %+v, %v", inputs, err)
 	}
@@ -99,7 +99,7 @@ func TestFrozenSessionKeepsExternalAncestorsWithoutLiveReads(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, selection, err := ParseFrozenSessionContext(WithRuntimeSnapshot(t.Context(), nil), inputs, files)
+	parsed, selection, err := ParseFrozenSession(WithRuntimeSnapshot(t.Context(), nil), inputs, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,15 +131,15 @@ func TestFrozenSessionPreservesUnavailableProvenanceAndTail(t *testing.T) {
 				}
 			}
 			captureEnvironment(t, filepath.Dir(path))
-			plan, err := PlanSourcesContext(t.Context())
+			plan, err := PlanSources(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}
-			inputs, err := plan.SessionInputsContext(t.Context(), "root")
+			inputs, err := plan.SessionInputs(t.Context(), "root")
 			if err != nil {
 				t.Fatal(err)
 			}
-			parsed, _, err := ParseFrozenSessionContext(t.Context(), inputs, freezeInputs(t, inputs))
+			parsed, _, err := ParseFrozenSession(t.Context(), inputs, freezeInputs(t, inputs))
 			if err != nil || parsed == nil || !parsed.Session.TokensUnavailable || !parsed.Session.CostUnavailable || !parsed.Session.DetailsIncomplete || parsed.RecordedCost != nil || parsed.ParentID != "" {
 				t.Fatalf("incomplete root = %+v, %v", parsed, err)
 			}
@@ -151,17 +151,17 @@ func TestFrozenSessionRejectsMissingCopiesAndChangedHeaders(t *testing.T) {
 	parent := captureTranscript(t, "parent", "", assistantRow("a", "", "copied", 2))
 	path := captureTranscript(t, "fork", parent, assistantRow("a", "", "copied", 2))
 	captureEnvironment(t, filepath.Dir(path))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), "fork")
+	inputs, err := plan.SessionInputs(t.Context(), "fork")
 	if err != nil {
 		t.Fatal(err)
 	}
 	files := freezeInputs(t, inputs)
 	delete(files, parent)
-	if _, _, err := ParseFrozenSessionContext(t.Context(), inputs, files); err == nil {
+	if _, _, err := ParseFrozenSession(t.Context(), inputs, files); err == nil {
 		t.Fatal("missing frozen parent fell back to live evidence")
 	}
 	files = freezeInputs(t, inputs)
@@ -172,7 +172,7 @@ func TestFrozenSessionRejectsMissingCopiesAndChangedHeaders(t *testing.T) {
 	if err := os.WriteFile(files[path], []byte(strings.Replace(string(data), `"id":"fork"`, `"id":"other"`, 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := ParseFrozenSessionContext(t.Context(), inputs, files); err == nil {
+	if _, _, err := ParseFrozenSession(t.Context(), inputs, files); err == nil {
 		t.Fatal("changed frozen identity accepted")
 	}
 }
@@ -184,11 +184,11 @@ func TestFrozenSessionUsesSnapshotLeafAndNilActiveFallback(t *testing.T) {
 		t.Run(leaf, func(t *testing.T) {
 			owner := runtimeEvidence{Record: RuntimeRecord{RuntimeID: "synthetic", SessionID: "branches", TranscriptPath: path, LeafID: &leaf}}
 			snapshot := &RuntimeSnapshot{owners: map[string][]runtimeEvidence{"branches\x00" + path: {owner}}, states: map[string]string{runtimeOwnerKey(owner): "live"}}
-			plan, err := PlanSourcesContext(WithRuntimeSnapshot(t.Context(), snapshot))
+			plan, err := PlanSources(WithRuntimeSnapshot(t.Context(), snapshot))
 			if err != nil {
 				t.Fatal(err)
 			}
-			inputs, err := plan.SessionInputsContext(t.Context(), "branches")
+			inputs, err := plan.SessionInputs(t.Context(), "branches")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,7 +197,7 @@ func TestFrozenSessionUsesSnapshotLeafAndNilActiveFallback(t *testing.T) {
 				want = ContextSelection{LeafID: "a", Verified: true}
 			}
 			leaf = "b"
-			parsed, selection, err := ParseFrozenSessionContext(WithRuntimeSnapshot(t.Context(), nil), inputs, freezeInputs(t, inputs))
+			parsed, selection, err := ParseFrozenSession(WithRuntimeSnapshot(t.Context(), nil), inputs, freezeInputs(t, inputs))
 			if err != nil || selection != want {
 				t.Fatalf("selection = %+v, %v; want %+v", selection, err, want)
 			}
@@ -213,13 +213,13 @@ func TestFrozenSessionUsesSnapshotLeafAndNilActiveFallback(t *testing.T) {
 func TestCaptureAPIsPreserveCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := PlanSourcesContext(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := PlanSources(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("plan cancellation = %v", err)
 	}
-	if _, err := (&SourcePlan{}).SessionInputsContext(ctx, "root"); !errors.Is(err, context.Canceled) {
+	if _, err := (&SourcePlan{}).SessionInputs(ctx, "root"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("input cancellation = %v", err)
 	}
-	if _, _, err := ParseFrozenSessionContext(ctx, SessionInputs{}, nil); !errors.Is(err, context.Canceled) {
+	if _, _, err := ParseFrozenSession(ctx, SessionInputs{}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("parse cancellation = %v", err)
 	}
 }
@@ -229,15 +229,15 @@ func TestSourceInputsRejectConflictingAncestorIdentity(t *testing.T) {
 	fork := captureTranscript(t, "fork", parent, assistantRow("a", "", "copied", 2))
 	duplicate := captureTranscript(t, "parent", "", assistantRow("b", "", "other", 9))
 	captureEnvironment(t, filepath.Dir(parent), filepath.Dir(fork), filepath.Dir(duplicate))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), "fork")
+	inputs, err := plan.SessionInputs(t.Context(), "fork")
 	if err != nil || !reflect.DeepEqual(inputs.Files, []string{fork}) {
 		t.Fatalf("ambiguous ancestor inputs = %+v, %v", inputs, err)
 	}
-	parsed, _, err := ParseFrozenSessionContext(t.Context(), inputs, freezeInputs(t, inputs))
+	parsed, _, err := ParseFrozenSession(t.Context(), inputs, freezeInputs(t, inputs))
 	if err != nil || !parsed.Session.TokensUnavailable || parsed.RecordedCost != nil || !parsed.Session.DetailsIncomplete {
 		t.Fatalf("ambiguous ancestry = %+v, %v", parsed, err)
 	}
@@ -249,15 +249,15 @@ func TestSourceInputsBoundAncestorDepth(t *testing.T) {
 		parent = captureTranscript(t, fmt.Sprintf("session-%d", i), parent)
 	}
 	captureEnvironment(t, filepath.Dir(parent))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), "session-0")
+	inputs, err := plan.SessionInputs(t.Context(), "session-0")
 	if err != nil || len(inputs.Files) != 257 {
 		t.Fatalf("depth bound: %d inputs, %v", len(inputs.Files), err)
 	}
-	parsed, _, err := ParseFrozenSessionContext(t.Context(), inputs, freezeInputs(t, inputs))
+	parsed, _, err := ParseFrozenSession(t.Context(), inputs, freezeInputs(t, inputs))
 	if err != nil || !parsed.Session.TokensUnavailable || !parsed.Session.DetailsIncomplete {
 		t.Fatalf("unverifiable depth = %+v, %v", parsed, err)
 	}
@@ -267,19 +267,19 @@ func TestFrozenSessionKeepsUsefulRootWithMalformedAncestorDetail(t *testing.T) {
 	parent := captureTranscript(t, "parent", "", `{"malformed":`)
 	path := captureTranscript(t, "fork", parent, assistantRow("a", "", "useful", 3))
 	captureEnvironment(t, filepath.Dir(path))
-	plan, err := PlanSourcesContext(t.Context())
+	plan, err := PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := plan.SessionInputsContext(t.Context(), "fork")
+	inputs, err := plan.SessionInputs(t.Context(), "fork")
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, _, err := ParseFrozenSessionContext(t.Context(), inputs, freezeInputs(t, inputs))
+	parsed, _, err := ParseFrozenSession(t.Context(), inputs, freezeInputs(t, inputs))
 	if err != nil || parsed == nil || !parsed.Session.TokensUnavailable || parsed.RecordedCost != nil || !parsed.Session.DetailsIncomplete || parsed.Session.Summary == nil || *parsed.Session.Summary != "useful" {
 		t.Fatalf("unverifiable ancestor hid useful root = %+v, %v", parsed, err)
 	}
-	inputs, err = plan.SessionInputsContext(t.Context(), "fork")
+	inputs, err = plan.SessionInputs(t.Context(), "fork")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestFrozenSessionKeepsUsefulRootWithMalformedAncestorDetail(t *testing.T) {
 	if err := os.WriteFile(files[path], append(data, []byte("{invalid}\n")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := ParseFrozenSessionContext(t.Context(), inputs, files); err == nil {
+	if _, _, err := ParseFrozenSession(t.Context(), inputs, files); err == nil {
 		t.Fatal("malformed selected root accepted")
 	}
 }

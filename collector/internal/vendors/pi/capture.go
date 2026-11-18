@@ -40,18 +40,18 @@ type ContextSelection struct {
 	Verified bool
 }
 
-func PlanSourcesContext(ctx context.Context) (*SourcePlan, error) {
+func PlanSources(ctx context.Context) (*SourcePlan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot, _ := snapshotContext(ctx)
+	snapshot, _ := currentSnapshot(ctx)
 	ctx = WithRuntimeSnapshot(ctx, snapshot)
-	scan, _, headers, err := discoverHeadersContext(ctx)
+	scan, _, headers, err := discoverHeaders(ctx)
 	if err != nil {
 		return nil, err
 	}
 	plan := &SourcePlan{Scan: scan, headers: headers, identities: map[string][]string{}, leaves: map[string]*string{}, runtime: snapshot}
-	plan.Metadata = vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
+	plan.Metadata = vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadata(ctx) })
 	for path, h := range headers {
 		plan.identities[h.ID] = append(plan.identities[h.ID], path)
 	}
@@ -77,8 +77,8 @@ func PlanSourcesContext(ctx context.Context) (*SourcePlan, error) {
 	return plan, nil
 }
 
-// SessionInputsContext reads ancestor headers only for the selected session.
-func (plan *SourcePlan) SessionInputsContext(ctx context.Context, id string) (SessionInputs, error) {
+// SessionInputs reads ancestor headers only for the selected session.
+func (plan *SourcePlan) SessionInputs(ctx context.Context, id string) (SessionInputs, error) {
 	if err := ctx.Err(); err != nil {
 		return SessionInputs{}, err
 	}
@@ -120,8 +120,8 @@ func (plan *SourcePlan) SessionInputsContext(ctx context.Context, id string) (Se
 	return inputs, nil
 }
 
-// ParseFrozenSessionContext opens only the supplied copies, including ancestor evidence.
-func ParseFrozenSessionContext(ctx context.Context, inputs SessionInputs, files map[string]string) (*vendors.ParsedSession, ContextSelection, error) {
+// ParseFrozenSession opens only the supplied copies, including ancestor evidence.
+func ParseFrozenSession(ctx context.Context, inputs SessionInputs, files map[string]string) (*vendors.ParsedSession, ContextSelection, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, ContextSelection{}, err
 	}
@@ -140,7 +140,7 @@ func ParseFrozenSessionContext(ctx context.Context, inputs SessionInputs, files 
 	provenance := inputs.complete
 	for i, path := range inputs.Files {
 		frozen := files[path]
-		t, err := parseTranscriptContext(ctx, frozen)
+		t, err := parseTranscript(ctx, frozen)
 		if ctx.Err() != nil {
 			return nil, ContextSelection{}, ctx.Err()
 		}
@@ -166,7 +166,7 @@ func ParseFrozenSessionContext(ctx context.Context, inputs SessionInputs, files 
 		if previous != nil {
 			// Rebind only the private parsed header; retained JSONL bytes stay exact.
 			previous.Header.ParentSession = t.Path
-			if _, verified := inheritedEntriesContext(ctx, previous, t); !verified {
+			if _, verified := inheritedEntries(ctx, previous, t); !verified {
 				provenance = false
 			}
 		} else {
@@ -189,7 +189,7 @@ func ParseFrozenSessionContext(ctx context.Context, inputs SessionInputs, files 
 			selection = ContextSelection{LeafID: *inputs.leaf, Verified: true}
 		}
 	}
-	parsed, err := projectLeafContext(ctx, root, parent, selection.LeafID, selection.Verified)
+	parsed, err := projectLeaf(ctx, root, parent, selection.LeafID, selection.Verified)
 	if err != nil {
 		return nil, ContextSelection{}, err
 	}

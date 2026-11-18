@@ -29,11 +29,11 @@ func TestSourceCustomIdentityDedupAndConflict(t *testing.T) {
 		path = resolved
 	}
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", root+string(os.PathListSeparator)+root)
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("source: %v %d", err, len(items))
 	}
-	facts, err := GetSessionFacts("custom.session_01")
+	facts, err := GetSessionFacts(t.Context(), "custom.session_01")
 	if err != nil || facts == nil || facts.ParentID != "" || facts.Session.TranscriptPath != path || !facts.Session.TokensUnavailable || !facts.Session.CostUnavailable {
 		t.Fatalf("basic source facts: %v %+v", err, facts)
 	}
@@ -45,24 +45,24 @@ func TestSourceCustomIdentityDedupAndConflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "older.jsonl"), older, 0600); err != nil {
 		t.Fatal(err)
 	}
-	items, _, err = Collect(0)
+	items, _, err = Collect(t.Context(), 0)
 	if err != nil || len(items) != 1 {
 		t.Fatal("unsupported file blocked supported collection")
 	}
-	if health := Health(); health.Sessions != 1 || health.Missing || health.SkippedTotal != 1 || !strings.Contains(health.Skipped[0].Error, "unsupported Pi transcript schema") {
+	if health := Health(t.Context()); health.Sessions != 1 || health.Missing || health.SkippedTotal != 1 || !strings.Contains(health.Skipped[0].Error, "unsupported Pi transcript schema") {
 		t.Fatalf("unsupported schema health: %+v", health)
 	}
 	if err := os.WriteFile(filepath.Join(root, "duplicate.jsonl"), fixture(t), 0600); err != nil {
 		t.Fatal(err)
 	}
-	items, _, err = Collect(0)
+	items, _, err = Collect(t.Context(), 0)
 	if err != nil || len(items) != 0 {
 		t.Fatal("conflicting identity selected arbitrarily")
 	}
-	if health := Health(); health.Sessions != 0 || health.SkippedTotal < 2 {
+	if health := Health(t.Context()); health.Sessions != 0 || health.SkippedTotal < 2 {
 		t.Fatalf("missing conflict health: %+v", health)
 	}
-	if _, err := GetSessionFacts("custom.session_01"); err == nil {
+	if _, err := GetSessionFacts(t.Context(), "custom.session_01"); err == nil {
 		t.Fatal("ambiguous facts not diagnosed")
 	}
 }
@@ -96,7 +96,7 @@ func TestProjectSettingsDiscovery(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(override, "override.jsonl"), other, 0600); err != nil {
 		t.Fatal(err)
 	}
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("project override discovery: %v %d", err, len(items))
 	}
@@ -117,11 +117,11 @@ func TestUnknownOpaqueEntryCollection(t *testing.T) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 1 {
-		t.Fatalf("unknown opaque entry excluded session: error=%v sessions=%d health=%+v", err, len(items), Health())
+		t.Fatalf("unknown opaque entry excluded session: error=%v sessions=%d health=%+v", err, len(items), Health(t.Context()))
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), path)
 	if err != nil || len(parsed.Entries) != 14 || !bytes.Contains(parsed.Entries[13].Raw, []byte(`"message":"opaque text"`)) {
 		t.Fatalf("opaque entry not preserved: %v", err)
 	}
@@ -156,11 +156,11 @@ func TestRuntimeOverrideSiblingCollection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "pi-history", "observed.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := RuntimeTranscriptPaths()
+	paths, err := RuntimeTranscriptPaths(t.Context())
 	if err != nil || len(paths) != 1 {
 		t.Fatalf("runtime fixture: %v %v", paths, err)
 	}
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("runtime override omitted historical sibling: error=%v sessions=%d", err, len(items))
 	}
@@ -171,19 +171,19 @@ func TestRuntimeOverrideSiblingCollection(t *testing.T) {
 	if !ids["custom.session_01"] || !ids["exited.sibling"] {
 		t.Fatalf("missing identity: %v", ids)
 	}
-	files, err := Files()
-	if err != nil || len(files) != 2 {
-		t.Fatalf("runtime path and root not deduplicated: %v %v", files, err)
+	scan, _, err := discover(t.Context())
+	if err != nil || len(scan.Files) != 2 {
+		t.Fatalf("runtime path and root not deduplicated: %v %v", scan, err)
 	}
 }
 
 func TestPiCollectionHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := CollectContext(ctx, 0); !errors.Is(err, context.Canceled) {
+	if _, _, err := Collect(ctx, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("collection cancellation = %v", err)
 	}
-	if _, err := parseTranscriptContext(ctx, "missing"); !errors.Is(err, context.Canceled) {
+	if _, err := parseTranscript(ctx, "missing"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("parse cancellation = %v", err)
 	}
 }
@@ -196,7 +196,7 @@ func TestProjectedSourceCollection(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", strings.Join([]string{filepath.Dir(parent.Path), filepath.Dir(clone.Path)}, string(os.PathListSeparator)))
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("collection %d: %v", len(items), err)
 	}
@@ -207,7 +207,7 @@ func TestProjectedSourceCollection(t *testing.T) {
 			}
 		}
 	}
-	facts, err := GetSessionFacts(clone.Header.ID)
+	facts, err := GetSessionFacts(t.Context(), clone.Header.ID)
 	if err != nil || facts == nil || *facts.RecordedCost != 7 {
 		t.Fatalf("facts %v %v", facts, err)
 	}
@@ -224,7 +224,7 @@ func TestRuntimeLeafChangesCollectedCurrentStateOnly(t *testing.T) {
 	record := testRecord()
 	record.SessionID = tr.Header.ID
 	record.TranscriptPath = tr.Path
-	identity, err := ProcessStartIdentity(os.Getpid())
+	identity, err := ProcessStartIdentity(t.Context(), os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestRuntimeLeafChangesCollectedCurrentStateOnly(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(home, "pi-runtime", "owner.json"), bytes, 0600); err != nil {
 			t.Fatal(err)
 		}
-		facts, err := GetSessionFacts(tr.Header.ID)
+		facts, err := GetSessionFacts(t.Context(), tr.Header.ID)
 		if err != nil || facts == nil {
 			t.Fatalf("facts %v", err)
 		}
@@ -275,7 +275,7 @@ func TestDiscoveryBoundsAndUnreadableRoot(t *testing.T) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	scan, _, err := discoverContext(context.Background())
+	scan, _, err := discover(context.Background())
 	if err != nil || scan.SkippedTotal != 1 || !strings.Contains(scan.Skipped[0].Error, "record limit") {
 		t.Fatalf("bounded discovery: %v skipped=%d", err, scan.SkippedTotal)
 	}
@@ -286,7 +286,7 @@ func TestDiscoveryBoundsAndUnreadableRoot(t *testing.T) {
 	if _, err := os.ReadDir(root); err == nil {
 		t.Skip("permissions not enforced")
 	}
-	health := Health()
+	health := Health(t.Context())
 	if health.Missing || health.SkippedTotal == 0 {
 		t.Fatalf("unreadable source reported missing: %+v", health)
 	}
@@ -313,11 +313,11 @@ func TestIncrementalCollectionSkipsOldBodiesAndKeepsForkParents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", strings.Join([]string{filepath.Dir(parent.Path), filepath.Dir(fork.Path)}, string(os.PathListSeparator)))
-	items, _, err := Collect(5000)
+	items, _, err := Collect(t.Context(), 5000)
 	if err != nil || len(items) != 1 || items[0].Session.ID != "recentFork" || items[0].RecordedCost == nil || *items[0].RecordedCost != 2 {
 		t.Fatalf("incremental fork: %v %#v", err, items)
 	}
-	_, scan, _, err := readSessionsSinceContext(context.Background(), 5000, nil)
+	_, scan, _, err := readSessionsSince(context.Background(), 5000, nil)
 	if err != nil || scan.SkippedTotal != 0 {
 		t.Fatalf("old body parsed: %v %+v", err, scan)
 	}
@@ -332,7 +332,7 @@ func TestIncrementalCollectionSkipsOldBodiesAndKeepsForkParents(t *testing.T) {
 	if err := os.Chtimes(duplicate, old, old); err != nil {
 		t.Fatal(err)
 	}
-	items, _, err = Collect(5000)
+	items, _, err = Collect(t.Context(), 5000)
 	if err != nil || len(items) != 0 {
 		t.Fatalf("old duplicate identity accepted: %v %d", err, len(items))
 	}
@@ -365,14 +365,14 @@ func TestProjectSettingsBoundsAndBareTilde(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "home.jsonl"), bytes.Replace(data, []byte("custom.session_01"), []byte("homeSession"), 1), 0600); err != nil {
 		t.Fatal(err)
 	}
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("bare tilde collection: %v %d", err, len(items))
 	}
 	if err := os.WriteFile(settings, []byte(`{"sessionDir":"`+strings.Repeat("x", 1<<20)+`"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	health := Health()
+	health := Health(t.Context())
 	if health.Sessions != 1 || health.SkippedTotal != 1 || !strings.Contains(health.Skipped[0].Error, "project settings read failed") {
 		t.Fatalf("settings bound: sessions=%d skipped=%d", health.Sessions, health.SkippedTotal)
 	}
@@ -403,7 +403,7 @@ func TestIncrementalCollectionKeepsExternalIntermediateAncestor(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", strings.Join([]string{filepath.Dir(g.Path), filepath.Dir(f.Path)}, string(os.PathListSeparator)))
-	items, _, err := Collect(5000)
+	items, _, err := Collect(t.Context(), 5000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestIncrementalCollectionKeepsExternalIntermediateAncestor(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(g.Path), "duplicate.jsonl"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	items, _, err = Collect(5000)
+	items, _, err = Collect(t.Context(), 5000)
 	if err != nil || len(items) != 1 || !items[0].Session.CostUnavailable || items[0].RecordedCost != nil {
 		t.Fatalf("conflicting ancestor bypassed: %v %#v", err, items)
 	}
@@ -483,11 +483,11 @@ func TestUnsupportedHeaderDiscoversProjectOverride(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(root, "seed.jsonl"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			items, _, err := Collect(0)
+			items, _, err := Collect(t.Context(), 0)
 			if err != nil || len(items) != tc.wantSessions {
 				t.Fatalf("project discovery: %v sessions=%d want=%d", err, len(items), tc.wantSessions)
 			}
-			health := Health()
+			health := Health(t.Context())
 			if health.Sessions != tc.wantSessions || health.SkippedTotal != 1 {
 				t.Fatalf("source health: %+v", health)
 			}

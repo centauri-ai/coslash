@@ -62,7 +62,7 @@ func TestPiFrozenCatchUpChecksPendingSourceBeforeResume(t *testing.T) {
 		t.Fatalf("frozen fixture = %+v", selected)
 	}
 	grokQueueWrite(t, path, append(data, []byte("{invalid}\n")...))
-	sources, err := pi.PlanSourcesContext(t.Context())
+	sources, err := pi.PlanSources(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
