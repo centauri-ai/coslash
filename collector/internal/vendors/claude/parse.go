@@ -139,11 +139,6 @@ func parseSourceContext(ctx context.Context, source vendors.ReadSource, path str
 	}, nil
 }
 
-func commitObservationsByToolUse(rows []claudeSessionRecord) []session.CommitObservation {
-	observations, _ := commitObservationsByToolUseContext(context.Background(), rows)
-	return observations
-}
-
 func commitObservationsByToolUseContext(ctx context.Context, rows []claudeSessionRecord) ([]session.CommitObservation, error) {
 	commands := map[string]string{}
 	observations := []session.CommitObservation{}

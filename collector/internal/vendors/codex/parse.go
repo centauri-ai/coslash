@@ -845,11 +845,6 @@ func (answer codexQuestionAnswer) values() []string {
 	return cleaned
 }
 
-func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionAnswer {
-	answers, _ := questionAnswersByCallContext(context.Background(), rows)
-	return answers
-}
-
 func questionAnswersByCallContext(ctx context.Context, rows []codexRow) (map[string]map[string]codexQuestionAnswer, error) {
 	answersByCall := make(map[string]map[string]codexQuestionAnswer)
 	for _, row := range rows {
@@ -866,11 +861,6 @@ func questionAnswersByCallContext(ctx context.Context, rows []codexRow) (map[str
 		}
 	}
 	return answersByCall, nil
-}
-
-func completedCallIDs(rows []codexRow) map[string]struct{} {
-	completed, _ := completedCallIDsContext(context.Background(), rows)
-	return completed
 }
 
 func completedCallIDsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
@@ -994,11 +984,6 @@ type codexCommandResult struct {
 	succeeded bool
 }
 
-func pullRequestURLs(rows []codexRow) map[string]struct{} {
-	urls, _ := pullRequestURLsContext(context.Background(), rows)
-	return urls
-}
-
 func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
 	urls := map[string]struct{}{}
 	calls := map[string]codexPullRequestCall{}
@@ -1073,11 +1058,6 @@ func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]st
 		}
 	}
 	return urls, nil
-}
-
-func commitObservationsByCall(rows []codexRow) []session.CommitObservation {
-	observations, _ := commitObservationsByCallContext(context.Background(), rows)
-	return observations
 }
 
 func commitObservationsByCallContext(ctx context.Context, rows []codexRow) ([]session.CommitObservation, error) {
