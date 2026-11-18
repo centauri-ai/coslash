@@ -26,7 +26,7 @@ import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from 
 import { searchParts } from '@/pages/coslash/lib/search';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { latestLogicalSessions } from '@/pages/coslash/lib/session-library';
-import type { SessionRange } from '@/pages/coslash/lib/session-range';
+import { requestRange, type SessionRange } from '@/pages/coslash/lib/session-range';
 import { loadSessionViewPreferences, type SessionView } from '@/pages/coslash/lib/session-view-preferences';
 import {
   initialSettingsDraft,
@@ -65,8 +65,6 @@ export function CoslashPage() {
   const [searchActive, setSearchActive] = useState(
     () => searchParts(loadSessionViewPreferences().query).content !== '',
   );
-  // Today reuses the 7-day request and narrows it in the list.
-  const requestRange = view === 'insights' || searchActive ? 'all' : range === 'today' ? 'week' : range;
   const {
     sessions,
     machines,
@@ -76,7 +74,7 @@ export function CoslashPage() {
     synthesisCostVersion,
     retrySessions,
     refreshSessions,
-  } = useSessions({ range: requestRange });
+  } = useSessions({ range: requestRange(range, view === 'insights' || searchActive) });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {

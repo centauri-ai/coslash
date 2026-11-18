@@ -29,3 +29,9 @@ export function rangeStart(range: SessionRange, now = new Date()): number | null
       return null;
   }
 }
+
+/** The range to request from the API. Today reuses the 7-day request and the list narrows it; Insights and search need all sessions. */
+export function requestRange(range: SessionRange, allTime: boolean): SessionRange {
+  if (allTime) return 'all';
+  return range === 'today' ? 'week' : range;
+}
