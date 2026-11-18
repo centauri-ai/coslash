@@ -42,6 +42,7 @@ import {
   contextFillReadiness,
   treeStaleReadiness,
 } from '@/pages/coslash/components/session-inspector/readiness';
+import { FieldLabel, SectionLabel } from '@/pages/coslash/components/session-inspector/SectionLabel';
 import {
   SessionId,
   SessionName,
@@ -106,19 +107,6 @@ import {
 } from '@/pages/coslash/lib/session-detail';
 import { promptCacheTiming } from '@/pages/coslash/lib/time';
 import { SkillsSection } from './SkillsSection';
-
-function SectionLabel({ title, note }: { title: string; note?: string }) {
-  return (
-    <div className="flex items-baseline gap-2 pb-2">
-      <span className="text-brand text-xs font-bold tracking-widest">{title}</span>
-      {note && <span className="text-coslash-muted text-xs">{note}</span>}
-    </div>
-  );
-}
-
-function FieldLabel({ children }: { children: string }) {
-  return <div className="text-coslash-muted pb-1 text-xs font-semibold tracking-wide">{children}</div>;
-}
 
 export function SessionModelUsage({
   agent,
