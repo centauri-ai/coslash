@@ -448,11 +448,12 @@ export function CoslashLayout({
                   )}
                   <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
                     {activeChips.map((chip) => (
-                      <span className={styles.chip} key={`${chip.kind}:${chip.value}`}>
-                        <span className="font-normal opacity-70">{chip.kind}:</span> {chip.label}
+                      <span className={styles.chip} key={`${chip.kind}:${chip.value}`} title={chip.label}>
+                        <span className="shrink-0 font-normal opacity-70">{chip.kind}:</span>
+                        <span className="min-w-0 truncate">{chip.label}</span>
                         <button
                           type="button"
-                          className="hover:bg-coslash-tint-line grid size-4 cursor-pointer place-items-center rounded [&>svg]:size-2.5"
+                          className="hover:bg-coslash-tint-line grid size-4 shrink-0 cursor-pointer place-items-center rounded [&>svg]:size-2.5"
                           aria-label={`Remove ${chip.label}`}
                           onClick={chip.remove}
                         >
