@@ -6,7 +6,7 @@ import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { LocalUpdateBanner } from '@/pages/coslash/components/LocalUpdateBanner';
-import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
+import { SessionInspector } from '@/pages/coslash/components/session-inspector/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
 import { retrySyncNow } from '@/pages/coslash/features/sync/api';
 import { HubSwitchDialog } from '@/pages/coslash/features/sync/HubSwitchDialog';

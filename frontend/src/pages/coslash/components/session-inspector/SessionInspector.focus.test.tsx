@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
+import { SessionInspector } from '@/pages/coslash/components/session-inspector/SessionInspector';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
 
 it.each([false, true])('preserves tabbed content and file-diff focus (docked=%s)', async (docked) => {
