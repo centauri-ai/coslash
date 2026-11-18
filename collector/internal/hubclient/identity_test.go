@@ -8,12 +8,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
 
-func TestPairingSendsComputerIdentityAndRetriesUnknownFields(t *testing.T) {
+func TestPairingPollSendsComputerIdentityAndRetriesUnknownFields(t *testing.T) {
 	const installID = "10000000-0000-4000-8000-000000000201"
 	const machineID = "{AABBCCDD-EEFF-0011-2233-445566778899}"
-	var beginBodies, tokenBodies []map[string]string
+	var tokenBodies []map[string]string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -21,49 +22,32 @@ func TestPairingSendsComputerIdentityAndRetriesUnknownFields(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		switch r.URL.Path {
-		case "/v1/device-authorizations":
-			beginBodies = append(beginBodies, body)
-			if body["installId"] != "" || body["machineId"] != "" {
-				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, `{"code":"invalid_request"}`)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
-			_, _ = io.WriteString(w, `{"id":"pair","deviceCode":"device-code","userCode":"USER","verificationUri":"`+serverURL(r)+`/pair","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":5}`)
-		case "/v1/device-authorizations/token":
-			tokenBodies = append(tokenBodies, body)
-			if body["installId"] != "" || body["machineId"] != "" {
-				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, `{"code":"invalid_request"}`)
-				return
-			}
-			_, _ = io.WriteString(w, `{"deviceId":"device","credential":"secret","tokenType":"Device","scope":"ingest"}`)
-		default:
+		if r.URL.Path != "/v1/device-authorizations/token" {
 			http.NotFound(w, r)
+			return
 		}
+		tokenBodies = append(tokenBodies, body)
+		if body["installId"] != "" || body["machineId"] != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"code":"invalid_request"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"deviceId":"device","credential":"secret","tokenType":"Device","scope":"ingest"}`)
 	}))
 	defer server.Close()
 	base, _ := url.Parse(server.URL)
 	credentials := &memoryCredentials{}
-	client := &Client{BaseURL: base, Credentials: credentials, HTTP: server.Client(), DeviceName: "Studio.local", InstallID: installID, MachineID: machineID}
-	begun, err := client.BeginPairing(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	client := &Client{
+		BaseURL: base, Credentials: credentials, HTTP: server.Client(), DeviceName: "Studio.local", InstallID: installID, MachineID: machineID,
+		pairings: map[string]pairingSecret{"pair": {deviceCode: "device-code", expiresAt: time.Now().Add(time.Minute)}},
 	}
-	if _, err := client.PollPairing(context.Background(), begun.PairingID); err != nil {
+	if _, err := client.PollPairing(context.Background(), "pair"); err != nil {
 		t.Fatal(err)
 	}
 	if credentials.saved != "secret" {
 		t.Fatalf("saved credential = %q", credentials.saved)
 	}
-	if len(beginBodies) != 2 || beginBodies[0]["installId"] != "10000000-0000-4000-8000-000000000201" || beginBodies[0]["machineId"] != "aabbccdd-eeff-0011-2233-445566778899" || beginBodies[0]["deviceName"] != "Studio.local" {
-		t.Fatalf("begin bodies = %#v", beginBodies)
-	}
-	if len(beginBodies[1]) != 1 || beginBodies[1]["deviceName"] != "Studio.local" {
-		t.Fatalf("legacy begin body = %#v", beginBodies[1])
-	}
-	if len(tokenBodies) != 2 || tokenBodies[0]["installId"] == "" || tokenBodies[0]["machineId"] == "" || tokenBodies[0]["deviceCode"] != "device-code" {
+	if len(tokenBodies) != 2 || tokenBodies[0]["installId"] != "10000000-0000-4000-8000-000000000201" || tokenBodies[0]["machineId"] != "aabbccdd-eeff-0011-2233-445566778899" || tokenBodies[0]["deviceCode"] != "device-code" {
 		t.Fatalf("token bodies = %#v", tokenBodies)
 	}
 	if len(tokenBodies[1]) != 1 || tokenBodies[1]["deviceCode"] != "device-code" {
@@ -74,7 +58,7 @@ func TestPairingSendsComputerIdentityAndRetriesUnknownFields(t *testing.T) {
 	}
 }
 
-func TestPairingDoesNotRetryARejectedIdentity(t *testing.T) {
+func TestPairingPollDoesNotRetryARejectedIdentity(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -83,9 +67,12 @@ func TestPairingDoesNotRetryARejectedIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 	base, _ := url.Parse(server.URL)
-	client := &Client{BaseURL: base, Credentials: &memoryCredentials{}, HTTP: server.Client(), InstallID: "10000000-0000-4000-8000-000000000201", MachineID: "aabbccddeeff0011"}
-	if _, err := client.BeginPairing(context.Background()); err == nil || calls != 1 {
-		t.Fatalf("error=%v calls=%d", err, calls)
+	client := &Client{
+		BaseURL: base, Credentials: &memoryCredentials{}, HTTP: server.Client(), InstallID: "10000000-0000-4000-8000-000000000201", MachineID: "aabbccddeeff0011",
+		pairings: map[string]pairingSecret{"pair": {deviceCode: "device-code", expiresAt: time.Now().Add(time.Minute)}},
+	}
+	if result, err := client.PollPairing(context.Background(), "pair"); result.State == PairingStatePaired || calls != 1 {
+		t.Fatalf("result=%#v error=%v calls=%d", result, err, calls)
 	}
 }
 
@@ -169,8 +156,4 @@ func TestV4CheckInKeepsIdentityWhenOnlyDiagnosticsAreRejected(t *testing.T) {
 	if queue.LocalDiagnostics == nil {
 		t.Fatal("retry cleared the caller's diagnostics")
 	}
-}
-
-func serverURL(r *http.Request) string {
-	return "http://" + r.Host
 }

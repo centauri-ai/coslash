@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+
 	"net/http"
 	"regexp"
 	"strings"
@@ -60,33 +60,4 @@ func (c *Client) postJSON(ctx context.Context, path string, fields map[string]st
 	}
 	request.Header.Set("Content-Type", "application/json")
 	return c.httpClient().Do(request)
-}
-
-// postPairingJSON sends the pairing body. An older Hub rejects unknown JSON
-// fields, so one invalid_request retry omits the computer ids.
-func (c *Client) postPairingJSON(ctx context.Context, path string, fields map[string]string, action string) (*http.Response, error) {
-	response, err := c.postJSON(ctx, path, fields)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", action, err)
-	}
-	if response.StatusCode != http.StatusBadRequest || (fields["installId"] == "" && fields["machineId"] == "") {
-		return response, nil
-	}
-	problem := readProblem(response)
-	_ = response.Body.Close()
-	if problem.Code != "invalid_request" {
-		return nil, problem
-	}
-	legacy := map[string]string{}
-	for key, value := range fields {
-		if key == "installId" || key == "machineId" {
-			continue
-		}
-		legacy[key] = value
-	}
-	response, err = c.postJSON(ctx, path, legacy)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", action, err)
-	}
-	return response, nil
 }
