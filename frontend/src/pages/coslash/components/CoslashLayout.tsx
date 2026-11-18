@@ -18,7 +18,6 @@ import { cn } from '@/lib/utils';
 import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { SearchDecisions } from '@/pages/coslash/components/SearchDecisions';
-import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useRankedSearch } from '@/pages/coslash/hooks/use-ranked-search';
 import {
   locationChoiceId,
@@ -29,7 +28,6 @@ import {
   type Group,
 } from '@/pages/coslash/lib/detected-groups';
 import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
-import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import {
   MACHINE_TONE_DOT,
   machineRetryable,
@@ -50,11 +48,9 @@ import {
   getVendor,
   isLocalSession,
   LOCAL_SOURCE_ID,
-  sessionCost,
   sessionKey,
   STATUS_ORDER,
   STATUSES,
-  sumKnown,
   type Session,
   type StatusKey,
 } from '@/pages/coslash/lib/session';
@@ -76,6 +72,7 @@ import './coslash-layout.css';
 import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
 import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
 import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
+import { Rollup } from '@/pages/coslash/components/session-list/Rollup';
 import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
 import {
   FacetRow,
@@ -84,7 +81,7 @@ import {
   type FacetOption,
   type FacetSection,
 } from '@/pages/coslash/components/session-list/SidebarSection';
-import { styles, tokenTotal } from '@/pages/coslash/components/session-list/styles';
+import { styles } from '@/pages/coslash/components/session-list/styles';
 import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 
 const SessionBoard = lazy(() =>
@@ -155,37 +152,6 @@ function MachineDot({
         )}
       </TooltipContent>
     </Tooltip>
-  );
-}
-
-function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boolean }) {
-  const unpriced = sessions.filter(
-    (session) => sessionCost(session) == null || session.unpricedModels.length > 0,
-  );
-  return (
-    <div className="text-cell max-narrow:w-full flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap">
-      {isLoading && <span className="sr-only">Refreshing sessions</span>}
-      <strong className="flex items-center gap-1 font-[650]">
-        {isLoading ? <InlineSpinner /> : sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
-      </strong>
-      <span className="text-coslash-muted">in this scope</span>
-      <span className="text-coslash-muted">·</span>
-      <span className="text-coslash-muted flex items-center gap-1">
-        {isLoading ? <InlineSpinner /> : formatTokens(tokenTotal(sessions))} tokens
-      </span>
-      <span className="text-coslash-muted">·</span>
-      {isLoading ? (
-        <InlineSpinner />
-      ) : (
-        <UnpricedModelWarning unpriced={unpriced.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(sumKnown(sessions.map(sessionCost)))}
-        </UnpricedModelWarning>
-      )}
-      {!isLoading && unpriced.length > 0 && (
-        <span className="text-coslash-muted max-actions:hidden">· {unpriced.length} not priced</span>
-      )}
-      <span className="text-meta text-coslash-muted max-actions:hidden">at list API prices</span>
-    </div>
   );
 }
 
