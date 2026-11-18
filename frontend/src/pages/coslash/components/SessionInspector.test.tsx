@@ -3,29 +3,31 @@ import { describe, expect, it } from 'vitest';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
-  cachedOfflineWarning,
-  detailAttemptState,
   DetailLoadError,
-  detailPresentation,
-  detailRequestKey,
   DigestSection,
-  filePanelOpen,
   GrokFreshSessionControl,
   inspectorWidthForKey,
-  overlayLiveSessionFields,
-  refreshSourceAndRetry,
   SessionInspectorTitle,
   SessionModelUsage,
-  snapshotMayBeStale,
   SnapshotRefreshStatus,
   SnapshotStalenessNotice,
   SummaryOnlyBanner,
-  synthesisAttemptKey,
-  synthesisMatchesSnapshot,
-  synthesisSettlement,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
+import {
+  cachedOfflineWarning,
+  detailAttemptState,
+  detailPresentation,
+  detailRequestKey,
+  filePanelOpen,
+  overlayLiveSessionFields,
+  refreshSourceAndRetry,
+  snapshotMayBeStale,
+  synthesisAttemptKey,
+  synthesisMatchesSnapshot,
+  synthesisSettlement,
+} from '@/pages/coslash/lib/session-detail';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
 
 const session = makeSession({
