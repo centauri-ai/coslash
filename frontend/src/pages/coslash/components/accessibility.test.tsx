@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
-import { DebriefProse } from '@/pages/coslash/components/SessionInspector';
+import { DebriefProse } from '@/pages/coslash/components/session-inspector/RecapSection';
 import { SettingsDialog } from '@/pages/coslash/components/SettingsDialog';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
