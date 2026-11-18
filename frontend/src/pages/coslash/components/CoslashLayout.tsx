@@ -61,23 +61,17 @@ import {
   type Session,
   type StatusKey,
 } from '@/pages/coslash/lib/session';
-import {
-  countFacets,
-  matchesFacets,
-  rangeStart,
-  sortSessions,
-  type FacetKey,
-} from '@/pages/coslash/lib/session-filter';
+import { countFacets, matchesFacets, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 import {
   BOARD_GROUP_BY_OPTIONS,
   BOARD_ROW_GROUP_BY_OPTIONS,
   type BoardGroupBy,
   type BoardRowGroupBy,
 } from '@/pages/coslash/lib/session-grouping';
+import { rangeStart, SESSION_RANGES, type SessionRange } from '@/pages/coslash/lib/session-range';
 import {
   loadSessionViewPreferences,
   saveSessionViewPreferences,
-  type SessionRange,
   type SessionSort,
   type SessionView,
   type SessionViewPreferences,
@@ -90,13 +84,6 @@ const SessionBoard = lazy(() =>
 
 type FilterKey = 'statusFilters' | 'groupFilters' | 'machineFilters' | 'agentFilters';
 
-const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
-  { value: 'today', label: 'Today' },
-  { value: 'this-week', label: 'This week' },
-  { value: 'week', label: '7 days' },
-  { value: 'month', label: '30 days' },
-  { value: 'all', label: 'All time' },
-];
 function ViewSwitch({ view, onChange }: { view: SessionView; onChange: (view: SessionView) => void }) {
   return (
     <div className={styles.segmented} aria-label="View">
@@ -651,7 +638,7 @@ export function CoslashLayout({
                     )}
                     {searchActive && <span className="text-xs">Relevance · All time (search)</span>}
                     <div className={styles.segmented} aria-label="Time range">
-                      {RANGE_OPTIONS.map((option) => (
+                      {SESSION_RANGES.map((option) => (
                         <button
                           key={option.value}
                           type="button"

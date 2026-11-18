@@ -26,11 +26,8 @@ import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from 
 import { searchParts } from '@/pages/coslash/lib/search';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { latestLogicalSessions } from '@/pages/coslash/lib/session-library';
-import {
-  loadSessionViewPreferences,
-  type SessionRange,
-  type SessionView,
-} from '@/pages/coslash/lib/session-view-preferences';
+import type { SessionRange } from '@/pages/coslash/lib/session-range';
+import { loadSessionViewPreferences, type SessionView } from '@/pages/coslash/lib/session-view-preferences';
 import {
   initialSettingsDraft,
   requiresFirstRunConsent,
@@ -38,14 +35,6 @@ import {
   type CoslashSettings,
   type RemoteOwnershipAction,
 } from '@/pages/coslash/lib/settings';
-import type { TimeWindow } from '@/pages/coslash/lib/time-window';
-
-function apiWindowForRange(range: SessionRange): TimeWindow {
-  if (range === 'this-week') return 'week';
-  if (range === 'today' || range === 'week') return '7d';
-  if (range === 'month') return '30d';
-  return 'all';
-}
 
 function SettingsErrorBanner({
   message,
@@ -76,7 +65,8 @@ export function CoslashPage() {
   const [searchActive, setSearchActive] = useState(
     () => searchParts(loadSessionViewPreferences().query).content !== '',
   );
-  const apiWindow = view === 'insights' || searchActive ? 'all' : apiWindowForRange(range);
+  // Today reuses the 7-day request and narrows it in the list.
+  const requestRange = view === 'insights' || searchActive ? 'all' : range === 'today' ? 'week' : range;
   const {
     sessions,
     machines,
@@ -86,10 +76,7 @@ export function CoslashPage() {
     synthesisCostVersion,
     retrySessions,
     refreshSessions,
-  } = useSessions({
-    localWindow: apiWindow,
-    remoteWindow: apiWindow,
-  });
+  } = useSessions({ range: requestRange });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {

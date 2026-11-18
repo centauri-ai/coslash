@@ -16,7 +16,7 @@ import {
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
-import type { TimeWindow } from '@/pages/coslash/lib/time-window';
+import type { SessionRange } from '@/pages/coslash/lib/session-range';
 
 vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/pages/coslash/lib/api')>()),
@@ -200,7 +200,7 @@ describe('useSessions reload failures', () => {
   async function mountWithOneSession() {
     vi.mocked(apiFetch).mockResolvedValueOnce(sessionsResponse());
     function Harness() {
-      const value = useSessions({ localWindow: 'all', remoteWindow: 'all' });
+      const value = useSessions({ range: 'all' });
       useEffect(() => {
         state = value;
       });
@@ -251,19 +251,19 @@ describe('useSessions reload failures', () => {
 
   it('reports a failure after the window changes and returns before the change loads', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(sessionsResponse());
-    function Harness({ localWindow }: { localWindow: TimeWindow }) {
-      const value = useSessions({ localWindow, remoteWindow: 'all' });
+    function Harness({ range }: { range: SessionRange }) {
+      const value = useSessions({ range });
       useEffect(() => {
         state = value;
       });
       return null;
     }
-    await act(async () => root.render(createElement(Harness, { localWindow: 'all' })));
+    await act(async () => root.render(createElement(Harness, { range: 'all' })));
     vi.mocked(apiFetch).mockReturnValueOnce(new Promise<Response>(() => {}));
-    await act(async () => root.render(createElement(Harness, { localWindow: '7d' })));
+    await act(async () => root.render(createElement(Harness, { range: 'week' })));
     expect(state.isLoading).toBe(true);
     vi.mocked(apiFetch).mockResolvedValueOnce(new Response('', { status: 500 }));
-    await act(async () => root.render(createElement(Harness, { localWindow: 'all' })));
+    await act(async () => root.render(createElement(Harness, { range: 'all' })));
     expect(state.isLoading).toBe(false);
     expect(state.loadError).not.toBeNull();
   });
