@@ -13,12 +13,10 @@ import (
 	"strings"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
-	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/machineid"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
-	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -57,7 +55,6 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 		MachineID:        machineid.Current(),
 		CollectorVersion: collectorVersion,
 		InstallChannel:   detectedInstallChannel(),
-		LoadSession:      collector.GetSessionForPreview,
 	}, nil
 }
 
@@ -108,16 +105,6 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			return
 		}
 		if remoteManager != nil {
-			client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
-				if sourceID == localSourceID {
-					found, err := collector.GetSessionForPreview(sessionID, revision)
-					if found == nil || err != nil || found.Agent != agent {
-						return nil, err
-					}
-					return found, nil
-				}
-				return remoteManager.PreviewSession(sourceID, agent, sessionID, revision)
-			}
 			client.LoadFullSession = func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error) {
 				if sourceID == localSourceID {
 					return nil, fullsessionexport.Repository{}, nil
