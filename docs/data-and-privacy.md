@@ -230,11 +230,7 @@ device version, install channel, operating system, capabilities, and empty
 content-free queue state; it does not upload a session or enable team sharing.
 Hub manages device and sync policy; Local also offers a per-computer pause.
 
-## Local preview and Hub sync
-
-The `?team-preview=1` option exposes a clearly labeled, preview-only trigger in
-session details. It shows a local preview and does not approve or upload a
-session.
+## Hub sync
 
 New session transfer from Local uses personal V4 sync under the paired device's
 Hub policy and Local sync settings. Pairing does not authorize workspace

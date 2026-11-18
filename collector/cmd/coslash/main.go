@@ -865,9 +865,6 @@ func routesWithOnboarding(
 		}
 		handleDiff(w, r, collector.GetSessionFacts)
 	})
-	api.HandleFunc("GET /api/share-preview", func(w http.ResponseWriter, r *http.Request) {
-		handleSharePreview(w, r, collector.GetSessionForPreview, remoteManager, version)
-	})
 	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		writeSettings(w, settingsStore.State(), service.settingsOptions.snapshot())
 	})

@@ -21,8 +21,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
-	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
-	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -220,58 +218,6 @@ func handleDiff(
 	writeJSON(w, struct {
 		Changes []session.FileChange `json:"changes"`
 	}{Changes: selected.Changes()})
-}
-
-func handleSharePreview(
-	w http.ResponseWriter,
-	r *http.Request,
-	getSession func(string, int64) (*session.Session, error),
-	remoteManager *remote.Manager,
-	collectorVersion string,
-) {
-	revision, err := parseRevision(r.URL.Query().Get("revision"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	sourceID, err := parseSourceID(r.URL.Query().Get("source"))
-	if err != nil {
-		http.Error(w, "invalid source", http.StatusBadRequest)
-		return
-	}
-	var found *session.Session
-	if sourceID == localSourceID {
-		found, err = getSession(r.URL.Query().Get("id"), revision)
-	} else {
-		agent := r.URL.Query().Get("agent")
-		if agent == "" {
-			http.Error(w, "remote preview requires an agent", http.StatusBadRequest)
-			return
-		}
-		found, err = remoteManager.PreviewSession(sourceID, agent, r.URL.Query().Get("id"), revision)
-	}
-	if err != nil {
-		log.Printf("share preview unavailable")
-		http.Error(w, "could not load share preview", http.StatusInternalServerError)
-		return
-	}
-	if found == nil {
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	}
-	preview := sessionpreview.Build(*found, sessionexport.BuildOptions{
-		CollectorVersion: collectorVersion,
-		RepositoryRoot:   session.RepositoryRoot(found.WorkingDirectory),
-	}, revision)
-	writeJSON(w, preview)
-}
-
-func parseRevision(value string) (int64, error) {
-	revision, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || revision <= 0 {
-		return 0, fmt.Errorf("invalid 'revision' parameter")
-	}
-	return revision, nil
 }
 
 // /api/synthesis?agent=A&id=X → cached synthesis for one session, triggering a run
