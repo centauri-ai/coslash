@@ -438,6 +438,8 @@ func reviewGitSnapshot(ctx context.Context, workingDirectory string) (string, er
 	return snapshot.String(), nil
 }
 
+// cleanupRemoteReview runs after the review context can be cancelled, so it
+// owns its own deadline.
 func cleanupRemoteReview(destination settings.SSHDestination, marker string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
