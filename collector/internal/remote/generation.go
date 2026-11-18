@@ -178,6 +178,13 @@ func snapshotOrEmpty(snapshot *CachedSnapshotV2) CachedSnapshotV2 {
 	}
 	for index := range copy.Families {
 		family := &copy.Families[index]
+		if family.Facts.ParserVersion != remotefacts.ParserVersion(family.Vendor) {
+			// Facts from another parser version stay as last-good display data,
+			// but both transports must reparse the family.
+			if !strings.HasPrefix(family.Fingerprint, "parser-version-changed-") {
+				family.Fingerprint = "parser-version-changed-" + family.Fingerprint
+			}
+		}
 		if family.Vendor == vendors.AgentCodex && !completeFamilyRecords(family.Facts, complete[remoteprotocol.FamilyKey{Vendor: family.Vendor, FamilyID: family.FamilyID}]) {
 			// Preserve the legacy family as last-good display data, but make its
 			// comparison fingerprint impossible to equal the remote fingerprint.

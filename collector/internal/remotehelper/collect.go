@@ -551,7 +551,7 @@ func familyFacts(
 		state = remotefacts.StatePartial
 	}
 	family, err := remotefacts.FromParsed(
-		scanned.vendor, item.id, vendors.ParserVersion, state, "",
+		scanned.vendor, item.id, remotefacts.ParserVersion(scanned.vendor), state, "",
 		sessions, scanned.metadata, item.fingerprints, item.headerMappings,
 	)
 	if err != nil {

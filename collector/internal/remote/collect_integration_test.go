@@ -371,6 +371,9 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 		if len(record.FullRecords) == 1 {
 			value := record.FullRecords[0].Record
 			helperRecord = &value
+			if record.Family.ParserVersion != codexParserVersion {
+				t.Fatalf("helper stamped Codex parser version %q, Mac expects %q", record.Family.ParserVersion, codexParserVersion)
+			}
 		}
 	}
 	if helperRecord == nil || !reflect.DeepEqual(*helperRecord, sftp.FullRecords[0].Record) ||
@@ -505,6 +508,9 @@ func TestClaudeFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *test
 	for _, record := range records {
 		if record.Type == remoteprotocol.RecordChanged {
 			helperRecords = append(helperRecords, record.FullRecords...)
+			if record.Family.ParserVersion != claudeParserVersion {
+				t.Fatalf("helper stamped Claude parser version %q, Mac expects %q", record.Family.ParserVersion, claudeParserVersion)
+			}
 		}
 	}
 	if len(helperRecords) != 2 {
