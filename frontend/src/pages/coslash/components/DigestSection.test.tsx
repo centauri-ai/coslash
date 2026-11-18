@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { DigestSection } from '@/pages/coslash/components/SessionInspector';
+import { DigestSection } from '@/pages/coslash/components/session-inspector/DigestSection';
 import type { DigestEntry } from '@/pages/coslash/lib/session';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
 
