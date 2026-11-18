@@ -25,7 +25,7 @@ import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { latestLogicalSessions } from '@/pages/coslash/lib/session-library';
-import type { SessionRange } from '@/pages/coslash/lib/session-range';
+import { requestRange, type SessionRange } from '@/pages/coslash/lib/session-range';
 import { loadSessionViewPreferences, type SessionView } from '@/pages/coslash/lib/session-view-preferences';
 import {
   initialSettingsDraft,
@@ -61,8 +61,6 @@ export function CoslashPage() {
   const [range, setRange] = useState<SessionRange>(() => loadSessionViewPreferences().range);
   const [view, setView] = useState<SessionView>(() => loadSessionViewPreferences().view);
   const [localUpdate, setLocalUpdate] = useState<LocalUpdate | null>(null);
-  // Today reuses the 7-day request and narrows it in the list.
-  const requestRange = view === 'insights' ? 'all' : range === 'today' ? 'week' : range;
   const {
     sessions,
     machines,
@@ -72,7 +70,7 @@ export function CoslashPage() {
     synthesisCostVersion,
     retrySessions,
     refreshSessions,
-  } = useSessions({ range: requestRange });
+  } = useSessions({ range: requestRange(range, view === 'insights') });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {
