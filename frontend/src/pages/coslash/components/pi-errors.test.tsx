@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { PiErrorBadge } from '@/pages/coslash/components/SessionInspector';
+import { PiErrorBadge } from '@/pages/coslash/components/session-inspector/InspectorHeader';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
 
 describe('Pi inspector error badge', () => {
