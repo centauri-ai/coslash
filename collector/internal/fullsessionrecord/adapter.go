@@ -143,18 +143,18 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 	record := fullsessionv1.Record{
 		SourceID: sourceID, Agent: value.Agent, SessionID: value.ID, ParentSessionID: parentSessionID,
 		Session: fullsessionv1.Session{
-			Name: cloneString(value.Name), Summary: cloneString(value.Summary), Status: cloneString(value.Status),
-			WorkingDirectory: value.WorkingDirectory, Branch: cloneString(value.Branch), EditedFileCount: value.EditedFileCount,
-			DurationMs: cloneInt(value.DurationMs), CostMicroUSD: optionalMicros(value.Cost),
-			UnpricedModels: cloneSlice(value.UnpricedModels), StartedAtMs: value.StartedAt,
-			LastActivityAtMs: value.LastActivityTime, Entrypoint: cloneString(value.Entrypoint), Model: cloneString(value.Model),
-			ContextTokens: cloneInt(value.ContextTokens), ContextWindow: cloneInt(value.ContextWindow), Turns: value.Turns,
-			ToolUses: value.ToolUses, Errors: value.Errors, Compactions: value.Compactions, FirstPrompt: cloneString(value.FirstPrompt),
-			Commands: cloneSlice(value.Commands), CommandOutputs: cloneOutputs(value.CommandOutputs, len(value.Commands)),
-			Skills:  cloneSlice(value.Skills),
-			Commits: cloneSlice(value.Commits), CommitSHAs: cloneSlice(value.CommitSHAs), PullRequests: value.PullRequests,
+			Name: session.ClonePointer(value.Name), Summary: session.ClonePointer(value.Summary), Status: session.ClonePointer(value.Status),
+			WorkingDirectory: value.WorkingDirectory, Branch: session.ClonePointer(value.Branch), EditedFileCount: value.EditedFileCount,
+			DurationMs: session.ClonePointer(value.DurationMs), CostMicroUSD: optionalMicros(value.Cost),
+			UnpricedModels: slices.Clone(value.UnpricedModels), StartedAtMs: value.StartedAt,
+			LastActivityAtMs: value.LastActivityTime, Entrypoint: session.ClonePointer(value.Entrypoint), Model: session.ClonePointer(value.Model),
+			ContextTokens: session.ClonePointer(value.ContextTokens), ContextWindow: session.ClonePointer(value.ContextWindow), Turns: value.Turns,
+			ToolUses: value.ToolUses, Errors: value.Errors, Compactions: value.Compactions, FirstPrompt: session.ClonePointer(value.FirstPrompt),
+			Commands: slices.Clone(value.Commands), CommandOutputs: cloneOutputs(value.CommandOutputs, len(value.Commands)),
+			Skills:  slices.Clone(value.Skills),
+			Commits: slices.Clone(value.Commits), CommitSHAs: slices.Clone(value.CommitSHAs), PullRequests: value.PullRequests,
 			SynthesisPending:  value.SynthesisPending,
-			DeclaredGoal:      cloneString(value.DeclaredGoal),
+			DeclaredGoal:      session.ClonePointer(value.DeclaredGoal),
 			DetailsIncomplete: value.DetailsIncomplete,
 		},
 	}
@@ -180,16 +180,16 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			return fullsessionv1.Record{}, err
 		}
 		item := fullsessionv1.Subagent{
-			ID: value.ID, Name: value.Name, Model: cloneString(value.Model), Status: value.Status,
-			Task: value.Task, Result: value.Result, DurationMs: cloneInt(value.DurationMs),
-			SpawnedAtTurn: cloneInt(value.SpawnedAtTurn), ToolUses: value.ToolUses,
+			ID: value.ID, Name: value.Name, Model: session.ClonePointer(value.Model), Status: value.Status,
+			Task: value.Task, Result: value.Result, DurationMs: session.ClonePointer(value.DurationMs),
+			SpawnedAtTurn: session.ClonePointer(value.SpawnedAtTurn), ToolUses: value.ToolUses,
 			Usage: usageFromTokens(value.Tokens, false), CostMicroUSD: optionalMicros(value.Cost), UnattributedTokens: unattributed,
 		}
 		if value.Commands != nil {
 			item.Commands = make([]fullsessionv1.SubagentCommand, 0, len(value.Commands))
 		}
 		for _, command := range value.Commands {
-			item.Commands = append(item.Commands, fullsessionv1.SubagentCommand{Label: command.Label, Command: command.Command, Output: cloneString(command.Output)})
+			item.Commands = append(item.Commands, fullsessionv1.SubagentCommand{Label: command.Label, Command: command.Command, Output: session.ClonePointer(command.Output)})
 		}
 		record.Session.Subagents = append(record.Session.Subagents, item)
 	}
@@ -207,7 +207,7 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			Turn: value.Turn, Category: value.Category, Description: value.Description, Answer: value.Answer,
 			SubagentID: value.SubagentID, TimeMs: value.Time,
 			SourceEntryID: value.SourceEntryID, ParentEntryID: value.ParentEntryID, BranchID: value.BranchID,
-			Inherited: cloneBool(value.Inherited), Active: cloneBool(value.Active), ContextSelected: cloneBool(value.ContextSelected), ContextDescription: cloneString(value.ContextDescription),
+			Inherited: session.ClonePointer(value.Inherited), Active: session.ClonePointer(value.Active), ContextSelected: session.ClonePointer(value.ContextSelected), ContextDescription: session.ClonePointer(value.ContextDescription),
 		})
 	}
 	if value.FileEdits != nil {
@@ -231,8 +231,8 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 	}
 	if value.Synthesis != nil {
 		record.Session.Synthesis = &fullsessionv1.SessionSynthesis{
-			Goals: cloneSlice(value.Synthesis.Goals), Outcome: value.Synthesis.Outcome,
-			KeyDecisions: cloneSlice(value.Synthesis.KeyDecisions), NextStep: value.Synthesis.NextStep,
+			Goals: slices.Clone(value.Synthesis.Goals), Outcome: value.Synthesis.Outcome,
+			KeyDecisions: slices.Clone(value.Synthesis.KeyDecisions), NextStep: value.Synthesis.NextStep,
 		}
 	}
 	frozen, err := fullsessionv1.Freeze(record)
@@ -273,24 +273,24 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	pi := record.Agent == vendors.AgentPi
 	value := &session.Session{
 		Agent: record.Agent, ID: record.SessionID, ParentSessionID: record.ParentSessionID,
-		Name: cloneString(record.Session.Name), Summary: cloneString(record.Session.Summary),
-		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
-		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
-		DurationMs: cloneInt(record.Session.DurationMs), Tokens: tokensFromUsage(record.Session.Usage, pi),
+		Name: session.ClonePointer(record.Session.Name), Summary: session.ClonePointer(record.Session.Summary),
+		Status: session.ClonePointer(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
+		Branch: session.ClonePointer(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
+		DurationMs: session.ClonePointer(record.Session.DurationMs), Tokens: tokensFromUsage(record.Session.Usage, pi),
 		UnattributedTokens: tokensFromUnattributed(record.Session.UnattributedTokens, pi),
-		Cost:               optionalDollars(record.Session.CostMicroUSD), UnpricedModels: cloneSlice(record.Session.UnpricedModels),
+		Cost:               optionalDollars(record.Session.CostMicroUSD), UnpricedModels: slices.Clone(record.Session.UnpricedModels),
 		StartedAt: record.Session.StartedAtMs, LastActivityTime: record.Session.LastActivityAtMs,
-		Entrypoint: cloneString(record.Session.Entrypoint),
+		Entrypoint: session.ClonePointer(record.Session.Entrypoint),
 		SessionDetails: session.SessionDetails{
-			Model: cloneString(record.Session.Model), ContextTokens: cloneInt(record.Session.ContextTokens),
-			ContextWindow: cloneInt(record.Session.ContextWindow), Turns: record.Session.Turns,
+			Model: session.ClonePointer(record.Session.Model), ContextTokens: session.ClonePointer(record.Session.ContextTokens),
+			ContextWindow: session.ClonePointer(record.Session.ContextWindow), Turns: record.Session.Turns,
 			ToolUses: record.Session.ToolUses, Errors: record.Session.Errors, Compactions: record.Session.Compactions,
-			FirstPrompt: cloneString(record.Session.FirstPrompt), Commands: cloneSlice(record.Session.Commands),
+			FirstPrompt: session.ClonePointer(record.Session.FirstPrompt), Commands: slices.Clone(record.Session.Commands),
 			CommandOutputs: cloneOutputs(record.Session.CommandOutputs, len(record.Session.Commands)),
-			Skills:         cloneSlice(record.Session.Skills),
-			Commits:        cloneSlice(record.Session.Commits), CommitSHAs: cloneSlice(record.Session.CommitSHAs),
+			Skills:         slices.Clone(record.Session.Skills),
+			Commits:        slices.Clone(record.Session.Commits), CommitSHAs: slices.Clone(record.Session.CommitSHAs),
 			PullRequests:     record.Session.PullRequests,
-			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: cloneString(record.Session.DeclaredGoal),
+			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: session.ClonePointer(record.Session.DeclaredGoal),
 			DetailsIncomplete: record.Session.DetailsIncomplete,
 		},
 	}
@@ -307,8 +307,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	}
 	for _, item := range record.Session.Subagents {
 		subagent := session.Subagent{
-			ID: item.ID, Name: item.Name, Model: cloneString(item.Model), Status: item.Status, Task: item.Task,
-			Result: item.Result, DurationMs: cloneInt(item.DurationMs), SpawnedAtTurn: cloneInt(item.SpawnedAtTurn),
+			ID: item.ID, Name: item.Name, Model: session.ClonePointer(item.Model), Status: item.Status, Task: item.Task,
+			Result: item.Result, DurationMs: session.ClonePointer(item.DurationMs), SpawnedAtTurn: session.ClonePointer(item.SpawnedAtTurn),
 			UnattributedTokens: tokensFromUnattributed(item.UnattributedTokens, false),
 			ToolUses:           item.ToolUses, Tokens: tokensFromUsage(item.Usage, false), Cost: optionalDollars(item.CostMicroUSD),
 		}
@@ -316,7 +316,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			subagent.Commands = make([]session.SubagentCommand, 0, len(item.Commands))
 		}
 		for _, command := range item.Commands {
-			subagent.Commands = append(subagent.Commands, session.SubagentCommand{Label: command.Label, Command: command.Command, Output: cloneString(command.Output)})
+			subagent.Commands = append(subagent.Commands, session.SubagentCommand{Label: command.Label, Command: command.Command, Output: session.ClonePointer(command.Output)})
 		}
 		value.Subagents = append(value.Subagents, subagent)
 	}
@@ -334,7 +334,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			Turn: item.Turn, Category: item.Category, Description: item.Description, Answer: item.Answer,
 			SubagentID: item.SubagentID, Time: item.TimeMs,
 			SourceEntryID: item.SourceEntryID, ParentEntryID: item.ParentEntryID, BranchID: item.BranchID,
-			Inherited: cloneBool(item.Inherited), Active: cloneBool(item.Active), ContextSelected: cloneBool(item.ContextSelected), ContextDescription: cloneString(item.ContextDescription),
+			Inherited: session.ClonePointer(item.Inherited), Active: session.ClonePointer(item.Active), ContextSelected: session.ClonePointer(item.ContextSelected), ContextDescription: session.ClonePointer(item.ContextDescription),
 		})
 	}
 	if record.Session.FileEdits != nil {
@@ -360,8 +360,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	}
 	if record.Session.Synthesis != nil {
 		value.Synthesis = &session.SessionSynthesis{
-			Goals: cloneSlice(record.Session.Synthesis.Goals), Outcome: record.Session.Synthesis.Outcome,
-			KeyDecisions: cloneSlice(record.Session.Synthesis.KeyDecisions), NextStep: record.Session.Synthesis.NextStep,
+			Goals: slices.Clone(record.Session.Synthesis.Goals), Outcome: record.Session.Synthesis.Outcome,
+			KeyDecisions: slices.Clone(record.Session.Synthesis.KeyDecisions), NextStep: record.Session.Synthesis.NextStep,
 		}
 	}
 	return value, nil
@@ -480,8 +480,8 @@ func cloneParsedFamilyContext(ctx context.Context, parsed []*vendors.ParsedSessi
 			copy.Spawns[key] = spawn
 		}
 		copy.RecordedModelCosts = maps.Clone(item.RecordedModelCosts)
-		copy.Commands = cloneSlice(item.Commands)
-		copy.StatusHint = cloneString(item.StatusHint)
+		copy.Commands = slices.Clone(item.Commands)
+		copy.StatusHint = session.ClonePointer(item.StatusHint)
 		if item.RecordedCost != nil {
 			cost := *item.RecordedCost
 			copy.RecordedCost = &cost
@@ -512,33 +512,6 @@ func optionalDollars(value *int64) *float64 {
 	dollars := dollars(*value)
 	return &dollars
 }
-func cloneString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	copy := *value
-	return &copy
-}
-func cloneInt(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	copy := *value
-	return &copy
-}
-func cloneBool(value *bool) *bool {
-	if value == nil {
-		return nil
-	}
-	copy := *value
-	return &copy
-}
-func cloneSlice[T any](value []T) []T {
-	if value == nil {
-		return nil
-	}
-	return append(make([]T, 0, len(value)), value...)
-}
 
 // cloneOutputs deep-copies command outputs. A session without commands omits
 // the field, because the portable record rejects an empty array there.
@@ -548,7 +521,7 @@ func cloneOutputs(outputs []*string, commands int) []*string {
 	}
 	cloned := make([]*string, len(outputs))
 	for i, output := range outputs {
-		cloned[i] = cloneString(output)
+		cloned[i] = session.ClonePointer(output)
 	}
 	return cloned
 }
