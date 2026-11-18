@@ -221,7 +221,7 @@ func main() {
 	if err := ensurePiExtensionIfDetected(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
-	if err := opencode.EnsurePlugin(); err != nil {
+	if err := opencode.EnsurePlugin(context.Background()); err != nil {
 		log.Printf("install OpenCode coSlash plugin: %v", err)
 	}
 	settingsState := settingsStore.State()

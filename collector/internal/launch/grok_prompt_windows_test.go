@@ -11,7 +11,7 @@ import (
 func TestGrokWindowsPromptFileAndResume(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, prompt := range []string{"fix the bug\n'$(private)'", ""} {
-		command, path, err := cliCommandWithPrompt(vendors.AgentGrok, "", NewSession, "private prior notes", prompt)
+		command, path, err := cliCommand(t.Context(), vendors.AgentGrok, "", NewSession, "private prior notes", prompt)
 		if err != nil {
 			t.Fatal(err)
 		}

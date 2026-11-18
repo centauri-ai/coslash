@@ -55,7 +55,7 @@ func TestCaptureFamilyAcceptsRootAndChildrenInBothSessionTables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	capture, err := CaptureFamilyContext(t.Context(), "ses_z_root")
+	capture, err := CaptureFamily(t.Context(), "ses_z_root")
 	if err != nil {
 		t.Fatalf("capture = %v, want the family that the list path accepts", err)
 	}

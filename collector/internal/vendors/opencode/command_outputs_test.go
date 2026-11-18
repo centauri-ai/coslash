@@ -115,7 +115,7 @@ func TestV2CommandOutputs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, skipped, err := load(db, activeFamiliesQuery)
+	parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery)
 	if err != nil || len(skipped) != 0 || len(parsed) != 1 {
 		t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
 	}
@@ -174,7 +174,7 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 	current := opencodeTestParseCache{}
 	vendors.SetParseCache(current)
 	t.Cleanup(func() { vendors.SetParseCache(nil) })
-	if parsed, _, err := load(db, activeFamiliesQuery); err != nil || len(parsed) != 1 || len(parsed[0].Session.PullRequestLinks) != 1 {
+	if parsed, _, err := load(t.Context(), db, activeFamiliesQuery); err != nil || len(parsed) != 1 || len(parsed[0].Session.PullRequestLinks) != 1 {
 		t.Fatalf("first parse = %#v, %v", parsed, err)
 	}
 	stale := opencodeTestParseCache{}
@@ -191,7 +191,7 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 		stale[key] = payload
 	}
 	vendors.SetParseCache(stale)
-	parsed, _, err := load(db, activeFamiliesQuery)
+	parsed, _, err := load(t.Context(), db, activeFamiliesQuery)
 	if err != nil || len(parsed) != 1 || len(parsed[0].Session.PullRequestLinks) != 1 || parsed[0].Session.PullRequests != 1 {
 		t.Fatalf("entry cached before PR links was not reparsed: %#v, %v", parsed, err)
 	}

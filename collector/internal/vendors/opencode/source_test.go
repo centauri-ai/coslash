@@ -39,7 +39,7 @@ func TestListAndExactFamilyUseSameMemberOrder(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	listed, _, err := CollectContext(context.Background(), 0)
+	listed, _, err := Collect(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestCollectionDistinguishesUnavailableLivenessFromNoLiveProcess(t *testing.
 	t.Cleanup(func() { loadProcessesContext = original })
 	for _, processErr := range []error{nil, errors.New("process enumeration failed")} {
 		loadProcessesContext = func(context.Context) ([]tuiProcess, error) { return nil, processErr }
-		parsed, metadata, err := CollectContext(context.Background(), 0)
+		parsed, metadata, err := Collect(context.Background(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}

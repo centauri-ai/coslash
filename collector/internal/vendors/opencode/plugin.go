@@ -34,14 +34,14 @@ var (
 	pluginInstallation    sync.Mutex
 )
 
-func EnsurePlugin() error {
+func EnsurePlugin(ctx context.Context) error {
 	pluginInstallation.Lock()
 	defer pluginInstallation.Unlock()
 	path, err := pluginPath()
 	if err != nil {
 		return err
 	}
-	return installPlugin(filepath.Dir(path))
+	return installPlugin(ctx, filepath.Dir(path))
 }
 
 type PluginHealth struct {
@@ -51,7 +51,7 @@ type PluginHealth struct {
 	Err             error
 }
 
-func PluginDiagnostics() PluginHealth {
+func PluginDiagnostics(ctx context.Context) PluginHealth {
 	path, err := pluginPath()
 	if err != nil {
 		return PluginHealth{Err: err}
@@ -65,7 +65,7 @@ func PluginDiagnostics() PluginHealth {
 		health.Err = err
 		return health
 	}
-	wanted, err := managedPluginSource()
+	wanted, err := managedPluginSource(ctx)
 	if err != nil {
 		health.Err = err
 		return health
@@ -80,13 +80,13 @@ func PluginDiagnostics() PluginHealth {
 		health.Err = err
 		return health
 	}
-	processes, err := listTUIProcesses()
+	processes, err := listTUIProcesses(ctx)
 	if err != nil {
 		health.Err = fmt.Errorf("list OpenCode processes: %w", err)
 		return health
 	}
 	for _, process := range processes {
-		if processWorkingDirectory(process.pid) != "" && process.startedAt < info.ModTime().UnixMilli() {
+		if processWorkingDirectory(ctx, process.pid) != "" && process.startedAt < info.ModTime().UnixMilli() {
 			health.RestartRequired = true
 			break
 		}
@@ -106,8 +106,8 @@ func pluginPath() (string, error) {
 	return filepath.Join(root, "opencode", "plugins", pluginName), nil
 }
 
-func installPlugin(directory string) error {
-	source, err := managedPluginSource()
+func installPlugin(ctx context.Context, directory string) error {
+	source, err := managedPluginSource(ctx)
 	if err != nil {
 		return err
 	}
@@ -152,8 +152,8 @@ func installPluginSource(directory string, source []byte) error {
 	return removeManagedLegacyPlugin(directory)
 }
 
-func managedPluginSource() ([]byte, error) {
-	version, err := detectOpenCodeVersion(context.Background())
+func managedPluginSource(ctx context.Context) ([]byte, error) {
+	version, err := detectOpenCodeVersion(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("detect OpenCode version: %w", err)
 	}
@@ -190,9 +190,7 @@ func openCodeMajor(version string) int {
 	return 0
 }
 
-func CLIMajorVersion() (int, error) { return cliMajorVersion(context.Background()) }
-
-func cliMajorVersion(ctx context.Context) (int, error) {
+func CLIMajorVersion(ctx context.Context) (int, error) {
 	version, err := detectOpenCodeVersion(ctx)
 	if err != nil {
 		return 0, err

@@ -18,7 +18,7 @@ func TestLiveCandidatesIncludeV2AndKeepLegacyWithoutDuplicateMessages(t *testing
 			t.Fatal(err)
 		}
 	}
-	candidates, err := loadLiveCandidatesContext(context.Background(), db)
+	candidates, err := loadLiveCandidates(context.Background(), db)
 	if err != nil || len(candidates) != 1 || candidates[0].id != "shared" || candidates[0].createdAt != 100 ||
 		len(candidates[0].userMessages) != 1 || candidates[0].userMessages[0] != 150 {
 		t.Fatalf("v2 candidates = %#v, error = %v", candidates, err)
@@ -38,7 +38,7 @@ func TestLiveCandidatesIncludeV2AndKeepLegacyWithoutDuplicateMessages(t *testing
 			t.Fatal(err)
 		}
 	}
-	candidates, err = loadLiveCandidatesContext(context.Background(), db)
+	candidates, err = loadLiveCandidates(context.Background(), db)
 	if err != nil || len(candidates) != 2 {
 		t.Fatalf("mixed candidates = %#v, error = %v", candidates, err)
 	}

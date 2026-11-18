@@ -37,7 +37,7 @@ func TestGrokSendWithoutMessageKeepsTheHandoff(t *testing.T) {
 	}
 	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	command, path, err := cliCommandWithPrompt(vendors.AgentGrok, "", NewSession, "private prior notes", "")
+	command, path, err := cliCommand(t.Context(), vendors.AgentGrok, "", NewSession, "private prior notes", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode, vendors.AgentCursor, vendors.AgentGrok} {
 		t.Run(agent, func(t *testing.T) {
-			command, handoffPath, err := cliCommandWithPrompt(agent, "", NewSession, "private prior notes", "fix it")
+			command, handoffPath, err := cliCommand(t.Context(), agent, "", NewSession, "private prior notes", "fix it")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -138,7 +138,7 @@ func TestCLICommandWithPromptStopsOptionParsing(t *testing.T) {
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {
 		for _, handoff := range []string{"", "context"} {
 			t.Run(agent+handoff, func(t *testing.T) {
-				command, handoffPath, err := cliCommandWithPrompt(
+				command, handoffPath, err := cliCommand(t.Context(),
 					agent, "", NewSession, handoff, "--dangerously-skip-permissions",
 				)
 				if err != nil {
@@ -162,7 +162,7 @@ func TestClaudeMultilineRequestWaitsBeforeSubmitting(t *testing.T) {
 	}
 	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	command, path, err := cliCommandWithPrompt(vendors.AgentClaude, "", NewSession, "prior notes", "coSlash handoff ID: test\n\nrequest")
+	command, path, err := cliCommand(t.Context(), vendors.AgentClaude, "", NewSession, "prior notes", "coSlash handoff ID: test\n\nrequest")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestSecurePromptRequiresExpect(t *testing.T) {
 }
 
 func TestFirstPromptRejectsResume(t *testing.T) {
-	if _, _, err := cliCommandWithPrompt(vendors.AgentClaude, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "", "request"); err == nil {
+	if _, _, err := cliCommand(t.Context(), vendors.AgentClaude, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "", "request"); err == nil {
 		t.Fatal("local resume accepted first prompt")
 	}
 	if err := RemoteTerminalWithPrompt(context.Background(), "terminal", "agent-box", vendors.AgentClaude, "/work", "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "", "request"); err == nil {

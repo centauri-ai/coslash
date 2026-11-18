@@ -496,7 +496,7 @@ func KeepCached(ctx context.Context, snapshot *Snapshot) func(agent, identity st
 			keep[key{file.Agent, file.Path}] = true
 		}
 	}
-	families, err := opencode.FamiliesContext(ctx)
+	families, err := opencode.Families(ctx)
 	for _, family := range families {
 		keep[key{vendors.AgentOpenCode, family.ID}] = true
 	}
