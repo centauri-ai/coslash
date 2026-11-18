@@ -89,8 +89,6 @@ older clients, but there is no separate full-revision action in the normal UI.
 ## Contracts and privacy boundary
 
 - `collector/snapshot/v1`: canonical `session-snapshot/v1` schema and fixtures.
-- `collector/internal/sessionpreview`: exact review document presented before
-  an upload.
 - `collector/internal/sessionexport`: allow-listed metadata-only serialization.
 - `collector/sessionbackup/v1`: canonical complete logical-family manifest,
   artifact taxonomy, hashing, fixtures, and verifier.
