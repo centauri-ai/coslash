@@ -228,7 +228,6 @@ function BoardCard({
       <button
         type="button"
         className="group-hover:text-coslash-accent line-clamp-2 w-full cursor-pointer pt-2 text-left text-[13px] leading-[1.35] font-semibold break-words transition-colors"
-        onClick={onSelect}
       >
         {sessionDisplayTitle(session)}
       </button>
