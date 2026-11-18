@@ -33,6 +33,11 @@ import { DirectedHandoffDialog } from '@/pages/coslash/components/DirectedHandof
 import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
 import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
 import {
+  branchDriftReadiness,
+  contextFillReadiness,
+  treeStaleReadiness,
+} from '@/pages/coslash/components/session-inspector/readiness';
+import {
   SessionId,
   SessionName,
   SessionVendorBadge,
@@ -60,7 +65,6 @@ import {
   formatDuration,
   formatEstimatedCost,
   formatTimeAgo,
-  formatTokens,
 } from '@/pages/coslash/lib/format';
 import { copyHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
@@ -97,7 +101,7 @@ import {
   snapshotMayBeStale,
   type DetailErrorKind,
 } from '@/pages/coslash/lib/session-detail';
-import { HOUR, promptCacheTiming } from '@/pages/coslash/lib/time';
+import { promptCacheTiming } from '@/pages/coslash/lib/time';
 import { SkillsSection } from './SkillsSection';
 
 export function SnapshotStalenessNotice() {
@@ -198,49 +202,6 @@ export function DetailLoadError({
       )}
     </div>
   );
-}
-
-function contextFillReadiness(detail: SessionDetail): { value: string; tone: string } | null {
-  if (detail.contextTokens == null) return null;
-  if (detail.contextWindow == null) {
-    return {
-      value: `${formatTokens(detail.contextTokens)} used - window not available`,
-      tone: 'text-coslash-muted',
-    };
-  }
-  const pct = Math.round((detail.contextTokens / detail.contextWindow) * 100);
-  return { value: `${pct}% of ${formatTokens(detail.contextWindow)}`, tone: fillTone(pct) };
-}
-
-function branchDriftReadiness(git: SessionDetail['git']): { value: string; tone: string } | null {
-  if (git == null) return null;
-  return {
-    value: `${git.ahead} ahead, ${git.behind} behind ${git.baseBranch}.`,
-    tone: driftTone(git.behind),
-  };
-}
-
-function treeStaleReadiness(lastEditAt: number | null): { value: string; tone: string } | null {
-  if (lastEditAt == null) return null;
-  return { value: `Last edit ${formatTimeAgo(lastEditAt)}.`, tone: staleTone(Date.now() - lastEditAt) };
-}
-
-function fillTone(pct: number): string {
-  if (pct >= 85) return 'text-danger-fg';
-  if (pct >= 65) return 'text-warning-fg';
-  return 'text-success-fg';
-}
-
-function driftTone(behind: number): string {
-  if (behind > 15) return 'text-danger-fg';
-  if (behind > 5) return 'text-warning-fg';
-  return 'text-success-fg';
-}
-
-function staleTone(ageMs: number): string {
-  if (ageMs > 72 * HOUR) return 'text-danger-fg';
-  if (ageMs > 3 * HOUR) return 'text-warning-fg';
-  return 'text-success-fg';
 }
 
 function SectionLabel({ title, note }: { title: string; note?: string }) {
