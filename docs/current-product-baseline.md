@@ -76,9 +76,6 @@ All routes are loopback-only and protected by the process access-token guard.
 | `GET /api/sync/status` | Read content-free Hub sync state and per-session membership, protected by the Local access token |
 | `POST /api/remote/helper/setup` | Install or update the managed remote helper |
 | `GET /api/diagnostics` | Read content-free build/source/CLI/storage diagnostics |
-| `GET /api/hub/destination` | Read pairing and destination readiness |
-| `POST /api/hub/pairings` | Start device pairing |
-| `POST /api/hub/pairings/{id}/poll` | Complete pairing and store the device credential |
 | `POST /api/hub/onboarding/activate` | Consume a Hub launch intent through the token-guarded Local API and start pairing |
 | `POST /api/hub/onboarding/check-in` | Retry a content-free Hub device check-in from a user-clicked Hub recovery link |
 | `POST /api/hub/update` | Request a checksum-verified self-update from a user-clicked Hub action, restricted to the matching Hub and Local install ID |
