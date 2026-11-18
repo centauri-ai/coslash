@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
@@ -392,27 +393,7 @@ func writeStoredHubURL(raw string) error {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(home, ".hub-url-*")
-	if err != nil {
-		return err
-	}
-	path := temporary.Name()
-	defer os.Remove(path)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.WriteString(parsed.String() + "\n"); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(path, filepath.Join(home, storedHubURLFilename)); err != nil {
-		return err
-	}
-	return nil
+	return atomicfile.Write(filepath.Join(home, storedHubURLFilename), []byte(parsed.String()+"\n"), 0o600, nil)
 }
 
 func hubOrigin(raw string) (string, error) {
