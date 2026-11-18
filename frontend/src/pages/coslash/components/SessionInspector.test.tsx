@@ -9,11 +9,13 @@ import {
   SummaryOnlyBanner,
 } from '@/pages/coslash/components/session-inspector/DetailStatus';
 import {
+  SessionInspectorTitle,
+  SessionModelUsage,
+} from '@/pages/coslash/components/session-inspector/InspectorHeader';
+import {
   DigestSection,
   GrokFreshSessionControl,
   inspectorWidthForKey,
-  SessionInspectorTitle,
-  SessionModelUsage,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
