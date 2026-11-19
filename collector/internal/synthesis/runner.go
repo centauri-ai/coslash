@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 	"github.com/centauri-ai/coslash/collector/internal/grokcli"
@@ -25,7 +26,7 @@ const (
 	maxIntermediateKeyDecisions = 12
 	maxFinalKeyDecisions        = 8
 	grokScratchPrefix           = ".grok-"
-	synthesisSchema             = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":12},"nextStep":{"type":"string"}},"required":["goals","outcome","keyDecisions","nextStep"],"additionalProperties":false}`
+	synthesisSchema             = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"decisions":{"type":"array","items":{"anyOf":[{"type":"object","properties":{"text":{"type":"string"},"why":{"type":"string"},"alternative":{"type":"string"},"byYou":{"type":"boolean"},"evidence":{"type":"array","items":{"type":"object","properties":{"turn":{"type":"integer"},"quote":{"type":"string","maxLength":160}},"required":["turn","quote"],"additionalProperties":false},"minItems":1,"maxItems":3}},"required":["text","why","alternative","byYou","evidence"],"additionalProperties":false},{"type":"object","properties":{"text":{"type":"string"},"why":{"type":"string"},"alternative":{"type":"string"},"byYou":{"type":"boolean"},"from":{"type":"array","items":{"type":"string"}}},"required":["text","why","alternative","byYou","from"],"additionalProperties":false}]},"maxItems":5},"designDoc":{"type":"string"},"nextStep":{"type":"string"}},"required":["goals","outcome","decisions","designDoc","nextStep"],"additionalProperties":false}`
 )
 
 const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
@@ -611,9 +612,47 @@ func parseGrokSynthesis(data []byte) (session.SessionSynthesis, error) {
 
 func parseSynthesis(data []byte) (session.SessionSynthesis, error) {
 	result := stripJSONFence(string(data))
-	var synthesis session.SessionSynthesis
-	if err := json.Unmarshal([]byte(result), &synthesis); err != nil {
+	if err := requireSynthesisFields([]byte(result)); err != nil {
+		return session.SessionSynthesis{}, err
+	}
+	var raw struct {
+		Goals     []string          `json:"goals"`
+		Outcome   string            `json:"outcome"`
+		NextStep  string            `json:"nextStep"`
+		DesignDoc string            `json:"designDoc"`
+		Decisions []json.RawMessage `json:"decisions"`
+	}
+	if err := json.Unmarshal([]byte(result), &raw); err != nil {
 		return session.SessionSynthesis{}, fmt.Errorf("decode synthesis result: %w", err)
+	}
+	synthesis := session.SessionSynthesis{Goals: raw.Goals, Outcome: raw.Outcome, NextStep: raw.NextStep, DesignDoc: raw.DesignDoc, DecisionsVersion: DecisionsVersion, KeyDecisions: []string{}}
+	for _, data := range raw.Decisions {
+		var decision struct {
+			Text        *string `json:"text"`
+			Why         *string `json:"why"`
+			Alternative *string `json:"alternative"`
+			ByYou       *bool   `json:"byYou"`
+			Evidence    []struct {
+				Turn  int    `json:"turn"`
+				Quote string `json:"quote"`
+			} `json:"evidence"`
+			From []string `json:"from"`
+		}
+		if err := json.Unmarshal(data, &decision); err != nil || decision.Text == nil || decision.Why == nil || decision.Alternative == nil || decision.ByYou == nil || (decision.From == nil && (len(decision.Evidence) < 1 || len(decision.Evidence) > 3)) || (decision.From != nil && decision.Evidence != nil) {
+			continue
+		}
+		d := session.Decision{Text: *decision.Text, Why: *decision.Why, Alternative: *decision.Alternative, ByYou: *decision.ByYou, From: decision.From, Evidence: []session.Evidence{}}
+		invalid := false
+		for _, e := range decision.Evidence {
+			if e.Turn < 1 || utf8.RuneCountInString(e.Quote) > 160 {
+				invalid = true
+				break
+			}
+			d.Evidence = append(d.Evidence, session.Evidence{Turn: e.Turn, Quote: e.Quote})
+		}
+		if !invalid {
+			synthesis.Decisions = append(synthesis.Decisions, d)
+		}
 	}
 	if err := normalize(&synthesis); err != nil {
 		return session.SessionSynthesis{}, err
@@ -635,6 +674,7 @@ func stripJSONFence(value string) string {
 }
 
 func normalize(synthesis *session.SessionSynthesis) error {
+	normalizeDecisions(synthesis)
 	synthesis.Goals = dedupedLimited(synthesis.Goals, 4, func(goal string) string {
 		return concise(goal, 200)
 	})

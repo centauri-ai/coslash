@@ -306,17 +306,26 @@ func sessionWithJSONCollections(value session.Session) session.Session {
 	if value.FileEdits == nil {
 		value.FileEdits = []session.FileEdit{}
 	}
-	if value.Synthesis != nil {
-		synthesis := *value.Synthesis
-		if synthesis.Goals == nil {
-			synthesis.Goals = []string{}
-		}
-		if synthesis.KeyDecisions == nil {
-			synthesis.KeyDecisions = []string{}
-		}
-		value.Synthesis = &synthesis
-	}
+	value.Synthesis = synthesisWithJSONCollections(value.Synthesis)
 	return value
+}
+
+func synthesisWithJSONCollections(value *session.SessionSynthesis) *session.SessionSynthesis {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	if result.Goals == nil {
+		result.Goals = []string{}
+	}
+	if result.KeyDecisions == nil {
+		result.KeyDecisions = []string{}
+	}
+	result.Decisions = append([]session.Decision{}, value.Decisions...)
+	for index := range result.Decisions {
+		result.Decisions[index].Evidence = append([]session.Evidence{}, value.Decisions[index].Evidence...)
+	}
+	return &result
 }
 
 func parseSourceID(value string) (string, error) {

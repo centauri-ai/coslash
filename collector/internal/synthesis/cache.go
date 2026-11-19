@@ -184,7 +184,7 @@ func (c *Cache) Load(agent, id string) (Record, error) {
 	}
 	key := cacheKey{agent: agent, id: id}
 	if value, ok := c.records.Load(key); ok {
-		return value.(Record), nil
+		return cloneRecord(value.(Record)), nil
 	}
 	if c.missingRecords.contains(key) || c.missingAgents.contains(agent) {
 		return Record{}, os.ErrNotExist
@@ -209,7 +209,8 @@ func (c *Cache) Load(agent, id string) (Record, error) {
 	if (record.SessionID != "" && record.SessionID != id) || (record.Agent != "" && record.Agent != agent) || (agent == "pi" && (record.SessionID != id || record.Agent != agent)) {
 		return Record{}, fmt.Errorf("synthesis cache identity mismatch")
 	}
-	c.records.Store(key, record)
+	normalizeCachedDecisions(&record.Synthesis)
+	c.records.Store(key, cloneRecord(record))
 	return record, nil
 }
 
@@ -226,6 +227,8 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	if err := c.protectDirectoryTree(directory); err != nil {
 		return err
 	}
+	record = cloneRecord(record)
+	normalizeCachedDecisions(&record.Synthesis)
 	record.Agent = agent
 	record.SessionID = id
 	data, err := json.Marshal(record)
@@ -325,4 +328,32 @@ func validCachePathComponent(value string) bool {
 		}
 	}
 	return true
+}
+
+func cloneRecord(record Record) Record {
+	cloned := session.Clone(&session.Session{SessionDetails: session.SessionDetails{Synthesis: &record.Synthesis}})
+	record.Synthesis = *cloned.Synthesis
+	return record
+}
+
+func normalizeCachedDecisions(result *session.SessionSynthesis) {
+	normalizeDecisions(result)
+	if result.DecisionsVersion == "" {
+		return
+	}
+	if result.DesignDoc != "" {
+		result.Decisions = result.Decisions[:min(len(result.Decisions), 3)]
+	}
+	result.KeyDecisions = []string{}
+	for i := range result.Decisions {
+		d := &result.Decisions[i]
+		d.From = nil
+		d.Cited = len(d.Evidence) > 0 && d.Cited
+		if !d.Cited {
+			d.ByYou = false
+		}
+		if d.Cited {
+			result.KeyDecisions = append(result.KeyDecisions, d.Text)
+		}
+	}
 }

@@ -119,7 +119,10 @@ synthesis, it passes a bounded set of facts
 to your selected local CLI. These facts can include prompts, recaps, todos,
 filenames, commands, and commit text. Supported CLIs are Claude Code, Codex,
 OpenCode, Cursor, Pi, and Grok Build. The CLI uses its existing authentication.
-The selected provider's settings and terms apply.
+The selected provider's settings and terms apply. New cached summaries also hold
+short quotes from the supplied timeline as decision evidence. These structured
+decisions and quotes stay local; they are not added to portable records or the
+backup spool's four-field synthesis artifact.
 
 OpenCode has no ephemeral mode, so coSlash points each run at its own scratch database under `~/.coslash/synthesis`, discarded once the run ends. Synthesis runs never enter your own OpenCode history.
 

@@ -976,3 +976,27 @@ func TestSessionRoundTripPreservesPullRequestLinks(t *testing.T) {
 		t.Fatalf("a count without links must stay valid: %#v, %v", record.Session, err)
 	}
 }
+
+func TestStructuredDecisionsRemainLocalEnrichment(t *testing.T) {
+	value := session.Session{Agent: "codex", ID: "local-decisions", StartedAt: 1, LastActivityTime: 2,
+		SessionDetails: session.SessionDetails{Synthesis: &session.SessionSynthesis{
+			Goals: []string{"Keep compatibility"}, Outcome: "done", KeyDecisions: []string{"Use one store"}, NextStep: "ship",
+		}},
+	}
+	baseline, err := FromSession("local", value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value.Synthesis.DecisionsVersion = "decisions-2026-11-v1"
+	value.Synthesis.DesignDoc = "docs/plan.md"
+	value.Synthesis.Decisions = []session.Decision{{Text: "Use one store", Why: "Atomic updates", Cited: true,
+		Evidence: []session.Evidence{{Entry: 0, Turn: 1, Quote: "keep all updates atomic"}},
+	}}
+	enriched, err := FromSession("local", value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(baseline, enriched) {
+		t.Fatal("local structured decisions changed the portable record")
+	}
+}

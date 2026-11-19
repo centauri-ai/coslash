@@ -1,0 +1,68 @@
+[
+  {
+    "name": "exact",
+    "text": "Keep retries inside the storage adapter",
+    "quote": "retries inside the storage adapter",
+    "match": true
+  },
+  {
+    "name": "punctuation",
+    "text": "Use **NFKC** \u2014 then \u2018fold\u2019 `quotes`",
+    "quote": "use NFKC - then 'fold' quotes",
+    "match": true
+  },
+  {
+    "name": "unicode compatibility",
+    "text": "\uff35\uff33\uff25 full width text here",
+    "quote": "use full width text here",
+    "match": true
+  },
+  {
+    "name": "whitespace",
+    "text": "keep\n retries  inside\tthe adapter",
+    "quote": "keep retries inside the adapter",
+    "match": true
+  },
+  {
+    "name": "wrong words",
+    "text": "keep retries inside the adapter",
+    "quote": "move retries into the caller",
+    "match": false
+  },
+  {
+    "name": "case folding",
+    "text": "KEEP RETRIES INSIDE THE ADAPTER",
+    "quote": "keep retries inside the adapter",
+    "match": true
+  },
+  {
+    "name": "typographic apostrophe",
+    "text": "Keep the user\u2019s chosen adapter here",
+    "quote": "keep the user's chosen adapter here",
+    "match": true
+  },
+  {
+    "name": "three words rejected",
+    "text": "keep retries here",
+    "quote": "keep retries here",
+    "match": false
+  },
+  {
+    "name": "twenty-one words within stored bound",
+    "text": "word word word word word word word word word word word word word word word word word word word word word",
+    "quote": "word word word word word word word word word word word word word word word word word word word word word",
+    "match": true
+  },
+  {
+    "name": "twenty-six words within stored bound",
+    "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word",
+    "quote": "word word word word word word word word word word word word word word word word word word word word word word word word word word",
+    "match": true
+  },
+  {
+    "name": "over stored rune bound",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx a b c",
+    "quote": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx a b c",
+    "match": false
+  }
+]
