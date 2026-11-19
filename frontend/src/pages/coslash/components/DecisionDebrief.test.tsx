@@ -123,3 +123,37 @@ it('clears a hiding filter, scrolls the full digest index, and shows the origina
     vi.unstubAllGlobals();
   }
 });
+
+it('finds the cited row when the stored index is shifted, and keeps a filter when the citation clears', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const mount = document.createElement('div');
+  document.body.append(mount);
+  const root = createRoot(mount);
+  const shifted = decodeSession({
+    sourceId: 'local',
+    agent: 'claude',
+    id: 'shifted',
+    digest: [
+      { category: 'user', turn: 1, description: 'Starting the work' },
+      { category: 'todos', turn: 1, description: 'Plan the change' },
+      { category: 'user', turn: 2, description: 'Please keep the complete source history' },
+    ],
+  });
+  try {
+    await act(async () => root.render(<DigestSection detail={shifted} evidence={evidence} />));
+    expect(mount.querySelector('[tabindex="-1"]')?.getAttribute('data-entry')).toBe('2');
+    expect(mount.textContent).not.toContain('Cited quote:');
+    await act(async () =>
+      [...mount.querySelectorAll('button')]
+        .find((button) => button.textContent?.startsWith('USER TURN'))!
+        .click(),
+    );
+    await act(async () => root.render(<DigestSection detail={shifted} evidence={null} />));
+    expect(mount.querySelector('[data-entry="1"]')).toBeNull();
+    expect(mount.querySelector('[tabindex="-1"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    mount.remove();
+    vi.unstubAllGlobals();
+  }
+});

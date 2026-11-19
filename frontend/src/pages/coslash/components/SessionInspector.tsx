@@ -1480,6 +1480,21 @@ function normalizeEvidenceText(text: string): string {
     .trim();
 }
 
+// A summary started from GET /api/synthesis numbers entries without subagent
+// rows, so the stored index can be shifted in the composed digest shown here.
+function citedEntryIndex(digest: DigestEntry[], evidence: DecisionEvidence): number {
+  const quote = normalizeEvidenceText(evidence.quote);
+  const cites = (entry: DigestEntry | undefined) =>
+    entry?.turn === evidence.turn &&
+    entry.contextSelected !== false &&
+    normalizeEvidenceText(`${entry.contextDescription ?? entry.description} ${entry.answer ?? ''}`).includes(
+      quote,
+    );
+  if (cites(digest[evidence.entry])) return evidence.entry;
+  const match = digest.findIndex(cites);
+  return match >= 0 ? match : evidence.entry;
+}
+
 export function DigestSection({
   detail,
   evidence,
@@ -1496,14 +1511,15 @@ export function DigestSection({
   } | null>(null);
   if (lastEvidence !== evidence) {
     setLastEvidence(evidence);
-    setCategoryFilter(null);
+    if (evidence != null) setCategoryFilter(null);
   }
+  const citedIndex = evidence == null ? null : citedEntryIndex(detail.digest, evidence);
   useLayoutEffect(() => {
-    if (evidence == null) return;
-    const row = containerRef.current?.querySelector<HTMLElement>(`[data-entry="${evidence.entry}"]`);
+    if (citedIndex == null) return;
+    const row = containerRef.current?.querySelector<HTMLElement>(`[data-entry="${citedIndex}"]`);
     row?.scrollIntoView?.({ block: 'center' });
     row?.focus({ preventScroll: true });
-  }, [evidence]);
+  }, [evidence, citedIndex]);
   const digest = detail.digest;
   if (digest.length === 0)
     return detail.detailsIncomplete ? (
@@ -1549,15 +1565,13 @@ export function DigestSection({
   }
 
   const rows = visible.map((entry, index) => {
+    const cited = citedIndex === indexed[index].fullIndex;
     return (
       <div
         key={indexed[index].fullIndex}
         data-entry={indexed[index].fullIndex}
-        tabIndex={evidence?.entry === indexed[index].fullIndex ? -1 : undefined}
-        className={cn({
-          'bg-coslash-soft rounded ring-2 ring-current ring-inset':
-            evidence?.entry === indexed[index].fullIndex,
-        })}
+        tabIndex={cited ? -1 : undefined}
+        className={cn({ 'bg-coslash-soft rounded ring-2 ring-current ring-inset': cited })}
       >
         {startsDayIndices.has(index) && <DateDivider label={formatDigestDateDivider(entry.time!)} />}
         {entry.category === 'subagent' ? (
@@ -1565,7 +1579,8 @@ export function DigestSection({
         ) : (
           <DigestRow entry={entry} endsDay={endsDayIndices.has(index) || index === visible.length - 1} />
         )}
-        {evidence?.entry === indexed[index].fullIndex &&
+        {cited &&
+          evidence &&
           !normalizeEvidenceText(`${entry.description} ${entry.answer ?? ''}`).includes(
             normalizeEvidenceText(evidence.quote),
           ) && (
@@ -1855,7 +1870,6 @@ function InspectorBody({
           <CommandsSection detail={detail} />
           <CommitsAndTodos detail={detail} />
           <DigestSection
-            key={citationKey}
             detail={detail}
             evidence={citation?.key === citationKey ? citation.evidence : null}
           />
