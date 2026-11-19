@@ -979,7 +979,7 @@ func TestSessionRoundTripPreservesPullRequestLinks(t *testing.T) {
 
 func TestLocalSearchEnrichmentExcludedFromPortableRecord(t *testing.T) {
 	s := session.Session{Agent: "claude", ID: "search", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{
-		Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestUser, Description: "display"}},
+		Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestUser, Description: "display", SearchText: "private full prompt"}},
 		Synthesis: &session.SessionSynthesis{Goals: []string{"goal"}, KeyDecisions: []string{"stale"},
 			Records: []session.DecisionRecord{{Kind: "decision", Text: "keep", Status: "decided"}, {Kind: "decision", Text: "proposal", Status: "proposed"}, {Kind: "finding", Text: "found", Status: "applied"}}},
 	}}
@@ -994,7 +994,7 @@ func TestLocalSearchEnrichmentExcludedFromPortableRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.Synthesis.Records != nil {
+	if restored.Digest[0].SearchText != "" || restored.Synthesis.Records != nil {
 		t.Fatal("local enrichment crossed portable boundary")
 	}
 }
