@@ -410,7 +410,9 @@ func TestSessionDetailReportsMissingAndUnreadableLocalStates(t *testing.T) {
 			status: http.StatusNotFound, code: errCodeDetailMissing,
 		},
 		{
-			name: "unreadable", reader: func(context.Context, string, string) (*session.Session, error) { return nil, errors.New("parse failed") },
+			name: "unreadable", reader: func(context.Context, string, string) (*session.Session, error) {
+				return nil, errors.New("parse failed")
+			},
 			status: http.StatusInternalServerError, code: errCodeDetailCorrupt,
 		},
 	} {
