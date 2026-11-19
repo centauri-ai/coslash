@@ -14,6 +14,11 @@
 - When no synthesis runner is configured, coSlash does no synthesis collection work at startup.
 - Synthesis results and synthesis cost accounting are local derived state. They never change portable session records, revisions, snapshots, or backups.
 
+- Local decision records distinguish lasting decisions from findings and retain proposed or superseded status without promoting them into handoff decisions. Only decided/applied decisions populate the legacy portable `keyDecisions`; records and evidence stay Local until Hub accepts the additive contract.
+- A citation is a term-overlap check against the exact selected, bounded digest text rendered in the source prompts. It is not verification of truth, negation, attribution or status. Hidden context and full search text never become citation evidence.
+- The record budget counts selected human digest entries, grows by one per six entries, and caps at eight per kind. Zero records is normal. Existing summaries remain usable regardless of their format version; a prompt upgrade never invalidates their input revision or automatically spends tokens on old sessions.
+- Enforcement: `internal/synthesis/evidence.go`, `TestDecisionEvidenceUsesRenderedSelectedInput`, `TestDecisionBudgetAndLegacy`, and `TestLocalSearchEnrichmentExcludedFromPortableRecord`.
+
 ## Context
 
 Synthesis runs through the CLI account of the user, so each run spends the money and quota of the user. In `v0.0.3-rc.1`, a pristine profile showed synthesis as enabled with a default backend and model. A user who opened Settings and saved for another reason then turned on paid runs without an explicit choice.

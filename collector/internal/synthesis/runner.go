@@ -25,7 +25,7 @@ const (
 	maxIntermediateKeyDecisions = 12
 	maxFinalKeyDecisions        = 8
 	grokScratchPrefix           = ".grok-"
-	synthesisSchema             = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":12},"nextStep":{"type":"string"}},"required":["goals","outcome","keyDecisions","nextStep"],"additionalProperties":false}`
+	synthesisSchema             = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":12},"nextStep":{"type":"string"},"records":{"type":"array","maxItems":32,"items":{"type":"object","properties":{"kind":{"enum":["decision","finding"]},"text":{"type":"string"},"why":{"type":"string"},"alternative":{"type":"string"},"decidedBy":{"enum":["user","agent_confirmed","agent"]},"status":{"enum":["proposed","decided","applied","superseded"]},"area":{"type":"string"},"turns":{"type":"array","items":{"type":"integer"},"maxItems":16}},"required":["kind","text","status","turns"],"additionalProperties":false}}},"required":["goals","outcome","nextStep","records"],"additionalProperties":false}`
 )
 
 const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
@@ -635,6 +635,18 @@ func stripJSONFence(value string) string {
 }
 
 func normalize(synthesis *session.SessionSynthesis) error {
+	if len(synthesis.Records) > 32 {
+		synthesis.Records = synthesis.Records[:32]
+	}
+	for i := range synthesis.Records {
+		r := &synthesis.Records[i]
+		r.Text, r.Why, r.Alternative, r.Area = limited(r.Text, 500), limited(r.Why, 500), limited(r.Alternative, 500), limited(r.Area, 100)
+		if len(r.Turns) > 16 {
+			r.Turns = r.Turns[:16]
+		}
+		r.Cited, r.Evidence = false, nil
+	}
+
 	synthesis.Goals = dedupedLimited(synthesis.Goals, 4, func(goal string) string {
 		return concise(goal, 200)
 	})

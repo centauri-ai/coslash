@@ -413,10 +413,11 @@ func parseOpenCodeObject(text string) (session.SessionSynthesis, error) {
 
 func requireSynthesisFields(data []byte) error {
 	var fields struct {
-		Goals        []*string `json:"goals"`
-		Outcome      *string   `json:"outcome"`
-		KeyDecisions []*string `json:"keyDecisions"`
-		NextStep     *string   `json:"nextStep"`
+		Records      json.RawMessage `json:"records"`
+		Goals        []*string       `json:"goals"`
+		Outcome      *string         `json:"outcome"`
+		KeyDecisions []*string       `json:"keyDecisions"`
+		NextStep     *string         `json:"nextStep"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode synthesis result: %w", err)
@@ -432,7 +433,7 @@ func requireSynthesisFields(data []byte) error {
 	if fields.Outcome == nil {
 		return errors.New("synthesis result has no outcome")
 	}
-	if fields.KeyDecisions == nil {
+	if fields.KeyDecisions == nil && len(fields.Records) == 0 {
 		return errors.New("synthesis result has no key decisions")
 	}
 	for _, decision := range fields.KeyDecisions {

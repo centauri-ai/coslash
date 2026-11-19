@@ -18,12 +18,13 @@ import (
 )
 
 type Record struct {
-	Agent       string                   `json:"agent"`
-	SessionID   string                   `json:"sessionId"`
-	Revision    int64                    `json:"mtime"`
-	Model       string                   `json:"model"`
-	GeneratedAt int64                    `json:"generatedAt"`
-	Synthesis   session.SessionSynthesis `json:"synthesis"`
+	FormatVersion int                      `json:"formatVersion,omitempty"`
+	Agent         string                   `json:"agent"`
+	SessionID     string                   `json:"sessionId"`
+	Revision      int64                    `json:"mtime"`
+	Model         string                   `json:"model"`
+	GeneratedAt   int64                    `json:"generatedAt"`
+	Synthesis     session.SessionSynthesis `json:"synthesis"`
 }
 
 type Cache struct {
@@ -226,6 +227,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	if err := c.protectDirectoryTree(directory); err != nil {
 		return err
 	}
+	record.FormatVersion = 2
 	record.Agent = agent
 	record.SessionID = id
 	data, err := json.Marshal(record)

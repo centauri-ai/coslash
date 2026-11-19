@@ -28,8 +28,8 @@ func Build(value *session.Session) string {
 	lines = append(lines, "# Handoff — "+title, "", "## Objective ("+goalSource+")")
 	lines = appendListOrText(lines, goals)
 	lines = append(lines, "", "## Current state", current)
-	if value.Synthesis != nil && len(value.Synthesis.KeyDecisions) > 0 {
-		lines = appendBullets(append(lines, "", "## Key decisions"), value.Synthesis.KeyDecisions)
+	if value.Synthesis != nil && len(value.Synthesis.DecisionTexts()) > 0 {
+		lines = appendBullets(append(lines, "", "## Key decisions"), value.Synthesis.DecisionTexts())
 	}
 	timelineStart := len(lines)
 	lines = append(lines, "", "## Timeline")

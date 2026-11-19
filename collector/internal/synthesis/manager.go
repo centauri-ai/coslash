@@ -349,7 +349,9 @@ func runSynthesisWithInvocation(ctx context.Context, s *session.Session, record 
 	if s != nil && len(s.Digest) > maxSynthesisDigestItems {
 		return session.SessionSynthesis{}, fmt.Errorf("synthesis digest item limit exceeded: %d entries", len(s.Digest))
 	}
-	inputs := BuildInputs(s)
+	var captured []renderedDigestEntry
+	inputs := buildInputs(s, &captured)
+	evidence := renderedEvidence(captured, inputs)
 	if len(inputs) > maxSourceSynthesisRuns {
 		return session.SessionSynthesis{}, fmt.Errorf("synthesis work limit exceeded: %d source chunks", len(inputs))
 	}
@@ -366,6 +368,7 @@ func runSynthesisWithInvocation(ctx context.Context, s *session.Session, record 
 		if err != nil {
 			return session.SessionSynthesis{}, err
 		}
+		applyRecords(&partial.Synthesis, renderedEvidence(captured, []string{input}), 2*decisionBudget(s))
 		partials = append(partials, partial.Synthesis)
 	}
 	for len(partials) > 1 {
@@ -383,11 +386,13 @@ func runSynthesisWithInvocation(ctx context.Context, s *session.Session, record 
 			if err != nil {
 				return session.SessionSynthesis{}, err
 			}
+			applyRecords(&partial.Synthesis, evidence, decisionBudget(s))
 			merged = append(merged, partial.Synthesis)
 		}
 		partials = merged
 	}
 	result := partials[0]
+	applyRecords(&result, evidence, decisionBudget(s))
 	result.KeyDecisions = result.KeyDecisions[:min(len(result.KeyDecisions), maxFinalKeyDecisions)]
 	return result, nil
 }

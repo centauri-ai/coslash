@@ -2,9 +2,17 @@
 
 coSlash derives goals, outcomes, timelines, and artifacts from transcripts without a model. Optional AI synthesis adds model-generated detail to these debriefs.
 
-Synthesis is off until you enable it and save **Settings**. It uses a local Claude Code, Codex, OpenCode, Cursor, Pi, or Grok Build CLI with that CLI's existing account. Paid models bill that account. Only substantial sessions qualify, and coSlash caches results under `~/.coslash`. See [Data and privacy](data-and-privacy.md#outbound-data) for the input limits and what synthesis sends.
+Synthesis is off until you enable it and save **Settings**. It uses a local Claude Code, Codex, OpenCode, Cursor, Pi, or Grok Build CLI with that CLI's existing account. Paid models bill that account. Background synthesis runs only for substantial sessions; an explicit share request can synthesize a shorter session. coSlash caches results under `~/.coslash`. See [Data and privacy](data-and-privacy.md#outbound-data) for the input limits and what synthesis sends.
 
 The Settings dialog offers a short model list per backend. You can set any model that the selected CLI can reach in `settings.json`, including a model behind an API proxy such as `ANTHROPIC_BASE_URL` or a third-party provider.
+
+## Decisions and findings
+
+New synthesis results separate lasting decisions from findings, with optional reasons, alternatives, status, and cited turns. The per-kind budget grows by one per six selected human inputs, capped at eight; returning zero is normal. Proposed and superseded records remain labelled in the debrief, but only decided or applied decisions appear in the decisions strip and compatibility summaries.
+
+“Cited” means key terms overlap a turn in the bounded input the model actually saw. It does not verify meaning, detect negation, or prove the decision is true. The debrief shows the retained input evidence and labels records without cited turns.
+
+Old cached string decisions remain available without citations. Upgrading or searching does not re-synthesize old sessions or spend additional tokens; records appear when synthesis next runs for changed input. Full search text never enters synthesis prompts. See [the synthesis decision](decisions/synthesis-opt-in-bounded-facts.md).
 
 ## OpenCode
 

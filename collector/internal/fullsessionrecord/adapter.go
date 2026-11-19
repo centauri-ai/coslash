@@ -232,7 +232,7 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 	if value.Synthesis != nil {
 		record.Session.Synthesis = &fullsessionv1.SessionSynthesis{
 			Goals: cloneSlice(value.Synthesis.Goals), Outcome: value.Synthesis.Outcome,
-			KeyDecisions: cloneSlice(value.Synthesis.KeyDecisions), NextStep: value.Synthesis.NextStep,
+			KeyDecisions: cloneSlice(value.Synthesis.DecisionTexts()), NextStep: value.Synthesis.NextStep,
 		}
 	}
 	frozen, err := fullsessionv1.Freeze(record)
