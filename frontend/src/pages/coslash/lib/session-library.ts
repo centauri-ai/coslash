@@ -37,6 +37,14 @@ function sessionSearchDocument(session: Session): string {
         ...session.synthesis.goals,
         session.synthesis.outcome,
         ...session.synthesis.keyDecisions,
+        ...(session.synthesis.decisionsVersion
+          ? (session.synthesis.decisions ?? []).flatMap((decision) => [
+              decision.text,
+              decision.why,
+              decision.alternative,
+            ])
+          : []),
+        session.synthesis.designDoc,
         session.synthesis.nextStep,
       );
     }

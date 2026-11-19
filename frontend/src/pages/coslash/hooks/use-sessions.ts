@@ -140,6 +140,10 @@ export function decodeSession(value: unknown): Session {
           ...raw.synthesis,
           goals: arrayOrEmpty(raw.synthesis.goals),
           keyDecisions: arrayOrEmpty(raw.synthesis.keyDecisions),
+          decisions: arrayOrEmpty(raw.synthesis.decisions).map((decision) => ({
+            ...decision,
+            evidence: arrayOrEmpty(decision.evidence),
+          })),
         };
   return {
     ...withLocalSourceDefaults(raw),

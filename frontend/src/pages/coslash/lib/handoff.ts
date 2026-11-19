@@ -38,9 +38,16 @@ export function handoffBrief(detail: SessionDetail): string {
       : detail.synthesis?.nextStep
         ? [`- ${detail.synthesis.nextStep}`]
         : [];
-  const decisions = detail.synthesis?.keyDecisions.length
-    ? detail.synthesis.keyDecisions.map((decision) => `- ${decision}`)
-    : [];
+  const decisions = detail.synthesis?.decisionsVersion
+    ? (detail.synthesis.decisions ?? [])
+        .filter((decision) => decision.cited)
+        .map(
+          (decision) =>
+            `- ${decision.text}${decision.why ? ` — ${decision.why}` : ''}${decision.alternative ? ` (instead of ${decision.alternative})` : ''}`,
+        )
+    : detail.synthesis?.keyDecisions.length
+      ? detail.synthesis.keyDecisions.map((decision) => `- ${decision}`)
+      : [];
   const digest = detail.digest
     .filter((entry) => entry.contextSelected !== false)
     .flatMap((entry) => [
@@ -64,7 +71,16 @@ export function handoffBrief(detail: SessionDetail): string {
     '',
     '## Current state',
     (detail.synthesis?.outcome.trim() || detail.summary) ?? '—',
-    ...(decisions.length ? ['', '## Key decisions', ...decisions] : []),
+    ...(decisions.length || (detail.synthesis?.decisionsVersion && detail.synthesis.designDoc)
+      ? [
+          '',
+          '## Key decisions',
+          ...(detail.synthesis?.decisionsVersion && detail.synthesis.designDoc
+            ? [`Design doc: ${detail.synthesis.designDoc}`]
+            : []),
+          ...decisions,
+        ]
+      : []),
     '',
     '## Timeline',
     ...digest,
