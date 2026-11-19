@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils';
 import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
+import { SearchDecisions, SearchMatchLine } from '@/pages/coslash/components/SearchDecisions';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import { handoffLabel, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
@@ -57,6 +58,15 @@ import {
   type ReviewerOption,
   type ReviewIndex,
 } from '@/pages/coslash/lib/review';
+import {
+  canFallbackSearch,
+  searchHitKey,
+  searchParts,
+  searchTokens,
+  useRankedSearch,
+  type SearchHit,
+  type SearchMatch,
+} from '@/pages/coslash/lib/search';
 import {
   boardStatusKey,
   getSessionCardSummary,
@@ -316,11 +326,11 @@ function formatTableCost(value: number | null): string {
 }
 
 function matchesSearch(session: Session, group: Group, query: string): boolean {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const words = searchTokens(query.trim().toLowerCase());
   if (words.length === 0) return true;
   const vendor = getVendor(session.agent).label;
   return words.every((word) => {
-    const prefix = word.match(/^(repo|group|machine|agent|status):(.+)$/);
+    const prefix = word.match(/^(repo|group|machine|agent|status|since):(.+)$/);
     if (!prefix) {
       return (
         filterSessionLibrary([session], {
@@ -331,7 +341,12 @@ function matchesSearch(session: Session, group: Group, query: string): boolean {
         }).length > 0
       );
     }
-    const [, kind, value] = prefix;
+    const [, kind, rawValue] = prefix;
+    const value = rawValue.replace(/^"|"$/g, '');
+    if (kind === 'since') {
+      const since = /^\d+$/.test(value) ? Number(value) : Date.parse(value);
+      return Number.isFinite(since) && session.mtime >= since;
+    }
     if (kind === 'repo') return (session.repo ?? '').toLowerCase().includes(value);
     if (kind === 'group') return group.label.toLowerCase().includes(value);
     if (kind === 'machine') return session.sourceLabel.toLowerCase().includes(value);
@@ -641,17 +656,19 @@ function SortHeader({
   sort,
   className,
   onSort,
+  disabled = false,
 }: {
   label: string;
   sortKey: SessionSort['key'];
+  disabled?: boolean;
   sort: SessionSort;
   className?: string;
   onSort: (key: SessionSort['key']) => void;
 }) {
   return (
     <th className={cn(styles.head, className)}>
-      <button type="button" className={styles.headButton} onClick={() => onSort(sortKey)}>
-        {label} {sort.key === sortKey && (sort.dir === 'asc' ? <ArrowUp /> : <ArrowDown />)}
+      <button type="button" disabled={disabled} className={styles.headButton} onClick={() => onSort(sortKey)}>
+        {label} {!disabled && sort.key === sortKey && (sort.dir === 'asc' ? <ArrowUp /> : <ArrowDown />)}
       </button>
     </th>
   );
@@ -666,6 +683,7 @@ function SessionRow({
   onSelect,
   review,
   handoff,
+  searchMatch,
 }: {
   session: Session;
   group: Group;
@@ -675,6 +693,7 @@ function SessionRow({
   onSelect: () => void;
   review: SessionReviewProps;
   handoff?: DirectedHandoff;
+  searchMatch?: SearchMatch;
 }) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
@@ -731,6 +750,7 @@ function SessionRow({
         >
           {getSessionCardSummary(session)}
         </span>
+        {searchMatch && <SearchMatchLine match={searchMatch} />}
         {handoff && (
           <span className="text-meta text-info-fg block truncate px-1.5">{handoffLabel(handoff)}</span>
         )}
@@ -941,6 +961,8 @@ function SessionListView({
   onSelectSession,
   review,
   handoffs,
+  ranked = false,
+  searchHits,
 }: {
   sections: { status: StatusKey; rows: Session[] }[];
   groups: Map<string, Group>;
@@ -955,17 +977,24 @@ function SessionListView({
   onSelectSession: (session: Session) => void;
   review: SessionReviewProps;
   handoffs: ReadonlyMap<string, DirectedHandoff>;
+  ranked?: boolean;
+  searchHits?: ReadonlyMap<string, SearchHit>;
 }) {
   return (
     <table className="w-full table-fixed border-separate border-spacing-0">
       <thead>
         <tr>
-          <SortHeader label="Session" sortKey="title" sort={sort} onSort={onSort} className="w-[300px]" />
+          {ranked ? (
+            <th className={styles.head}>Relevance</th>
+          ) : (
+            <SortHeader label="Session" sortKey="title" sort={sort} onSort={onSort} className="w-[300px]" />
+          )}
           <th className={cn(styles.head, 'max-compact:hidden w-[204px] px-2.5 py-[9px]')}>Where</th>
           <th className={cn(styles.head, 'max-sidebar:w-auto max-compact:hidden w-[168px] px-2.5 py-[9px]')}>
             Status / context
           </th>
           <SortHeader
+            disabled={ranked}
             label="Updated"
             sortKey="recent"
             sort={sort}
@@ -973,6 +1002,7 @@ function SessionListView({
             className="max-compact:hidden w-[92px] [&_button]:justify-start"
           />
           <SortHeader
+            disabled={ranked}
             label="≈ Cost"
             sortKey="cost"
             sort={sort}
@@ -990,13 +1020,13 @@ function SessionListView({
         </tr>
       </thead>
       {sections.map(({ status, rows }) => {
-        const open = openSections[status];
-        const limit = sectionLimits[status] ?? (compact ? 12 : 5);
+        const open = ranked || openSections[status];
+        const limit = sectionLimits[status] ?? (ranked ? 50 : compact ? 12 : 5);
         const shown = open ? rows.slice(0, limit) : [];
         const aggregate = rows;
         return (
           <tbody key={status}>
-            <tr>
+            <tr hidden={ranked}>
               <th colSpan={6} className="border-coslash-line-soft bg-coslash-soft border-y text-left">
                 <button
                   type="button"
@@ -1022,7 +1052,13 @@ function SessionListView({
                   key={key}
                   session={session}
                   group={group}
-                  status={status}
+                  status={boardStatusKey(session)}
+                  searchMatch={
+                    searchHits?.get(key)?.match ??
+                    (ranked && !isLocalSession(session)
+                      ? { kind: session.sourceLabel, snippet: 'Metadata match; not indexed' }
+                      : undefined)
+                  }
                   selected={key === selectedSessionKey}
                   compact={compact}
                   onSelect={() => onSelectSession(session)}
@@ -1061,6 +1097,7 @@ export function CoslashLayout({
   range,
   onRangeChange,
   onViewChange,
+  onSearchActiveChange,
   selectedSessionKey,
   onSelectSession,
   diagnostics,
@@ -1093,6 +1130,7 @@ export function CoslashLayout({
   range: SessionRange;
   onRangeChange: (range: SessionRange) => void;
   onViewChange: (view: SessionView) => void;
+  onSearchActiveChange?: (active: boolean) => void;
   selectedSessionKey: string | null;
   onSelectSession: (session: Session) => void;
   diagnostics: ReactNode;
@@ -1118,6 +1156,18 @@ export function CoslashLayout({
   onReviewStarted: () => void;
 }) {
   const [preferences, setPreferences] = useState(loadSessionViewPreferences);
+  const queryParts = useMemo(() => searchParts(preferences.query), [preferences.query]);
+  const searchActive = queryParts.content !== '';
+  const search = useRankedSearch(preferences.query);
+  const ranked = searchActive && search.results != null;
+  const searchHits = useMemo(
+    () => new Map((search.results?.sessions ?? []).map((hit) => [searchHitKey(hit), hit])),
+    [search.results],
+  );
+  const indexedRemote = useMemo(
+    () => new Set((search.results?.indexed ?? []).map(searchHitKey)),
+    [search.results],
+  );
   const [openSections, setOpenSections] = useState<Record<StatusKey, boolean>>({
     busy: true,
     waiting: true,
@@ -1133,8 +1183,10 @@ export function CoslashLayout({
     agent: true,
     group: true,
   });
-  const patchPreferences = (patch: Partial<SessionViewPreferences>) =>
+  const patchPreferences = (patch: Partial<SessionViewPreferences>) => {
+    if (patch.query != null) onSearchActiveChange?.(searchParts(patch.query).content !== '');
     setPreferences((current) => ({ ...current, ...patch }));
+  };
   const changeView = (view: SessionView) => {
     patchPreferences({ view });
     onViewChange(view);
@@ -1169,31 +1221,49 @@ export function CoslashLayout({
   );
   const agents = useMemo(() => getSessionVendors(sessions), [sessions]);
   const sessionsInRange = useMemo(() => {
-    const start = rangeStart(range);
+    const start = searchActive ? null : rangeStart(range);
     return sessions.filter((session) => start == null || session.status != null || session.mtime >= start);
-  }, [sessions, range]);
+  }, [sessions, range, searchActive]);
   const searchMatches = useMemo(
     () =>
       new Map(
         sessionsInRange.map((session) => [
           sessionKey(session),
-          matchesSearch(session, sessionGroups.get(sessionKey(session))!, preferences.query),
+          ranked
+            ? matchesSearch(session, sessionGroups.get(sessionKey(session))!, queryParts.filters) &&
+              (searchHits.has(sessionKey(session)) ||
+                (!isLocalSession(session) &&
+                  !indexedRemote.has(sessionKey(session)) &&
+                  matchesSearch(session, sessionGroups.get(sessionKey(session))!, preferences.query)))
+            : (!searchActive || canFallbackSearch(preferences.query)) &&
+              matchesSearch(session, sessionGroups.get(sessionKey(session))!, preferences.query),
         ]),
       ),
-    [preferences.query, sessionGroups, sessionsInRange],
+    [
+      preferences.query,
+      queryParts.filters,
+      sessionGroups,
+      sessionsInRange,
+      ranked,
+      searchHits,
+      searchActive,
+      indexedRemote,
+    ],
   );
-  const visibleSessions = useMemo(
-    () =>
-      sortSessions(
-        sessionsInRange.filter(
-          (session) =>
-            searchMatches.get(sessionKey(session)) &&
-            matchesFacets(session, sessionGroups.get(sessionKey(session))!, preferences),
-        ),
-        preferences.sort,
-      ),
-    [preferences, searchMatches, sessionGroups, sessionsInRange],
-  );
+  const visibleSessions = useMemo(() => {
+    const filtered = sessionsInRange.filter(
+      (session) =>
+        searchMatches.get(sessionKey(session)) &&
+        matchesFacets(session, sessionGroups.get(sessionKey(session))!, preferences),
+    );
+    if (ranked)
+      return filtered.sort(
+        (a, b) =>
+          (searchHits.get(sessionKey(b))?.score ?? -1) - (searchHits.get(sessionKey(a))?.score ?? -1) ||
+          b.mtime - a.mtime,
+      );
+    return sortSessions(filtered, preferences.sort);
+  }, [preferences, searchMatches, sessionGroups, sessionsInRange, ranked, searchHits]);
   const countWith = (predicate: (session: Session) => boolean, skip: FacetKey) =>
     sessionsInRange.filter(
       (session) =>
@@ -1535,6 +1605,7 @@ export function CoslashLayout({
                       />
                     </>
                   )}
+                  {searchActive && <span className="text-xs">Relevance · All time (search)</span>}
                   <div className={styles.segmented} aria-label="Time range">
                     {RANGE_OPTIONS.map((option) => (
                       <button
@@ -1545,6 +1616,7 @@ export function CoslashLayout({
                           range === option.value &&
                             'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
                         )}
+                        disabled={searchActive}
                         onClick={() => onRangeChange(option.value)}
                       >
                         {option.label}
@@ -1581,8 +1653,28 @@ export function CoslashLayout({
               </div>
             </div>
 
+            {searchActive && (
+              <div role="status" className="text-coslash-muted px-3 py-2 text-xs">
+                {search.results
+                  ? search.results.truncated
+                    ? 'Results truncated. Add more words to narrow your search.'
+                    : ''
+                  : search.state === 'ready' || search.state === 'checking'
+                    ? 'Searching…'
+                    : !canFallbackSearch(preferences.query)
+                      ? `This search needs the index, which is ${search.state === 'building' ? 'still building' : 'unavailable'}.`
+                      : `Search index ${search.state}; using browser search.`}
+              </div>
+            )}
+            {ranked && !isLoading && (
+              <SearchDecisions
+                decisions={search.results!.decisions}
+                sessions={visibleSessions}
+                onSelect={onSelectSession}
+              />
+            )}
             <div className={cn(styles.tableWrap, 'mt-3')}>
-              <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
+              <LoadingSpinner isLoading={isLoading && (searchActive || sessions.length === 0)}>
                 {loadError ? (
                   <div className={styles.empty} role="alert">
                     <AlertTriangle className="text-coslash-muted size-6" />
@@ -1637,7 +1729,9 @@ export function CoslashLayout({
                   </Suspense>
                 ) : (
                   <SessionListView
-                    sections={sections}
+                    sections={ranked ? [{ status: 'idle', rows: visibleSessions }] : sections}
+                    ranked={ranked}
+                    searchHits={searchHits}
                     handoffs={latestHandoffs}
                     groups={sessionGroups}
                     selectedSessionKey={selectedSessionKey}
