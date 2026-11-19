@@ -119,7 +119,7 @@ func main() {
 	}
 	if !protocolRequest && len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "help", "version", "status", "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
+		case "help", "version", "status", "connect", "sessions", "search", "handoff", "send", "review", "doctor", "mcp":
 			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		case "ssh-auth":
 			if len(os.Args) != 3 {
@@ -371,8 +371,10 @@ func main() {
 	restartInstalled := make(chan string, 1)
 	settingsOptions := newSettingsOptionsCache()
 	defer settingsOptions.close()
+	searchService := startSearchService(mgr, remoteManager)
+	defer searchService.close()
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests, updateRequests: updateRequests})
+		serverServices{search: searchService, settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests, updateRequests: updateRequests})
 	onboardings.ensureSync(hub)
 	shutdownComplete := make(chan error, 1)
 	var shutdownOnce sync.Once
@@ -729,6 +731,7 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 }
 
 type serverServices struct {
+	search          *searchService
 	sendContext     context.Context
 	headlessSend    headlessSender
 	queue           *syncv4.Queue
@@ -834,6 +837,8 @@ func routesWithOnboarding(
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
+	api.HandleFunc("GET /api/search", func(w http.ResponseWriter, r *http.Request) { handleSearch(w, r, service.search) })
+	api.HandleFunc("GET /api/search/status", func(w http.ResponseWriter, r *http.Request) { handleSearchStatus(w, r, service.search) })
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Coslash-Synthesis-Cost-Version", mgr.AccountingVersion())
 		if r.URL.Query().Has("id") {
@@ -841,6 +846,7 @@ func routesWithOnboarding(
 			return
 		}
 		handleList(w, r, mgr, reviewManager, remoteManager)
+		service.search.notify()
 	})
 	api.HandleFunc("GET /api/synthesis-costs", func(w http.ResponseWriter, r *http.Request) {
 		handleSynthesisCosts(w, r, mgr)
