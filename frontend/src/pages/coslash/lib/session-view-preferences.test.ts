@@ -16,6 +16,14 @@ function memoryStorage(initial?: string) {
   };
 }
 
+function keyedMemoryStorage(initial: Record<string, string>) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+}
+
 describe('session view preferences', () => {
   test('uses defaults when no preferences have been saved', () => {
     expect(loadSessionViewPreferences(memoryStorage())).toEqual(DEFAULT_SESSION_VIEW_PREFERENCES);
@@ -38,6 +46,39 @@ describe('session view preferences', () => {
     };
     saveSessionViewPreferences(preferences, storage);
     expect(loadSessionViewPreferences(storage)).toEqual(preferences);
+  });
+
+  test('loads saved v1 preferences without converting obsolete group IDs', () => {
+    const preferences = {
+      query: 'repo:coslash',
+      range: 'month',
+      statusFilters: ['waiting'],
+      groupFilters: ['unlocated:local:codex'],
+      machineFilter: 'local',
+      agentFilter: 'codex',
+      view: 'board',
+      density: 'compact',
+      boardColumns: 'readiness',
+      boardRows: 'branch',
+      sort: { key: 'cost', dir: 'asc' },
+    };
+    const storage = keyedMemoryStorage({
+      'coslash.session-view-preferences.v1': JSON.stringify(preferences),
+    });
+
+    expect(loadSessionViewPreferences(storage)).toEqual({
+      query: 'repo:coslash',
+      range: 'month',
+      statusFilters: ['waiting'],
+      groupFilters: ['unlocated:local:codex'],
+      machineFilters: ['local'],
+      agentFilters: ['codex'],
+      view: 'board',
+      density: 'compact',
+      boardColumns: 'readiness',
+      boardRows: 'branch',
+      sort: { key: 'cost', dir: 'asc' },
+    });
   });
 
   test('drops invalid enum and status values', () => {

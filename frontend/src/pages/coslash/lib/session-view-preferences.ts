@@ -29,6 +29,7 @@ export type SessionViewPreferences = {
 };
 
 const STORAGE_KEY = 'coslash.session-view-preferences.v2';
+const LEGACY_STORAGE_KEY = 'coslash.session-view-preferences.v1';
 const RANGES = new Set<SessionRange>(['today', 'this-week', 'week', 'month', 'all']);
 const STATUSES = new Set<StatusKey>(STATUS_ORDER);
 const VIEWS = new Set<SessionView>(['list', 'board', 'insights']);
@@ -65,9 +66,16 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function stringArrayOrLegacy(array: unknown, single: unknown): string[] {
+  const values = stringArray(array);
+  const legacy = stringOrNull(single);
+  return values.length > 0 || legacy == null ? values : [legacy];
+}
+
 export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): SessionViewPreferences {
   try {
-    const raw = (storage ?? sessionStorage).getItem(STORAGE_KEY);
+    const preferencesStorage = storage ?? sessionStorage;
+    const raw = preferencesStorage.getItem(STORAGE_KEY) ?? preferencesStorage.getItem(LEGACY_STORAGE_KEY);
     if (raw == null) return DEFAULT_SESSION_VIEW_PREFERENCES;
     const decoded: unknown = JSON.parse(raw);
     if (decoded == null || typeof decoded !== 'object' || Array.isArray(decoded)) {
@@ -86,8 +94,8 @@ export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): 
         STATUSES.has(status as StatusKey),
       ),
       groupFilters: stringArray(record.groupFilters),
-      machineFilters: stringArray(record.machineFilters),
-      agentFilters: stringArray(record.agentFilters),
+      machineFilters: stringArrayOrLegacy(record.machineFilters, record.machineFilter),
+      agentFilters: stringArrayOrLegacy(record.agentFilters, record.agentFilter),
       view: oneOf(record.view, VIEWS, defaults.view),
       density: oneOf(record.density, DENSITIES, defaults.density),
       boardColumns: oneOf(record.boardColumns, BOARD_GROUP_BYS, defaults.boardColumns),
