@@ -85,6 +85,40 @@ func TestSearchRefreshInterruptedPassRetainsRows(t *testing.T) {
 	}
 }
 
+func TestSearchPassSkipsFailedSessionAndStaysReady(t *testing.T) {
+	index := testSearchIndex(t)
+	old := listSessions
+	t.Cleanup(func() { listSessions = old })
+	good := &session.Session{Agent: "claude", ID: "good", SessionDetails: session.SessionDetails{Digest: []session.DigestEntry{{Category: session.DigestUser, Description: "merge queue", SearchText: "merge queue"}}}}
+	bad := &session.Session{Agent: "claude"}
+	listSessions = func(context.Context, int64) ([]*session.Session, error) { return []*session.Session{bad, good}, nil }
+	ctx := context.Background()
+	if !runSearchPass(ctx, index, nil, nil, false) {
+		t.Fatal("one failed session failed the pass")
+	}
+	status, err := index.Status(ctx, &searchpkg.Identity{SourceID: "local", Agent: "claude", SessionID: "good"})
+	if err != nil || status.State != "ready" || status.Coverage != "full" {
+		t.Fatalf("good session not indexed: %+v %v", status, err)
+	}
+	listSessions = func(context.Context, int64) ([]*session.Session, error) { return []*session.Session{bad}, nil }
+	if err := refreshSearchIndex(ctx, index, nil, nil); err == nil {
+		t.Fatal("a pass in which every session failed succeeded")
+	}
+	if !runSearchPass(ctx, index, nil, nil, true) {
+		t.Fatal("a failed pass cleared readiness")
+	}
+	if status, _ := index.Status(ctx, nil); status.State != "ready" {
+		t.Fatalf("last-good index marked %s", status.State)
+	}
+	fresh := testSearchIndex(t)
+	if runSearchPass(ctx, fresh, nil, nil, false) {
+		t.Fatal("failed first pass reported ready")
+	}
+	if status, _ := fresh.Status(ctx, nil); status.State != "unavailable" {
+		t.Fatalf("failed first pass left %s", status.State)
+	}
+}
+
 func TestSearchCLIPath(t *testing.T) {
 	path, err := searchRequestPath([]string{"why queue repo:coslash agent:claude since:2026-01-01", "--limit", "3", "--json"})
 	if err != nil {

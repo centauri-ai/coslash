@@ -127,7 +127,7 @@ func TestIdentityFiltersAndLifecycle(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := i.Reconcile(ctx, "local", nil); err == nil {
+	if err := i.Reconcile(ctx, "local", nil, 0); err == nil {
 		t.Fatal("cancellation ignored")
 	}
 	if len(find(t, i, "orbital", Options{}).Sessions) != 2 {
@@ -139,7 +139,13 @@ func TestIdentityFiltersAndLifecycle(t *testing.T) {
 	if len(find(t, i, "orbital", Options{}).Sessions) != 1 {
 		t.Fatal("removed source retained")
 	}
-	if err := i.Reconcile(context.Background(), "local", nil); err != nil {
+	if err := i.Reconcile(context.Background(), "local", nil, 101); err != nil {
+		t.Fatal(err)
+	}
+	if len(find(t, i, "orbital", Options{}).Sessions) != 1 {
+		t.Fatal("a pass over a later window deleted an older session")
+	}
+	if err := i.Reconcile(context.Background(), "local", nil, 100); err != nil {
 		t.Fatal(err)
 	}
 	if len(find(t, i, "orbital", Options{}).Sessions) != 0 {
@@ -178,6 +184,10 @@ func TestReopenAndRebuild(t *testing.T) {
 	i, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var mode string
+	if err = i.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
+		t.Fatalf("journal mode %q: %v", mode, err)
 	}
 	put(t, i, "local", fixture("restart", "persistentword"), "full")
 	i.Close()

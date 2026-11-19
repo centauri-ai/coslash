@@ -12,7 +12,9 @@ Parsed content and mutable overlays have independent update keys: newly availabl
 synthesis and commit subjects update search without rewriting prompt units.
 Only a completed inventory can establish deletion. Interrupted passes preserve
 last-good rows, and a lower-coverage representation cannot replace richer content
-at the same revision.
+at the same revision. A session that fails to index keeps its last-good rows
+without failing the pass, and once a pass has completed, a failed pass leaves
+search ready on those rows.
 
 Full prompt and question text is private enrichment: at most 8 KiB per digest
 entry and 128 KiB per session, preserving earliest entries first. It survives
@@ -24,7 +26,10 @@ SSH indexing reads only complete stored full records from a complete live view;
 it never indexes the stripped startup snapshot or adds remote text that was not
 already persisted. Remote sessions have no decision synthesis. A stale or
 incomplete refresh retains previously indexed rows until a complete inventory
-can replace them.
+can replace them. Indexing uses the history window the session list already
+fetched and never widens it, so it causes no extra remote fetches or stored
+records. A view over a limited window proves deletion only for sessions active
+within that window.
 
 Search consumes existing `SessionSynthesis.KeyDecisions` strings. It does not
 extract decisions, validate citations, change synthesis prompts, or regenerate

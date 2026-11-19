@@ -9,20 +9,38 @@ type SearchRecord struct {
 	Repository string
 }
 
-// SearchRecords returns only records from a complete, live all-time view.
+// SearchView is the live view's full records. When Complete, a session active
+// at or after SinceMs that is missing from Records no longer exists.
+type SearchView struct {
+	SourceID string
+	Records  []SearchRecord
+	SinceMs  int64
+	Complete bool
+}
+
+// SearchRecords returns records only from a complete, live view, over whatever
+// history window the list already fetched; it never widens that window.
 // Snapshot records are immutable; cloning happens after releasing the lock.
-func (manager *Manager) SearchRecords() (string, []SearchRecord, bool, error) {
+func (manager *Manager) SearchRecords() (SearchView, error) {
 	manager.mu.Lock()
-	health := manager.healthLocked(0)
-	if manager.cfg == nil || !manager.cfg.Enabled || manager.snapshot == nil ||
-		!health.Complete || health.State != StateOK || manager.legacyStale {
+	if manager.cfg == nil || !manager.cfg.Enabled || manager.snapshot == nil {
+		view := SearchView{}
+		if manager.cfg != nil {
+			view.SourceID = manager.cfg.ID
+		}
 		manager.mu.Unlock()
-		return health.SourceID, nil, false, nil
+		return view, nil
+	}
+	view := SearchView{SourceID: manager.cfg.ID, SinceMs: manager.snapshot.CoverageSinceMs}
+	health := manager.healthLocked(view.SinceMs)
+	if !health.Complete || health.State != StateOK || manager.legacyStale {
+		manager.mu.Unlock()
+		return view, nil
 	}
 	for _, stale := range manager.familyStale {
 		if stale {
 			manager.mu.Unlock()
-			return health.SourceID, nil, false, nil
+			return view, nil
 		}
 	}
 	records := make([]SearchRecord, 0, len(manager.snapshot.FullRecords))
@@ -33,17 +51,16 @@ func (manager *Manager) SearchRecords() (string, []SearchRecord, bool, error) {
 		}
 	}
 	for _, full := range manager.snapshot.FullRecords {
-		if !manager.familyStale[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}] {
-			records = append(records, SearchRecord{Record: full.Record, Repository: repositories[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}]})
-		}
+		records = append(records, SearchRecord{Record: full.Record, Repository: repositories[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}]})
 	}
 	manager.mu.Unlock()
 	for i := range records {
 		copy, err := cloneFullSessionRecord(records[i].Record)
 		if err != nil {
-			return health.SourceID, nil, false, err
+			return SearchView{SourceID: view.SourceID}, err
 		}
 		records[i].Record = *copy
 	}
-	return health.SourceID, records, true, nil
+	view.Records, view.Complete = records, true
+	return view, nil
 }

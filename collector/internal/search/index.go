@@ -77,8 +77,11 @@ func Open(path string) (*Index, error) {
 		if attempt != 0 || (!errors.Is(err, errSchema) && !isCorrupt(err)) {
 			return nil, err
 		}
-		if err = os.Remove(path); err != nil {
-			return nil, err
+		// A write-ahead log left beside a new database would be replayed into it.
+		for _, file := range []string{path, path + "-wal", path + "-shm"} {
+			if err = os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
 		}
 	}
 	return nil, errors.New("cannot initialize search index")
@@ -100,6 +103,8 @@ func (i *Index) initialize() error {
 	}
 	_, err := i.db.Exec(`PRAGMA foreign_keys=ON;
  PRAGMA busy_timeout=5000;
+ PRAGMA journal_mode=WAL;
+ PRAGMA synchronous=NORMAL;
  CREATE TABLE IF NOT EXISTS sessions(source_id TEXT,agent TEXT,session_id TEXT,detail_revision TEXT,coverage TEXT,overlay_key TEXT,mtime INTEGER,name TEXT,repo TEXT,branch TEXT,PRIMARY KEY(source_id,agent,session_id));
  CREATE TABLE IF NOT EXISTS units(id INTEGER PRIMARY KEY,source_id TEXT,agent TEXT,session_id TEXT,overlay INTEGER,kind TEXT,turn INTEGER,entry_id TEXT,time_ms INTEGER,text TEXT,record_json TEXT,FOREIGN KEY(source_id,agent,session_id) REFERENCES sessions ON DELETE CASCADE);
  CREATE INDEX IF NOT EXISTS units_session ON units(source_id,agent,session_id);
@@ -203,8 +208,9 @@ func (i *Index) Upsert(ctx context.Context, sourceID string, s session.Session, 
 	return tx.Commit()
 }
 
-// Reconcile must only be called after an authoritative, complete source pass.
-func (i *Index) Reconcile(ctx context.Context, sourceID string, identities []Identity) error {
+// Reconcile must only be called after an authoritative, complete pass over the
+// source's sessions active at or after sinceMs; older rows are kept.
+func (i *Index) Reconcile(ctx context.Context, sourceID string, identities []Identity, sinceMs int64) error {
 	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -214,7 +220,7 @@ func (i *Index) Reconcile(ctx context.Context, sourceID string, identities []Ide
 	for _, id := range identities {
 		keep[id] = true
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT agent,session_id FROM sessions WHERE source_id=?", sourceID)
+	rows, err := tx.QueryContext(ctx, "SELECT agent,session_id FROM sessions WHERE source_id=? AND mtime>=?", sourceID, sinceMs)
 	if err != nil {
 		return err
 	}
