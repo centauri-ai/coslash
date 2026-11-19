@@ -263,7 +263,7 @@ launch actions remain unavailable on Linux. See
 `docs/decisions/linux-local-runtime.md`.
 
 Local content queries use an all-time FTS5 index, with field-weighted relevance,
-match snippets and a settled-decisions strip. Facets filter the full returned
+match snippets and a matching-decisions strip using existing synthesis strings. Facets filter the full returned
 match set. Search exposes readiness and retains a labelled browser fallback for
 plain-word queries while the index builds. SSH coverage is limited to persisted
 full records from a complete live view; metadata-only matches follow ranked hits.

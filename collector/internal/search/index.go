@@ -294,16 +294,9 @@ func unitsFor(s session.Session, coverage string) (content, overlay []unit) {
 		}
 		add(&overlay, "goal", s.Synthesis.Outcome)
 		add(&overlay, "recap", s.Synthesis.NextStep)
-		if len(s.Synthesis.Records) > 0 {
-			for _, r := range s.Synthesis.Records {
-				raw, _ := json.Marshal(r)
-				overlay = append(overlay, unit{Kind: r.Kind, Text: r.Text + " " + r.Why + " " + r.Alternative + " " + r.Area, Record: string(raw)})
-			}
-		} else {
-			for _, v := range s.Synthesis.KeyDecisions {
-				raw, _ := json.Marshal(decisionRecord{Kind: "decision", Text: v, Status: "decided"})
-				overlay = append(overlay, unit{Kind: "decision", Text: v, Record: string(raw)})
-			}
+		for _, decision := range decisionsForSearch(s.Synthesis) {
+			raw, _ := json.Marshal(decision)
+			overlay = append(overlay, unit{Kind: decision.Kind, Text: decision.Text, Record: string(raw)})
 		}
 	}
 	return

@@ -36,7 +36,7 @@ export function SearchDecisions({
   if (!hits.length) return null;
   return (
     <div className="flex min-w-0 flex-col gap-2 py-3" aria-label="Matching decisions">
-      <div className="text-xs font-semibold">Decisions and findings</div>
+      <div className="text-xs font-semibold">Matching decisions</div>
       {hits.map((hit, index) => {
         const session = byKey.get(searchHitKey(hit))!;
         return (

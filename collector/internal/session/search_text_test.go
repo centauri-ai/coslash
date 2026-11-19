@@ -33,7 +33,7 @@ func TestSearchTextBoundsAndRevision(t *testing.T) {
 		copy.Digest[i].SearchText = "private needle"
 		copy.Digest[i].SearchTextTruncated = false
 	}
-	copy.Synthesis = &SessionSynthesis{Records: []DecisionRecord{{Text: "local", Turns: []int{1}, Evidence: []DecisionEvidence{{Turn: 1, Text: "local"}}}}}
+	copy.Synthesis = &SessionSynthesis{KeyDecisions: []string{"local"}}
 	after, err := LocalDetailRevision(*copy)
 	if err != nil || before != after {
 		t.Fatal("local enrichment changed revision")
@@ -43,10 +43,9 @@ func TestSearchTextBoundsAndRevision(t *testing.T) {
 		t.Fatal("search text leaked into JSON")
 	}
 	cloned := Clone(copy)
-	cloned.Synthesis.Records[0].Turns[0] = 99
-	cloned.Synthesis.Records[0].Evidence[0].Text = "changed"
-	if copy.Synthesis.Records[0].Turns[0] != 1 || copy.Synthesis.Records[0].Evidence[0].Text != "local" {
-		t.Fatal("records alias")
+	cloned.Digest[0].SearchText = "changed"
+	if copy.Digest[0].SearchText != "private needle" {
+		t.Fatal("search text aliases clone")
 	}
 }
 

@@ -131,29 +131,11 @@ type Todo struct {
 	Done bool   `json:"done"`
 }
 
-type DecisionEvidence struct {
-	Turn     int    `json:"turn"`
-	Category string `json:"category"`
-	Text     string `json:"text"`
-}
-type DecisionRecord struct {
-	Kind        string             `json:"kind"`
-	Text        string             `json:"text"`
-	Why         string             `json:"why,omitempty"`
-	Alternative string             `json:"alternative,omitempty"`
-	DecidedBy   string             `json:"decidedBy,omitempty"`
-	Status      string             `json:"status"`
-	Area        string             `json:"area,omitempty"`
-	Turns       []int              `json:"turns"`
-	Cited       bool               `json:"cited"`
-	Evidence    []DecisionEvidence `json:"evidence,omitempty"`
-}
 type SessionSynthesis struct {
-	Records      []DecisionRecord `json:"records,omitempty"`
-	Goals        []string         `json:"goals"`
-	Outcome      string           `json:"outcome"`
-	KeyDecisions []string         `json:"keyDecisions"`
-	NextStep     string           `json:"nextStep"`
+	Goals        []string `json:"goals"`
+	Outcome      string   `json:"outcome"`
+	KeyDecisions []string `json:"keyDecisions"`
+	NextStep     string   `json:"nextStep"`
 }
 
 type SessionDetails struct {
@@ -185,19 +167,4 @@ type SessionDetails struct {
 	SynthesisPending  bool              `json:"synthesisPending"`
 	DeclaredGoal      *string           `json:"declaredGoal"`
 	CompactionSeed    string            `json:"-"`
-}
-
-// DecisionTexts preserves legacy summaries while excluding provisional records
-// from handoff and the portable compatibility projection.
-func (s SessionSynthesis) DecisionTexts() []string {
-	if s.Records == nil {
-		return s.KeyDecisions
-	}
-	result := []string{}
-	for _, record := range s.Records {
-		if record.Kind == "decision" && (record.Status == "decided" || record.Status == "applied") {
-			result = append(result, record.Text)
-		}
-	}
-	return result
 }

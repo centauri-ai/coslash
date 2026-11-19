@@ -26,10 +26,15 @@ already persisted. Remote sessions have no decision synthesis. A stale or
 incomplete refresh retains previously indexed rows until a complete inventory
 can replace them.
 
-Decision records are Local enrichment. Their `cited` flag means term overlap
-with the rendered synthesis input, not semantic verification. Proposed and
-superseded records receive lower search weights and are excluded from settled
-decision summaries. Legacy string decisions remain searchable without citations.
+Search consumes existing `SessionSynthesis.KeyDecisions` strings. It does not
+extract decisions, validate citations, change synthesis prompts, or regenerate
+summaries. `collector/internal/search/decisions.go` maps the producer schema into
+the search response contract. Legacy strings map to kind `decision`, status
+`decided` (a compatibility label, not a verified lifecycle state), no author,
+empty turns, and `cited: false`. Future structured decisions must be integrated
+at that adapter; search must not infer missing evidence or author attribution.
+The existing overlay key hashes this normalized content, so adapter changes
+refresh decision units without rewriting prompt units.
 
 ## Consequences
 
@@ -40,6 +45,7 @@ The index can be deleted with Local stopped and rebuilt on next startup. A
 schema mismatch rebuilds it after closing the old database. Search does not
 upload this derived state or spend tokens to regenerate old synthesis results.
 
-The initial ranking weights and decision budget are provisional. Synthetic
-regression tests provide deterministic coverage; private recall and decision
-quality measurements remain required before claiming the design's launch gates.
+The initial ranking weights are provisional. Synthetic regression tests provide
+deterministic coverage; private recall measurements remain required before
+claiming the search design's launch gate. Decision extraction and quality
+evaluation belong to the separate decision-quality implementation.

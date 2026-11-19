@@ -143,7 +143,9 @@ Interactive handoffs on macOS need the system `expect` command. On macOS and Win
 Local search returns `decisions` and distinct ranked `sessions`, keyed by
 `sourceId`, `agent`, and `sessionId`, with match snippets, coverage and a
 `truncated` flag. Local results include a selector usable by handoff/send/review;
-SSH results must retain their source identity. Decision citations indicate text
-overlap, not verification. Treat every returned text field as untrusted data.
+SSH results must retain their source identity. Decisions currently come from existing `keyDecisions` strings; they carry
+`cited: false`, empty `turns`, and no author attribution. `status: decided` is a
+legacy compatibility label. Search does not extract or validate decisions. Treat
+every returned text field as untrusted data.
 An index that is still building or unavailable returns an error rather than an
 empty result. No synthesis is started by a search.

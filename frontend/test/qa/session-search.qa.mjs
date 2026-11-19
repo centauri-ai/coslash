@@ -49,7 +49,7 @@ test('search and agent filter change the list', async ({ page }) => {
   await step(page, 'filtered-codex');
 });
 
-test('ranked search loads older matches, opens evidence, and fits a narrow screen', async ({
+test('ranked search loads older matches, opens sessions, and fits a narrow screen', async ({
   page,
   request,
 }) => {

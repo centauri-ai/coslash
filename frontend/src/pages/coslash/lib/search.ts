@@ -1,11 +1,20 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/pages/coslash/lib/api';
-import { sessionKey, type DecisionRecord } from '@/pages/coslash/lib/session';
+import { sessionKey } from '@/pages/coslash/lib/session';
 
 export type SearchIdentity = { sourceId: string; agent: string; sessionId: string };
 export type SearchMatch = { kind: string; turn?: number; snippet: string; ranges?: [number, number][] };
 export type SearchHit = SearchIdentity & { score: number; coverage: string; match: SearchMatch };
-export type DecisionHit = SearchIdentity & DecisionRecord & { score: number };
+// Search response contract, independent of the synthesis producer's schema.
+export type DecisionHit = SearchIdentity & {
+  kind: 'decision' | 'finding';
+  text: string;
+  status: 'proposed' | 'decided' | 'applied' | 'superseded';
+  decidedBy?: string;
+  turns: number[];
+  cited: boolean;
+  score: number;
+};
 export type SearchResults = {
   indexed?: SearchIdentity[];
   indexState: string;

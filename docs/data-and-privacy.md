@@ -29,7 +29,7 @@ On macOS, background enrichment does not open project files in Desktop, Document
 | --- | --- |
 | `settings.json` | Synthesis, appearance, and terminal preferences. |
 | `token` | Access token for the current server process. |
-| `search/` | Derived local full-text index, including bounded prompt text and decision records. Stop Local and delete this directory to rebuild it on next startup. |
+| `search/` | Derived local full-text index, including bounded prompt text and existing synthesis decisions. Stop Local and delete this directory to rebuild it on next startup. |
 | `summaries/` | Cached synthesis results. |
 | `synthesis-accounting/costs.sqlite` | Local synthesis round and invocation history, including session identity, source revision, time, outcome, vendor, model, token totals, and reported or estimated cost. No prompts, transcripts, or raw CLI output. |
 | `synthesis/` | Temporary synthesis files and isolated CLI data. |

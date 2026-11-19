@@ -29,7 +29,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
-import { DecisionRecords } from '@/pages/coslash/components/DecisionRecords';
 import { DiffList } from '@/pages/coslash/components/DiffList';
 import { DirectedHandoffDialog } from '@/pages/coslash/components/DirectedHandoffDialog';
 import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
@@ -1097,32 +1096,17 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
         <div className="text-coslash-muted pt-3 text-xs">KEY DECISIONS</div>
         {synthesizing ? (
           synthesisPlaceholder
-        ) : detail.synthesis?.records?.length ? (
-          <DecisionRecords
-            records={detail.synthesis.records.filter((record) => record.kind === 'decision')}
-          />
         ) : detail.synthesis?.keyDecisions.length ? (
           <div className="flex flex-col gap-1 pt-1">
             {detail.synthesis.keyDecisions.map((decision) => (
               <div key={decision} className="flex items-start gap-2 text-xs">
                 <span className="bg-coslash-muted mt-1 size-1 shrink-0 rounded-full" />
-                <span>
-                  {decision}
-                  <span className="text-coslash-muted block pt-1">No cited turn</span>
-                </span>
+                <span>{decision}</span>
               </div>
             ))}
           </div>
         ) : (
           <div className="pt-1 text-xs">—</div>
-        )}
-        {detail.synthesis?.records?.some((record) => record.kind === 'finding') && (
-          <>
-            <div className="text-coslash-muted pt-3 text-xs">FOUND</div>
-            <DecisionRecords
-              records={detail.synthesis.records.filter((record) => record.kind === 'finding')}
-            />
-          </>
         )}
         {detail.synthesis?.nextStep && (
           <>

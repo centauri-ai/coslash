@@ -132,7 +132,7 @@ func TestSearchAPIFiltersBeforeLimit(t *testing.T) {
 
 func TestSearchCLIRoundTrip(t *testing.T) {
 	index := testSearchIndex(t)
-	value := session.Session{ID: "answer", Agent: "claude", SessionDetails: session.SessionDetails{Synthesis: &session.SessionSynthesis{Records: []session.DecisionRecord{{Kind: "decision", Text: "merge queue commits", Status: "decided", Cited: true, Turns: []int{4}}}}}}
+	value := session.Session{ID: "answer", Agent: "claude", SessionDetails: session.SessionDetails{Synthesis: &session.SessionSynthesis{KeyDecisions: []string{"merge queue commits"}}}}
 	if err := index.Upsert(context.Background(), "local", value, "full"); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestSearchCLIRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Decisions) != 1 || result.Decisions[0].Selector != "claude:answer" || !result.Decisions[0].Cited || len(result.Decisions[0].Turns) != 1 || result.Decisions[0].Turns[0] != 4 || len(result.Sessions) != 1 {
+	if len(result.Decisions) != 1 || result.Decisions[0].Selector != "claude:answer" || result.Decisions[0].Cited || len(result.Decisions[0].Turns) != 0 || len(result.Sessions) != 1 {
 		t.Fatalf("%s", output.String())
 	}
 	output.Reset()

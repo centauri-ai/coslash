@@ -146,26 +146,25 @@ func TestIdentityFiltersAndLifecycle(t *testing.T) {
 		t.Fatal("complete pass did not delete")
 	}
 }
-func TestDecisionRankStatusAndDedup(t *testing.T) {
+func TestExistingDecisionsAreSearchableWithoutCitations(t *testing.T) {
 	i := openTest(t)
-	for _, v := range []struct {
-		id, status string
-		cited      bool
-	}{{"cited", "decided", true}, {"uncited", "decided", false}, {"proposed", "proposed", true}, {"superseded", "superseded", true}} {
-		s := fixture(v.id, "")
-		s.Name = nil
-		s.Synthesis = &session.SessionSynthesis{Records: []session.DecisionRecord{{Kind: "decision", Text: "merge queue commits", Status: v.status, Cited: v.cited, Turns: []int{3}}, {Kind: "finding", Text: "merge queue commits", Status: v.status, Cited: v.cited, Turns: []int{3}}, {Kind: "decision", Text: "merge queue commits", Status: v.status, Cited: v.cited, Turns: []int{3}}}}
-		put(t, i, "local", s, "full")
-	}
+	s := fixture("legacy", "")
+	s.Name = nil
+	s.Synthesis = &session.SessionSynthesis{KeyDecisions: []string{"merge queue commits", "merge queue policy", "merge queue strategy"}}
+	put(t, i, "local", s, "full")
 	r := find(t, i, "why merge queue", Options{})
-	if len(r.Sessions) != 4 || len(r.Decisions) != 8 {
-		t.Fatalf("dedup: %+v", r)
+	if len(r.Sessions) != 1 || len(r.Decisions) != 2 {
+		t.Fatalf("decision grouping and cap: %+v", r)
 	}
-	want := []string{"cited", "uncited", "proposed", "superseded"}
-	for n, id := range want {
-		if r.Sessions[n].SessionID != id {
-			t.Fatalf("rank %d: %s", n, r.Sessions[n].SessionID)
+	for _, d := range r.Decisions {
+		if d.Cited || len(d.Turns) != 0 || d.DecidedBy != "" || d.Kind != "decision" || d.Status != "decided" {
+			t.Fatalf("invented decision metadata: %+v", d)
 		}
+	}
+	s.Synthesis = nil
+	put(t, i, "local", s, "full")
+	if r := find(t, i, "merge queue", Options{}); len(r.Decisions) != 0 || len(r.Sessions) != 0 {
+		t.Fatalf("removed synthesis retained in index: %+v", r)
 	}
 }
 func TestSnippetRanges(t *testing.T) {

@@ -9,21 +9,7 @@ type ModelTokens = {
   cost?: number;
 };
 
-export type DecisionRecord = {
-  kind: 'decision' | 'finding';
-  text: string;
-  why?: string;
-  alternative?: string;
-  decidedBy?: 'user' | 'agent_confirmed' | 'agent';
-  status: 'proposed' | 'decided' | 'applied' | 'superseded';
-  area?: string;
-  turns: number[];
-  cited: boolean;
-  evidence?: { turn: number; category: string; text: string }[];
-};
-
 type SessionSynthesis = {
-  records?: DecisionRecord[];
   goals: string[];
   outcome: string;
   keyDecisions: string[];
