@@ -151,6 +151,7 @@ type captureError struct {
 	retryable     bool
 	tooLarge      bool
 	sourceMissing bool
+	compressed    bool
 }
 
 var errArtifactTooLarge = fmt.Errorf("%w: size limit exceeded", sessionbackupv1.ErrInvalid)
@@ -202,31 +203,21 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
 	}
 	allFiles := append(append([]string(nil), activeScan.Files...), archivedScan.Files...)
-	for _, file := range allFiles {
-		if err := ctx.Err(); err != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
-		}
-		info, statErr := handle.Source.Stat(file)
-		if statErr != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
-		}
-		if info.Size() > sessionbackupv1.MaxArtifactBytes {
-			return nil, captureTooLarge(sessionbackupv1.KindRawTranscript)
-		}
-		if info.Size() < 0 {
-			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
-		}
-	}
 	headers, err := codex.HeadersSourceContext(ctx, handle.Source, allFiles)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
 	}
 	roots := codex.FamilyRoots(headers)
 	var familyFiles []string
+	rootPresent := false
 	for _, file := range allFiles {
 		if roots[file] == selection.SessionID {
 			familyFiles = append(familyFiles, file)
+			rootPresent = rootPresent || codex.SessionIDFromRollout(file) == selection.SessionID
 		}
+	}
+	if !rootPresent && compressedCodexIDs(activeScan, archivedScan)[selection.SessionID] {
+		return nil, &captureError{code: sessionbackupv1.ProblemUnsupported, kind: sessionbackupv1.KindRawTranscript, compressed: true}
 	}
 	if len(familyFiles) == 0 {
 		for _, header := range headers {

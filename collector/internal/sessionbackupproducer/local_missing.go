@@ -2,6 +2,8 @@ package sessionbackupproducer
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
@@ -45,6 +47,9 @@ func (manager *Manager) MissingLocalFamilies(ctx context.Context, selections []S
 					return nil, vendors.ErrInvalidData
 				}
 				files = append(files, scan.Files...)
+				for id := range compressedCodexIDs(scan) {
+					present[id] = true
+				}
 			}
 			headers, err := codex.HeadersSourceContext(ctx, handle.Source, files)
 			if err != nil {
@@ -77,4 +82,19 @@ func (manager *Manager) MissingLocalFamilies(ctx context.Context, selections []S
 		}
 	}
 	return missing, ctx.Err()
+}
+
+// A compressed rollout still names its thread even though Local cannot read its contents.
+func compressedCodexIDs(scans ...*vendors.SourceScan) map[string]bool {
+	ids := make(map[string]bool)
+	for _, scan := range scans {
+		for _, file := range scan.CompressedFiles {
+			if strings.HasPrefix(filepath.Base(file), "rollout-") {
+				if id := codex.SessionIDFromRollout(file); id != "" {
+					ids[id] = true
+				}
+			}
+		}
+	}
+	return ids
 }

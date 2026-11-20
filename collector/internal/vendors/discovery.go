@@ -16,10 +16,11 @@ type SkippedPath struct {
 }
 
 type SourceScan struct {
-	Files        []string
-	Skipped      []SkippedPath
-	SkippedTotal int
-	RootMissing  bool
+	Files           []string
+	CompressedFiles []string
+	Skipped         []SkippedPath
+	SkippedTotal    int
+	RootMissing     bool
 }
 
 func (scan *SourceScan) RecordSkipped(path string, err error) {
@@ -50,8 +51,13 @@ func ScanSourceContext(ctx context.Context, source ReadSource, root string) (*So
 			scan.RecordSkipped(path, err)
 			return nil
 		}
-		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".jsonl") {
-			scan.Files = append(scan.Files, path)
+		if entry.Type().IsRegular() {
+			switch {
+			case strings.HasSuffix(entry.Name(), ".jsonl"):
+				scan.Files = append(scan.Files, path)
+			case strings.HasSuffix(entry.Name(), ".jsonl.zst"):
+				scan.CompressedFiles = append(scan.CompressedFiles, path)
+			}
 		}
 		return nil
 	})
