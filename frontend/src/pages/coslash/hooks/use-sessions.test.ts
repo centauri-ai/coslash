@@ -15,8 +15,9 @@ import {
 } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
+import { detailFailure } from '@/pages/coslash/lib/session-detail';
 import { makeSession } from '@/pages/coslash/lib/session-fixture';
-import type { TimeWindow } from '@/pages/coslash/lib/time-window';
+import type { SessionRange } from '@/pages/coslash/lib/session-range';
 
 vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/pages/coslash/lib/api')>()),
@@ -181,6 +182,17 @@ describe('exact diff failures', () => {
     expect(exactDiffFailure(409, code)).toMatchObject({ kind });
   });
 
+  it('maps detail failures through the same codes and keeps diff-only kinds generic', () => {
+    expect(detailFailure(409, 'session_detail_stale').kind).toBe('stale');
+    expect(detailFailure(404, 'session_detail_missing').kind).toBe('missing');
+    expect(detailFailure(500, 'session_detail_corrupt').kind).toBe('corrupt');
+    expect(detailFailure(413, 'session_diff_too_large')).toEqual({
+      kind: 'other',
+      message: 'Could not load session details (413).',
+    });
+    expect(exactDiffFailure(500, undefined).kind).toBe('other');
+  });
+
   it('retains the HTTP status in an unknown failure', () => {
     expect(exactDiffFailure(502, 'unknown')).toEqual({
       kind: 'other',
@@ -200,7 +212,7 @@ describe('useSessions reload failures', () => {
   async function mountWithOneSession() {
     vi.mocked(apiFetch).mockResolvedValueOnce(sessionsResponse());
     function Harness() {
-      const value = useSessions({ localWindow: 'all', remoteWindow: 'all' });
+      const value = useSessions({ range: 'all' });
       useEffect(() => {
         state = value;
       });
@@ -251,19 +263,19 @@ describe('useSessions reload failures', () => {
 
   it('reports a failure after the window changes and returns before the change loads', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(sessionsResponse());
-    function Harness({ localWindow }: { localWindow: TimeWindow }) {
-      const value = useSessions({ localWindow, remoteWindow: 'all' });
+    function Harness({ range }: { range: SessionRange }) {
+      const value = useSessions({ range });
       useEffect(() => {
         state = value;
       });
       return null;
     }
-    await act(async () => root.render(createElement(Harness, { localWindow: 'all' })));
+    await act(async () => root.render(createElement(Harness, { range: 'all' })));
     vi.mocked(apiFetch).mockReturnValueOnce(new Promise<Response>(() => {}));
-    await act(async () => root.render(createElement(Harness, { localWindow: '7d' })));
+    await act(async () => root.render(createElement(Harness, { range: 'week' })));
     expect(state.isLoading).toBe(true);
     vi.mocked(apiFetch).mockResolvedValueOnce(new Response('', { status: 500 }));
-    await act(async () => root.render(createElement(Harness, { localWindow: 'all' })));
+    await act(async () => root.render(createElement(Harness, { range: 'all' })));
     expect(state.isLoading).toBe(false);
     expect(state.loadError).not.toBeNull();
   });

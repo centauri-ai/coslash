@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
+import { ApiAuthenticationError, apiFetch, readApiError } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
 import { waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
 import { isLocalSource, type Session, type SessionIdentity } from '@/pages/coslash/lib/session';
+import { exactReadErrorKind, type ExactReadErrorKind } from '@/pages/coslash/lib/session-detail';
+import { rangeStart, type SessionRange } from '@/pages/coslash/lib/session-range';
 import { MINUTE } from '@/pages/coslash/lib/time';
-import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
@@ -35,7 +36,6 @@ export type FileChange = {
   deletions: number;
 };
 
-export type ExactReadErrorKind = 'stale' | 'missing' | 'corrupt' | 'too_large' | 'other';
 export type FileDiffErrorKind = ExactReadErrorKind | 'authentication';
 
 export type ExactReadFailure = {
@@ -43,32 +43,22 @@ export type ExactReadFailure = {
   message: string;
 };
 
-export function exactDiffFailure(status: number, code: string): ExactReadFailure {
-  switch (code) {
-    case 'session_detail_stale':
-      return {
-        kind: 'stale',
-        message: 'This session changed before its file changes loaded. Refresh the snapshot and try again.',
-      };
-    case 'session_detail_missing':
-    case 'session_change_missing':
-      return {
-        kind: 'missing',
-        message: 'These exact file changes are no longer available. Refresh the snapshot and try again.',
-      };
-    case 'session_detail_corrupt':
-      return {
-        kind: 'corrupt',
-        message: 'Cached file changes could not be read. Refresh the source to restore a last-good copy.',
-      };
-    case 'session_diff_too_large':
-      return { kind: 'too_large', message: 'This file’s recorded changes are too large to display.' };
-    default:
-      return {
-        kind: 'other',
-        message: `Could not load this exact session revision’s file changes (${status}).`,
-      };
-  }
+const DIFF_FAILURE_MESSAGES: Record<Exclude<ExactReadErrorKind, 'other'>, string> = {
+  stale: 'This session changed before its file changes loaded. Refresh the snapshot and try again.',
+  missing: 'These exact file changes are no longer available. Refresh the snapshot and try again.',
+  corrupt: 'Cached file changes could not be read. Refresh the source to restore a last-good copy.',
+  too_large: 'This file’s recorded changes are too large to display.',
+};
+
+export function exactDiffFailure(status: number, code: string | undefined): ExactReadFailure {
+  const kind = exactReadErrorKind(code);
+  return {
+    kind,
+    message:
+      kind === 'other'
+        ? `Could not load this exact session revision’s file changes (${status}).`
+        : DIFF_FAILURE_MESSAGES[kind],
+  };
 }
 
 export type SessionsPayload = {
@@ -77,8 +67,7 @@ export type SessionsPayload = {
 };
 
 export type SessionsQuery = {
-  localWindow: TimeWindow;
-  remoteWindow: TimeWindow;
+  range: SessionRange;
 };
 
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
@@ -191,13 +180,7 @@ export function useFileDiff(selection: FileSelection | null, retryToken: number)
       try {
         const response = await apiFetch(diffRequestPath(selection), { signal: controller.signal });
         if (!response.ok) {
-          let code = '';
-          try {
-            code = ((await response.json()) as { code?: string }).code ?? '';
-          } catch {
-            // Status is sufficient for the generic fallback.
-          }
-          throw exactDiffFailure(response.status, code);
+          throw exactDiffFailure(response.status, (await readApiError(response))?.code);
         }
         const { changes } = (await response.json()) as { changes: FileChange[] };
         if (!controller.signal.aborted) {
@@ -238,7 +221,7 @@ export function useFileDiff(selection: FileSelection | null, retryToken: number)
   };
 }
 
-export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
+export function useSessions({ range }: SessionsQuery) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [machines, setMachines] = useState<MachineFact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -254,8 +237,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     let authenticationFailed = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     // A programmatic refresh reloads in the background, so a failure keeps the
-    // last good list. A new time window or an explicit retry is a foreground load.
-    const key = `${localWindow}|${remoteWindow}|${retryCount}`;
+    // last good list. A new range or an explicit retry is a foreground load.
+    const key = `${range}|${retryCount}`;
 
     const scheduleRefresh = (delay = REFRESH_INTERVAL_MS) => {
       refreshTimer = setTimeout(() => load(true), delay);
@@ -268,10 +251,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         setIsLoading(true);
         setLoadError(null);
       }
-      const path = sessionsRequestPath({
-        localSince: timeWindowStart(localWindow),
-        remoteSince: timeWindowStart(remoteWindow),
-      });
+      const since = rangeStart(range);
+      const path = sessionsRequestPath({ localSince: since, remoteSince: since });
       apiFetch(path, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
@@ -319,7 +300,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
       if (refreshTimer) clearTimeout(refreshTimer);
       controller.abort();
     };
-  }, [localWindow, remoteWindow, retryCount, refreshCount]);
+  }, [range, retryCount, refreshCount]);
 
   const remoteRefreshing = remoteRefreshInProgress(machines);
 

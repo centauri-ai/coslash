@@ -123,6 +123,19 @@ it('reloads local Pi detail after a runtime tree switch without a transcript app
   ).toHaveLength(2);
 });
 
+it.each([
+  [{ code: 'session_detail_stale', error: 'changed' }, 409, 'stale'],
+  [{ code: 'session_detail_corrupt', error: 'unreadable' }, 500, 'corrupt'],
+  [{ error: 'no code' }, 502, 'other'],
+] as const)('maps the structured detail failure %j to %s', async (body, status, kind) => {
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(body, { status }));
+  renderDetail(session);
+  await vi.waitFor(() => expect(renderDetail(session).loadErrorKind).toBe(kind));
+  if (kind === 'other') {
+    expect(renderDetail(session).loadError).toBe(`Could not load session details (${status}).`);
+  }
+});
+
 it('keeps Codex, Cursor and remote Pi detail snapshot keys frozen across content revisions', () => {
   for (const current of [
     { ...session, agent: 'codex' },

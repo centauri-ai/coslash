@@ -25,11 +25,8 @@ import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { latestLogicalSessions } from '@/pages/coslash/lib/session-library';
-import {
-  loadSessionViewPreferences,
-  type SessionRange,
-  type SessionView,
-} from '@/pages/coslash/lib/session-view-preferences';
+import { requestRange, type SessionRange } from '@/pages/coslash/lib/session-range';
+import { loadSessionViewPreferences, type SessionView } from '@/pages/coslash/lib/session-view-preferences';
 import {
   initialSettingsDraft,
   requiresFirstRunConsent,
@@ -37,14 +34,6 @@ import {
   type CoslashSettings,
   type RemoteOwnershipAction,
 } from '@/pages/coslash/lib/settings';
-import type { TimeWindow } from '@/pages/coslash/lib/time-window';
-
-function apiWindowForRange(range: SessionRange): TimeWindow {
-  if (range === 'this-week') return 'week';
-  if (range === 'today' || range === 'week') return '7d';
-  if (range === 'month') return '30d';
-  return 'all';
-}
 
 function SettingsErrorBanner({
   message,
@@ -72,7 +61,6 @@ export function CoslashPage() {
   const [range, setRange] = useState<SessionRange>(() => loadSessionViewPreferences().range);
   const [view, setView] = useState<SessionView>(() => loadSessionViewPreferences().view);
   const [localUpdate, setLocalUpdate] = useState<LocalUpdate | null>(null);
-  const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
   const {
     sessions,
     machines,
@@ -82,10 +70,7 @@ export function CoslashPage() {
     synthesisCostVersion,
     retrySessions,
     refreshSessions,
-  } = useSessions({
-    localWindow: apiWindow,
-    remoteWindow: apiWindow,
-  });
+  } = useSessions({ range: requestRange(range, view === 'insights') });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {
