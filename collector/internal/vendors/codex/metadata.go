@@ -25,14 +25,15 @@ const (
 	maxSessionIndexAttributedSize = int64(512 << 20)
 )
 
-func loadMetadataForFilesContext(ctx context.Context, files []string) (*vendors.SessionMetadata, error) {
-	return loadMetadataContext(ctx, func(ctx context.Context) (map[string]struct{}, error) {
-		return loadLiveSessionsForFilesContext(ctx, files)
+// LoadMetadataForFiles loads thread names and live status for the given rollouts.
+func LoadMetadataForFiles(ctx context.Context, files []string) (*vendors.SessionMetadata, error) {
+	return loadMetadata(ctx, func(ctx context.Context) (map[string]struct{}, error) {
+		return loadLiveSessionsForFiles(ctx, files)
 	})
 }
 
-func loadMetadataContext(ctx context.Context, loadLive func(context.Context) (map[string]struct{}, error)) (*vendors.SessionMetadata, error) {
-	names, err := loadThreadNamesContext(ctx)
+func loadMetadata(ctx context.Context, loadLive func(context.Context) (map[string]struct{}, error)) (*vendors.SessionMetadata, error) {
+	names, err := loadLocalThreadNames(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -57,12 +58,8 @@ func loadMetadataContext(ctx context.Context, loadLive func(context.Context) (ma
 }
 
 // LoadLiveSessions returns the Codex session IDs whose rollouts are open.
-func LoadLiveSessions() (map[string]struct{}, error) {
-	return LoadLiveSessionsContext(context.Background())
-}
-
-func LoadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
-	return loadLiveSessionsContext(ctx)
+func LoadLiveSessions(ctx context.Context) (map[string]struct{}, error) {
+	return loadLiveSessions(ctx)
 }
 
 // LiveSessionIDs reads rollout session IDs from `lsof -Fn` output.
@@ -94,11 +91,7 @@ func SessionIndexPath(home string) string {
 // line terminator. Repeated rows with the same member ID are still attributable
 // and must all be preserved. A malformed or unidentifiable row makes attribution
 // incomplete because it could belong to a selected member.
-func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string]bool) (map[string][][]byte, bool, error) {
-	return ReadSessionIndexRowsContext(context.Background(), source, home, ids)
-}
-
-func ReadSessionIndexRowsContext(ctx context.Context, source vendors.ReadSource, home string, ids map[string]bool) (map[string][][]byte, bool, error) {
+func ReadSessionIndexRows(ctx context.Context, source vendors.ReadSource, home string, ids map[string]bool) (map[string][][]byte, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
@@ -176,16 +169,16 @@ func jsonString(raw json.RawMessage) (string, bool) {
 	return value, true
 }
 
-func loadThreadNamesContext(ctx context.Context) (map[string]string, error) {
+func loadLocalThreadNames(ctx context.Context) (map[string]string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, SessionIndexPath(home))
+	return loadThreadNames(ctx, vendors.LocalReadSource, SessionIndexPath(home))
 }
 
-func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {
-	names, err := loadThreadNamesSource(source, vendors.SourcePathJoin(source, home, ".codex", "session_index.jsonl"))
+func LoadRemoteMetadata(ctx context.Context, source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {
+	names, err := loadThreadNames(ctx, source, vendors.SourcePathJoin(source, home, ".codex", "session_index.jsonl"))
 	if err != nil {
 		return nil, err
 	}
@@ -196,11 +189,7 @@ func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.Sessio
 	return metadata, nil
 }
 
-func loadThreadNamesSource(source vendors.ReadSource, path string) (map[string]string, error) {
-	return loadThreadNamesSourceContext(context.Background(), source, path)
-}
-
-func loadThreadNamesSourceContext(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
+func loadThreadNames(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
 	names := map[string]string{}
 	file, err := source.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {

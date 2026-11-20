@@ -12,12 +12,16 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	files, err := FilesContext(ctx)
+func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata, metadataErr := loadMetadataForFilesContext(ctx, files)
+	files, err := Files(ctx, vendors.LocalReadSource, home)
+	if err != nil {
+		return nil, nil, err
+	}
+	metadata, metadataErr := LoadMetadataForFiles(ctx, files)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -28,20 +32,20 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		}
 	}
 	if since > 0 {
-		files, err = FilesSinceSourceContext(ctx, vendors.LocalReadSource, files, metadata.LiveSessions(), since)
+		files, err = FilesSince(ctx, vendors.LocalReadSource, files, metadata.LiveSessions(), since)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	parsed, err := parseFilesContext(ctx, files)
+	parsed, err := ParseFiles(ctx, files)
 	return parsed, metadata, err
 }
 
 // RemoteMetadata loads best-effort live/name metadata for a remote source
 // without touching any transcript file.
-func RemoteMetadata(source vendors.ReadSource, home string) *vendors.SessionMetadata {
+func RemoteMetadata(ctx context.Context, source vendors.ReadSource, home string) *vendors.SessionMetadata {
 	return vendors.BestEffortMetadata(vendors.AgentCodex, func() (*vendors.SessionMetadata, error) {
-		return LoadRemoteMetadata(source, home)
+		return LoadRemoteMetadata(ctx, source, home)
 	})
 }
 
@@ -64,6 +68,7 @@ type CachedHeader struct {
 // file whose header cannot be read is reported in failed and excluded from
 // headers, so the caller can isolate it to its own family.
 func ResolveHeaders(
+	ctx context.Context,
 	source vendors.ReadSource,
 	files []string,
 	fingerprints []vendors.FileFingerprint,
@@ -79,7 +84,7 @@ func ResolveHeaders(
 			updated[fp.Key] = entry
 			continue
 		}
-		id, parentID, err := readHeaderSource(source, file)
+		id, parentID, err := readHeader(ctx, source, file)
 		if err != nil {
 			failed[file] = err
 			continue
@@ -113,6 +118,7 @@ type RemoteFamily struct {
 // session ID when available, so it can be reported as skipped without hiding
 // any other family's results.
 func BuildRemoteFamilies(
+	ctx context.Context,
 	source vendors.ReadSource,
 	home string,
 	since int64,
@@ -130,18 +136,21 @@ func BuildRemoteFamilies(
 	err error,
 ) {
 	root := vendors.SourcePathJoin(source, home, ".codex", "sessions")
-	scan, err := ScanSource(source, root)
+	scan, err := Scan(ctx, source, root)
 	if err != nil {
 		return nil, nil, nil, nil, nil, 0, 0, false, err
 	}
 	files := scan.Files
 	skippedTotal = scan.SkippedTotal
 	candidateFiles = len(files)
-	fingerprints, err := vendors.FingerprintSourceFiles(context.Background(), source, root, files)
+	fingerprints, err := vendors.FingerprintSourceFiles(ctx, source, root, files)
 	if err != nil {
 		return nil, nil, nil, nil, nil, candidateFiles, skippedTotal, false, err
 	}
-	headers, updatedHeaders, headerFailed := ResolveHeaders(source, files, fingerprints, cachedHeaders)
+	headers, updatedHeaders, headerFailed := ResolveHeaders(ctx, source, files, fingerprints, cachedHeaders)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, nil, nil, nil, candidateFiles, skippedTotal, false, err
+	}
 
 	parents := map[string]string{}
 	for _, header := range headers {
@@ -258,38 +267,24 @@ func sortFamiliesByNewest(ids []string, newest map[string]int64) {
 // failure is reported alongside every file that parsed successfully so the
 // caller can isolate the failure to that file's family.
 func ParseRemoteFiles(
-	source vendors.ReadSource,
-	home string,
-	files []string,
-	knownActiveFiles []string,
-) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	return ParseRemoteFilesContext(context.Background(), source, home, files, knownActiveFiles)
-}
-
-// ParseRemoteFilesContext parses exactly the given files and stops parsing or
-// finalizing them when the collection context is canceled.
-func ParseRemoteFilesContext(
 	ctx context.Context,
 	source vendors.ReadSource,
 	home string,
 	files []string,
 	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, parseErr := vendors.ParseSourceFilesStrict(ctx, source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSourceContext(ctx, source, path, func(string, string) bool { return true })
+	parsed, failures, err := vendors.ParseSourceFilesStrict(ctx, source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+		return parseSource(ctx, source, path, func(string, string) bool { return true })
 	})
-	finalized, finalizeErr := finalizeParsedFilesContext(
-		ctx,
-		source,
-		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),
-		knownActiveFiles,
-		parsed,
-	)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, ctxErr
+	}
+	finalized, finalizeErr := finalizeParsedFiles(ctx, source, vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"), knownActiveFiles, parsed)
 	if finalizeErr != nil {
-		return nil, failures, finalizeErr
+		return nil, nil, finalizeErr
 	}
 	clearPromptDerivedNames(finalized)
-	return finalized, failures, parseErr
+	return finalized, failures, err
 }
 
 // clearPromptDerivedNames prevents the parser's first-user-prompt fallback
@@ -304,92 +299,56 @@ func clearPromptDerivedNames(parsed []*vendors.ParsedSession) {
 }
 
 func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	if err := ctx.Err(); err != nil {
+	home, err := os.UserHomeDir()
+	if err != nil {
 		return nil, nil, err
 	}
-	files, err := FilesContext(ctx)
+	files, err := Files(ctx, vendors.LocalReadSource, home)
 	if err != nil {
 		return nil, nil, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCodex, func() (*vendors.SessionMetadata, error) {
-		return loadMetadataForFilesContext(ctx, files)
+		return LoadMetadataForFiles(ctx, files)
 	})
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	familyFiles, err := FilesForRootSourceContext(ctx, vendors.LocalReadSource, files, id)
+	family, err := FilesForRoot(ctx, vendors.LocalReadSource, files, id)
 	if err != nil {
 		return nil, nil, err
 	}
-	parsed, err := parseFilesContext(ctx, familyFiles)
+	parsed, err := ParseFiles(ctx, family)
 	if err != nil {
 		return nil, nil, err
 	}
 	return parsed, metadata, nil
 }
 
-func parseFiles(files []string) []*vendors.ParsedSession {
-	home := ""
-	if root, err := Root(); err == nil {
-		home = filepath.Dir(filepath.Dir(root))
-	}
-	return parseFilesSource(
-		vendors.LocalReadSource,
-		filepath.Join(home, ".codex", "archived_sessions"),
-		nil,
-		files,
-		commandNeedsApproval,
-	)
-}
-
-func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
+// ParseFiles parses exactly the given local rollouts, which must be whole
+// families, with fork normalization. Streamed discovery calls it per batch of
+// families.
+func ParseFiles(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
 	home := ""
 	if root, err := Root(); err == nil {
 		home = filepath.Dir(filepath.Dir(root))
 	}
 	parsed, err := vendors.ParseSourceFiles(ctx, vendors.LocalReadSource, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
-			return parseSourceCachedContext(ctx, source, path, func(command, cwd string) bool {
-				return commandNeedsApprovalContext(ctx, command, cwd)
+			return parseSourceCached(ctx, source, path, func(command, cwd string) bool {
+				return commandNeedsApproval(ctx, command, cwd)
 			})
 		})
 	if err != nil {
 		return nil, err
 	}
-	return finalizeParsedFilesContext(ctx, vendors.LocalReadSource, filepath.Join(home, ".codex", "archived_sessions"), nil, parsed)
-}
-
-func parseFilesSource(
-	source vendors.ReadSource,
-	archivedDir string,
-	knownActiveFiles []string,
-	files []string,
-	needsApproval func(string, string) bool,
-) []*vendors.ParsedSession {
-	parsed, _ := vendors.ParseSourceFiles(context.Background(), source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSourceCachedContext(ctx, source, path, needsApproval)
-	})
-	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed)
+	return finalizeParsedFiles(ctx, vendors.LocalReadSource, filepath.Join(home, ".codex", "archived_sessions"), nil, parsed)
 }
 
 func finalizeParsedFiles(
-	source vendors.ReadSource,
-	archivedDir string,
-	knownActiveFiles []string,
-	parsed []*parsedSession,
-) []*vendors.ParsedSession {
-	result, _ := finalizeParsedFilesContext(context.Background(), source, archivedDir, knownActiveFiles, parsed)
-	return result
-}
-
-func finalizeParsedFilesContext(
 	ctx context.Context,
 	source vendors.ReadSource,
 	archivedDir string,
 	knownActiveFiles []string,
 	parsed []*parsedSession,
 ) ([]*vendors.ParsedSession, error) {
-	if err := applyForkedUsageSourceContext(ctx, source, archivedDir, knownActiveFiles, parsed); err != nil {
+	if err := applyForkedUsage(ctx, source, archivedDir, knownActiveFiles, parsed); err != nil {
 		return nil, err
 	}
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
@@ -402,27 +361,44 @@ func finalizeParsedFilesContext(
 	return transcripts, nil
 }
 
-func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
-	files, err := Files()
+func GetSessionFacts(ctx context.Context, id string) (*vendors.ParsedSession, error) {
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return vendors.FindAndParse(files, id, SessionIDFromRollout, parseTranscript)
+	files, err := Files(ctx, vendors.LocalReadSource, home)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		if SessionIDFromRollout(file) == id {
+			return parseTranscript(ctx, vendors.LocalReadSource, file, func(command, cwd string) bool {
+				return commandNeedsApproval(ctx, command, cwd)
+			})
+		}
+	}
+	return nil, nil
 }
 
-func Health() vendors.SourceHealth {
+func Health(ctx context.Context) vendors.SourceHealth {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Err: err}
 	}
-	return healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	return healthForHome(ctx, vendors.LocalReadSource, home)
 }
 
-func healthForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) vendors.SourceHealth {
+func healthForHome(ctx context.Context, source vendors.ReadSource, home string) vendors.SourceHealth {
 	root := filepath.Dir(SessionsRoot(home))
-	scan, err := scanForHomeSourceContext(ctx, source, home)
+	scan, err := scanHome(ctx, source, home)
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Root: root, Err: err}
 	}
-	return vendors.FileSourceHealth(vendors.AgentCodex, root, scan, IsRootRollout)
+	health := vendors.FileSourceHealth(vendors.AgentCodex, root, scan, func(path string) (bool, error) {
+		return IsRootRollout(ctx, source, path)
+	})
+	if err := ctx.Err(); err != nil {
+		return vendors.SourceHealth{Agent: vendors.AgentCodex, Root: root, Err: err}
+	}
+	return health
 }

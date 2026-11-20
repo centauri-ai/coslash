@@ -17,21 +17,16 @@ type FileHeader struct {
 	Err       error
 }
 
-// HeadersSource reads only the first row of each rollout. Codex families are
+// Headers reads only the first row of each rollout. Codex families are
 // recoverable only from headers, so grouping reads them before deciding which
 // families changed; transcript bodies stay closed.
-func HeadersSource(source vendors.ReadSource, files []string) map[string]FileHeader {
-	headers, _ := HeadersSourceContext(context.Background(), source, files)
-	return headers
-}
-
-func HeadersSourceContext(ctx context.Context, source vendors.ReadSource, files []string) (map[string]FileHeader, error) {
+func Headers(ctx context.Context, source vendors.ReadSource, files []string) (map[string]FileHeader, error) {
 	headers := make(map[string]FileHeader, len(files))
 	for _, file := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		header, err := readFileHeaderSourceContext(ctx, source, file)
+		header, err := readFileHeader(ctx, source, file)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -79,19 +74,10 @@ func FamilyRoots(headers map[string]FileHeader) map[string]string {
 	return roots
 }
 
-// ParseFamilyFilesSource parses one selected file set through the same pipeline
+// ParseFamilyFiles parses one selected file set through the same pipeline
 // remote collection uses, returning every main-file failure to the caller so one
 // bad rollout can be isolated to its own family.
-func ParseFamilyFilesSource(
-	source vendors.ReadSource,
-	home string,
-	files []string,
-	knownActiveFiles []string,
-) ([]*vendors.ParsedSession, error) {
-	return ParseFamilyFilesSourceContext(context.Background(), source, home, files, knownActiveFiles)
-}
-
-func ParseFamilyFilesSourceContext(
+func ParseFamilyFiles(
 	ctx context.Context,
 	source vendors.ReadSource,
 	home string,
@@ -100,12 +86,12 @@ func ParseFamilyFilesSourceContext(
 ) ([]*vendors.ParsedSession, error) {
 	parsed, _, err := vendors.ParseSourceFilesStrict(ctx, source, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
-			return parseSourceContext(ctx, source, path, func(string, string) bool { return true })
+			return parseSource(ctx, source, path, func(string, string) bool { return true })
 		})
 	if err != nil {
 		return nil, err
 	}
-	finalized, err := finalizeParsedFilesContext(
+	finalized, err := finalizeParsedFiles(
 		ctx,
 		source,
 		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),

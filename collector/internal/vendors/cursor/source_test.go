@@ -24,7 +24,7 @@ func TestCursorEnrichmentPreservesMergedEditsDuringSharedFinalization(t *testing
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session("session").FileEdits = []session.FileEdit{{Path: "b.go", Additions: 2}}
 
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, metadata)
 	vendors.ApplySessionEnrichment(parsed, metadata.Lookup("session"))
 
 	if len(parsed.Session.FileEdits) != 2 || parsed.Session.FileEdits[0].Path != "a.go" || parsed.Session.FileEdits[1].Path != "b.go" {
@@ -45,7 +45,7 @@ func TestCursorEnrichmentAppliesSharedFactsMetadataAndCost(t *testing.T) {
 		ContextTokens: &contextTokens, ContextWindow: &contextWindow, RecordedCost: &recordedCost,
 	}
 
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, metadata)
 
 	if parsed.Session.Model == nil || *parsed.Session.Model != "composer-2.5-fast" ||
 		parsed.Session.Entrypoint == nil || *parsed.Session.Entrypoint != entrypointIDE ||
@@ -65,7 +65,7 @@ func TestCursorEnrichmentRecomputesDurationFromMetadataTimes(t *testing.T) {
 	metadata.Session("session").StartedAt = 200
 	metadata.Session("session").LastActivityAt = 300
 
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, metadata)
 
 	if parsed.Session.DurationMs == nil || *parsed.Session.DurationMs != 100 {
 		t.Fatalf("duration = %v, want 100", parsed.Session.DurationMs)
@@ -106,7 +106,7 @@ func TestGetSessionFactsAppliesMetadataRelationship(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := GetSessionFacts(childID)
+	parsed, err := GetSessionFacts(t.Context(), childID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestCursorEnrichmentClearsStaleLivenessForStoppedSession(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session("stopped").Live = "interactive"
 
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, metadata)
 
 	if got := metadata.Lookup("stopped").Live; got != "" {
 		t.Fatalf("live = %q, want empty after terminal stop", got)
@@ -132,7 +132,7 @@ func TestCursorEnrichmentAppliesIdleLiveStatusForFacts(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session("live").Live = "interactive"
 
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, metadata)
 
 	if parsed.Session.Status == nil || *parsed.Session.Status != "idle" {
 		t.Fatalf("status = %v, want idle", parsed.Session.Status)
@@ -150,14 +150,14 @@ func TestCursorEnrichmentDoesNotFinalizeInteractiveTrailingReply(t *testing.T) {
 	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session(id).Live = "interactive"
 
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyCursorEnrichment(t.Context(), []*vendors.ParsedSession{parsed}, metadata)
 
 	for _, entry := range parsed.Session.Digest {
 		if entry.Category == session.DigestRecap {
@@ -184,7 +184,7 @@ func TestSelectCursorFilesPreservesLiveFamily(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session(childID).Live = "interactive"
 
-	got := selectCursorFilesSourceWithMetadata(
+	got := selectForTest(t,
 		statReadSource{info: info}, files, info.ModTime().UnixMilli()+1, metadata,
 	)
 
@@ -203,7 +203,7 @@ func TestCursorFamilyFilesSelectsOnlyRequestedFamily(t *testing.T) {
 	files := []string{root, child, other}
 
 	for _, id := range []string{rootID, childID} {
-		got := cursorFamilyFiles(files, id)
+		got := cursorFamilyFiles(files, id, nil)
 		if len(got) != 2 || got[0] != root || got[1] != child {
 			t.Fatalf("cursorFamilyFiles(%q) = %v, want [%s %s]", id, got, root, child)
 		}
@@ -221,9 +221,9 @@ func TestCursorFamilyFilesUsesMetadataRelationships(t *testing.T) {
 	metadata.Session(childID).Relationship = vendors.SessionRelationship{ParentID: rootID}
 
 	for _, id := range []string{rootID, childID} {
-		got := cursorFamilyFilesWithMetadata([]string{root, child, other}, id, metadata)
+		got := cursorFamilyFiles([]string{root, child, other}, id, metadata)
 		if len(got) != 2 || got[0] != root || got[1] != child {
-			t.Fatalf("cursorFamilyFilesWithMetadata(%q) = %v, want [%s %s]", id, got, root, child)
+			t.Fatalf("cursorFamilyFiles(%q) = %v, want [%s %s]", id, got, root, child)
 		}
 	}
 }
@@ -245,7 +245,7 @@ func TestApplyRelationshipsClaimsDuplicateTaskDigestsOnce(t *testing.T) {
 	metadata.Session("child-1").Relationship = vendors.SessionRelationship{ParentID: "parent", SpawnKey: "side-1", Task: "same task", Active: true}
 	metadata.Session("child-2").Relationship = vendors.SessionRelationship{ParentID: "parent", SpawnKey: "side-2", Task: "same task", Completed: true}
 
-	applyRelationships([]*vendors.ParsedSession{parent, child1, child2}, metadata)
+	applyRelationships(t.Context(), []*vendors.ParsedSession{parent, child1, child2}, metadata)
 
 	if len(parent.Spawns) != 2 || parent.Spawns["side-1"].Active != true || parent.Spawns["side-2"].Completed != true {
 		t.Fatalf("spawns = %#v, want both relationship states", parent.Spawns)
@@ -271,7 +271,7 @@ func TestSelectCursorFilesDoesNotCapAllHistory(t *testing.T) {
 		files[i] = filepath.Join("agent-transcripts", id, id+".jsonl")
 	}
 
-	got := selectCursorFilesSource(statReadSource{info: info}, files, 0)
+	got := selectForTest(t, statReadSource{info: info}, files, 0, nil)
 	if len(got) != len(files) {
 		t.Fatalf("selected %d files, want all %d", len(got), len(files))
 	}
@@ -292,7 +292,7 @@ func TestSelectCursorFilesUsesSideStoreActivity(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session(id).LastActivityAt = since
 
-	got := selectCursorFilesSourceWithMetadata(statReadSource{info: info}, []string{path}, since, metadata)
+	got := selectForTest(t, statReadSource{info: info}, []string{path}, since, metadata)
 	if len(got) != 1 || got[0] != path {
 		t.Fatalf("selected files = %v, want side-store-recent session", got)
 	}
@@ -316,7 +316,7 @@ func TestSelectCursorFilesOrdersFamiliesBySideStoreActivity(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session(newestID).LastActivityAt = info.ModTime().UnixMilli() + 1
 
-	got := selectCursorFilesSourceWithMetadata(statReadSource{info: info}, files, 1, metadata)
+	got := selectForTest(t, statReadSource{info: info}, files, 1, metadata)
 	for _, path := range got {
 		if path == files[len(files)-1] {
 			return
@@ -344,7 +344,7 @@ func TestSelectCursorFilesPrioritizesLiveFamiliesAtCandidateLimit(t *testing.T) 
 	liveID := IDFromPath(files[0])
 	metadata.Session(liveID).Live = "interactive"
 
-	got := selectCursorFilesSourceWithMetadata(statReadSource{info: info}, files, 1, metadata)
+	got := selectForTest(t, statReadSource{info: info}, files, 1, metadata)
 	for _, path := range got {
 		if path == files[0] {
 			return
@@ -364,7 +364,7 @@ func TestSelectCursorFilesDoesNotCreateMetadataForRejectedHistory(t *testing.T) 
 	}
 	id := "00000000-0000-4000-8000-000000000001"
 	metadata := vendors.EmptySessionMetadata()
-	got := selectCursorFilesSourceWithMetadata(
+	got := selectForTest(t,
 		statReadSource{info: info},
 		[]string{filepath.Join("agent-transcripts", id, id+".jsonl")},
 		info.ModTime().UnixMilli()+1,
@@ -489,7 +489,7 @@ func TestSelectCursorFilesStopsDuringCandidateLimiting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	source := &cancelingStatSource{statReadSource: statReadSource{info: info}, cancel: cancel, cancelAt: len(files) + 1}
 
-	_, err = selectCursorFilesSourceWithMetadataContext(ctx, source, files, 1, vendors.EmptySessionMetadata())
+	_, err = selectCursorFiles(ctx, source, files, 1, vendors.EmptySessionMetadata())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}

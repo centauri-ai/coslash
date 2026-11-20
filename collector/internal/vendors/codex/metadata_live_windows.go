@@ -5,9 +5,11 @@ package codex
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/winprocess"
 )
 
@@ -18,15 +20,19 @@ var (
 	codexProcess           = isCurrentUserCodexProcess
 )
 
-func loadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
-	files, err := FilesContext(ctx)
+func loadLiveSessions(ctx context.Context) (map[string]struct{}, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	files, err := Files(ctx, vendors.LocalReadSource, home)
 	if err != nil {
 		return nil, err
 	}
 	return loadLiveSessionsFromFiles(ctx, files)
 }
 
-func loadLiveSessionsForFilesContext(ctx context.Context, files []string) (map[string]struct{}, error) {
+func loadLiveSessionsForFiles(ctx context.Context, files []string) (map[string]struct{}, error) {
 	return loadLiveSessionsFromFiles(ctx, files)
 }
 

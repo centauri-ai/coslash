@@ -15,8 +15,8 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	files, err := FilesContext(ctx)
+func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	files, err := localFiles(ctx)
 	if errors.Is(err, fs.ErrNotExist) {
 		return []*vendors.ParsedSession{}, vendors.EmptySessionMetadata(), nil
 	}
@@ -27,8 +27,8 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
-	live := loadLiveSessionsContext(ctx)
-	selectionMetadata, metadataErr := loadSelectionMetadataWithLiveContext(ctx, home, live)
+	live := loadLiveSessions(ctx)
+	selectionMetadata, metadataErr := loadSelectionMetadata(ctx, home, live)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -37,7 +37,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 			return nil, metadataErr
 		})
 	}
-	files, err = selectCursorFilesSourceWithMetadataContext(ctx, vendors.LocalReadSource, files, since, selectionMetadata)
+	files, err = selectCursorFiles(ctx, vendors.LocalReadSource, files, since, selectionMetadata)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -48,7 +48,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		}
 		ids = append(ids, IDFromPath(path))
 	}
-	metadata, metadataErr := loadMetadataForSessionsWithLiveContext(ctx, home, canonicalCursorIDs(ids), live)
+	metadata, metadataErr := loadMetadataForSessionsWithLive(ctx, home, ids, live)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -57,27 +57,35 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 			return nil, metadataErr
 		})
 	}
-	parsed, err := parseTranscriptFilesSourceContext(ctx, vendors.LocalReadSource, files)
+	parsed, err := parseTranscriptFiles(ctx, vendors.LocalReadSource, files)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := applyCursorEnrichmentContext(ctx, parsed, metadata); err != nil {
+	if err := applyCursorEnrichment(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
 	if err := applyCommandOutputs(ctx, home, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
-	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
+	if err := applyRelationships(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
 	return parsed, metadata, nil
 }
 
-func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
+func localFiles(ctx context.Context) ([]string, error) {
+	root, err := Root()
+	if err != nil {
+		return nil, err
+	}
+	return Files(ctx, vendors.LocalReadSource, root)
+}
+
+func GetSessionFacts(ctx context.Context, id string) (*vendors.ParsedSession, error) {
 	if id == "" {
 		return nil, nil
 	}
-	files, err := Files()
+	files, err := localFiles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -90,16 +98,16 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if len(fragments) == 0 {
 		return nil, nil
 	}
-	parsed, err := parseTranscriptFragmentsSource(vendors.LocalReadSource, fragments)
+	parsed, err := parseTranscriptFragments(ctx, vendors.LocalReadSource, fragments)
 	if err != nil || parsed == nil {
 		return parsed, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions([]string{parsed.Session.ID})
+		return LoadMetadataForSessions(ctx, []string{parsed.Session.ID})
 	})
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
-	applyLocalCommandOutputs([]*vendors.ParsedSession{parsed}, metadata)
-	applyRelationships([]*vendors.ParsedSession{parsed}, metadata)
+	if err := enrichLocal(ctx, []*vendors.ParsedSession{parsed}, metadata); err != nil {
+		return nil, err
+	}
 	return parsed, nil
 }
 
@@ -110,7 +118,7 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 	if id == "" {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
-	files, err := FilesContext(ctx)
+	files, err := localFiles(ctx)
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
@@ -119,16 +127,13 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 		return nil, nil, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return loadRelationshipMetadataForSessionsContext(ctx, home, []string{id})
+		return loadRelationshipMetadataForSessions(ctx, home, []string{id})
 	})
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	familyFiles, err := cursorFamilyFilesWithMetadataContext(ctx, files, id, metadata)
-	if err != nil {
-		return nil, nil, err
-	}
-	parsed, err := parseTranscriptFilesSourceContext(ctx, vendors.LocalReadSource, familyFiles)
+	familyFiles := cursorFamilyFiles(files, id, metadata)
+	parsed, err := parseTranscriptFiles(ctx, vendors.LocalReadSource, familyFiles)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,32 +147,29 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 		}
 	}
 	metadata = vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return loadMetadataForSessionsContext(ctx, home, ids)
+		return loadMetadataForSessions(ctx, home, ids)
 	})
-	if err := ctx.Err(); err != nil {
+	if err := enrichLocal(ctx, parsed, metadata); err != nil {
 		return nil, nil, err
 	}
-	if err := applyCursorEnrichmentContext(ctx, parsed, metadata); err != nil {
-		return nil, nil, err
-	}
-	if err := applyCommandOutputs(ctx, home, parsed, metadata); err != nil {
-		return nil, nil, err
-	}
-	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
-		return nil, nil, err
-	}
-	family, err := selectFamilyContext(ctx, parsed, id)
-	if err != nil {
-		return nil, nil, err
-	}
-	return family, metadata, nil
+	return selectFamily(parsed, id), metadata, nil
 }
 
-func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
-	_ = applyRelationshipsContext(context.Background(), parsed, metadata)
+// enrichLocal applies metadata, local command outputs, and relationships to
+// parsed local sessions.
+func enrichLocal(ctx context.Context, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) error {
+	if err := applyCursorEnrichment(ctx, parsed, metadata); err != nil {
+		return err
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if err := applyCommandOutputs(ctx, home, parsed, metadata); err != nil && ctx.Err() != nil {
+			return err
+		}
+	}
+	return applyRelationships(ctx, parsed, metadata)
 }
 
-func applyRelationshipsContext(ctx context.Context, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) error {
+func applyRelationships(ctx context.Context, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) error {
 	if metadata == nil {
 		return ctx.Err()
 	}
@@ -263,17 +265,7 @@ func applyRelationshipsContext(ctx context.Context, parsed []*vendors.ParsedSess
 	return ctx.Err()
 }
 
-func applyLocalCommandOutputs(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
-	if home, err := os.UserHomeDir(); err == nil {
-		_ = applyCommandOutputs(context.Background(), home, parsed, metadata)
-	}
-}
-
-func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
-	_ = applyCursorEnrichmentContext(context.Background(), parsed, metadata)
-}
-
-func applyCursorEnrichmentContext(ctx context.Context, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) error {
+func applyCursorEnrichment(ctx context.Context, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) error {
 	if metadata == nil {
 		return ctx.Err()
 	}
@@ -375,21 +367,9 @@ func normalizedEditPath(cwd, path string) string {
 	return path
 }
 
-func cursorFamilyFiles(files []string, id string) []string {
-	return cursorFamilyFilesWithMetadata(files, id, nil)
-}
-
-func cursorFamilyFilesWithMetadata(files []string, id string, metadata *vendors.SessionMetadata) []string {
-	selected, _ := cursorFamilyFilesWithMetadataContext(context.Background(), files, id, metadata)
-	return selected
-}
-
-func cursorFamilyFilesWithMetadataContext(ctx context.Context, files []string, id string, metadata *vendors.SessionMetadata) ([]string, error) {
+func cursorFamilyFiles(files []string, id string, metadata *vendors.SessionMetadata) []string {
 	union := newCursorFamilyUnion()
 	for _, path := range files {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		childID := IDFromPath(path)
 		union.add(childID)
 		if parentID := ParentIDFromPath(path); parentID != "" {
@@ -398,9 +378,6 @@ func cursorFamilyFilesWithMetadataContext(ctx context.Context, files []string, i
 	}
 	if metadata != nil {
 		for childID, entry := range metadata.Sessions {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
 			if entry.Relationship.ParentID != "" {
 				union.union(childID, entry.Relationship.ParentID)
 			}
@@ -409,22 +386,14 @@ func cursorFamilyFilesWithMetadataContext(ctx context.Context, files []string, i
 	want := union.find(strings.ToLower(id))
 	selected := make([]string, 0, len(files))
 	for _, path := range files {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		if union.find(IDFromPath(path)) == want {
 			selected = append(selected, path)
 		}
 	}
-	return selected, nil
+	return selected
 }
 
-func parseTranscriptFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
-	parsed, _ := parseTranscriptFilesSourceContext(context.Background(), source, files)
-	return parsed
-}
-
-func parseTranscriptFilesSourceContext(ctx context.Context, source vendors.ReadSource, files []string) ([]*vendors.ParsedSession, error) {
+func parseTranscriptFiles(ctx context.Context, source vendors.ReadSource, files []string) ([]*vendors.ParsedSession, error) {
 	groups := make(map[string][]string, len(files))
 	ids := make([]string, 0, len(files))
 	for _, path := range files {
@@ -438,20 +407,11 @@ func parseTranscriptFilesSourceContext(ctx context.Context, source vendors.ReadS
 		groups[id] = append(groups[id], path)
 	}
 	return vendors.ParseFiles(ctx, ids, func(ctx context.Context, id string) (*vendors.ParsedSession, error) {
-		return parseTranscriptFragmentsCachedContext(ctx, source, groups[id])
+		return parseTranscriptFragmentsCached(ctx, source, groups[id])
 	})
 }
 
-func selectCursorFilesSource(source vendors.ReadSource, files []string, since int64) []string {
-	return selectCursorFilesSourceWithMetadata(source, files, since, nil)
-}
-
-func selectCursorFilesSourceWithMetadata(source vendors.ReadSource, files []string, since int64, metadata *vendors.SessionMetadata) []string {
-	selected, _ := selectCursorFilesSourceWithMetadataContext(context.Background(), source, files, since, metadata)
-	return selected
-}
-
-func selectCursorFilesSourceWithMetadataContext(ctx context.Context, source vendors.ReadSource, files []string, since int64, metadata *vendors.SessionMetadata) ([]string, error) {
+func selectCursorFiles(ctx context.Context, source vendors.ReadSource, files []string, since int64, metadata *vendors.SessionMetadata) ([]string, error) {
 	if len(files) == 0 {
 		return nil, ctx.Err()
 	}
@@ -558,45 +518,31 @@ func (u *cursorFamilyUnion) union(left, right string) {
 }
 
 func selectFamily(parsed []*vendors.ParsedSession, id string) []*vendors.ParsedSession {
-	family, _ := selectFamilyContext(context.Background(), parsed, id)
-	return family
-}
-
-func selectFamilyContext(ctx context.Context, parsed []*vendors.ParsedSession, id string) ([]*vendors.ParsedSession, error) {
 	id = strings.ToLower(id)
 	byID := make(map[string]*vendors.ParsedSession, len(parsed))
 	for _, item := range parsed {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		if item != nil && item.Session != nil {
 			byID[item.Session.ID] = item
 		}
 	}
 	root, ok := byID[id]
 	if !ok {
-		return nil, nil
+		return nil
 	}
 	ancestors := map[string]bool{}
 	for root.ParentID != "" {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		if ancestors[root.Session.ID] || root.ParentID == root.Session.ID {
-			return nil, nil
+			return nil
 		}
 		ancestors[root.Session.ID] = true
 		parent, ok := byID[root.ParentID]
 		if !ok {
-			return nil, nil
+			return nil
 		}
 		root = parent
 	}
 	children := map[string][]*vendors.ParsedSession{}
 	for _, item := range parsed {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		if item != nil && item.Session != nil && item.ParentID != "" {
 			if _, ok := byID[item.ParentID]; ok {
 				children[item.ParentID] = append(children[item.ParentID], item)
@@ -608,35 +554,27 @@ func selectFamilyContext(ctx context.Context, parsed []*vendors.ParsedSession, i
 	}
 	family := []*vendors.ParsedSession{}
 	seen := map[string]bool{}
-	var visit func(*vendors.ParsedSession) error
-	visit = func(item *vendors.ParsedSession) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	var visit func(*vendors.ParsedSession)
+	visit = func(item *vendors.ParsedSession) {
 		if seen[item.Session.ID] {
-			return nil
+			return
 		}
 		seen[item.Session.ID] = true
 		family = append(family, item)
 		for _, child := range children[item.Session.ID] {
-			if err := visit(child); err != nil {
-				return err
-			}
+			visit(child)
 		}
-		return nil
 	}
-	if err := visit(root); err != nil {
-		return nil, err
-	}
-	return family, nil
+	visit(root)
+	return family
 }
 
-func Health() vendors.SourceHealth {
+func Health(ctx context.Context) vendors.SourceHealth {
 	root, err := Root()
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCursor, Err: err}
 	}
-	scan, err := Scan()
+	scan, err := Scan(ctx, vendors.LocalReadSource, root)
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCursor, Root: root, Err: err}
 	}
@@ -645,7 +583,7 @@ func Health() vendors.SourceHealth {
 		ids = append(ids, IDFromPath(path))
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadRelationshipMetadataForSessions(ids)
+		return LoadRelationshipMetadataForSessions(ctx, ids)
 	})
 	return cursorSourceHealth(root, scan, metadata)
 }

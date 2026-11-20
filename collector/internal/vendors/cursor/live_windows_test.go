@@ -50,11 +50,11 @@ func TestWindowsCursorLivenessUsesSelectedIDEChat(t *testing.T) {
 	cursorCLIStoreProcesses = func([]string) ([]uint32, error) { return nil, nil }
 	cursorProcessExecutable = func(uint32) (string, error) { return "", os.ErrNotExist }
 	cursorIDEProcessRunning = func(string) bool { return true }
-	if got := loadLiveSessions(); got[id] != entrypointIDE {
+	if got := loadLiveSessions(t.Context()); got[id] != entrypointIDE {
 		t.Fatalf("live sessions = %#v, want selected IDE chat", got)
 	}
 	cursorIDEProcessRunning = func(string) bool { return false }
-	if got := loadLiveSessions(); len(got) != 0 {
+	if got := loadLiveSessions(t.Context()); len(got) != 0 {
 		t.Fatalf("live sessions without Cursor process = %#v", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestWindowsCursorLivenessUsesOpenCLIStore(t *testing.T) {
 		}
 		return filepath.Join(home, "unrelated.exe"), nil
 	}
-	if got := loadLiveSessions(); got[id] != entrypointCLI {
+	if got := loadLiveSessions(t.Context()); got[id] != entrypointCLI {
 		t.Fatalf("live sessions = %#v, want open CLI chat", got)
 	}
 }
@@ -129,7 +129,7 @@ func TestWindowsCursorLivenessUsesOpenCLISidecar(t *testing.T) {
 	cursorProcessExecutable = func(uint32) (string, error) {
 		return filepath.Join(home, "AppData", "Local", "cursor-agent", "versions", "2026.09.18-build", "node.exe"), nil
 	}
-	if got := loadLiveSessions(); got[id] != entrypointCLI {
+	if got := loadLiveSessions(t.Context()); got[id] != entrypointCLI {
 		t.Fatalf("live sessions = %#v, want CLI chat with open SQLite sidecar", got)
 	}
 }
@@ -178,7 +178,7 @@ func TestWindowsCursorLivenessMarksSameSessionAmbiguousAcrossLanes(t *testing.T)
 	cursorProcessExecutable = func(uint32) (string, error) {
 		return filepath.Join(home, "AppData", "Local", "cursor-agent", "versions", "2026.09.18-build", "node.exe"), nil
 	}
-	if got := loadLiveSessions(); got[id] != "" {
+	if got := loadLiveSessions(t.Context()); got[id] != "" {
 		t.Fatalf("live sessions = %#v, want ambiguous lane", got)
 	}
 }
@@ -208,7 +208,7 @@ func TestWindowsCursorLivenessRejectsUnrelatedStoreHolder(t *testing.T) {
 	cursorProcessExecutable = func(uint32) (string, error) {
 		return filepath.Join(home, "AppData", "Local", "Microsoft", "WindowsApps", "SearchIndexer.exe"), nil
 	}
-	if got := loadLiveSessions(); len(got) != 0 {
+	if got := loadLiveSessions(t.Context()); len(got) != 0 {
 		t.Fatalf("live sessions = %#v, want unrelated store holder ignored", got)
 	}
 }
@@ -244,7 +244,7 @@ func TestWindowsCursorStoreLivenessBatchesProcessQueries(t *testing.T) {
 	cursorProcessExecutable = func(uint32) (string, error) {
 		return filepath.Join(home, "AppData", "Local", "cursor-agent", "node.exe"), nil
 	}
-	if got := liveCursorStores(home, stores); !got[target] || len(got) != 1 {
+	if got := liveCursorStores(t.Context(), home, stores); !got[target] || len(got) != 1 {
 		t.Fatalf("live stores = %#v, want only %q", got, target)
 	}
 	if queries >= len(stores) {
@@ -307,7 +307,7 @@ func TestWindowsCursorLivenessUsesResumeProcessCommandLine(t *testing.T) {
 	})
 	cursorIDEProcessRunning = func(string) bool { return false }
 	cursorCLIResumeSessionIDs = func(string) map[string]bool { return map[string]bool{id: true} }
-	if got := loadLiveSessions(); got[id] != entrypointCLI {
+	if got := loadLiveSessions(t.Context()); got[id] != entrypointCLI {
 		t.Fatalf("live sessions = %#v, want CLI resume process", got)
 	}
 }

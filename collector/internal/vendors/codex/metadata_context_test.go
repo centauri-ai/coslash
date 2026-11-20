@@ -24,7 +24,7 @@ func TestReadSessionIndexRowsPreservesAllExactMatchesAndRejectsMalformedRows(t *
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rows, present, err := ReadSessionIndexRows(vendors.LocalReadSource, home, map[string]bool{"wanted": true})
+	rows, present, err := ReadSessionIndexRows(t.Context(), vendors.LocalReadSource, home, map[string]bool{"wanted": true})
 	if err != nil || !present || len(rows) != 1 || len(rows["wanted"]) != 1 || !bytes.Equal(rows["wanted"][0], want) {
 		t.Fatalf("rows = %#v, present = %t, error = %v", rows, present, err)
 	}
@@ -33,7 +33,7 @@ func TestReadSessionIndexRowsPreservesAllExactMatchesAndRejectsMalformedRows(t *
 	if err := os.WriteFile(path, append(append([]byte(nil), want...), second...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rows, present, err = ReadSessionIndexRows(vendors.LocalReadSource, home, map[string]bool{"wanted": true})
+	rows, present, err = ReadSessionIndexRows(t.Context(), vendors.LocalReadSource, home, map[string]bool{"wanted": true})
 	if err != nil || !present || len(rows["wanted"]) != 2 || !bytes.Equal(rows["wanted"][0], want) || !bytes.Equal(rows["wanted"][1], second) {
 		t.Fatalf("duplicate attributed rows = %#v, present = %t, error = %v", rows, present, err)
 	}
@@ -49,7 +49,7 @@ func TestReadSessionIndexRowsPreservesAllExactMatchesAndRejectsMalformedRows(t *
 			if err := os.WriteFile(path, append(test.prefix, want...), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := ReadSessionIndexRows(vendors.LocalReadSource, home, map[string]bool{"wanted": true}); !errors.Is(err, vendors.ErrInvalidData) {
+			if _, _, err := ReadSessionIndexRows(t.Context(), vendors.LocalReadSource, home, map[string]bool{"wanted": true}); !errors.Is(err, vendors.ErrInvalidData) {
 				t.Fatalf("malformed whitespace error = %v; want invalid data", err)
 			}
 		})
@@ -84,7 +84,7 @@ func TestLoadLiveSessionsContextCancelsLsof(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan error, 1)
 	go func() {
-		_, err := LoadLiveSessionsContext(ctx)
+		_, err := LoadLiveSessions(ctx)
 		finished <- err
 	}()
 	waitForMarker(t, marker)

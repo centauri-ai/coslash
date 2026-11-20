@@ -168,20 +168,6 @@ func ParseSourceFilesStrict[T any](
 	return parsed, fileFailures, errors.Join(joined...)
 }
 
-func FindAndParse(
-	files []string,
-	id string,
-	idFromPath func(string) string,
-	parse func(string) (*ParsedSession, error),
-) (*ParsedSession, error) {
-	for _, file := range files {
-		if idFromPath(file) == id {
-			return parse(file)
-		}
-	}
-	return nil, nil
-}
-
 func FileSourceHealth(
 	agent string,
 	root string,

@@ -2,7 +2,9 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +41,7 @@ func TestLocalDiscoveryIncludesArchivedFamiliesAndDeduplicatesActiveCopies(t *te
 	}
 
 	source := vendors.LocalReadSource
-	files, err := filesForHomeSourceContext(context.Background(), source, home)
+	files, err := Files(context.Background(), source, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +49,10 @@ func TestLocalDiscoveryIncludesArchivedFamiliesAndDeduplicatesActiveCopies(t *te
 		t.Fatalf("discovered files = %d, want 4 after active/archive deduplication: %#v", len(files), files)
 	}
 	memberFiles := map[string]string{}
-	headers := HeadersSource(source, files)
+	headers, headersErr := Headers(t.Context(), source, files)
+	if headersErr != nil {
+		t.Fatal(headersErr)
+	}
 	roots := FamilyRoots(headers)
 	families := map[string]bool{}
 	for file, header := range headers {
@@ -69,22 +74,28 @@ func TestLocalDiscoveryIncludesArchivedFamiliesAndDeduplicatesActiveCopies(t *te
 		t.Fatalf("active copy was not preferred for duplicate member: %q", filepath.Base(memberFiles[rootC]))
 	}
 
-	indexed, present, err := ReadSessionIndexRows(source, home, map[string]bool{rootA: true, rootB: true, rootC: true})
+	indexed, present, err := ReadSessionIndexRows(t.Context(), source, home, map[string]bool{rootA: true, rootB: true, rootC: true})
 	if err != nil || !present || len(indexed[rootA]) != 1 || len(indexed[rootB]) != 1 || len(indexed[rootC]) != 1 {
 		t.Fatalf("archived family index rows = %#v, present = %t, error = %v", indexed, present, err)
 	}
 
-	selected := FilesForRootSource(source, files, rootA)
+	selected, selectErr := FilesForRoot(t.Context(), source, files, rootA)
+	if selectErr != nil {
+		t.Fatal(selectErr)
+	}
 	if len(selected) != 2 || !containsPath(selected, archiveRootA) || !containsPath(selected, archiveChildA) {
 		t.Fatalf("exact archived family selection = %#v", selected)
 	}
 	for id, want := range map[string]string{rootB: archiveRootB, rootC: activeRootC} {
-		selected := FilesForRootSource(source, files, id)
+		selected, selectErr := FilesForRoot(t.Context(), source, files, id)
+		if selectErr != nil {
+			t.Fatal(selectErr)
+		}
 		if len(selected) != 1 || selected[0] != want {
 			t.Fatalf("exact family selection for %q = %#v, want %q", id, selected, filepath.Base(want))
 		}
 	}
-	parsed, err := ParseFamilyFilesSource(source, home, selected, []string{activeRootC})
+	parsed, err := ParseFamilyFiles(t.Context(), source, home, selected, []string{activeRootC})
 	if err != nil || len(parsed) != 2 {
 		t.Fatalf("parsed archived family = %d sessions, %v", len(parsed), err)
 	}
@@ -102,7 +113,7 @@ func TestHealthIncludesArchivedRolloutsWhenActiveTreeIsAbsent(t *testing.T) {
 	const archivedID = "11111111-2222-3333-4444-555555555555"
 	writeDiscoveryRollout(t, ArchivedDir(home), archivedID, archivedID, "")
 
-	health := healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	health := healthForHome(context.Background(), vendors.LocalReadSource, home)
 	if health.Err != nil {
 		t.Fatalf("health error = %v", health.Err)
 	}
@@ -125,7 +136,7 @@ func TestHealthDeduplicatesActiveCopies(t *testing.T) {
 	archivedCopy := writeDiscoveryRollout(t, archived, duplicateID, duplicateID, "")
 	activeCopy := writeDiscoveryRollout(t, active, duplicateID, duplicateID, "")
 
-	health := healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	health := healthForHome(context.Background(), vendors.LocalReadSource, home)
 	if health.Err != nil {
 		t.Fatalf("health error = %v", health.Err)
 	}
@@ -136,7 +147,7 @@ func TestHealthDeduplicatesActiveCopies(t *testing.T) {
 		t.Fatalf("health entries/sessions = %d/%d, want 1/1", health.Entries, health.Sessions)
 	}
 
-	scan, err := scanForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	scan, err := scanHome(context.Background(), vendors.LocalReadSource, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,13 +157,37 @@ func TestHealthDeduplicatesActiveCopies(t *testing.T) {
 }
 
 func TestHealthIsMissingWhenBothCodexTreesAreAbsent(t *testing.T) {
-	health := healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, t.TempDir())
+	health := healthForHome(context.Background(), vendors.LocalReadSource, t.TempDir())
 	if health.Err != nil {
 		t.Fatalf("health error = %v", health.Err)
 	}
 	if !health.Missing {
 		t.Fatal("health did not mark Codex missing when both session trees are absent")
 	}
+}
+
+func TestHealthReportsCancellationDuringRolloutAggregation(t *testing.T) {
+	home := t.TempDir()
+	const id = "11111111-2222-3333-4444-555555555555"
+	writeDiscoveryRollout(t, ArchivedDir(home), id, id, "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	source := cancelOnOpenReadSource{ReadSource: vendors.LocalReadSource, cancel: cancel}
+	health := healthForHome(ctx, source, home)
+	if !errors.Is(health.Err, context.Canceled) {
+		t.Fatalf("health error = %v, want context.Canceled", health.Err)
+	}
+}
+
+type cancelOnOpenReadSource struct {
+	vendors.ReadSource
+	cancel context.CancelFunc
+}
+
+func (source cancelOnOpenReadSource) Open(path string) (io.ReadCloser, error) {
+	source.cancel()
+	return source.ReadSource.Open(path)
 }
 
 func writeDiscoveryRollout(t *testing.T, directory, filenameIDs, sessionID, parentID string) string {

@@ -26,24 +26,20 @@ const (
 	entrypointCLI = "cursor-cli"
 )
 
-func loadSelectionMetadata(home string) (*vendors.SessionMetadata, error) {
-	return loadSelectionMetadataWithLiveContext(context.Background(), home, loadLiveSessions())
-}
-
-func loadSelectionMetadataWithLiveContext(ctx context.Context, home string, live map[string]string) (*vendors.SessionMetadata, error) {
+func loadSelectionMetadata(ctx context.Context, home string, live map[string]string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
 	path := filepath.Join(GlobalStorage(home), "state.vscdb")
-	db, err := openCursorDBContext(ctx, path)
+	db, err := openCursorDB(ctx, path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
 	} else {
 		defer db.Close()
-		if err := loadIDERelationshipsContext(ctx, metadata, db, nil); err != nil {
+		if err := loadIDERelationships(ctx, metadata, db, nil); err != nil {
 			return nil, err
 		}
-		if err := loadIDETimesContext(ctx, metadata, db, nil); err != nil {
+		if err := loadIDETimes(ctx, metadata, db, nil); err != nil {
 			return nil, err
 		}
 		for _, entry := range metadata.Sessions {
@@ -53,56 +49,36 @@ func loadSelectionMetadataWithLiveContext(ctx context.Context, home string, live
 			entry.Entrypoint = entrypointIDE
 		}
 	}
-	if err := applyCursorLivenessContext(ctx, metadata, live, true); err != nil {
+	if err := applyCursorLiveness(ctx, metadata, live, true); err != nil {
 		return nil, err
 	}
 	return metadata, nil
 }
 
-func loadMetadata(home string) (*vendors.SessionMetadata, error) {
-	return loadMetadataContext(context.Background(), home)
-}
-
-func loadMetadataContext(ctx context.Context, home string) (*vendors.SessionMetadata, error) {
-	return loadMetadataForSessionsContext(ctx, home, nil)
-}
-
-func LoadMetadataForSessions(ids []string) (*vendors.SessionMetadata, error) {
-	return LoadMetadataForSessionsContext(context.Background(), ids)
-}
-
-func LoadMetadataForSessionsContext(ctx context.Context, ids []string) (*vendors.SessionMetadata, error) {
+func LoadMetadataForSessions(ctx context.Context, ids []string) (*vendors.SessionMetadata, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return loadMetadataForSessionsContext(ctx, home, ids)
+	return loadMetadataForSessions(ctx, home, ids)
 }
 
-func LoadRelationshipMetadataForSessions(ids []string) (*vendors.SessionMetadata, error) {
-	return LoadRelationshipMetadataForSessionsContext(context.Background(), ids)
-}
-
-func LoadRelationshipMetadataForSessionsContext(ctx context.Context, ids []string) (*vendors.SessionMetadata, error) {
+func LoadRelationshipMetadataForSessions(ctx context.Context, ids []string) (*vendors.SessionMetadata, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return loadRelationshipMetadataForSessionsContext(ctx, home, ids)
+	return loadRelationshipMetadataForSessions(ctx, home, ids)
 }
 
-func loadRelationshipMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
-	return loadRelationshipMetadataForSessionsContext(context.Background(), home, ids)
-}
-
-func loadRelationshipMetadataForSessionsContext(ctx context.Context, home string, ids []string) (*vendors.SessionMetadata, error) {
-	ids, err := canonicalCursorIDsContext(ctx, ids)
+func loadRelationshipMetadataForSessions(ctx context.Context, home string, ids []string) (*vendors.SessionMetadata, error) {
+	ids, err := canonicalCursorIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
 	metadata := vendors.EmptySessionMetadata()
 	path := filepath.Join(GlobalStorage(home), "state.vscdb")
-	db, err := openCursorDBContext(ctx, path)
+	db, err := openCursorDB(ctx, path)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -112,28 +88,24 @@ func loadRelationshipMetadataForSessionsContext(ctx context.Context, home string
 		}
 	} else {
 		defer db.Close()
-		if err := loadIDERelationshipsContext(ctx, metadata, db, ids); err != nil {
+		if err := loadIDERelationships(ctx, metadata, db, ids); err != nil && ctx.Err() != nil {
 			return nil, err
 		}
 	}
-	stores, err := cursorChatStoresContext(ctx, home, ids)
+	stores, err := cursorChatStores(ctx, home, ids)
 	if err != nil {
 		return nil, err
 	}
 	for _, path := range stores {
-		if err := loadCLIRelationshipContext(ctx, metadata, path); err != nil {
+		if err := loadCLIRelationship(ctx, metadata, path); err != nil {
 			return nil, err
 		}
 	}
 	return metadata, ctx.Err()
 }
 
-func loadCLIRelationship(metadata *vendors.SessionMetadata, path string) {
-	_ = loadCLIRelationshipContext(context.Background(), metadata, path)
-}
-
-func loadCLIRelationshipContext(ctx context.Context, metadata *vendors.SessionMetadata, path string) error {
-	db, err := openCursorDBContext(ctx, path)
+func loadCLIRelationship(ctx context.Context, metadata *vendors.SessionMetadata, path string) error {
+	db, err := openCursorDB(ctx, path)
 	if err != nil {
 		return ctx.Err()
 	}
@@ -174,16 +146,13 @@ func loadCLIRelationshipContext(ctx context.Context, metadata *vendors.SessionMe
 	return ctx.Err()
 }
 
-func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
-	return loadMetadataForSessionsWithLiveContext(context.Background(), home, ids, loadLiveSessions())
+func loadMetadataForSessions(ctx context.Context, home string, ids []string) (*vendors.SessionMetadata, error) {
+	return loadMetadataForSessionsWithLive(ctx, home, ids, loadLiveSessions(ctx))
 }
 
-func loadMetadataForSessionsContext(ctx context.Context, home string, ids []string) (*vendors.SessionMetadata, error) {
-	return loadMetadataForSessionsWithLiveContext(ctx, home, ids, loadLiveSessionsContext(ctx))
-}
-
-func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, ids []string, live map[string]string) (*vendors.SessionMetadata, error) {
-	ids, err := canonicalCursorIDsContext(ctx, ids)
+func loadMetadataForSessionsWithLive(ctx context.Context, home string, ids []string, live map[string]string) (*vendors.SessionMetadata, error) {
+	var err error
+	ids, err = canonicalCursorIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +160,7 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 	lanes := map[string]map[string]bool{}
 	globalStorage := GlobalStorage(home)
 	statePath := filepath.Join(globalStorage, "state.vscdb")
-	stateDB, stateErr := openCursorDBContext(ctx, statePath)
+	stateDB, stateErr := openCursorDB(ctx, statePath)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -200,15 +169,15 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 	}
 	if stateDB != nil {
 		defer stateDB.Close()
-		if err := loadIDERelationshipsContext(ctx, metadata, stateDB, ids); err != nil {
+		if err := loadIDERelationships(ctx, metadata, stateDB, ids); err != nil {
 			return nil, err
 		}
-		ids, err = cursorMetadataIDsContext(ctx, ids, metadata)
+		ids, err = cursorMetadataIDs(ctx, ids, metadata)
 		if err != nil {
 			return nil, err
 		}
 		query, args := cursorIDQuery(`SELECT composerId, value FROM composerHeaders`, "composerId", ids)
-		if err := loadCursorRowsDBContext(ctx, metadata, lanes, entrypointIDE, statePath, stateDB, query, args, func(id, value string) (string, string, string) {
+		if err := loadCursorRowsDB(ctx, metadata, lanes, entrypointIDE, statePath, stateDB, query, args, func(id, value string) (string, string, string) {
 			id = canonicalCursorID(id)
 			var header struct {
 				Name                string `json:"name"`
@@ -228,25 +197,25 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 			return nil, err
 		}
 		for _, load := range []func(context.Context, *vendors.SessionMetadata, *sql.DB, []string) error{
-			loadIDETimesContext, loadIDEDiffsContext, loadIDECommitObservationsContext,
+			loadIDETimes, loadIDEDiffs, loadIDECommitObservations,
 		} {
 			if err := load(ctx, metadata, stateDB, ids); err != nil {
 				return nil, err
 			}
 		}
-		if err := loadIDEModelsDBContext(ctx, metadata, lanes, stateDB, ids); err != nil {
+		if err := loadIDEModelsDB(ctx, metadata, lanes, stateDB, ids); err != nil {
 			return nil, err
 		}
 	}
 	query, args := cursorIDQuery(`SELECT id, title FROM conversations`, "id", ids)
 	query += ` ORDER BY source = 'local' DESC`
-	if err := loadCursorRowsContext(ctx, metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), query, args, func(id, title string) (string, string, string) {
+	if err := loadCursorRows(ctx, metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), query, args, func(id, title string) (string, string, string) {
 		return id, title, ""
 	}); err != nil {
 		return nil, err
 	}
 
-	chatStores, err := cursorChatStoresContext(ctx, home, ids)
+	chatStores, err := cursorChatStores(ctx, home, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -254,10 +223,10 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := loadCLIPullRequestsContext(ctx, metadata, path); err != nil {
+		if err := loadCLIPullRequests(ctx, metadata, path); err != nil {
 			return nil, err
 		}
-		if err := loadCursorRowsContext(ctx, metadata, lanes, entrypointCLI, path, `SELECT key, value FROM meta WHERE key = '0'`, nil, func(_, value string) (string, string, string) {
+		if err := loadCursorRows(ctx, metadata, lanes, entrypointCLI, path, `SELECT key, value FROM meta WHERE key = '0'`, nil, func(_, value string) (string, string, string) {
 			data, err := hex.DecodeString(value)
 			if err != nil {
 				return "", "", ""
@@ -292,7 +261,7 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 		}
 	}
 
-	if err := loadCursorSummariesContext(ctx, metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"), ids); err != nil {
+	if err := loadCursorSummaries(ctx, metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"), ids); err != nil {
 		return nil, err
 	}
 	for id, matches := range lanes {
@@ -311,7 +280,7 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 			metadata.Session(id).Entrypoint = lane
 		}
 	}
-	if err := applyCursorLivenessContext(ctx, metadata, live, false); err != nil {
+	if err := applyCursorLiveness(ctx, metadata, live, false); err != nil {
 		return nil, err
 	}
 	return metadata, nil
@@ -374,7 +343,7 @@ func withoutResumeStubs(ctx context.Context, stores []string) []string {
 // emptyChatStore reports whether every table in a chat store other than meta
 // is empty. A store that cannot be read is not empty.
 func emptyChatStore(ctx context.Context, path string) bool {
-	db, err := openCursorDBContext(ctx, path)
+	db, err := openCursorDB(ctx, path)
 	if err != nil {
 		return false
 	}
@@ -404,11 +373,7 @@ func emptyChatStore(ctx context.Context, path string) bool {
 	return true
 }
 
-func applyCursorLiveness(metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) {
-	_ = applyCursorLivenessContext(context.Background(), metadata, live, includeUnknown)
-}
-
-func applyCursorLivenessContext(ctx context.Context, metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) error {
+func applyCursorLiveness(ctx context.Context, metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) error {
 	blockingActions := map[string]bool{}
 	for id, entry := range metadata.Sessions {
 		if err := ctx.Err(); err != nil {
@@ -438,14 +403,12 @@ func applyCursorLivenessContext(ctx context.Context, metadata *vendors.SessionMe
 	return ctx.Err()
 }
 
-func canonicalCursorIDs(ids []string) []string {
-	result, _ := canonicalCursorIDsContext(context.Background(), ids)
-	return result
-}
-
-func canonicalCursorIDsContext(ctx context.Context, ids []string) ([]string, error) {
+func canonicalCursorIDs(ctx context.Context, ids []string) ([]string, error) {
 	if ids == nil {
 		return nil, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	result := make([]string, 0, len(ids))
 	seen := map[string]bool{}
@@ -466,7 +429,7 @@ func canonicalCursorID(id string) string {
 	return strings.ToLower(strings.TrimSpace(id))
 }
 
-func cursorMetadataIDsContext(ctx context.Context, ids []string, metadata *vendors.SessionMetadata) ([]string, error) {
+func cursorMetadataIDs(ctx context.Context, ids []string, metadata *vendors.SessionMetadata) ([]string, error) {
 	if ids == nil {
 		return nil, ctx.Err()
 	}
@@ -476,7 +439,7 @@ func cursorMetadataIDsContext(ctx context.Context, ids []string, metadata *vendo
 		}
 		ids = append(ids, id, entry.Relationship.ParentID)
 	}
-	return canonicalCursorIDsContext(ctx, ids)
+	return canonicalCursorIDs(ctx, ids)
 }
 
 func cursorIDQuery(query, column string, ids []string) (string, []any) {
@@ -525,12 +488,7 @@ func sqlPlaceholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }
 
-func cursorChatStores(home string, ids []string) []string {
-	stores, _ := cursorChatStoresContext(context.Background(), home, ids)
-	return stores
-}
-
-func cursorChatStoresContext(ctx context.Context, home string, ids []string) ([]string, error) {
+func cursorChatStores(ctx context.Context, home string, ids []string) ([]string, error) {
 	if ids == nil {
 		stores, _ := filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", "*", "store.db"))
 		return stores, ctx.Err()
@@ -557,12 +515,11 @@ func cursorChatStoresContext(ctx context.Context, home string, ids []string) ([]
 	return stores, ctx.Err()
 }
 
-func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
-	_ = loadIDERelationshipsContext(context.Background(), metadata, db, ids)
-}
-
-func loadIDERelationshipsContext(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
-	familyIDs := canonicalCursorIDs(ids)
+func loadIDERelationships(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
+	familyIDs, err := canonicalCursorIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -635,7 +592,10 @@ func loadIDERelationshipsContext(ctx context.Context, metadata *vendors.SessionM
 			parentIDs = append(parentIDs, entry.Relationship.ParentID)
 		}
 	}
-	bubbleIDs := canonicalCursorIDs(parentIDs)
+	bubbleIDs, err := canonicalCursorIDs(ctx, parentIDs)
+	if err != nil {
+		return err
+	}
 	if ids == nil {
 		bubbleIDs = nil
 	}
@@ -710,7 +670,7 @@ func loadIDERelationshipsContext(ctx context.Context, metadata *vendors.SessionM
 
 var fullCommitHash = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
 
-func loadIDECommitObservationsContext(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
+func loadIDECommitObservations(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
 	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", ids)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -885,7 +845,7 @@ type ideCheckpoint struct {
 	} `json:"inlineDiffNewlyCreatedResources"`
 }
 
-func loadIDEDiffsContext(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
+func loadIDEDiffs(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
 	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "composerData:", ids)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -964,7 +924,7 @@ func checkpointFileEdits(checkpoint ideCheckpoint) []session.FileEdit {
 	return edits.Edits
 }
 
-func loadIDETimesContext(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
+func loadIDETimes(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
 	query, args := cursorIDQuery(`SELECT composerId, createdAt, lastUpdatedAt FROM composerHeaders`, "composerId", ids)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1004,14 +964,10 @@ const (
 	maxObservedModelBytes = 120
 )
 
-func loadIDEModelsDB(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, db *sql.DB, ids []string) {
-	_ = loadIDEModelsDBContext(context.Background(), metadata, lanes, db, ids)
-}
-
-func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, db *sql.DB, ids []string) error {
+func loadIDEModelsDB(ctx context.Context, metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, db *sql.DB, ids []string) error {
 	if len(ids) > maxIDEModelQueryIDs {
 		for start := 0; start < len(ids); start += maxIDEModelQueryIDs {
-			if err := loadIDEModelsDBContext(ctx, metadata, lanes, db, ids[start:min(start+maxIDEModelQueryIDs, len(ids))]); err != nil {
+			if err := loadIDEModelsDB(ctx, metadata, lanes, db, ids[start:min(start+maxIDEModelQueryIDs, len(ids))]); err != nil {
 				return err
 			}
 		}
@@ -1251,8 +1207,8 @@ func isCursorModelModifier(part string) bool {
 	return part == "none" || part == "low" || part == "medium" || part == "high" || part == "xhigh" || part == "thinking"
 }
 
-func loadCursorRowsContext(ctx context.Context, metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path, query string, args []any, decode func(string, string) (string, string, string)) error {
-	db, err := openCursorDBContext(ctx, path)
+func loadCursorRows(ctx context.Context, metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path, query string, args []any, decode func(string, string) (string, string, string)) error {
+	db, err := openCursorDB(ctx, path)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -1261,10 +1217,10 @@ func loadCursorRowsContext(ctx context.Context, metadata *vendors.SessionMetadat
 		return ctx.Err()
 	}
 	defer db.Close()
-	return loadCursorRowsDBContext(ctx, metadata, lanes, lane, path, db, query, args, decode)
+	return loadCursorRowsDB(ctx, metadata, lanes, lane, path, db, query, args, decode)
 }
 
-func loadCursorRowsDBContext(ctx context.Context, metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path string, db *sql.DB, query string, args []any, decode func(string, string) (string, string, string)) error {
+func loadCursorRowsDB(ctx context.Context, metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path string, db *sql.DB, query string, args []any, decode func(string, string) (string, string, string)) error {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		log.Printf("Cursor metadata %q: %v", path, err)
@@ -1303,8 +1259,8 @@ func loadCursorRowsDBContext(ctx context.Context, metadata *vendors.SessionMetad
 	return ctx.Err()
 }
 
-func loadCursorSummariesContext(ctx context.Context, metadata *vendors.SessionMetadata, path string, ids []string) error {
-	db, err := openCursorDBContext(ctx, path)
+func loadCursorSummaries(ctx context.Context, metadata *vendors.SessionMetadata, path string, ids []string) error {
+	db, err := openCursorDB(ctx, path)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -1339,11 +1295,7 @@ func loadCursorSummariesContext(ctx context.Context, metadata *vendors.SessionMe
 	return ctx.Err()
 }
 
-func openCursorDB(path string) (*sql.DB, error) {
-	return openCursorDBContext(context.Background(), path)
-}
-
-func openCursorDBContext(ctx context.Context, path string) (*sql.DB, error) {
+func openCursorDB(ctx context.Context, path string) (*sql.DB, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

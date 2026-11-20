@@ -159,31 +159,20 @@ type parsedSession struct {
 }
 
 // parseTranscript returns shared facts without applying fork normalization.
-func parseTranscript(path string) (*vendors.ParsedSession, error) {
-	return parseTranscriptSource(vendors.LocalReadSource, path, commandNeedsApproval)
-}
-
-func parseTranscriptSource(
+func parseTranscript(
+	ctx context.Context,
 	source vendors.ReadSource,
 	path string,
 	needsApproval func(string, string) bool,
 ) (*vendors.ParsedSession, error) {
-	parsed, err := parseSource(source, path, needsApproval)
-	if err != nil {
+	parsed, err := parseSource(ctx, source, path, needsApproval)
+	if err != nil || parsed == nil {
 		return nil, err
 	}
 	return parsed.transcript, nil
 }
 
 func parseSource(
-	source vendors.ReadSource,
-	path string,
-	needsApproval func(string, string) bool,
-) (*parsedSession, error) {
-	return parseSourceContext(context.Background(), source, path, needsApproval)
-}
-
-func parseSourceContext(
 	ctx context.Context,
 	source vendors.ReadSource,
 	path string,
@@ -247,19 +236,19 @@ func analyzeCodexSessionSource(
 	if err != nil {
 		return nil, err
 	}
-	questionAnswers, err := questionAnswersByCallContext(ctx, rows)
+	questionAnswers, err := questionAnswersByCall(ctx, rows)
 	if err != nil {
 		return nil, err
 	}
-	completedCalls, err := completedCallIDsContext(ctx, rows)
+	completedCalls, err := completedCallIDs(ctx, rows)
 	if err != nil {
 		return nil, err
 	}
-	commitLog, err := commitObservationsByCallContext(ctx, rows)
+	commitLog, err := commitObservationsByCall(ctx, rows)
 	if err != nil {
 		return nil, err
 	}
-	pullRequests, err := pullRequestURLsContext(ctx, rows)
+	pullRequests, err := pullRequestURLs(ctx, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -830,7 +819,7 @@ func (answer codexQuestionAnswer) values() []string {
 	return cleaned
 }
 
-func questionAnswersByCallContext(ctx context.Context, rows []codexRow) (map[string]map[string]codexQuestionAnswer, error) {
+func questionAnswersByCall(ctx context.Context, rows []codexRow) (map[string]map[string]codexQuestionAnswer, error) {
 	answersByCall := make(map[string]map[string]codexQuestionAnswer)
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
@@ -848,7 +837,7 @@ func questionAnswersByCallContext(ctx context.Context, rows []codexRow) (map[str
 	return answersByCall, nil
 }
 
-func completedCallIDsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
+func completedCallIDs(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
 	completed := make(map[string]struct{})
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
@@ -896,11 +885,7 @@ func execApprovalCommands(payload codexPayload) []string {
 	return []string{command}
 }
 
-func commandNeedsApproval(command, cwd string) bool {
-	return commandNeedsApprovalContext(context.Background(), command, cwd)
-}
-
-func commandNeedsApprovalContext(ctx context.Context, command, cwd string) bool {
+func commandNeedsApproval(ctx context.Context, command, cwd string) bool {
 	if command == "" {
 		return true
 	}
@@ -969,7 +954,7 @@ type codexCommandResult struct {
 	succeeded bool
 }
 
-func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
+func pullRequestURLs(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
 	urls := map[string]struct{}{}
 	calls := map[string]codexPullRequestCall{}
 	for _, row := range rows {
@@ -1045,7 +1030,7 @@ func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]st
 	return urls, nil
 }
 
-func commitObservationsByCallContext(ctx context.Context, rows []codexRow) ([]session.CommitObservation, error) {
+func commitObservationsByCall(ctx context.Context, rows []codexRow) ([]session.CommitObservation, error) {
 	commands := map[string]string{}
 	observations := []session.CommitObservation{}
 	for _, row := range rows {

@@ -116,17 +116,17 @@ func scanCodex(
 	source *Source,
 	home string,
 	request remoteprotocol.Request,
-	loadLiveSessions func() (map[string]struct{}, error),
+	loadLiveSessions func(context.Context) (map[string]struct{}, error),
 ) *vendorScan {
 	var activeFiles []string
 	metadata := vendors.BestEffortMetadata(
 		vendors.AgentCodex,
 		func() (*vendors.SessionMetadata, error) {
-			metadata, err := codex.LoadRemoteMetadata(source, home)
+			metadata, err := codex.LoadRemoteMetadata(ctx, source, home)
 			if err != nil {
 				return nil, err
 			}
-			live, err := loadLiveSessions()
+			live, err := loadLiveSessions(ctx)
 			if err != nil {
 				log.Printf("%s session liveness failed: %v; continuing without live status", vendors.AgentCodex, err)
 				return metadata, nil
@@ -144,11 +144,11 @@ func scanCodex(
 		metadata:  metadata,
 		fileFacts: map[string]vendors.FileFingerprint{},
 		parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
-			return codex.ParseFamilyFilesSourceContext(ctx, source, home, files, activeFiles)
+			return codex.ParseFamilyFiles(ctx, source, home, files, activeFiles)
 		},
 	}
 	root := codex.SessionsRoot(home)
-	found, err := codex.ScanSourceContext(ctx, source, root)
+	found, err := codex.Scan(ctx, source, root)
 	if err != nil {
 		result.scan.incompleteWhy = boundedReason(err)
 		return result
@@ -176,14 +176,14 @@ func scanCodex(
 		}
 		readHeaders = append(readHeaders, file)
 	}
-	read, err := codex.HeadersSourceContext(ctx, source, readHeaders)
+	read, err := codex.Headers(ctx, source, readHeaders)
 	for file, header := range read {
 		headers[file] = header
 	}
 	roots := codex.FamilyRoots(headers)
 	selected := found.Files
 	if err == nil && request.SinceMs > 0 {
-		selected, err = codex.FilesSinceSourceContext(ctx, source, found.Files, metadata.LiveSessions(), selectionSince(request.SinceMs))
+		selected, err = codex.FilesSince(ctx, source, found.Files, metadata.LiveSessions(), selectionSince(request.SinceMs))
 	}
 	if err == nil {
 		selected, _, err = vendors.LimitNewestSourceFileFamilies(

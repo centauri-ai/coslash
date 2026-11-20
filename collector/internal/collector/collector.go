@@ -45,10 +45,9 @@ var vendorSources = func() []vendorSource {
 			health:     claude.Health,
 		},
 		{
-			name: vendors.AgentCodex, collect: codex.CollectContext,
-			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return codex.GetSessionFacts(id) },
+			name: vendors.AgentCodex, collect: codex.Collect, loadFacts: codex.GetSessionFacts,
 			loadFamily: codex.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return codex.Health() },
+			health:     codex.Health,
 		},
 		{
 			name: vendors.AgentOpenCode, collect: opencode.CollectContext,
@@ -59,10 +58,9 @@ var vendorSources = func() []vendorSource {
 			health:     func(context.Context) vendors.SourceHealth { return opencode.Health() },
 		},
 		{
-			name: vendors.AgentCursor, collect: cursor.CollectContext,
-			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return cursor.GetSessionFacts(id) },
+			name: vendors.AgentCursor, collect: cursor.Collect, loadFacts: cursor.GetSessionFacts,
 			loadFamily: cursor.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return cursor.Health() },
+			health:     cursor.Health,
 		},
 		{
 			name: vendors.AgentGrok, collect: grok.CollectContext,

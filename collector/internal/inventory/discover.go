@@ -244,7 +244,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		}
 	}
 	if files := byAgent[vendors.AgentCodex]; len(files) > 0 {
-		metadata, err := codex.LoadMetadataForFilesContext(ctx, files)
+		metadata, err := codex.LoadMetadataForFiles(ctx, files)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -252,7 +252,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 			metadata = vendors.BestEffortMetadata(vendors.AgentCodex, func() (*vendors.SessionMetadata, error) { return nil, err })
 		}
 		plan.metadata[vendors.AgentCodex] = metadata
-		grouped, err := codex.FamiliesContext(ctx, files)
+		grouped, err := codex.Families(ctx, files)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +261,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		}
 	}
 	if files := byAgent[vendors.AgentCursor]; len(files) > 0 {
-		cursorPlan, err := cursor.PlanFamiliesContext(ctx, files)
+		cursorPlan, err := cursor.PlanFamilies(ctx, files)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -512,14 +512,14 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		parsed = append(parsed, items...)
 	}
 	if paths := files[vendors.AgentCodex]; len(paths) > 0 {
-		items, err := codex.ParseFilesContext(ctx, paths)
+		items, err := codex.ParseFiles(ctx, paths)
 		if err != nil {
 			return nil, err
 		}
 		parsed = append(parsed, items...)
 	}
 	if paths := files[vendors.AgentCursor]; len(paths) > 0 {
-		items, batchMetadata, err := cursor.ParseFilesContext(ctx, paths, plan.live)
+		items, batchMetadata, err := cursor.ParseFiles(ctx, paths, plan.live)
 		if err != nil {
 			return nil, err
 		}

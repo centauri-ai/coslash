@@ -24,36 +24,16 @@ func ProjectsRoot(home string) string {
 	return filepath.Join(home, ".cursor", "projects")
 }
 
-func Files() ([]string, error) {
-	return FilesContext(context.Background())
-}
-
-func FilesContext(ctx context.Context) ([]string, error) {
-	root, err := Root()
-	if err != nil {
-		return nil, err
-	}
-	return FilesSourceContext(ctx, vendors.LocalReadSource, root)
-}
-
-func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
+func Files(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
 	files, err := vendors.JSONLFilesUnderSource(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}
-	return filterTranscriptsContext(ctx, files)
+	return filterTranscripts(files), nil
 }
 
-func Scan() (*vendors.SourceScan, error) {
-	root, err := Root()
-	if err != nil {
-		return nil, err
-	}
-	return ScanSource(vendors.LocalReadSource, root)
-}
-
-func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
-	scan, err := vendors.ScanSource(context.Background(), source, root)
+func Scan(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
+	scan, err := vendors.ScanSource(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}
@@ -69,19 +49,6 @@ func filterTranscripts(files []string) []string {
 		}
 	}
 	return result
-}
-
-func filterTranscriptsContext(ctx context.Context, files []string) ([]string, error) {
-	result := make([]string, 0, len(files))
-	for _, path := range files {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if IsTranscript(path) {
-			result = append(result, path)
-		}
-	}
-	return result, nil
 }
 
 func IsTranscript(path string) bool {
