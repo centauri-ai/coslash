@@ -105,6 +105,129 @@ describe('coSlash accessibility', () => {
     await act(async () => root.unmount());
   });
 
+  it('browses nested worktrees independently of the selected checkout and restores expansion after search', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const repo = 'github.com/acme/app';
+    const linked = {
+      id: 'link',
+      cloneId: 'clone',
+      label: 'fix-sidebar',
+      cwd: '/ws/fix-sidebar',
+      root: '/ws/fix-sidebar',
+      repo,
+      main: false,
+      lastSeen: 2,
+      headKind: 'branch' as const,
+      availability: 'available' as const,
+    };
+    const sessions = [
+      makeSession({
+        id: 'link',
+        name: 'Linked session',
+        cwd: linked.cwd,
+        locations: [linked, { ...linked, label: 'old-name', root: '/ws/old-name', lastSeen: 1 }],
+      }),
+      makeSession({
+        id: 'main',
+        name: 'Main session',
+        cwd: '/ws/main',
+        locations: [{ ...linked, id: 'main', cwd: '/ws/main', root: '/ws/main', main: true }],
+      }),
+      makeSession({ id: 'unknown', name: 'Legacy session', cwd: '/ws/unknown', repo }),
+      makeSession({
+        id: 'parentless',
+        name: 'Parentless session',
+        cwd: '/ws/solo',
+        locations: [{ ...linked, id: 'solo', label: 'solo', cwd: '/ws/solo', root: '/ws/solo', repo: '' }],
+      }),
+      makeSession({
+        id: 'only-child',
+        name: 'Only child session',
+        cwd: '/ws/child',
+        locations: [
+          {
+            ...linked,
+            id: 'child',
+            label: 'child',
+            cwd: '/ws/child',
+            root: '/ws/child',
+            repo: 'github.com/acme/only-linked',
+          },
+        ],
+      }),
+    ];
+    const mount = document.createElement('div');
+    document.body.replaceChildren(mount);
+    const root = createRoot(mount);
+    try {
+      await act(async () =>
+        root.render(
+          <CoslashLayout {...layoutProps} sessions={sessions} reviewIndex={buildReviewIndex(sessions)} />,
+        ),
+      );
+      const sidebar = mount.querySelector('[aria-label="Filters"]')!;
+      const option = (name: string) =>
+        Array.from(sidebar.querySelectorAll('button')).find((el) => el.textContent === name);
+      const toggle = () => sidebar.querySelector<HTMLButtonElement>('[aria-label="Worktrees in app"]')!;
+      const visibleTitles = () =>
+        Array.from(mount.querySelectorAll('tbody button')).map((el) => el.textContent);
+      const input = sidebar.querySelector<HTMLInputElement>('[aria-label="Find a location"]')!;
+      const search = (value: string) =>
+        act(async () => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      expect(toggle().getAttribute('aria-expanded')).toBe('false');
+      expect(option('only-linked')?.parentElement?.lastElementChild?.textContent).toBe('0');
+      expect(option('app')?.parentElement?.lastElementChild?.textContent).toBe('1');
+      expect(option('fix-sidebar')).toBeUndefined();
+      expect(option('/ws/unknown')).toBeDefined();
+      await act(async () => option('app')!.click());
+      expect(visibleTitles()).toContain('Main session');
+      expect(visibleTitles()).not.toContain('Legacy session');
+      expect(visibleTitles()).not.toContain('Linked session');
+      await search('old-name');
+      expect(toggle().disabled).toBe(true);
+      expect(option('fix-sidebar')).toBeDefined();
+      expect(visibleTitles()).toContain('Main session');
+      await act(async () => option('fix-sidebar')!.click());
+      expect(visibleTitles()).toContain('Linked session');
+      expect(visibleTitles()).not.toContain('Main session');
+      await search('');
+      expect(toggle().getAttribute('aria-expanded')).toBe('false');
+      await act(async () => toggle().click());
+      expect(visibleTitles()).toContain('Linked session');
+      await search('only-linked');
+      expect(option('child')).toBeDefined();
+      await search('');
+      expect(toggle().getAttribute('aria-expanded')).toBe('true');
+      const other = [...sidebar.querySelectorAll<HTMLElement>('[tabindex="0"]')].find(
+        (el) => el.textContent === 'Other worktrees',
+      )!;
+      expect(other.classList.contains('cursor-default')).toBe(true);
+      await act(async () => other.focus());
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(
+        'parent repository could not be identified',
+      );
+      await act(async () =>
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+      );
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      sessionStorage.clear();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(['list', 'board'])('selects a session once per title click in the %s view', async (view) => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
       true;
