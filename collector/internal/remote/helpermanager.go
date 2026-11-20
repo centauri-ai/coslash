@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"path/filepath"
 	"time"
 
@@ -125,8 +126,9 @@ func helperRefreshWithOpen(
 	}
 	result, collectErr := HelperCollect(ctx, alias, target.path, request, toGeneration(effectiveBaseline), open)
 	snapshot := fromGeneration(result.Proposal, result.Coverage, now.UnixMilli(), result.RoundTrip.Milliseconds(), nil)
+	var probes map[string]*session.CheckoutObservation
 	if collectErr == nil {
-		repairRemoteDisplay(ctx, &snapshot, baseline.SourceID, sshTarget{alias: alias, options: open}.gitFacts)
+		probes = repairRemoteDisplay(ctx, &snapshot, baseline.SourceID, sshTarget{alias: alias, options: open}.gitFacts)
 	}
 	outcome := refreshOutcome{
 		Snapshot: snapshot,
@@ -135,6 +137,9 @@ func helperRefreshWithOpen(
 		Metrics: CollectionMetrics{RequestBytes: result.RequestBytes, ResponseBytes: result.ResponseBytes, Records: result.Records, RoundTripMs: result.RoundTrip.Milliseconds()},
 	}
 	if collectErr == nil {
+		if err := session.RecordLocations(ctx, baseline.SourceID, outcome.Sessions, probes); err != nil {
+			return outcome, err
+		}
 		return outcome, nil
 	}
 	// The accumulator may expose a validated proposal for diagnostics, but a
