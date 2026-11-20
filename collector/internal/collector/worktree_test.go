@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -122,6 +123,35 @@ func TestLinkedCheckoutInSessionList(t *testing.T) {
 	changed := probe("independent-origin", work, 3).Locations
 	if len(changed) != 2 || changed[0].Repo != "example.org/new/project" || changed[1].Repo != "" || changed[0].ID != changed[1].ID {
 		t.Fatalf("unchanged session did not retain checkout history across a remote change: %+v", changed)
+	}
+
+	// Reopen a database produced by the earlier collector. Its stored repo has no
+	// provenance, so the next Git probe corrects the current parent while retaining history.
+	legacy, err := sql.Open("sqlite", db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
+	if _, err := legacy.Exec(`DROP TABLE tree_origins`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`UPDATE links SET repo=? WHERE session=? AND repo=''`, unrelated, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.UseLocationMemory(db); err != nil {
+		t.Fatal(err)
+	}
+	run("-C", main, "remote", "remove", "origin")
+	recovered := probe(record.ID, work, 3).Locations
+	if len(recovered) != 3 || !recovered[0].Primary || recovered[0].Repo != "" {
+		t.Fatalf("fresh Git evidence did not correct the legacy checkout parent: %+v", recovered)
+	}
+	history := map[string]bool{}
+	for _, location := range recovered[1:] {
+		history[location.Repo] = true
+	}
+	if !history[unrelated] || !history["example.org/new/project"] {
+		t.Fatalf("migration lost checkout history: %+v", recovered)
 	}
 
 }
