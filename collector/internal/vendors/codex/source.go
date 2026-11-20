@@ -303,15 +303,29 @@ func clearPromptDerivedNames(parsed []*vendors.ParsedSession) {
 	}
 }
 
-func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	files, err := Files()
+func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	files, err := FilesContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCodex, func() (*vendors.SessionMetadata, error) {
-		return loadMetadataForFilesContext(context.Background(), files)
+		return loadMetadataForFilesContext(ctx, files)
 	})
-	return parseFiles(FilesForRoot(files, id)), metadata, nil
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	familyFiles, err := FilesForRootSourceContext(ctx, vendors.LocalReadSource, files, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	parsed, err := parseFilesContext(ctx, familyFiles)
+	if err != nil {
+		return nil, nil, err
+	}
+	return parsed, metadata, nil
 }
 
 func parseFiles(files []string) []*vendors.ParsedSession {

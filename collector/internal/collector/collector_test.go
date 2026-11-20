@@ -50,6 +50,19 @@ func TestListStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
+func TestSessionFamilyReadersStopWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, source := range vendorSources {
+		if source.loadFamily == nil {
+			continue
+		}
+		if _, _, err := source.loadFamily(ctx, "cancelled"); !errors.Is(err, context.Canceled) {
+			t.Errorf("%s family load error = %v, want context.Canceled", source.name, err)
+		}
+	}
+}
+
 type cancelDuringFinalizationContext struct {
 	context.Context
 	remaining int

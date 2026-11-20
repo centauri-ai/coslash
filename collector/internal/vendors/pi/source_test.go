@@ -37,7 +37,7 @@ func TestSourceCustomIdentityDedupAndConflict(t *testing.T) {
 	if err != nil || facts == nil || facts.ParentID != "" || facts.Session.TranscriptPath != path || !facts.Session.TokensUnavailable || !facts.Session.CostUnavailable {
 		t.Fatalf("basic source facts: %v %+v", err, facts)
 	}
-	family, _, err := GetSessionFamily("custom.session_01")
+	family, _, err := GetSessionFamily(t.Context(), "custom.session_01")
 	if err != nil || len(family) != 1 {
 		t.Fatal("fork turned into family/subagent")
 	}

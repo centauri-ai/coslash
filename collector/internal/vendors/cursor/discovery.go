@@ -41,7 +41,7 @@ func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root str
 	if err != nil {
 		return nil, err
 	}
-	return filterTranscripts(files), nil
+	return filterTranscriptsContext(ctx, files)
 }
 
 func Scan() (*vendors.SourceScan, error) {
@@ -69,6 +69,19 @@ func filterTranscripts(files []string) []string {
 		}
 	}
 	return result
+}
+
+func filterTranscriptsContext(ctx context.Context, files []string) ([]string, error) {
+	result := make([]string, 0, len(files))
+	for _, path := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if IsTranscript(path) {
+			result = append(result, path)
+		}
+	}
+	return result, nil
 }
 
 func IsTranscript(path string) bool {

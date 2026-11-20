@@ -313,7 +313,13 @@ func getSessionFactsContext(ctx context.Context, id string) (*vendors.ParsedSess
 	// A capped health diagnostic list must not hide a conflicting requested identity.
 	count := 0
 	for _, path := range scan.Files {
-		t, err := parseTranscript(path)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		t, err := parseTranscriptContext(ctx, path)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if err == nil && t.Header.ID == id {
 			count++
 		}
@@ -324,8 +330,10 @@ func getSessionFactsContext(ctx context.Context, id string) (*vendors.ParsedSess
 	return nil, nil
 }
 
-func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	ctx := context.Background()
+func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	snapshot, _ := LoadRuntimeSnapshotContext(ctx)
 	ctx = WithRuntimeSnapshot(ctx, snapshot)
 	facts, err := getSessionFactsContext(ctx, id)
@@ -333,6 +341,9 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		return nil, nil, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if facts == nil {
 		return nil, metadata, nil
 	}

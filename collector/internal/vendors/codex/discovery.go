@@ -253,10 +253,21 @@ func FilesForRoot(files []string, rootID string) []string {
 }
 
 func FilesForRootSource(source vendors.ReadSource, files []string, rootID string) []string {
+	selected, _ := FilesForRootSourceContext(context.Background(), source, files, rootID)
+	return selected
+}
+
+func FilesForRootSourceContext(ctx context.Context, source vendors.ReadSource, files []string, rootID string) ([]string, error) {
 	byID := make(map[string]string, len(files))
 	children := map[string][]string{}
 	for _, file := range files {
-		id, parentID, err := readHeaderSource(source, file)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		id, parentID, err := readHeaderSourceContext(ctx, source, file)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if err != nil {
 			continue
 		}
@@ -266,6 +277,9 @@ func FilesForRootSource(source vendors.ReadSource, files []string, rootID string
 	selected := map[string]struct{}{}
 	queue := []string{rootID}
 	for len(queue) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		id := queue[0]
 		queue = queue[1:]
 		file := byID[id]
@@ -280,11 +294,14 @@ func FilesForRootSource(source vendors.ReadSource, files []string, rootID string
 	}
 	result := make([]string, 0, len(selected))
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if _, ok := selected[file]; ok {
 			result = append(result, file)
 		}
 	}
-	return result
+	return result, nil
 }
 
 func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
