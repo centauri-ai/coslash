@@ -309,6 +309,24 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('>Board<');
   });
 
+  it('keeps the search input outside the horizontally scrolling filter chips', () => {
+    const machineLabel = 'agent-box-'.repeat(20);
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ machineFilters: ['remote'] }),
+      setItem: () => {},
+    });
+    const markup = renderLayout({
+      machines: [props.machines[0], { ...props.machines[1], label: machineLabel }],
+    });
+    const scrollerAt = markup.indexOf('no-scrollbar flex min-w-0 items-center gap-1.5 overflow-x-auto');
+    const scrollerEnd = markup.indexOf('</div>', scrollerAt);
+    const searchInputAt = markup.indexOf('placeholder="Search sessions -- title, repo, prompt, recap"');
+
+    expect(scrollerAt).toBeGreaterThanOrEqual(0);
+    expect(markup.slice(scrollerAt, scrollerEnd)).toContain(machineLabel);
+    expect(searchInputAt).toBeGreaterThan(scrollerEnd);
+  });
+
   it('keeps the control strip reachable when its container is narrow or short', () => {
     const markup = renderLayout();
 

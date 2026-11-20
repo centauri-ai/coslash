@@ -145,7 +145,7 @@ export function CommandsSection({ detail }: { detail: SessionDetail }) {
           <ChevronRightIcon className="text-coslash-muted size-3" />
         )}
         <span className="text-coslash-muted pb-1 text-xs font-semibold tracking-wide">
-          {`${detail.commands.length} COMMANDS`}
+          {`${detail.commands.length} ${detail.commands.length === 1 ? 'COMMAND' : 'COMMANDS'}`}
         </span>
         <span className="flex-1 border-b" />
       </button>
