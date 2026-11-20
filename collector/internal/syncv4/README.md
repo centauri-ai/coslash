@@ -254,6 +254,13 @@ source files belong to an excluded repository or working directory. Local
 therefore reports zero window buckets while those rules are set; aggregate
 file and byte counts remain device totals.
 
+With bilateral `worktreeLabels` support, list-batch also refreshes the checkout
+associations of already listed or synced local sessions. Each location update
+has a positive monotonic per-session version. Local reuses it for retries.
+Updating Git evidence preserves the content revision and applies the current
+sync policy and leave-outs before transmission. The location projection is
+owner-only and is independent of portable records.
+
 After Hub advertises `local-sync-diagnostics/v1`, check-ins may include the
 process account name, standard home-relative Claude and Codex root states,
 and selected, deleted and quiet counts for the current frozen plan. Root

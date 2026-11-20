@@ -39,6 +39,7 @@ On macOS, background enrichment does not open project files in Desktop, Document
 | `session-backups/prepared/` | Verified, private session-family bundles retained locally while a V4 sync can resume. |
 | `fingerprints/v1/<agent>/` | The local parse cache: one private file per local transcript, Cursor session or OpenCode family holding the parsed summary already produced for the board (prompts, commands, working directories, edited-file paths and file-change bodies), keyed by file size and modification time so an unchanged source is never parsed twice. It holds no raw transcript rows. Deleting the directory is always safe; `discovery-cursor.json` beside it records where a streamed discovery pass stopped. `COSLASH_SCALE_IMPORT=0` disables the cache. |
 | `repositories.json` | The canonical origin remote last read for each working directory, keyed by the local path, or by remote source ID and path for an SSH host. It keeps a session in its repository after its worktree is removed or its folder cannot be probed. |
+| `worktrees.sqlite` | Source-scoped clone and checkout IDs, Git administrative directories, session working directories, historical repository associations, observed checkout names and HEADs, and availability. Removing a linked checkout keeps its session history. |
 | `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
@@ -76,12 +77,12 @@ Both collection paths may read these paths beneath the SSH user's home:
   open, from `lsof -a -c codex -Fn`. The SFTP fallback filters this list on the
   remote host so only Codex rollout file paths cross SSH. It does not contact the
   network;
-- the Git configuration and `HEAD` that `git remote get-url origin` and
-  `git symbolic-ref HEAD` read, only in a working directory whose collected
-  session lacks a repository or a branch. The Mac runs this over SSH, not the
-  helper, for at most 64 directories per refresh. The directory may be outside
-  the home directory. The raw origin crosses SSH transiently; the Mac
-  canonicalizes it before caching or exposure.
+- for up to 64 session directories per SSH refresh, Git's origin, current HEAD,
+  checkout root, common directory and worktree registration. Local verifies a
+  linked checkout through Git's reciprocal registration and uses filesystem
+  identity to distinguish clones and replacements. The raw origin crosses SSH
+  transiently. Local stores its canonical form. A directory can be outside the
+  remote home. The filesystem probe preserves the session's recorded branch.
 
 The SFTP interface has no write, delete, rename, or chmod operation. It rejects
 symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
@@ -257,11 +258,17 @@ window has elapsed.
 The local session-family producer and private spool remain in use by V4 sync.
 V3 requests and payloads are not redirected to a V4 endpoint.
 
-A session's repository is the canonical origin remote Git reports for its
-working directory. When Git finds no repository there, as after a worktree is
-removed, it is the remote Codex recorded in the session, else the remote last
-read for that directory. A `.git` directory without a `HEAD` file does not make
-its folder a repository.
+A session keeps its recorded canonical repository and its verified checkout
+associations. Directories without Git evidence remain folders. Local retains
+the original working directory when Git moves or removes a linked checkout.
+
+When both sides advertise `worktreeLabels`, Local sends location updates for
+eligible local sessions already listed in the personal Hub. Updates include the
+recorded directory, verified root, canonical repository, checkout ID and label,
+current HEAD, observation time and verification status. Historical associations
+can arrive in order after the transcript has synced. The same pause and
+leave-out rules apply. SSH session locations stay in Local's library. Team
+sharing uses the separately reviewed copy and its permitted display labels.
 
 The library card for an SSH session carries the canonical origin remote when
 `git remote get-url origin` succeeds on that host, and its live status from the

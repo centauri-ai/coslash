@@ -95,7 +95,11 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 	if err := r.listAll(ctx, *plan); err != nil {
 		return err
 	}
-	return r.syncPlannedContent(ctx, *plan)
+	locationErr := r.syncLocations(ctx)
+	if stopSync(locationErr) {
+		return locationErr
+	}
+	return errors.Join(locationErr, r.syncPlannedContent(ctx, *plan))
 }
 
 func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, started time.Time, budget time.Duration, rate float64) error {
