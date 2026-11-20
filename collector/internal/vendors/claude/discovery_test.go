@@ -36,7 +36,7 @@ func TestFilesSinceContextIncludesBackgroundRehomePredecessorFamily(t *testing.T
 	}
 
 	files := []string{oldRoot, oldChild, newRoot}
-	got, err := FilesSinceContext(context.Background(), files, nil, time.Now().Add(-time.Hour).UnixMilli())
+	got, err := familyFilesSince(context.Background(), files, nil, time.Now().Add(-time.Hour).UnixMilli())
 	if err != nil {
 		t.Fatal(err)
 	}

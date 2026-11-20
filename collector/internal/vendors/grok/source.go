@@ -255,7 +255,7 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if id == "" {
 		return nil, nil
 	}
-	family, _, err := GetSessionFamily(id)
+	family, _, err := GetSessionFamily(context.Background(), id)
 	if err != nil || len(family) == 0 {
 		return nil, err
 	}
@@ -335,15 +335,21 @@ func stringPtr(value *string) string {
 
 // GetSessionFamily returns the root session and its linked children.
 // A child id resolves to that same root.
-func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if id == "" {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
-	dirs, err := sessionDirs(context.Background())
+	dirs, err := sessionDirs(ctx)
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
-	byID, parentOf := sessionIndex(context.Background(), dirs)
+	byID, parentOf := sessionIndex(ctx, dirs)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	rootID := id
 	if parent := parentOf[id]; parent != "" {
 		rootID = parent
@@ -352,19 +358,28 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 			rootID = summary.ParentSessionID
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	dir := byID[rootID]
 	if dir == "" {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
-	root, err := parseSession(dir)
+	root, err := parseSessionContext(ctx, dir)
 	if err != nil || root == nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
 	family := []*vendors.ParsedSession{root}
-	metasByDir := map[string][]subagentMeta{dir: readSubagentMetas(context.Background(), dir, true)}
+	metasByDir := map[string][]subagentMeta{dir: readSubagentMetas(ctx, dir, true)}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	for _, meta := range metasByDir[dir] {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		if childDir := byID[meta.ChildSessionID]; childDir != "" && parentOf[meta.ChildSessionID] == rootID {
-			child, err := parseSession(childDir)
+			child, err := parseSessionContext(ctx, childDir)
 			if err != nil {
 				return nil, vendors.EmptySessionMetadata(), err
 			}
@@ -373,8 +388,14 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 			}
 		}
 	}
-	attachSubagents(family, metasByDir)
-	return family, loadMetadata(), nil
+	if err := attachSubagentsContext(ctx, family, metasByDir); err != nil {
+		return nil, nil, err
+	}
+	metadata, err := loadMetadataContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return family, metadata, nil
 }
 
 func Health() vendors.SourceHealth {

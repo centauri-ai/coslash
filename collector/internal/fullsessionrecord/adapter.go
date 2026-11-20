@@ -102,7 +102,7 @@ func composePortableFamilyContext(ctx context.Context, vendor string, source ven
 	if err != nil {
 		return nil, err
 	}
-	return collector.ComposePortableContext(ctx, source, map[string]vendors.RemoteCollection{
+	return collector.ComposePortable(ctx, source, map[string]vendors.RemoteCollection{
 		vendor: {Sessions: cloned, Metadata: metadata},
 	})
 }

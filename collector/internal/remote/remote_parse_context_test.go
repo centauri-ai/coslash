@@ -49,7 +49,7 @@ func TestRemoteParsersStopWhenContextIsCanceledDuringRead(t *testing.T) {
 		{
 			name: "Claude",
 			parse: func(ctx context.Context, source vendors.ReadSource, path string) error {
-				_, _, err := claude.ParseRemoteFilesContext(ctx, source, []string{path})
+				_, _, err := claude.ParseRemoteFiles(ctx, source, []string{path})
 				return err
 			},
 		},

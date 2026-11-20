@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestApprovedExitPlanModeBecomesTimelinePlan(t *testing.T) {
@@ -26,7 +28,7 @@ func TestApprovedExitPlanModeBecomesTimelinePlan(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strings.Join(rows, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -597,7 +597,7 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 		response,
 		request,
 		settings.Open(),
-		func(agent, id string) (*session.Session, error) {
+		func(_ context.Context, agent, id string) (*session.Session, error) {
 			if agent != "codex" || id != "origin-id" {
 				t.Fatalf("session identity = %q, %q", agent, id)
 			}
@@ -733,7 +733,7 @@ func TestHandleReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
 				response,
 				request,
 				settings.Open(),
-				func(string, string) (*session.Session, error) {
+				func(context.Context, string, string) (*session.Session, error) {
 					return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: workingDirectory}, nil
 				},
 				func(string) bool { return true },
@@ -758,7 +758,7 @@ func TestHandleReviewRequiresOriginAgent(t *testing.T) {
 		response,
 		request,
 		settings.Open(),
-		func(agent, id string) (*session.Session, error) {
+		func(_ context.Context, agent, id string) (*session.Session, error) {
 			t.Fatal("loaded session without an agent")
 			return nil, nil
 		},
@@ -791,7 +791,7 @@ func TestHandleReviewRejectsUnsupportedRequests(t *testing.T) {
 				response,
 				request,
 				settings.Open(),
-				func(string, string) (*session.Session, error) {
+				func(context.Context, string, string) (*session.Session, error) {
 					return &session.Session{ID: "origin", WorkingDirectory: "/repo"}, nil
 				},
 				func(string) bool { return false },
@@ -813,7 +813,7 @@ func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
 		response,
 		request,
 		settings.Open(),
-		func(string, string) (*session.Session, error) {
+		func(context.Context, string, string) (*session.Session, error) {
 			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: workingDirectory}, nil
 		},
 		func(string) bool { return true },
@@ -839,7 +839,7 @@ func TestHandleReviewDoesNotStartAfterRequestCancellation(t *testing.T) {
 		httptest.NewRecorder(),
 		request,
 		settings.Open(),
-		func(string, string) (*session.Session, error) {
+		func(context.Context, string, string) (*session.Session, error) {
 			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: workingDirectory}, nil
 		},
 		func(string) bool { return true },
@@ -1444,7 +1444,7 @@ func TestHandleDiffReturnsRecordedEditsInOrder(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/diff?id=session-1&path=file.txt", nil)
 	response := httptest.NewRecorder()
 
-	handleDiff(response, request, func(id string) (*session.Session, error) {
+	handleDiff(response, request, func(_ context.Context, _, id string) (*session.Session, error) {
 		if id != found.ID {
 			t.Fatalf("session id = %q, want %q", id, found.ID)
 		}
@@ -1488,7 +1488,7 @@ func TestHandleDiffRejectsFilesOutsideTheSession(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/diff?id=session-1&path=../secret.txt", nil)
 	response := httptest.NewRecorder()
 
-	handleDiff(response, request, func(string) (*session.Session, error) { return found, nil })
+	handleDiff(response, request, func(context.Context, string, string) (*session.Session, error) { return found, nil })
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)

@@ -45,7 +45,7 @@ func TestParseCacheDoesNotStoreOutputFromToolResultsFile(t *testing.T) {
 	t.Cleanup(func() { vendors.SetParseCache(nil) })
 	parseOutput := func() string {
 		t.Helper()
-		parsed, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, transcript)
+		parsed, err := parseSourceCached(t.Context(), vendors.LocalReadSource, transcript)
 		if err != nil || len(parsed.transcript.Session.CommandOutputs) != 1 || parsed.transcript.Session.CommandOutputs[0] == nil {
 			t.Fatalf("parsed command output = %#v, %v", parsed, err)
 		}
@@ -82,7 +82,7 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parseSourceContext(t.Context(), vendors.LocalReadSource, path)
+	parsed, err := parseSource(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestParseCacheEntryFromBeforePullRequestLinksIsReparsed(t *testing.T) {
 	}}
 	vendors.SetParseCache(cache)
 	t.Cleanup(func() { vendors.SetParseCache(nil) })
-	got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path)
+	got, err := parseSourceCached(t.Context(), vendors.LocalReadSource, path)
 	if err != nil || len(got.transcript.Session.PullRequestLinks) != 1 || got.transcript.Session.PullRequests != 1 {
 		t.Fatalf("entry cached before PR links was not reparsed: %#v, %v", got.transcript.Session, err)
 	}
@@ -118,7 +118,7 @@ func TestParseCacheEntryWithoutOpeningPromptIsReparsed(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			parsed, err := parseSourceContext(t.Context(), vendors.LocalReadSource, path)
+			parsed, err := parseSource(t.Context(), vendors.LocalReadSource, path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -139,7 +139,7 @@ func TestParseCacheEntryWithoutOpeningPromptIsReparsed(t *testing.T) {
 			vendors.SetParseCache(cache)
 			t.Cleanup(func() { vendors.SetParseCache(nil) })
 			for range 2 {
-				got, err := parseSourceCachedContext(t.Context(), vendors.LocalReadSource, path)
+				got, err := parseSourceCached(t.Context(), vendors.LocalReadSource, path)
 				if err != nil {
 					t.Fatal(err)
 				}

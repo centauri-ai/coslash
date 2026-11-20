@@ -108,7 +108,7 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 			if tt.result != "" && (child.Name != "Check paths" || child.DurationMs == nil || *child.DurationMs != 1961 || child.ToolUses != 3 || child.Model == nil || *child.Model != "grok-4.7") {
 				t.Fatalf("recovered fields=%+v", child)
 			}
-			family, _, err := GetSessionFamily("child")
+			family, _, err := GetSessionFamily(t.Context(), "child")
 			if err != nil || len(family) != 2 || family[0].Session.ID != "parent" {
 				t.Fatalf("family=%+v err=%v", family, err)
 			}
@@ -214,12 +214,12 @@ func TestFamilyLookupPrefersDeclaredParentOverConflictingMetadata(t *testing.T) 
 	writeSummary(t, child, `{"info":{"id":"child"},"chat_format_version":1,"session_kind":"subagent","parent_session_id":"a"}`)
 	writeUpdates(t, child, nil)
 	for _, id := range []string{"a", "child"} {
-		family, _, err := GetSessionFamily(id)
+		family, _, err := GetSessionFamily(t.Context(), id)
 		if err != nil || len(family) != 2 || family[0].Session.ID != "a" || family[1].Session.ID != "child" {
 			t.Fatalf("lookup %s: family=%v err=%v", id, family, err)
 		}
 	}
-	family, _, err := GetSessionFamily("b")
+	family, _, err := GetSessionFamily(t.Context(), "b")
 	if err != nil || len(family) != 1 {
 		t.Fatalf("conflicting parent family=%v err=%v", family, err)
 	}

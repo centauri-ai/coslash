@@ -46,7 +46,7 @@ func TestGrokWindowsWaitingAndEntrypoint(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+			roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 			if len(roots) != 1 {
 				t.Fatalf("collected %d roots, want 1", len(roots))
 			}

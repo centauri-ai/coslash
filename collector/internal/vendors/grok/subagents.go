@@ -155,12 +155,25 @@ func scanSubagentUpdates(ctx context.Context, sessionDir string, withDetails boo
 
 // attachSubagents links children using parent metadata or structured spawn events.
 func attachSubagents(parsed []*vendors.ParsedSession, metasByDir map[string][]subagentMeta) {
+	_ = attachSubagentsContext(context.Background(), parsed, metasByDir)
+}
+
+func attachSubagentsContext(ctx context.Context, parsed []*vendors.ParsedSession, metasByDir map[string][]subagentMeta) error {
 	byID := make(map[string]*vendors.ParsedSession, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		byID[item.Session.ID] = item
 	}
 	for _, parent := range parsed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		for _, meta := range metasByDir[filepath.Dir(parent.LogPath)] {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			child := byID[meta.ChildSessionID]
 			if child == nil || (child.ParentID != "" && child.ParentID != parent.Session.ID) {
 				continue
@@ -169,6 +182,9 @@ func attachSubagents(parsed []*vendors.ParsedSession, metasByDir map[string][]su
 			summary, err := readSummary(filepath.Dir(child.LogPath))
 			if err != nil || !isSubagentKind(summary.SessionKind) {
 				continue
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 			child.ParentID = parent.Session.ID
 			if parent.Spawns == nil {
@@ -185,6 +201,9 @@ func attachSubagents(parsed []*vendors.ParsedSession, metasByDir map[string][]su
 			if meta.dir != "" {
 				readOptionalJSON(filepath.Join(meta.dir, "output.json"), &output)
 			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			child.Result = output.Output
 			if model := nonEmpty(meta.EffectiveModelID); model != nil {
 				child.Session.Model = model
@@ -198,4 +217,5 @@ func attachSubagents(parsed []*vendors.ParsedSession, metasByDir map[string][]su
 			})
 		}
 	}
+	return ctx.Err()
 }

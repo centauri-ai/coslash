@@ -2,7 +2,9 @@ package claude
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,6 +20,32 @@ func TestLocalSSHMirrorIDsReturnsCancellation(t *testing.T) {
 	_, err := localSSHMirrorIDs(ctx, t.TempDir(), []string{"session.jsonl"})
 	if err != context.Canceled {
 		t.Fatalf("mirror ID scan error = %v, want %v", err, context.Canceled)
+	}
+}
+
+type cancelOnOpenSource struct {
+	vendors.ReadSource
+	cancel context.CancelFunc
+}
+
+func (source cancelOnOpenSource) Open(name string) (io.ReadCloser, error) {
+	source.cancel()
+	return source.ReadSource.Open(name)
+}
+
+func TestParseFilesStopsWhenReadCancelsContext(t *testing.T) {
+	root := t.TempDir()
+	id := "33333333-3333-3333-3333-333333333333"
+	transcript := filepath.Join(root, "project", id+".jsonl")
+	child := filepath.Join(root, "project", id, "subagents", "agent-child.jsonl")
+	writeTranscript(t, transcript, id, "/work")
+	writeTranscript(t, child, "agent-child", "/work")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	got, err := ParseFiles(ctx, cancelOnOpenSource{ReadSource: vendors.LocalReadSource, cancel: cancel}, []string{transcript, child})
+	if !errors.Is(err, context.Canceled) || got != nil {
+		t.Fatalf("ParseFiles = %d sessions, %v; want context.Canceled", len(got), err)
 	}
 }
 
@@ -41,7 +69,10 @@ func TestParseFilesDeduplicatesRootsBySessionID(t *testing.T) {
 	setModifiedTime(t, older, 1_000)
 	setModifiedTime(t, newer, 2_000)
 
-	got := parseFiles([]string{older, newer, other, olderChild, newerChild})
+	got, err := ParseFiles(t.Context(), vendors.LocalReadSource, []string{older, newer, other, olderChild, newerChild})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 4 {
 		t.Fatalf("parsed sessions = %d, want 4", len(got))
 	}
@@ -81,7 +112,7 @@ func TestGetSessionFactsUsesNewestDuplicate(t *testing.T) {
 	setModifiedTime(t, older, 1_000)
 	setModifiedTime(t, newer, 2_000)
 
-	got, err := GetSessionFacts(id)
+	got, err := GetSessionFacts(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +134,10 @@ func TestParseFilesDuplicateTieUsesLexicalPath(t *testing.T) {
 	setModifiedTime(t, second, 1_000)
 
 	for _, files := range [][]string{{first, second}, {second, first}} {
-		got := parseFiles(files)
+		got, err := ParseFiles(t.Context(), vendors.LocalReadSource, files)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(got) != 1 || got[0].LogPath != first {
 			t.Fatalf("equal-mtime winner for %q = %#v, want %q", files, got, first)
 		}
@@ -137,7 +171,7 @@ func TestCollectMarksOnlyDesktopSSHMirrorRoots(t *testing.T) {
 		writeTranscript(t, test.path, test.sessionID, "/workspace")
 	}
 
-	parsed, _, err := Collect(0)
+	parsed, _, err := Collect(t.Context(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +217,7 @@ func TestCollectPreservesDesktopSSHMirrorIdentityAcrossDuplicateRoots(t *testing
 			setModifiedTime(t, mirror, test.mirrorModified)
 			setModifiedTime(t, ordinary, test.ordinaryModified)
 
-			parsed, _, err := Collect(0)
+			parsed, _, err := Collect(t.Context(), 0)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -533,7 +533,7 @@ func TestSubagentLinksWhenChildSummaryOmitsParent(t *testing.T) {
 	if len(facts.Session.Digest) != 1 || facts.Session.Digest[0].SubagentID != "child" || facts.Session.Digest[0].Category != session.DigestSubagent {
 		t.Fatalf("digest = %+v", facts.Session.Digest)
 	}
-	family, _, err := GetSessionFamily("child")
+	family, _, err := GetSessionFamily(t.Context(), "child")
 	if err != nil || len(family) != 2 || family[0].Session.ID != "parent" {
 		t.Fatalf("family for child = %v, err = %v", family, err)
 	}

@@ -46,7 +46,7 @@ func parityFixture() ([]*vendors.ParsedSession, *vendors.SessionMetadata) {
 
 func TestLocalSFTPAndHelperNormalizedFactsComposeEquivalentCards(t *testing.T) {
 	directParsed, directMetadata := parityFixture()
-	direct := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{"codex": {Sessions: directParsed, Metadata: directMetadata}}, 0)
+	direct := mustListRemote(t, vendors.LocalReadSource, map[string]vendors.RemoteCollection{"codex": {Sessions: directParsed, Metadata: directMetadata}}, 0)
 	if len(direct) != 1 || direct[0].StartedAt != 5 || direct[0].LastActivityTime != 30 ||
 		direct[0].WorkingDirectory != "/workspace" || direct[0].Summary == nil || *direct[0].Summary != "metadata summary" ||
 		direct[0].Model == nil || *direct[0].Model != "metadata-model" || direct[0].PullRequests != 3 ||
@@ -64,7 +64,7 @@ func TestLocalSFTPAndHelperNormalizedFactsComposeEquivalentCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	helper := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{"codex": {Sessions: normalized, Metadata: metadata}}, 0)
+	helper := mustListRemote(t, vendors.LocalReadSource, map[string]vendors.RemoteCollection{"codex": {Sessions: normalized, Metadata: metadata}}, 0)
 	if !reflect.DeepEqual(direct, helper) {
 		t.Fatalf("direct/SFTP card = %#v\nhelper card = %#v", direct, helper)
 	}
@@ -92,7 +92,7 @@ func TestListRemoteProjectsResolvedChildName(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session("child").Name = "metadata child name"
 
-	got := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{
+	got := mustListRemote(t, vendors.LocalReadSource, map[string]vendors.RemoteCollection{
 		"codex": {Sessions: parsed, Metadata: metadata},
 	}, 0)
 	if len(got) != 1 || len(got[0].Subagents) != 1 || got[0].Subagents[0].Name != "metadata child name" ||
@@ -110,7 +110,7 @@ func TestListRemoteUsesLiveStatus(t *testing.T) {
 	metadata.Session("root").Live = "interactive"
 	metadata.Session("child").Live = "interactive"
 
-	got := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{
+	got := mustListRemote(t, vendors.LocalReadSource, map[string]vendors.RemoteCollection{
 		"codex": {Sessions: parsed, Metadata: metadata},
 	}, 0)
 	if len(got) != 1 || got[0].Status == nil || *got[0].Status != "busy" ||
@@ -129,7 +129,7 @@ func TestListRemotePreservesWaitingWithoutAuthoritativeLiveness(t *testing.T) {
 		Spawns: map[string]vendors.SpawnState{},
 	}}
 
-	got := ListRemote(unavailableReadSource{}, map[string]vendors.RemoteCollection{
+	got := mustListRemote(t, unavailableReadSource{}, map[string]vendors.RemoteCollection{
 		"codex": {Sessions: parsed, Metadata: vendors.EmptySessionMetadata()},
 	}, 0)
 	if len(got) != 1 || got[0].Status == nil || *got[0].Status != "waiting" {

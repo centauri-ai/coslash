@@ -48,7 +48,7 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+	roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 	if len(roots) != 1 || roots[0].Session.ID != "parent" {
 		t.Fatalf("roots = %+v", roots)
 	}
@@ -65,11 +65,11 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 		t.Fatalf("done subagent = %+v", done)
 	}
 
-	family, familyMetadata, err := grok.GetSessionFamily("parent")
+	family, familyMetadata, err := grok.GetSessionFamily(t.Context(), "parent")
 	if err != nil || len(family) != 3 {
 		t.Fatalf("family = %v, err = %v", family, err)
 	}
-	if roots := finalizeSessions(family, map[string]*vendors.SessionMetadata{vendors.AgentGrok: familyMetadata}); len(roots) != 1 || len(roots[0].Session.Subagents) != 2 {
+	if roots := finalizeForTest(t, family, map[string]*vendors.SessionMetadata{vendors.AgentGrok: familyMetadata}); len(roots) != 1 || len(roots[0].Session.Subagents) != 2 {
 		t.Fatalf("family roots = %+v", roots)
 	}
 }
@@ -102,11 +102,11 @@ func TestGrokSinceWindowKeepsSubagentFamiliesTogether(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+			roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 			if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 {
 				t.Fatalf("listed roots = %+v", roots)
 			}
-			family, _, err := grok.GetSessionFamily("parent")
+			family, _, err := grok.GetSessionFamily(t.Context(), "parent")
 			if err != nil || len(family) != len(parsed) {
 				t.Fatalf("family = %d sessions, listed = %d, err = %v", len(family), len(parsed), err)
 			}
@@ -133,11 +133,11 @@ func TestGrokSinceWindowUsesParentMetaWhenChildOmitsParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+	roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 	if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 || roots[0].Session.Subagents[0].ID != "child" {
 		t.Fatalf("listed roots = %+v", roots)
 	}
-	family, _, err := grok.GetSessionFamily("child")
+	family, _, err := grok.GetSessionFamily(t.Context(), "child")
 	if err != nil || len(family) != 2 || family[0].Session.ID != "parent" {
 		t.Fatalf("family = %v, err = %v", family, err)
 	}
@@ -182,7 +182,7 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 	}
 	check := func(t *testing.T, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, want map[string][]string) {
 		t.Helper()
-		roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+		roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
 		got := map[string][]string{}
 		for _, root := range roots {
 			got[root.Session.ID] = []string{}
@@ -258,7 +258,7 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 				t.Fatalf("facts=%+v err=%v", facts, err)
 			}
 			check(t, []*vendors.ParsedSession{facts}, vendors.EmptySessionMetadata(), map[string][]string{id: want[id]})
-			family, _, err := grok.GetSessionFamily(id)
+			family, _, err := grok.GetSessionFamily(t.Context(), id)
 			count := 1
 			if id == "root" {
 				count = 2
@@ -285,7 +285,7 @@ func TestSubagentPullRequestLinksReachEveryAncestor(t *testing.T) {
 		member("child", "root", link(2)),
 		member("grandchild", "child", link(2), link(3)),
 	}
-	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{})
+	roots := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{})
 	if len(roots) != 1 || roots[0].Session.ID != "root" {
 		t.Fatalf("roots = %+v", roots)
 	}

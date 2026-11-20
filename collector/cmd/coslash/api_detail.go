@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -31,7 +32,7 @@ const (
 	maxExactDiffBytes     = fullsessionv1.MaxRecordBytes
 )
 
-type localDetailReader func(agent, sessionID string) (*session.Session, error)
+type localDetailReader func(ctx context.Context, agent, sessionID string) (*session.Session, error)
 
 type exactSessionIdentity struct {
 	SourceID  string
@@ -63,7 +64,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 	var value *session.Session
 	cachedOffline := false
 	if identity.SourceID == localSourceID {
-		found, err := getLocal(identity.Agent, identity.SessionID)
+		found, err := getLocal(r.Context(), identity.Agent, identity.SessionID)
 		if err != nil {
 			logExactReadError("read local session detail", identity, err)
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
@@ -154,7 +155,7 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 
 	changes := make([]session.FileChange, 0, len(changeIDs))
 	if identity.SourceID == localSourceID {
-		found, err := getLocal(identity.Agent, identity.SessionID)
+		found, err := getLocal(r.Context(), identity.Agent, identity.SessionID)
 		if err != nil {
 			logExactReadError("read local session diff", identity, err)
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)

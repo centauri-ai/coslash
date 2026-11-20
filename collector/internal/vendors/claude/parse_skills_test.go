@@ -11,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func skillJSON(t *testing.T, value any) string {
@@ -53,7 +54,7 @@ func TestSkillsNativeCapturedBodies(t *testing.T) {
 	rows = append(rows, skillUse(t, "unknown", "Skill", map[string]any{"skill": "unknown"}), skillResult(t, "unknown", "Launching skill: unknown", false, map[string]any{"success": true, "commandName": "unknown"}))
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 	writeOutputTranscript(t, path, bashRows(rows...))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestSkillsIgnoreUnsuccessfulAndNonLoads(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 	writeOutputTranscript(t, path, bashRows(rows...))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func TestSkillsSlashAndForkedChild(t *testing.T) {
 			}
 			rows = append(rows, skillMeta(t, "", "# Instructions\n"))
 			writeOutputTranscript(t, path, bashRows(rows...))
-			parsed, err := parseTranscript(path)
+			parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,7 +122,7 @@ func TestSkillsCapturedFileReads(t *testing.T) {
 	)
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 	writeOutputTranscript(t, path, rows)
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestSkillsReadBoundaries(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 			writeOutputTranscript(t, path, bashRows(skillUse(t, "read", test.tool, test.input), skillResult(t, "read", test.output, false, nil)))
-			parsed, err := parseTranscript(path)
+			parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -171,7 +172,7 @@ func TestSkillsCatRequiresLiteralPath(t *testing.T) {
 		t.Run(test.command, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 			writeOutputTranscript(t, path, bashRows(skillUse(t, "cat", "Bash", map[string]any{"command": test.command}), skillResult(t, "cat", "# Captured\n", false, nil)))
-			parsed, err := parseTranscript(path)
+			parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -184,7 +185,7 @@ func TestSkillsStructuredReadOverridesPersistedPreview(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "11111111-1111-1111-1111-111111111111.jsonl")
 	body := "<persisted-output>\nliteral skill instructions\n</persisted-output>"
 	writeOutputTranscript(t, path, bashRows(skillUse(t, "read", "Read", map[string]any{"file_path": "/skills/review/SKILL.md"}), skillResult(t, "read", "<persisted-output>\n     1→preview\n</persisted-output>", false, map[string]any{"file": map[string]any{"content": body}})))
-	parsed, err := parseTranscript(path)
+	parsed, err := parseTranscript(t.Context(), vendors.LocalReadSource, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +210,7 @@ func TestSkillsBackupFamilyAndCache(t *testing.T) {
 	if _, err := source.Stat("unavailable/skills/review/SKILL.md"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("fixture unexpectedly has live skill files")
 	}
-	parsed, err := ParseFamilyFilesSourceContext(t.Context(), source, []string{path, child})
+	parsed, err := ParseFamilyFiles(t.Context(), source, []string{path, child})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +220,7 @@ func TestSkillsBackupFamilyAndCache(t *testing.T) {
 	assertSkills(t, parsed[0].Session, []session.Skill{{Name: "review", Content: "# Frozen\n"}})
 	assertSkills(t, parsed[1].Session, []session.Skill{{Name: "review", Content: "# Child\n"}})
 	for _, file := range []string{path, child} {
-		original, err := parseSource(source, file)
+		original, err := parseSource(t.Context(), source, file)
 		if err != nil {
 			t.Fatal(err)
 		}

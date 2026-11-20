@@ -31,7 +31,7 @@ func TestDirectedHandoffRejectsEmptyCustomRequestAndPersistsLaunchFailure(t *tes
 	directedLocalTargets = func(context.Context) []launch.HandoffTargetOption {
 		return []launch.HandoffTargetOption{{Agent: "claude", Label: "Claude Code", Available: true, Automatic: true}}
 	}
-	directedLocalSession = func(agent, id string, revision int64) (*session.Session, error) {
+	directedLocalSession = func(_ context.Context, agent, id string) (*session.Session, error) {
 		return &session.Session{Agent: agent, ID: id, WorkingDirectory: t.TempDir()}, nil
 	}
 	launched := false
@@ -126,7 +126,7 @@ func TestPiDirectedHandoffUsesCurrentBranchSynthesis(t *testing.T) {
 	}
 	cwd := t.TempDir()
 	currentSummary := "CURRENT_BRANCH_HISTORY"
-	directedLocalSession = func(agent, id string, _ int64) (*session.Session, error) {
+	directedLocalSession = func(_ context.Context, agent, id string) (*session.Session, error) {
 		return &session.Session{Agent: agent, ID: id, WorkingDirectory: cwd, Summary: &currentSummary, SynthesisRevision: 456}, nil
 	}
 	brief := ""

@@ -50,6 +50,19 @@ func TestListStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
+func TestSessionFamilyReadersStopWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, source := range vendorSources {
+		if source.loadFamily == nil {
+			continue
+		}
+		if _, _, err := source.loadFamily(ctx, "cancelled"); !errors.Is(err, context.Canceled) {
+			t.Errorf("%s family load error = %v, want context.Canceled", source.name, err)
+		}
+	}
+}
+
 type cancelDuringFinalizationContext struct {
 	context.Context
 	remaining int
@@ -70,7 +83,7 @@ func TestFinalizeSessionsStopsDuringWork(t *testing.T) {
 		parsed[index] = &vendors.ParsedSession{Session: &session.Session{ID: string(rune(index + 1))}}
 	}
 
-	got, err := finalizeSessionsContext(ctx, parsed, map[string]*vendors.SessionMetadata{})
+	got, err := finalizeLocalSessions(ctx, parsed, map[string]*vendors.SessionMetadata{}, false)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -91,7 +104,7 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 	noTimingData := &vendors.ParsedSession{Session: &session.Session{}}
 	parsed := &vendors.ParsedSession{Session: &session.Session{StartedAt: 100, LastActivityTime: 900}}
 
-	applyActivityFallbacks([]*vendors.ParsedSession{untimed, noLog, noTimingData, parsed}, true)
+	mustSucceed(t, applyActivityFallbacks(t.Context(), []*vendors.ParsedSession{untimed, noLog, noTimingData, parsed}, true))
 
 	if untimed.Session.LastActivityTime != modified || untimed.Session.StartedAt != modified {
 		t.Fatalf("untimed session = start %d, activity %d; want %d for both",
@@ -120,7 +133,7 @@ func TestApplyActivityFallbacksKeepsPortableTimingDeterministic(t *testing.T) {
 	}
 	untimed := &vendors.ParsedSession{Session: &session.Session{}}
 
-	applyActivityFallbacks([]*vendors.ParsedSession{sourceTimed, untimed}, false)
+	mustSucceed(t, applyActivityFallbacks(t.Context(), []*vendors.ParsedSession{sourceTimed, untimed}, false))
 
 	if sourceTimed.Session.StartedAt != 1234 || sourceTimed.Session.LastActivityTime != 1234 {
 		t.Fatalf("source-timed session = start %d, activity %d; want 1234 for both",
@@ -139,13 +152,13 @@ func TestGrokWaitingStaysOnlyWhileTheProcessIsLive(t *testing.T) {
 	}}
 	metadata := vendors.EmptySessionMetadata()
 	metadata.LivenessChecked = true
-	resolveStatus([]*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}, true, true)
+	mustSucceed(t, resolveStatus(t.Context(), []*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}, true, true))
 	if root.Session.Status != nil {
 		t.Fatal("dead Grok session stayed waiting")
 	}
 	root.Session.Status = &waiting
 	metadata.Session("plan").Live = "interactive"
-	resolveStatus([]*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}, true, true)
+	mustSucceed(t, resolveStatus(t.Context(), []*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}, true, true))
 	if root.Session.Status == nil || *root.Session.Status != "waiting" {
 		t.Fatalf("live Grok status = %#v", root.Session.Status)
 	}
@@ -160,7 +173,7 @@ func TestResolveStatusClearsWaitingForClosedSession(t *testing.T) {
 		"codex": vendors.EmptySessionMetadata(),
 	}
 
-	resolveStatus([]*vendors.ParsedSession{root}, metadata, true, true)
+	mustSucceed(t, resolveStatus(t.Context(), []*vendors.ParsedSession{root}, metadata, true, true))
 
 	if root.Session.Status != nil {
 		t.Fatalf("closed session status = %q; want nil", *root.Session.Status)
@@ -195,9 +208,9 @@ func TestResolveStatusOpenCodeBusyHintRequiresLocalLiveness(t *testing.T) {
 				metadata.Session(root.Session.ID).Live = test.live
 			}
 
-			resolveStatus([]*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{
+			mustSucceed(t, resolveStatus(t.Context(), []*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{
 				vendors.AgentOpenCode: metadata,
-			}, test.useLiveStatus, test.livenessAuthoritative)
+			}, test.useLiveStatus, test.livenessAuthoritative))
 
 			if got := deref(root.Session.Status); got != test.want {
 				t.Fatalf("status = %q; want %q", got, test.want)
@@ -216,7 +229,7 @@ func TestFinalizeSessionsDoesNotAllocateMissingMetadata(t *testing.T) {
 		Spawns:  map[string]vendors.SpawnState{},
 	}}
 
-	finalized := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{"codex": metadata})
+	finalized := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{"codex": metadata})
 
 	if len(metadata.Sessions) != 0 {
 		t.Fatalf("read-only finalization allocated %d metadata records", len(metadata.Sessions))
@@ -244,7 +257,7 @@ func TestFinalizeSessionsReturnsSettledOpenCodeChild(t *testing.T) {
 		Spawns:   map[string]vendors.SpawnState{},
 	}
 
-	roots := finalizeSessions(
+	roots := finalizeForTest(t,
 		[]*vendors.ParsedSession{parent, child},
 		map[string]*vendors.SessionMetadata{vendors.AgentOpenCode: vendors.EmptySessionMetadata()},
 	)
@@ -271,7 +284,7 @@ func TestResolveNamesPreservesReviewNameFromPrompt(t *testing.T) {
 		"codex": {Sessions: map[string]*vendors.SessionEnrichment{"review-id": {Name: "metadata title"}}},
 	}
 
-	resolveNames([]*vendors.ParsedSession{root}, metadata)
+	mustSucceed(t, resolveNames(t.Context(), []*vendors.ParsedSession{root}, metadata))
 
 	if root.Session.Name == nil || *root.Session.Name != "Review — Fix checkout race (12345678)" {
 		t.Fatalf("name = %v", root.Session.Name)
@@ -288,7 +301,7 @@ func TestResolveNamesStillPrefersMetadataForOrdinarySession(t *testing.T) {
 		"codex": {Sessions: map[string]*vendors.SessionEnrichment{"ordinary": {Name: "metadata title"}}},
 	}
 
-	resolveNames([]*vendors.ParsedSession{root}, metadata)
+	mustSucceed(t, resolveNames(t.Context(), []*vendors.ParsedSession{root}, metadata))
 
 	if root.Session.Name == nil || *root.Session.Name != "metadata title" {
 		t.Fatalf("name = %v", root.Session.Name)
@@ -313,12 +326,12 @@ func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 			collected = true
 			return nil, nil, nil
 		},
-		loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+		loadFamily: func(context.Context, string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 			return []*vendors.ParsedSession{root, child}, vendors.EmptySessionMetadata(), nil
 		},
 	}}
 
-	got, err := GetSessionForPreview("root", 100)
+	got, err := GetSessionForPreview(t.Context(), "", "root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +348,7 @@ func TestGetSessionChangesSkipsEnvironmentProbes(t *testing.T) {
 	t.Cleanup(func() { vendorSources = original })
 	vendorSources = []vendorSource{{
 		name: "test",
-		loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+		loadFamily: func(context.Context, string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 			return []*vendors.ParsedSession{{Session: &session.Session{
 				Agent: "test", ID: "root", WorkingDirectory: t.TempDir(),
 				StartedAt: 100, LastActivityTime: 200,
@@ -344,7 +357,7 @@ func TestGetSessionChangesSkipsEnvironmentProbes(t *testing.T) {
 		},
 	}}
 
-	got, err := GetSessionChanges("test", "root")
+	got, err := GetSessionChanges(t.Context(), "test", "root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +374,7 @@ func TestGetSessionDetailPreservesExactSubagentText(t *testing.T) {
 	t.Cleanup(func() { vendorSources = original })
 	task := strings.Repeat("task", session.TruncateTextLimit)
 	result := strings.Repeat("result", session.TruncateTextLimit)
-	loadFamily := func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	loadFamily := func(context.Context, string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 		return []*vendors.ParsedSession{
 			{Session: &session.Session{
 				Agent: "test", ID: "root", StartedAt: 100, LastActivityTime: 200,
@@ -375,7 +388,7 @@ func TestGetSessionDetailPreservesExactSubagentText(t *testing.T) {
 	}
 	vendorSources = []vendorSource{{name: "test", loadFamily: loadFamily}}
 
-	got, err := GetSessionDetail("test", "root")
+	got, err := GetSessionDetail(t.Context(), "test", "root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,11 +399,11 @@ func TestGetSessionDetailPreservesExactSubagentText(t *testing.T) {
 		t.Fatalf("exact subagent text was truncated: task=%d result=%d", len(got.Subagents[0].Task), len(got.Subagents[0].Result))
 	}
 
-	parsed, metadata, err := loadFamily("root")
+	parsed, metadata, err := loadFamily(t.Context(), "root")
 	if err != nil {
 		t.Fatal(err)
 	}
-	listed := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{"test": metadata})[0].Session
+	listed := finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{"test": metadata})[0].Session
 	if listed.Subagents[0].Task != session.Truncate(task, session.TruncateTextLimit) ||
 		listed.Subagents[0].Result != session.Truncate(result, session.TruncateTextLimit) {
 		t.Fatal("list projection did not use bounded subagent text")
@@ -414,9 +427,9 @@ func TestFinalizeSessionsContextPreservesDetailRevisionBeforeTruncation(t *testi
 		}, ParentID: "root"},
 	}
 
-	roots, err := finalizeSessionsContext(context.Background(), parsed, map[string]*vendors.SessionMetadata{
+	roots, err := finalizeLocalSessions(t.Context(), parsed, map[string]*vendors.SessionMetadata{
 		"test": vendors.EmptySessionMetadata(),
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,15 +447,15 @@ func TestGetSessionForPreviewByAgentSelectsVendor(t *testing.T) {
 	original := vendorSources
 	t.Cleanup(func() { vendorSources = original })
 	vendorSources = []vendorSource{
-		{name: "claude", loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+		{name: "claude", loadFamily: func(context.Context, string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 			return []*vendors.ParsedSession{{Session: &session.Session{Agent: "claude", ID: "same", SessionDetails: session.SessionDetails{Turns: 1}}}}, vendors.EmptySessionMetadata(), nil
 		}},
-		{name: "codex", loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+		{name: "codex", loadFamily: func(context.Context, string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 			return []*vendors.ParsedSession{{Session: &session.Session{Agent: "codex", ID: "same", SessionDetails: session.SessionDetails{Turns: 1}}}}, vendors.EmptySessionMetadata(), nil
 		}},
 	}
 
-	got, err := GetSessionForPreviewByAgent("codex", "same", 0)
+	got, err := GetSessionForPreview(t.Context(), "codex", "same")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,15 +468,15 @@ func TestGetSessionFactsByAgentSelectsVendor(t *testing.T) {
 	original := vendorSources
 	t.Cleanup(func() { vendorSources = original })
 	vendorSources = []vendorSource{
-		{name: "claude", loadFacts: func(string) (*vendors.ParsedSession, error) {
+		{name: "claude", loadFacts: func(context.Context, string) (*vendors.ParsedSession, error) {
 			return &vendors.ParsedSession{Session: &session.Session{Agent: "claude", ID: "same"}}, nil
 		}},
-		{name: "codex", loadFacts: func(string) (*vendors.ParsedSession, error) {
+		{name: "codex", loadFacts: func(context.Context, string) (*vendors.ParsedSession, error) {
 			return &vendors.ParsedSession{Session: &session.Session{Agent: "codex", ID: "same"}}, nil
 		}},
 	}
 
-	got, err := GetSessionFactsByAgent("codex", "same")
+	got, err := GetSessionFacts(t.Context(), "codex", "same")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +531,7 @@ func TestGrokStatusIsBusyOnlyForLivePidInOpenTurn(t *testing.T) {
 			t.Fatal(err)
 		}
 		result := map[string]string{}
-		for _, root := range finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}) {
+		for _, root := range finalizeForTest(t, parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}) {
 			result[root.Session.ID] = deref(root.Session.Status)
 		}
 		return result
@@ -537,14 +550,14 @@ func TestPortableLocalGrokDoesNotEnableListRemote(t *testing.T) {
 		Sessions: []*vendors.ParsedSession{{Session: &session.Session{Agent: vendors.AgentGrok, ID: "grok-root", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}}},
 		Metadata: vendors.EmptySessionMetadata(),
 	}}
-	portable, err := ComposePortableContext(t.Context(), vendors.LocalReadSource, collections)
+	portable, err := ComposePortable(t.Context(), vendors.LocalReadSource, collections)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(portable) != 1 || portable[0].Session.ID != "grok-root" {
 		t.Fatalf("portable Grok = %+v", portable)
 	}
-	if remote := ListRemote(vendors.LocalReadSource, collections, 0); len(remote) != 0 {
+	if remote := mustListRemote(t, vendors.LocalReadSource, collections, 0); len(remote) != 0 {
 		t.Fatalf("Grok admitted to ListRemote: %+v", remote)
 	}
 }
@@ -555,14 +568,14 @@ func TestPortableRemoteGrokRemainsExcluded(t *testing.T) {
 		Sessions: []*vendors.ParsedSession{{Session: &session.Session{Agent: vendors.AgentGrok, ID: "grok-root", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{Turns: 1}}}},
 		Metadata: vendors.EmptySessionMetadata(),
 	}}
-	portable, err := ComposePortableContext(t.Context(), remoteSource, collections)
+	portable, err := ComposePortable(t.Context(), remoteSource, collections)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(portable) != 0 {
 		t.Fatalf("remote Grok admitted to portable composition: %+v", portable)
 	}
-	if remote := ListRemote(remoteSource, collections, 0); len(remote) != 0 {
+	if remote := mustListRemote(t, remoteSource, collections, 0); len(remote) != 0 {
 		t.Fatalf("Grok admitted to ListRemote: %+v", remote)
 	}
 }
@@ -573,7 +586,7 @@ func TestPortablePiKeepsCallerRuntimeEntrypoint(t *testing.T) {
 	collections := map[string]vendors.RemoteCollection{vendors.AgentPi: {
 		Sessions: []*vendors.ParsedSession{{Session: value}}, Metadata: vendors.EmptySessionMetadata(),
 	}}
-	portable, err := ComposePortableContext(t.Context(), vendors.LocalReadSource, collections)
+	portable, err := ComposePortable(t.Context(), vendors.LocalReadSource, collections)
 	if err != nil || len(portable) != 1 {
 		t.Fatalf("portable=%d err=%v", len(portable), err)
 	}
@@ -601,7 +614,7 @@ func TestGrokSourceCostEnrichmentKeepsAvailabilityAndAgentPolicy(t *testing.T) {
 				s.UnattributedTokens = &session.ModelTokens{InputTokens: 1}
 			}
 			item := &vendors.ParsedSession{Session: s, RecordedModelCosts: map[string]float64{"gpt-5": 0}, CostIncomplete: true}
-			enrichModelsAndCosts([]*vendors.ParsedSession{item})
+			mustSucceed(t, enrichModelsAndCosts(t.Context(), []*vendors.ParsedSession{item}))
 			if int64(math.Round(s.Tokens["gpt-5"].Cost*1e6)) != tc.wantModel {
 				t.Fatalf("model cost=%v want=%v", s.Tokens["gpt-5"].Cost, tc.wantModel)
 			}
@@ -621,7 +634,7 @@ func TestGrokUnknownModelSourceCostCompletesAggregate(t *testing.T) {
 			"unpriced-synthetic-model": {InputTokens: 12},
 		}}
 		item := &vendors.ParsedSession{Session: s, RecordedModelCosts: map[string]float64{"unpriced-synthetic-model": want}}
-		if err := enrichModelsAndCostsContext(t.Context(), []*vendors.ParsedSession{item}); err != nil {
+		if err := enrichModelsAndCosts(t.Context(), []*vendors.ParsedSession{item}); err != nil {
 			t.Fatal(err)
 		}
 		if s.Cost == nil || *s.Cost != want || len(s.UnpricedModels) != 0 {
@@ -642,7 +655,7 @@ func TestProbeKeepsRecordedRemoteWhenFolderHasNone(t *testing.T) {
 		{Session: &session.Session{Agent: vendors.AgentCodex, ID: "local-only", WorkingDirectory: removed, Repository: &local, RepositoryLocalOnly: true}},
 		{Session: &session.Session{Agent: vendors.AgentClaude, ID: "none", WorkingDirectory: removed}},
 	}
-	if err := probeGitEnvironmentContext(context.Background(), parsed); err != nil {
+	if err := probeGitEnvironment(context.Background(), parsed); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {

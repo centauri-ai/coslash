@@ -5,6 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
 	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
@@ -12,12 +19,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"runtime"
-	"strings"
-	"testing"
 )
 
 func TestPiDirectedHandoffCustomLocalOnly(t *testing.T) {
@@ -31,7 +32,7 @@ func TestPiDirectedHandoffCustomLocalOnly(t *testing.T) {
 	directedLocalTargets = func(context.Context) []launch.HandoffTargetOption {
 		return []launch.HandoffTargetOption{{Agent: "pi", Available: true, Automatic: true}}
 	}
-	directedLocalSession = func(agent, id string, _ int64) (*session.Session, error) {
+	directedLocalSession = func(_ context.Context, agent, id string) (*session.Session, error) {
 		return &session.Session{Agent: agent, ID: id, WorkingDirectory: t.TempDir()}, nil
 	}
 	launched := 0
@@ -75,7 +76,7 @@ func TestPiDirectedReviewIndependentOfTerminalSupport(t *testing.T) {
 	directedLocalReviewerAvailable = func(_ context.Context, agent string) bool { return agent == "pi" }
 	directedLocalTargets = func(context.Context) []launch.HandoffTargetOption { return nil }
 	cwd := t.TempDir()
-	directedLocalSession = func(agent, id string, _ int64) (*session.Session, error) {
+	directedLocalSession = func(_ context.Context, agent, id string) (*session.Session, error) {
 		return &session.Session{Agent: agent, ID: id, WorkingDirectory: cwd}, nil
 	}
 	started := make(chan review.Launch, 1)

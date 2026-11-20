@@ -18,7 +18,7 @@ import (
 // queue when raw bytes or parser sidecars change without a parsed-card change.
 // The complete producer still hashes and verifies the exact bytes before upload.
 func LocalSourceRevisions(ctx context.Context, source vendors.ReadSource, home string) (map[string]string, error) {
-	scan, err := ScanSourceContext(ctx, source, ProjectsRoot(home))
+	scan, err := Scan(ctx, source, ProjectsRoot(home))
 	if err != nil || scan.SkippedTotal != 0 {
 		return nil, vendors.ErrInvalidData
 	}

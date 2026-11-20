@@ -32,51 +32,62 @@ const (
 type vendorSource struct {
 	name       string
 	collect    func(context.Context, int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	loadFacts  func(id string) (*vendors.ParsedSession, error)
-	loadFamily func(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	health     func() vendors.SourceHealth
+	loadFacts  func(context.Context, string) (*vendors.ParsedSession, error)
+	loadFamily func(context.Context, string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	health     func(context.Context) vendors.SourceHealth
 }
 
 var vendorSources = func() []vendorSource {
 	sources := []vendorSource{
 		{
-			name: vendors.AgentClaude, collect: claude.CollectContext, loadFacts: claude.GetSessionFacts,
+			name: vendors.AgentClaude, collect: claude.Collect, loadFacts: claude.GetSessionFacts,
 			loadFamily: claude.GetSessionFamily,
 			health:     claude.Health,
 		},
 		{
-			name: vendors.AgentCodex, collect: codex.CollectContext, loadFacts: codex.GetSessionFacts,
+			name: vendors.AgentCodex, collect: codex.CollectContext,
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return codex.GetSessionFacts(id) },
 			loadFamily: codex.GetSessionFamily,
-			health:     codex.Health,
+			health:     func(context.Context) vendors.SourceHealth { return codex.Health() },
 		},
 		{
-			name: vendors.AgentOpenCode, collect: opencode.CollectContext, loadFacts: opencode.GetSessionFacts,
+			name: vendors.AgentOpenCode, collect: opencode.CollectContext,
+			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) {
+				return opencode.GetSessionFacts(id)
+			},
 			loadFamily: opencode.GetSessionFamily,
-			health:     opencode.Health,
+			health:     func(context.Context) vendors.SourceHealth { return opencode.Health() },
 		},
 		{
-			name: vendors.AgentCursor, collect: cursor.CollectContext, loadFacts: cursor.GetSessionFacts,
+			name: vendors.AgentCursor, collect: cursor.CollectContext,
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return cursor.GetSessionFacts(id) },
 			loadFamily: cursor.GetSessionFamily,
-			health:     cursor.Health,
+			health:     func(context.Context) vendors.SourceHealth { return cursor.Health() },
 		},
 		{
-			name: vendors.AgentGrok, collect: grok.CollectContext, loadFacts: grok.GetSessionFacts,
+			name: vendors.AgentGrok, collect: grok.CollectContext,
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return grok.GetSessionFacts(id) },
 			loadFamily: grok.GetSessionFamily,
-			health:     grok.Health,
+			health:     func(context.Context) vendors.SourceHealth { return grok.Health() },
 		},
 	}
 	if vendors.PiCollectionSupported() {
-		sources = append([]vendorSource{{name: vendors.AgentPi, collect: pi.CollectContext, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health}}, sources...)
+		sources = append([]vendorSource{{
+			name: vendors.AgentPi, collect: pi.CollectContext,
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return pi.GetSessionFacts(id) },
+			loadFamily: pi.GetSessionFamily,
+			health:     func(context.Context) vendors.SourceHealth { return pi.Health() },
+		}}, sources...)
 	}
 	return sources
 }()
 
 type SourceHealth = vendors.SourceHealth
 
-func Sources() []SourceHealth {
+func Sources(ctx context.Context) []SourceHealth {
 	health := make([]SourceHealth, 0, len(vendorSources))
 	for _, source := range vendorSources {
-		health = append(health, source.health())
+		health = append(health, source.health(ctx))
 	}
 	return health
 }
@@ -86,7 +97,7 @@ func List(ctx context.Context, since int64) ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	roots, err := finalizeSessionsContext(ctx, parsed, metadata)
+	roots, err := finalizeLocalSessions(ctx, parsed, metadata, false)
 	if err != nil {
 		return nil, err
 	}
@@ -100,14 +111,14 @@ func List(ctx context.Context, since int64) ([]*session.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	roots, err = servableRootsContext(ctx, roots)
+	roots, err = servableRoots(ctx, roots)
 	if err != nil {
 		return nil, err
 	}
-	if err := probeLastEditsContext(ctx, roots); err != nil {
+	if err := probeLastEdits(ctx, roots); err != nil {
 		return nil, err
 	}
-	if err := probeGitEnvironmentContext(ctx, roots); err != nil {
+	if err := probeGitEnvironment(ctx, roots); err != nil {
 		return nil, err
 	}
 	sessions := make([]*session.Session, 0, len(roots))
@@ -120,26 +131,26 @@ func List(ctx context.Context, since int64) ([]*session.Session, error) {
 	return sessions, nil
 }
 
-// FinalizeBatchContext composes already-parsed whole families into servable
+// FinalizeBatch composes already-parsed whole families into servable
 // root sessions with the same enrichment and environment probes as List.
 // Streamed discovery calls it once per batch.
-func FinalizeBatchContext(
+func FinalizeBatch(
 	ctx context.Context,
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 ) ([]*session.Session, error) {
-	roots, err := finalizeSessionsContext(ctx, parsed, metadata)
+	roots, err := finalizeLocalSessions(ctx, parsed, metadata, false)
 	if err != nil {
 		return nil, err
 	}
-	roots, err = servableRootsContext(ctx, roots)
+	roots, err = servableRoots(ctx, roots)
 	if err != nil {
 		return nil, err
 	}
-	if err := probeLastEditsContext(ctx, roots); err != nil {
+	if err := probeLastEdits(ctx, roots); err != nil {
 		return nil, err
 	}
-	if err := probeGitEnvironmentContext(ctx, roots); err != nil {
+	if err := probeGitEnvironment(ctx, roots); err != nil {
 		return nil, err
 	}
 	sessions := make([]*session.Session, 0, len(roots))
@@ -150,15 +161,8 @@ func FinalizeBatchContext(
 }
 
 // GetSessionForPreview returns the selected fully composed session family.
-func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
-	return getSessionForPreview("", id)
-}
-
-func GetSessionForPreviewByAgent(agent, id string, _ int64) (*session.Session, error) {
-	return getSessionForPreview(agent, id)
-}
-
-func getSessionForPreview(agent, id string) (*session.Session, error) {
+// An empty agent searches every vendor.
+func GetSessionForPreview(ctx context.Context, agent, id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -167,14 +171,18 @@ func getSessionForPreview(agent, id string) (*session.Session, error) {
 		if agent != "" && source.name != agent {
 			continue
 		}
-		parsed, metadata, err := source.loadFamily(id)
+		parsed, metadata, err := source.loadFamily(ctx, id)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
 			continue
 		}
-		roots := servableRoots(finalizeSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}))
-		probeLastEdits(roots)
-		probeGitEnvironment(roots)
+		roots, err := loadedRoots(ctx, parsed, map[string]*vendors.SessionMetadata{source.name: metadata}, false, true)
+		if err != nil {
+			return nil, err
+		}
 		if root := previewRootFor(parsed, roots, id); root != nil {
 			return root.Session, nil
 		}
@@ -188,17 +196,17 @@ func getSessionForPreview(agent, id string) (*session.Session, error) {
 // GetSessionDetail loads one exact vendor family for the inspector. Requiring
 // the agent as well as the vendor session ID keeps identical IDs from
 // different parsers distinct and avoids a machine-wide collection.
-func GetSessionDetail(agent, id string) (*session.Session, error) {
-	return getSessionDetail(agent, id, true)
+func GetSessionDetail(ctx context.Context, agent, id string) (*session.Session, error) {
+	return getSessionDetail(ctx, agent, id, true)
 }
 
 // GetSessionChanges loads one exact vendor family for an exact diff without
 // probing display-only filesystem and Git environment fields.
-func GetSessionChanges(agent, id string) (*session.Session, error) {
-	return getSessionDetail(agent, id, false)
+func GetSessionChanges(ctx context.Context, agent, id string) (*session.Session, error) {
+	return getSessionDetail(ctx, agent, id, false)
 }
 
-func getSessionDetail(agent, id string, probeEnvironment bool) (*session.Session, error) {
+func getSessionDetail(ctx context.Context, agent, id string, probeEnvironment bool) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -206,14 +214,13 @@ func getSessionDetail(agent, id string, probeEnvironment bool) (*session.Session
 		if source.name != agent {
 			continue
 		}
-		parsed, metadata, err := source.loadFamily(id)
+		parsed, metadata, err := source.loadFamily(ctx, id)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", source.name, err)
 		}
-		roots := servableRoots(finalizeLocalSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}, true))
-		if probeEnvironment {
-			probeLastEdits(roots)
-			probeGitEnvironment(roots)
+		roots, err := loadedRoots(ctx, parsed, map[string]*vendors.SessionMetadata{source.name: metadata}, true, probeEnvironment)
+		if err != nil {
+			return nil, err
 		}
 		for _, candidate := range roots {
 			if candidate.Session.ID == id {
@@ -223,6 +230,31 @@ func getSessionDetail(agent, id string, probeEnvironment bool) (*session.Session
 		return nil, nil
 	}
 	return nil, nil
+}
+
+// loadedRoots finalizes one loaded family into servable roots and, when asked,
+// probes their filesystem and Git environment.
+func loadedRoots(
+	ctx context.Context,
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+	preserveSubagentText, probeEnvironment bool,
+) ([]*vendors.ParsedSession, error) {
+	roots, err := finalizeLocalSessions(ctx, parsed, metadata, preserveSubagentText)
+	if err != nil {
+		return nil, err
+	}
+	roots, err = servableRoots(ctx, roots)
+	if err != nil || !probeEnvironment {
+		return roots, err
+	}
+	if err := probeLastEdits(ctx, roots); err != nil {
+		return nil, err
+	}
+	if err := probeGitEnvironment(ctx, roots); err != nil {
+		return nil, err
+	}
+	return roots, nil
 }
 
 func previewRootFor(parsed, roots []*vendors.ParsedSession, id string) *vendors.ParsedSession {
@@ -261,29 +293,13 @@ func previewRootFor(parsed, roots []*vendors.ParsedSession, id string) *vendors.
 	return nil
 }
 
-func finalizeSessions(
-	parsed []*vendors.ParsedSession,
-	metadata map[string]*vendors.SessionMetadata,
-) []*vendors.ParsedSession {
-	return finalizeLocalSessions(parsed, metadata, false)
-}
-
 func finalizeLocalSessions(
-	parsed []*vendors.ParsedSession,
-	metadata map[string]*vendors.SessionMetadata,
-	preserveSubagentText bool,
-) []*vendors.ParsedSession {
-	roots, _ := finalizeLocalSessionsContext(context.Background(), parsed, metadata, preserveSubagentText)
-	return roots
-}
-
-func finalizeLocalSessionsContext(
 	ctx context.Context,
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 	preserveSubagentText bool,
 ) ([]*vendors.ParsedSession, error) {
-	roots, err := finalizeSessionsSourceContext(ctx, parsed, metadata, vendors.LocalReadSource, true, true, true)
+	roots, err := finalizeSessions(ctx, parsed, metadata, vendors.LocalReadSource, true, true, true)
 	if err != nil {
 		return nil, err
 	}
@@ -308,27 +324,7 @@ func finalizeLocalSessionsContext(
 	return roots, nil
 }
 
-func finalizeSessionsContext(
-	ctx context.Context,
-	parsed []*vendors.ParsedSession,
-	metadata map[string]*vendors.SessionMetadata,
-) ([]*vendors.ParsedSession, error) {
-	return finalizeLocalSessionsContext(ctx, parsed, metadata, false)
-}
-
-func finalizeSessionsSource(
-	parsed []*vendors.ParsedSession,
-	metadata map[string]*vendors.SessionMetadata,
-	source vendors.ReadSource,
-	useLiveStatus bool,
-	allowLocalActivityFallbacks bool,
-	preserveSubagentText bool,
-) []*vendors.ParsedSession {
-	result, _ := finalizeSessionsSourceContext(context.Background(), parsed, metadata, source, useLiveStatus, allowLocalActivityFallbacks, preserveSubagentText)
-	return result
-}
-
-func finalizeSessionsSourceContext(
+func finalizeSessions(
 	ctx context.Context,
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
@@ -337,50 +333,50 @@ func finalizeSessionsSourceContext(
 	allowLocalActivityFallbacks bool,
 	preserveSubagentText bool,
 ) ([]*vendors.ParsedSession, error) {
-	if err := applySessionEnrichmentContext(ctx, parsed, metadata); err != nil {
+	if err := applySessionEnrichment(ctx, parsed, metadata); err != nil {
 		return nil, err
 	}
-	if err := applyActivityFallbacksContext(ctx, parsed, allowLocalActivityFallbacks); err != nil {
+	if err := applyActivityFallbacks(ctx, parsed, allowLocalActivityFallbacks); err != nil {
 		return nil, err
 	}
-	if err := enrichModelsAndCostsContext(ctx, parsed); err != nil {
+	if err := enrichModelsAndCosts(ctx, parsed); err != nil {
 		return nil, err
 	}
-	composition, err := composeSessionsContext(ctx, parsed)
+	composition, err := composeSessions(ctx, parsed)
 	if err != nil {
 		return nil, err
 	}
 	for _, root := range composition.roots {
 		root.Session.SynthesisRevision = synthesis.Revision(root.Session)
 	}
-	if err := promoteFamilyActivityContext(ctx, composition); err != nil {
+	if err := promoteFamilyActivity(ctx, composition); err != nil {
 		return nil, err
 	}
-	if err := resolveNamesContext(ctx, composition.parsed, metadata); err != nil {
+	if err := resolveNames(ctx, composition.parsed, metadata); err != nil {
 		return nil, err
 	}
-	workflowAgents, err := claude.WorkflowAgentsSourceContext(ctx, source, composition.parsed)
+	workflowAgents, err := claude.WorkflowAgents(ctx, source, composition.parsed)
 	if err != nil {
 		return nil, err
 	}
-	if err := enrichSubagentsContext(ctx, composition, metadata, workflowAgents, preserveSubagentText, useLiveStatus); err != nil {
+	if err := enrichSubagents(ctx, composition, metadata, workflowAgents, preserveSubagentText, useLiveStatus); err != nil {
 		return nil, err
 	}
 	for _, p := range composition.parsed {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := removeUnresolvedSpawnRowsContext(ctx, p.Session); err != nil {
+		if err := removeUnresolvedSpawnRows(ctx, p.Session); err != nil {
 			return nil, err
 		}
 	}
-	if err := resolveStatusContext(ctx, composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource); err != nil {
+	if err := resolveStatus(ctx, composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource); err != nil {
 		return nil, err
 	}
 	return composition.roots, nil
 }
 
-func promoteFamilyActivityContext(ctx context.Context, composition sessionComposition) error {
+func promoteFamilyActivity(ctx context.Context, composition sessionComposition) error {
 	parents := make(map[*vendors.ParsedSession]*vendors.ParsedSession, len(composition.children))
 	for _, link := range composition.children {
 		if err := ctx.Err(); err != nil {
@@ -411,11 +407,7 @@ func promoteFamilyActivityContext(ctx context.Context, composition sessionCompos
 	return nil
 }
 
-func applyActivityFallbacks(parsed []*vendors.ParsedSession, allowLocalFallbacks bool) {
-	_ = applyActivityFallbacksContext(context.Background(), parsed, allowLocalFallbacks)
-}
-
-func applyActivityFallbacksContext(ctx context.Context, parsed []*vendors.ParsedSession, allowLocalFallbacks bool) error {
+func applyActivityFallbacks(ctx context.Context, parsed []*vendors.ParsedSession, allowLocalFallbacks bool) error {
 	var collectedAt int64
 	if allowLocalFallbacks {
 		collectedAt = time.Now().UnixMilli()
@@ -445,11 +437,7 @@ func applyActivityFallbacksContext(ctx context.Context, parsed []*vendors.Parsed
 	return nil
 }
 
-func enrichModelsAndCosts(parsed []*vendors.ParsedSession) {
-	_ = enrichModelsAndCostsContext(context.Background(), parsed)
-}
-
-func enrichModelsAndCostsContext(ctx context.Context, parsed []*vendors.ParsedSession) error {
+func enrichModelsAndCosts(ctx context.Context, parsed []*vendors.ParsedSession) error {
 	for _, item := range parsed {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -548,7 +536,7 @@ type sessionComposition struct {
 	children []childLink
 }
 
-func composeSessionsContext(ctx context.Context, parsed []*vendors.ParsedSession) (sessionComposition, error) {
+func composeSessions(ctx context.Context, parsed []*vendors.ParsedSession) (sessionComposition, error) {
 	byID := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
 	for _, p := range parsed {
 		if err := ctx.Err(); err != nil {
@@ -584,7 +572,7 @@ func composeSessionsContext(ctx context.Context, parsed []*vendors.ParsedSession
 	return composition, nil
 }
 
-func enrichSubagentsContext(
+func enrichSubagents(
 	ctx context.Context,
 	composition sessionComposition,
 	metadata map[string]*vendors.SessionMetadata,
@@ -612,7 +600,7 @@ func enrichSubagentsContext(
 			preserveText,
 			useLiveStatus,
 		)
-		if err := linkSpawnDigestContext(ctx, parent.Session, p.SpawnKey, subagent); err != nil {
+		if err := linkSpawnDigest(ctx, parent.Session, p.SpawnKey, subagent); err != nil {
 			return err
 		}
 		if len(p.Session.Skills) > 0 {
@@ -649,11 +637,12 @@ func enrichSubagentsContext(
 // ListRemote composes already-read Claude and Codex facts without probing the
 // remote filesystem as if it were local.
 func ListRemote(
+	ctx context.Context,
 	source vendors.ReadSource,
 	collections map[string]vendors.RemoteCollection,
 	since int64,
-) []*session.Session {
-	return listRemote(source, collections, since, false, true)
+) ([]*session.Session, error) {
+	return listRemote(ctx, source, collections, since, false, true)
 }
 
 type PortableSession struct {
@@ -661,17 +650,17 @@ type PortableSession struct {
 	Session         *session.Session
 }
 
-func ComposePortableContext(
+func ComposePortable(
 	ctx context.Context,
 	source vendors.ReadSource,
 	collections map[string]vendors.RemoteCollection,
 ) ([]PortableSession, error) {
 	parsed, metadata := remoteInputs(collections, source == vendors.LocalReadSource)
-	finalized, err := finalizeSessionsSourceContext(ctx, parsed, metadata, source, false, false, true)
+	finalized, err := finalizeSessions(ctx, parsed, metadata, source, false, false, true)
 	if err != nil {
 		return nil, err
 	}
-	roots, err := servableRootsContext(ctx, finalized)
+	roots, err := servableRoots(ctx, finalized)
 	if err != nil {
 		return nil, err
 	}
@@ -709,14 +698,18 @@ func ComposePortableContext(
 }
 
 func listRemote(
+	ctx context.Context,
 	source vendors.ReadSource,
 	collections map[string]vendors.RemoteCollection,
 	since int64,
 	preserveSubagentText bool,
 	useLiveStatus bool,
-) []*session.Session {
+) ([]*session.Session, error) {
 	parsed, metadata := remoteInputs(collections, false)
-	roots := finalizeSessionsSource(parsed, metadata, source, useLiveStatus, false, preserveSubagentText)
+	roots, err := finalizeSessions(ctx, parsed, metadata, source, useLiveStatus, false, preserveSubagentText)
+	if err != nil {
+		return nil, err
+	}
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
 			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
@@ -724,12 +717,15 @@ func listRemote(
 			return !isLive && root.Session.LastActivityTime < since
 		})
 	}
-	roots = servableRoots(roots)
+	roots, err = servableRoots(ctx, roots)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*session.Session, 0, len(roots))
 	for _, root := range roots {
 		sessions = append(sessions, root.Session)
 	}
-	return sessions
+	return sessions, nil
 }
 
 func remoteInputs(collections map[string]vendors.RemoteCollection, includeLocalAgents bool) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
@@ -766,7 +762,7 @@ func belongsToRoot(item *vendors.ParsedSession, byKey map[sessionKey]*vendors.Pa
 	return false
 }
 
-func linkSpawnDigestContext(ctx context.Context, parent *session.Session, spawnKey string, subagent session.Subagent) error {
+func linkSpawnDigest(ctx context.Context, parent *session.Session, spawnKey string, subagent session.Subagent) error {
 	claimed := -1
 	for index, entry := range parent.Digest {
 		if err := ctx.Err(); err != nil {
@@ -794,11 +790,7 @@ func linkSpawnDigestContext(ctx context.Context, parent *session.Session, spawnK
 	return nil
 }
 
-func removeUnresolvedSpawnRows(s *session.Session) {
-	_ = removeUnresolvedSpawnRowsContext(context.Background(), s)
-}
-
-func removeUnresolvedSpawnRowsContext(ctx context.Context, s *session.Session) error {
+func removeUnresolvedSpawnRows(ctx context.Context, s *session.Session) error {
 	kept := s.Digest[:0]
 	for _, entry := range s.Digest {
 		if err := ctx.Err(); err != nil {
@@ -812,11 +804,7 @@ func removeUnresolvedSpawnRowsContext(ctx context.Context, s *session.Session) e
 	return nil
 }
 
-func probeLastEdits(roots []*vendors.ParsedSession) {
-	_ = probeLastEditsContext(context.Background(), roots)
-}
-
-func probeLastEditsContext(ctx context.Context, roots []*vendors.ParsedSession) error {
+func probeLastEdits(ctx context.Context, roots []*vendors.ParsedSession) error {
 	for _, p := range roots {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -832,11 +820,7 @@ func probeLastEditsContext(ctx context.Context, roots []*vendors.ParsedSession) 
 	return nil
 }
 
-func probeGitEnvironment(roots []*vendors.ParsedSession) {
-	_ = probeGitEnvironmentContext(context.Background(), roots)
-}
-
-func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSession) error {
+func probeGitEnvironment(ctx context.Context, roots []*vendors.ParsedSession) error {
 	// Drift is measured for the recorded or best-effort current branch against
 	// the repo's base branch, so it memoizes per (cwd, branch).
 	type driftKey struct{ cwd, branch string }
@@ -947,11 +931,7 @@ func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSess
 	return nil
 }
 
-func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
-	_ = resolveNamesContext(context.Background(), roots, metadata)
-}
-
-func resolveNamesContext(ctx context.Context, roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) error {
+func resolveNames(ctx context.Context, roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) error {
 	for _, p := range roots {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -975,7 +955,7 @@ func resolveNamesContext(ctx context.Context, roots []*vendors.ParsedSession, me
 	return nil
 }
 
-func applySessionEnrichmentContext(ctx context.Context, parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) error {
+func applySessionEnrichment(ctx context.Context, parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) error {
 	for _, p := range parsed {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -986,15 +966,6 @@ func applySessionEnrichmentContext(ctx context.Context, parsed []*vendors.Parsed
 }
 
 func resolveStatus(
-	roots []*vendors.ParsedSession,
-	metadata map[string]*vendors.SessionMetadata,
-	useLiveStatus bool,
-	livenessAuthoritative bool,
-) {
-	_ = resolveStatusContext(context.Background(), roots, metadata, useLiveStatus, livenessAuthoritative)
-}
-
-func resolveStatusContext(
 	ctx context.Context,
 	roots []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
@@ -1063,12 +1034,7 @@ func sessionMetadata(
 // drop synthesis cli sessions
 // claude: drop /clear stub sessions
 // codex: drop session_meta-only sessions
-func servableRoots(roots []*vendors.ParsedSession) []*vendors.ParsedSession {
-	kept, _ := servableRootsContext(context.Background(), roots)
-	return kept
-}
-
-func servableRootsContext(ctx context.Context, roots []*vendors.ParsedSession) ([]*vendors.ParsedSession, error) {
+func servableRoots(ctx context.Context, roots []*vendors.ParsedSession) ([]*vendors.ParsedSession, error) {
 	synthesisCwd := filepath.Clean(synthesis.SynthesisCwd())
 	kept := []*vendors.ParsedSession{}
 	for _, p := range roots {
@@ -1098,15 +1064,9 @@ func deref(value *string) string {
 	return *value
 }
 
-func GetSessionFacts(id string) (*session.Session, error) {
-	return getSessionFacts("", id)
-}
-
-func GetSessionFactsByAgent(agent, id string) (*session.Session, error) {
-	return getSessionFacts(agent, id)
-}
-
-func getSessionFacts(agent, id string) (*session.Session, error) {
+// GetSessionFacts loads the facts of one root session. An empty agent searches
+// every vendor.
+func GetSessionFacts(ctx context.Context, agent, id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -1116,7 +1076,10 @@ func getSessionFacts(agent, id string) (*session.Session, error) {
 		if agent != "" && source.name != agent {
 			continue
 		}
-		candidate, err := source.loadFacts(id)
+		candidate, err := source.loadFacts(ctx, id)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
 			continue
@@ -1136,8 +1099,15 @@ func getSessionFacts(agent, id string) (*session.Session, error) {
 		return nil, nil
 	}
 	// No subagents here means no spawn key can resolve.
-	removeUnresolvedSpawnRows(p.Session)
-	applyActivityFallbacks([]*vendors.ParsedSession{p}, true)
-	probeGitEnvironment([]*vendors.ParsedSession{p})
+	if err := removeUnresolvedSpawnRows(ctx, p.Session); err != nil {
+		return nil, err
+	}
+	family := []*vendors.ParsedSession{p}
+	if err := applyActivityFallbacks(ctx, family, true); err != nil {
+		return nil, err
+	}
+	if err := probeGitEnvironment(ctx, family); err != nil {
+		return nil, err
+	}
 	return p.Session, nil
 }
