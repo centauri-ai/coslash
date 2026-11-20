@@ -282,8 +282,8 @@ func collectClaudeVendor(ctx context.Context, source vendors.ReadSource, sourceI
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
 		SessionIDs: sessionIDs,
-		Parse: func(_ context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-			return claude.ParseRemoteFiles(source, files)
+		Parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+			return claude.ParseRemoteFilesContext(ctx, source, files)
 		},
 		Fingerprint: func(ctx context.Context, files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(
@@ -340,8 +340,8 @@ func collectCodexVendor(
 		Vendor: vendors.AgentCodex, ParserVersion: codexParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
-		Parse: func(_ context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-			return codex.ParseRemoteFiles(source, home, files, activeFiles)
+		Parse: func(ctx context.Context, files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+			return codex.ParseRemoteFilesContext(ctx, source, home, files, activeFiles)
 		},
 		Fingerprint: func(ctx context.Context, files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(
