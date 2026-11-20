@@ -29,11 +29,11 @@ func TestPiWindowsAvailabilityResumeAndFailedSendCleanup(t *testing.T) {
 	if resolved, err := vendors.PiExecutable(); err != nil || resolved != cli {
 		t.Fatalf("resolved Pi executable = %q, %v; want managed %q", resolved, err, cli)
 	}
-	if !PiAvailable() {
+	if !PiAvailable(t.Context()) {
 		t.Fatal("installed Pi CLI is unavailable")
 	}
 	available := false
-	for _, option := range HandoffTargetOptions(context.Background()) {
+	for _, option := range HandoffTargetOptions(t.Context()) {
 		if option.Agent == vendors.AgentPi {
 			available = option.Available
 		}

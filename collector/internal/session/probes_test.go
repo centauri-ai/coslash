@@ -29,7 +29,7 @@ func TestCurrentBranchContextCancelsGit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan struct{})
 	go func() {
-		CurrentBranchContext(ctx, directory)
+		CurrentBranch(ctx, directory)
 		close(finished)
 	}()
 	waitForFile(t, marker)

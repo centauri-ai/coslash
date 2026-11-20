@@ -123,7 +123,7 @@ type CommitFacts struct {
 	SHAs     []string
 }
 
-func NewCommitFactsReconcilerContext(ctx context.Context) func([]CommitObservation, string, *string) CommitFacts {
+func NewCommitFactsReconciler(ctx context.Context) func([]CommitObservation, string, *string) CommitFacts {
 	type cacheKey struct{ cwd, branch string }
 	type cachedHistory struct {
 		commits []repositoryCommit
@@ -141,32 +141,30 @@ func NewCommitFactsReconcilerContext(ctx context.Context) func([]CommitObservati
 		key := cacheKey{cwd: cwd, branch: branchName}
 		history, found := histories[key]
 		if !found {
-			history.commits, history.ok = repositoryHistoryContext(ctx, cwd, branch)
+			history.commits, history.ok = repositoryHistory(ctx, cwd, branch)
 			histories[key] = history
 		}
-		return reconcileCommitFactsContext(ctx, observations, history.commits, history.ok)
+		return reconcileCommitFacts(ctx, observations, history.commits, history.ok)
 	}
 }
 
-func ReconcileCommits(observations []CommitObservation, cwd string, branch *string) []string {
-	return reconcileCommitFactsFromRepository(observations, cwd, branch).Subjects
-}
-
-func reconcileCommitFactsFromRepository(observations []CommitObservation, cwd string, branch *string) CommitFacts {
-	if len(observations) == 0 {
-		return CommitFacts{Subjects: []string{}, SHAs: []string{}}
+// CommitSubjects lists the observed commit subjects without a repository,
+// with each amend replacing the subject before it.
+func CommitSubjects(observations []CommitObservation) []string {
+	messages := []string{}
+	for _, observation := range observations {
+		if observation.Amend && len(messages) > 0 {
+			messages[len(messages)-1] = observation.Subject
+			continue
+		}
+		messages = append(messages, observation.Subject)
 	}
-	history, ok := repositoryHistory(cwd, branch)
-	return reconcileCommitFacts(observations, history, ok)
+	return messages
 }
 
-func reconcileCommitFacts(observations []CommitObservation, history []repositoryCommit, ok bool) CommitFacts {
-	return reconcileCommitFactsContext(context.Background(), observations, history, ok)
-}
-
-func reconcileCommitFactsContext(ctx context.Context, observations []CommitObservation, history []repositoryCommit, ok bool) CommitFacts {
+func reconcileCommitFacts(ctx context.Context, observations []CommitObservation, history []repositoryCommit, ok bool) CommitFacts {
 	if !ok {
-		return CommitFacts{Subjects: fallbackCommitMessagesContext(ctx, observations), SHAs: []string{}}
+		return CommitFacts{Subjects: CommitSubjects(observations), SHAs: []string{}}
 	}
 	resolved := make([]int, len(observations))
 	hashResolved := make([]bool, len(observations))
@@ -228,11 +226,7 @@ func reconcileCommitFactsContext(ctx context.Context, observations []CommitObser
 	return CommitFacts{Subjects: messages, SHAs: shas}
 }
 
-func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {
-	return repositoryHistoryContext(context.Background(), cwd, branch)
-}
-
-func repositoryHistoryContext(ctx context.Context, cwd string, branch *string) ([]repositoryCommit, bool) {
+func repositoryHistory(ctx context.Context, cwd string, branch *string) ([]repositoryCommit, bool) {
 	if !backgroundFilesystemProbeAllowed(cwd) {
 		return nil, false
 	}
@@ -244,7 +238,7 @@ func repositoryHistoryContext(ctx context.Context, cwd string, branch *string) (
 		"git", "-C", cwd, "log", "--format=%H%x00%s", ref, "--",
 	).Output()
 	if err != nil {
-		if !gitRefExistsContext(ctx, cwd, ref) &&
+		if !gitRefExists(ctx, cwd, ref) &&
 			backgroundexec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--git-dir").Run() == nil {
 			return []repositoryCommit{}, true
 		}
@@ -261,21 +255,6 @@ func repositoryHistoryContext(ctx context.Context, cwd string, branch *string) (
 		}
 	}
 	return history, true
-}
-
-func fallbackCommitMessagesContext(ctx context.Context, observations []CommitObservation) []string {
-	messages := []string{}
-	for _, observation := range observations {
-		if ctx.Err() != nil {
-			return nil
-		}
-		if observation.Amend && len(messages) > 0 {
-			messages[len(messages)-1] = observation.Subject
-			continue
-		}
-		messages = append(messages, observation.Subject)
-	}
-	return messages
 }
 
 func commitSubject(command string) string {

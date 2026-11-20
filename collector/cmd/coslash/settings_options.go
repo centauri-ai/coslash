@@ -48,7 +48,7 @@ func discoverSettingsOptions(ctx context.Context) settingsOptions {
 		}
 	}
 	for i := range options.Terminals {
-		options.Terminals[i].Available = launch.AvailableContext(ctx, options.Terminals[i].ID)
+		options.Terminals[i].Available = launch.Available(ctx, options.Terminals[i].ID)
 	}
 	for _, option := range launch.ReviewerOptions() {
 		options.Reviewers = append(options.Reviewers, availableReviewer{ID: option.ID, Label: option.Label, Available: launch.ReviewCLIAvailable(ctx, option.ID)})

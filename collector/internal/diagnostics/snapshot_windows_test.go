@@ -80,13 +80,13 @@ func TestPlatformSnapshotReportsWindowsTerminalAvailability(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			terminalAvailable = func(terminal string) bool {
+			terminalAvailable = func(_ context.Context, terminal string) bool {
 				if terminal != test.terminal {
 					t.Fatalf("availability probe terminal = %q, want %q", terminal, test.terminal)
 				}
 				return test.available
 			}
-			platform := platformSnapshot(test.terminal)
+			platform := platformSnapshot(t.Context(), test.terminal)
 			if platform.OS != "windows" || platform.TerminalLaunchSupported != test.available {
 				t.Fatalf("platform snapshot = %#v, want availability %v", platform, test.available)
 			}

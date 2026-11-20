@@ -226,7 +226,7 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	snapshot := &Snapshot{
 		Version:     version,
 		GeneratedAt: time.Now().UnixMilli(),
-		Platform:    platformSnapshot(state.Config.Launch.Terminal),
+		Platform:    platformSnapshot(ctx, state.Config.Launch.Terminal),
 		Sources:     []Source{},
 		Checks:      []Check{},
 	}
@@ -292,10 +292,10 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	return snapshot
 }
 
-func platformSnapshot(terminal string) Platform {
+func platformSnapshot(ctx context.Context, terminal string) Platform {
 	supported := runtime.GOOS == "darwin"
 	if runtime.GOOS == "windows" {
-		supported = terminalAvailable(terminal)
+		supported = terminalAvailable(ctx, terminal)
 	}
 	return Platform{
 		OS:                      runtime.GOOS,

@@ -175,7 +175,7 @@ func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
 				}
 				return "", errors.New("not found")
 			}
-			if got := Available(test.terminal); got != test.want {
+			if got := Available(t.Context(), test.terminal); got != test.want {
 				t.Fatalf("Available(%q) = %v, want %v", test.terminal, got, test.want)
 			}
 		})

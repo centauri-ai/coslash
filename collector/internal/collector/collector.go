@@ -296,7 +296,7 @@ func finalizeLocalSessions(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		revision, err := session.LocalDetailRevisionContext(ctx, *root.Session)
+		revision, err := session.LocalDetailRevision(ctx, *root.Session)
 		if err != nil && ctx.Err() != nil {
 			return nil, err
 		}
@@ -800,7 +800,7 @@ func probeLastEdits(ctx context.Context, roots []*vendors.ParsedSession) error {
 		}
 		s := p.Session
 		if s.LastEditAt == nil {
-			s.LastEditAt = session.LatestFileModificationTimeContext(ctx, s.WorkingDirectory, s.FileEdits)
+			s.LastEditAt = session.LatestFileModificationTime(ctx, s.WorkingDirectory, s.FileEdits)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -838,13 +838,13 @@ func probeGitEnvironment(ctx context.Context, roots []*vendors.ParsedSession) er
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		name, localOnly := session.CanonicalRepositoryNameContext(ctx, cwd)
+		name, localOnly := session.CanonicalRepositoryName(ctx, cwd)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		repoByCwd[cwd] = repository{name: name, localOnly: localOnly}
 		if _, needsBranchProbe := branchByCwd[cwd]; needsBranchProbe {
-			branchByCwd[cwd] = session.CurrentBranchContext(ctx, cwd)
+			branchByCwd[cwd] = session.CurrentBranch(ctx, cwd)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -863,7 +863,7 @@ func probeGitEnvironment(ctx context.Context, roots []*vendors.ParsedSession) er
 		}
 		drifts[driftKey{cwd: s.WorkingDirectory, branch: deref(s.Branch)}] = &driftSlot{}
 	}
-	// BranchDriftContext waits on git subprocesses, so distinct keys probe
+	// BranchDrift waits on git subprocesses, so distinct keys probe
 	// concurrently. Results land through slot pointers — never map writes,
 	// which would race the range still spawning goroutines.
 	workers := make(chan struct{}, maxProbeWorkers)
@@ -887,14 +887,14 @@ func probeGitEnvironment(ctx context.Context, roots []*vendors.ParsedSession) er
 				return
 			}
 			branch := key.branch
-			slot.drift = session.BranchDriftContext(ctx, key.cwd, &branch)
+			slot.drift = session.BranchDrift(ctx, key.cwd, &branch)
 		}()
 	}
 	wg.Wait()
 	if canceled || ctx.Err() != nil {
 		return ctx.Err()
 	}
-	reconcileCommitFacts := session.NewCommitFactsReconcilerContext(ctx)
+	reconcileCommitFacts := session.NewCommitFactsReconciler(ctx)
 	for _, p := range roots {
 		if err := ctx.Err(); err != nil {
 			return err

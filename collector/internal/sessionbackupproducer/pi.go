@@ -144,7 +144,7 @@ func (frozen *piFrozen) projectSnapshot(ctx context.Context, inputs pi.SessionIn
 	if err != nil {
 		return nil, fullsessionv1.Record{}, "", processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 	}
-	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, "pi-source-revision", vendors.AgentPi, vendors.LocalReadSource, []*vendors.ParsedSession{parsed}, vendors.EmptySessionMetadata())
+	records, err := fullsessionrecord.FromParsedFamily(ctx, "pi-source-revision", vendors.AgentPi, vendors.LocalReadSource, []*vendors.ParsedSession{parsed}, vendors.EmptySessionMetadata())
 	if err != nil || len(records) != 1 || records[0].SessionID != inputs.ID || records[0].ParentSessionID != "" || len(records[0].Session.Subagents) != 0 {
 		return nil, fullsessionv1.Record{}, "", processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 	}

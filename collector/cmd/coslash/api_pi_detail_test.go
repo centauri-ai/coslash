@@ -36,7 +36,11 @@ func TestLocalPiDetailAcceptsOpaqueIdentityButRemoteRefuses(t *testing.T) {
 			t.Fatalf("Pi detail = %d: %s", response.Code, response.Body.String())
 		}
 		query.Set("revision", mustLocalDetailRevision(t, value))
-		query.Add("change", session.WithLocalChangeIDs(value).FileEdits[0].ChangeIDs[0])
+		identified, err := session.WithLocalChangeIDs(t.Context(), value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		query.Add("change", identified.FileEdits[0].ChangeIDs[0])
 		response = httptest.NewRecorder()
 		handleExactDiff(response, httptest.NewRequest(http.MethodGet, "/api/diff?"+query.Encode(), nil), reader, nil)
 		if response.Code != http.StatusOK {
@@ -217,13 +221,13 @@ func TestPiProviderErrorSurvivesExactLocalDetail(t *testing.T) {
 
 func TestPiHandoffChoicesMatchSupportedPlatform(t *testing.T) {
 	found := false
-	for _, option := range launch.HandoffTargetOptions(context.Background()) {
+	for _, option := range launch.HandoffTargetOptions(t.Context()) {
 		found = found || option.Agent == vendors.AgentPi
 	}
 	if found != vendors.PiSupported() {
 		t.Fatalf("Pi handoff choice %t differs from platform support", found)
 	}
-	if !vendors.PiSupported() && launch.PiAvailable() {
+	if !vendors.PiSupported() && launch.PiAvailable(t.Context()) {
 		t.Fatal("Pi launcher available on unsupported platform")
 	}
 }

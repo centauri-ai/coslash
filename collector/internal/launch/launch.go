@@ -90,7 +90,7 @@ type HandoffTargetOption struct {
 
 var ErrTerminalUnsupported = errors.New("launch: terminal opening is unsupported on this platform")
 
-func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
+func HandoffTargetOptions(ctx context.Context) []HandoffTargetOption {
 	home, _ := os.UserHomeDir()
 	options := []HandoffTargetOption{
 		{Agent: vendors.AgentClaude, Label: "Claude Code", Entrypoint: "cli", Automatic: true},
@@ -114,7 +114,7 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 		}
 		switch options[i].Entrypoint {
 		case "pi-tui":
-			options[i].Available = PiAvailable()
+			options[i].Available = PiAvailable(ctx)
 		case "cursor-cli":
 			options[i].Available = CursorCLIExecutable(home) != ""
 		case "cursor-ide":
@@ -438,6 +438,8 @@ func reviewGitSnapshot(ctx context.Context, workingDirectory string) (string, er
 	return snapshot.String(), nil
 }
 
+// cleanupRemoteReview runs after the review context can be cancelled, so it
+// owns its own deadline.
 func cleanupRemoteReview(destination settings.SSHDestination, marker string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -809,7 +811,7 @@ func cliCommand(ctx context.Context, agent, sessionID, mode, handoff, prompt str
 	}
 	cli = localCLIExecutable(agent, cli)
 	if agent == vendors.AgentPi {
-		cli, err = piExecutable()
+		cli, err = piExecutable(ctx)
 		if err != nil {
 			return "", "", err
 		}
