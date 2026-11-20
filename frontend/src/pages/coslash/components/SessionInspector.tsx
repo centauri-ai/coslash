@@ -1069,6 +1069,15 @@ export function RecapSection({
       <span>Synthesizing…</span>
     </div>
   );
+  const synthesisSettingsPrompt =
+    onOpenSynthesisSettings && isLocalSession(detail) ? (
+      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+        <span>Decisions come from an AI summary using your own CLI account and quota.</span>
+        <Button variant="outline" size="sm" onClick={onOpenSynthesisSettings}>
+          Choose synthesis settings
+        </Button>
+      </div>
+    ) : null;
   const outcome = getSessionOutcome(detail);
 
   return (
@@ -1140,6 +1149,7 @@ export function RecapSection({
             ))}
             {detail.synthesis.designDoc && <div>More decisions are in the design doc.</div>}
             {!detail.synthesis.decisions?.length && !detail.synthesis.designDoc && <div>—</div>}
+            {synthesisSettingsPrompt}
           </div>
         ) : detail.synthesis?.keyDecisions.length ? (
           <div className="flex flex-col gap-1 pt-1">
@@ -1149,14 +1159,10 @@ export function RecapSection({
                 <span>{decision}</span>
               </div>
             ))}
+            {synthesisSettingsPrompt}
           </div>
-        ) : onOpenSynthesisSettings && isLocalSession(detail) ? (
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-            <span>Decisions come from an AI summary using your own CLI account and quota.</span>
-            <Button variant="outline" size="sm" onClick={onOpenSynthesisSettings}>
-              Choose synthesis settings
-            </Button>
-          </div>
+        ) : synthesisSettingsPrompt ? (
+          synthesisSettingsPrompt
         ) : (
           <div className="pt-1 text-xs">—</div>
         )}
@@ -1568,7 +1574,7 @@ export function DigestSection({
     const cited = citedIndex === indexed[index].fullIndex;
     return (
       <div
-        key={indexed[index].fullIndex}
+        key={entry.sourceEntryId ? `${entry.sourceEntryId}:${entry.category}` : indexed[index].fullIndex}
         data-entry={indexed[index].fullIndex}
         tabIndex={cited ? -1 : undefined}
         className={cn({ 'bg-coslash-soft rounded ring-2 ring-current ring-inset': cited })}

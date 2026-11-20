@@ -92,6 +92,38 @@ it('opens settings without saving or enabling synthesis', async () => {
   }
 });
 
+it.each(['structured', 'legacy'] as const)(
+  'keeps settings access beside cached %s decisions',
+  async (kind) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const mount = document.createElement('div');
+    const root = createRoot(mount);
+    const open = vi.fn();
+    const cached =
+      kind === 'structured'
+        ? detail
+        : decodeSession({
+            sourceId: 'local',
+            agent: 'pi',
+            id: 'legacy-choices',
+            synthesis: { goals: [], outcome: '', nextStep: '', keyDecisions: ['Legacy decision'] },
+          });
+    try {
+      await act(async () => root.render(<RecapSection detail={cached} onOpenSynthesisSettings={open} />));
+      expect(mount.textContent).toContain(kind === 'structured' ? 'Preserve history' : 'Legacy decision');
+      const button = [...mount.querySelectorAll('button')].find(
+        (candidate) => candidate.textContent === 'Choose synthesis settings',
+      );
+      expect(button).toBeDefined();
+      await act(async () => button!.click());
+      expect(open).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
 it('clears a hiding filter, scrolls the full digest index, and shows the original quote', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const scroll = vi.fn();
@@ -120,6 +152,53 @@ it('clears a hiding filter, scrolls the full digest index, and shows the origina
     HTMLElement.prototype.scrollIntoView = previous;
     await act(async () => root.unmount());
     mount.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('keeps expanded state attached to a digest entry after an earlier entry is inserted', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const mount = document.createElement('div');
+  const root = createRoot(mount);
+  const longDescription = 'A detailed timeline entry that needs expansion. '.repeat(4);
+  const initial = decodeSession({
+    sourceId: 'local',
+    agent: 'pi',
+    id: 'stable-digest-rows',
+    digest: [
+      {
+        turn: 1,
+        category: 'recap',
+        sourceEntryId: 'target',
+        description: longDescription,
+      },
+    ],
+  });
+  const refreshed = decodeSession({
+    sourceId: 'local',
+    agent: 'pi',
+    id: 'stable-digest-rows',
+    digest: [
+      {
+        turn: 1,
+        category: 'todos',
+        sourceEntryId: 'inserted',
+        description: longDescription,
+      },
+      ...initial.digest,
+    ],
+  });
+  try {
+    await act(async () => root.render(<DigestSection detail={initial} />));
+    const expand = mount.querySelector('[data-entry="0"] button[aria-expanded="false"]')!;
+    await act(async () => (expand as HTMLButtonElement).click());
+    expect(mount.querySelector('[data-entry="0"] button[aria-expanded="true"]')).not.toBeNull();
+
+    await act(async () => root.render(<DigestSection detail={refreshed} />));
+    expect(mount.querySelector('[data-entry="1"] button[aria-expanded="true"]')).not.toBeNull();
+    expect(mount.querySelector('[data-entry="0"] button[aria-expanded="false"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
     vi.unstubAllGlobals();
   }
 });
