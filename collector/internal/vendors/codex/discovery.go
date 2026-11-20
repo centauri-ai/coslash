@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 // rolloutID matches a UUID embedded in a rollout filename, e.g.
@@ -55,7 +57,8 @@ func readFileHeaderSourceContext(ctx context.Context, source vendors.ReadSource,
 	}
 	defer file.Close()
 	var row codexRow
-	if err := json.NewDecoder(contextReader{ctx: ctx, reader: file}).Decode(&row); err != nil {
+	reader := io.LimitReader(file, sessionbackupv1.MaxArtifactBytes)
+	if err := json.NewDecoder(contextReader{ctx: ctx, reader: reader}).Decode(&row); err != nil {
 		return FileHeader{}, fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
 	if err := ctx.Err(); err != nil {
