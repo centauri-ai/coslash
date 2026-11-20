@@ -322,7 +322,7 @@ func main() {
 		var inventoryRequest chan struct{}
 		if fingerprints != nil {
 			inventoryRequest = make(chan struct{}, 1)
-			go runInventoryWithRequests(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
+			go runInventory(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
 				current := onboardings.currentHubClient()
 				if current == nil || current.Credentials == nil {
 					return false
@@ -493,36 +493,14 @@ func scanLocalInventory(ctx context.Context, options inventory.Options) (*invent
 	return inventory.Scan(ctx, options)
 }
 
-// runInventory takes the stat-only inventory at startup and every sync
-// interval, records it for check-in, prunes cache entries whose source is
-// gone, and wakes discovery when sources change or a requested refresh finishes.
-func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool) {
-	runInventoryWithRequests(ctx, fingerprints, queue, wake, tracker, paired, nil)
-}
-
-func runInventoryWithInterval(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration) {
-	runInventoryWithIntervalAndRequests(ctx, fingerprints, queue, wake, tracker, paired, interval, nil)
-}
-
-func runInventoryWithRequests(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, requests <-chan struct{}) {
-	runInventoryWithIntervalAndRequests(ctx, fingerprints, queue, wake, tracker, paired, 5*time.Minute, requests)
-}
-
-func runInventoryWithIntervalAndRequests(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, interval time.Duration, requests <-chan struct{}) {
+// runInventory takes the stat-only inventory at startup, every sync interval,
+// and on request. It records the inventory for check-in, prunes cache entries
+// whose source is gone, and wakes discovery when sources change or a requested
+// refresh finishes.
+func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, requests <-chan struct{}) {
 	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context, retryAfter time.Duration, lastRequest time.Time) (bool, bool, bool) {
-		return waitForInventory(ctx, interval, retryAfter, requests, lastRequest)
+		return waitForInventory(ctx, 5*time.Minute, retryAfter, requests, lastRequest)
 	}, nil)
-}
-
-func runInventoryWithTicks(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool, ticks <-chan struct{}, scanComplete chan<- struct{}) {
-	runInventoryWithSchedule(ctx, fingerprints, queue, wake, tracker, paired, func(ctx context.Context, _ time.Duration, _ time.Time) (bool, bool, bool) {
-		select {
-		case <-ctx.Done():
-			return false, false, false
-		case <-ticks:
-			return true, false, false
-		}
-	}, scanComplete)
 }
 
 func localPiSourcePlan(ctx context.Context) (*pi.SourcePlan, error) {

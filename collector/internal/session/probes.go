@@ -15,10 +15,6 @@ import (
 	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
-func LatestFileModificationTime(cwd string, fileEdits []FileEdit) *int64 {
-	return LatestFileModificationTimeContext(context.Background(), cwd, fileEdits)
-}
-
 func LatestFileModificationTimeContext(ctx context.Context, cwd string, fileEdits []FileEdit) *int64 {
 	var newest *int64
 	for _, edit := range fileEdits {
@@ -187,10 +183,6 @@ func RepositoryRootContext(ctx context.Context, cwd string) string {
 	}
 }
 
-func CurrentBranch(cwd string) *string {
-	return CurrentBranchContext(context.Background(), cwd)
-}
-
 func CurrentBranchContext(ctx context.Context, cwd string) *string {
 	// git -C "" stays in the process directory, which is not the session's.
 	if !backgroundFilesystemProbeAllowed(cwd) {
@@ -205,10 +197,6 @@ func CurrentBranchContext(ctx context.Context, cwd string) *string {
 		return nil
 	}
 	return &branch
-}
-
-func BranchDrift(cwd string, recordedBranch *string) *GitDrift {
-	return BranchDriftContext(context.Background(), cwd, recordedBranch)
 }
 
 func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string) *GitDrift {
@@ -251,10 +239,6 @@ func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string)
 	return &GitDrift{BaseBranch: baseBranch, Ahead: ahead, Behind: behind}
 }
 
-func findBaseBranch(cwd string) (string, string) {
-	return findBaseBranchContext(context.Background(), cwd)
-}
-
 func findBaseBranchContext(ctx context.Context, cwd string) (string, string) {
 	if out, err := backgroundexec.CommandContext(ctx,
 		"git", "-C", cwd, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD",
@@ -278,10 +262,6 @@ func findBaseBranchContext(ctx context.Context, cwd string) (string, string) {
 		}
 	}
 	return "", ""
-}
-
-func gitRefExists(cwd, ref string) bool {
-	return gitRefExistsContext(context.Background(), cwd, ref)
 }
 
 func gitRefExistsContext(ctx context.Context, cwd, ref string) bool {

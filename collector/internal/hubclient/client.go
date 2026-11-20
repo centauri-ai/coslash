@@ -1,14 +1,11 @@
 package hubclient
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -18,31 +15,20 @@ import (
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
-	"github.com/centauri-ai/coslash/collector/internal/session"
-	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
-	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
 )
 
-const snapshotMediaType = "application/vnd.coslash.session-snapshot.v1+json"
-
-const batchTimeout = 150 * time.Second
-
-type SessionLoader func(string, int64) (*session.Session, error)
-type SourceSessionLoader func(sourceID, agent, sessionID string, revision int64) (*session.Session, error)
 type FullSessionLoader func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error)
 
 type Client struct {
-	BaseURL           *url.URL
-	HTTP              *http.Client
-	Credentials       CredentialStore
-	DeviceName        string
-	InstallID         string
-	MachineID         string
-	CollectorVersion  string
-	InstallChannel    string
-	LoadSession       SessionLoader
-	LoadSourceSession SourceSessionLoader
-	LoadFullSession   FullSessionLoader
+	BaseURL          *url.URL
+	HTTP             *http.Client
+	Credentials      CredentialStore
+	DeviceName       string
+	InstallID        string
+	MachineID        string
+	CollectorVersion string
+	InstallChannel   string
+	LoadFullSession  FullSessionLoader
 
 	pairingMu sync.Mutex
 	pairings  map[string]pairingSecret
@@ -117,54 +103,6 @@ func (c *Client) Destination(ctx context.Context) (DestinationResult, error) {
 	result.Configured = true
 	result.HubURL = c.BaseURL.String()
 	return result, nil
-}
-
-type authorizationResponse struct {
-	ID                      string    `json:"id"`
-	DeviceCode              string    `json:"deviceCode"`
-	UserCode                string    `json:"userCode"`
-	VerificationURI         string    `json:"verificationUri"`
-	VerificationURIComplete string    `json:"verificationUriComplete"`
-	ExpiresAt               time.Time `json:"expiresAt"`
-	IntervalSeconds         int       `json:"intervalSeconds"`
-}
-
-func (c *Client) BeginPairing(ctx context.Context) (PairingResult, error) {
-	if !c.configured() {
-		return PairingResult{}, errors.New("Hub server is not configured")
-	}
-	fields := map[string]string{"deviceName": c.DeviceName}
-	c.addPairIdentity(fields)
-	response, err := c.postPairingJSON(ctx, "/v1/device-authorizations", fields, "begin Hub pairing")
-	if err != nil {
-		return PairingResult{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusCreated {
-		return PairingResult{}, remoteError(response)
-	}
-	var authorization authorizationResponse
-	if err := decodeBounded(response.Body, &authorization); err != nil {
-		return PairingResult{}, fmt.Errorf("decode Hub pairing: %w", err)
-	}
-	if authorization.ID == "" || authorization.DeviceCode == "" || authorization.UserCode == "" ||
-		time.Now().After(authorization.ExpiresAt) ||
-		!c.validVerificationURL(authorization.VerificationURI, authorization.DeviceCode) ||
-		authorization.VerificationURIComplete != "" &&
-			!c.validVerificationURL(authorization.VerificationURIComplete, authorization.DeviceCode) {
-		return PairingResult{}, errors.New("decode Hub pairing: incomplete authorization")
-	}
-	c.pairingMu.Lock()
-	if c.pairings == nil {
-		c.pairings = make(map[string]pairingSecret)
-	}
-	c.pairings[authorization.ID] = pairingSecret{deviceCode: authorization.DeviceCode, expiresAt: authorization.ExpiresAt}
-	c.pairingMu.Unlock()
-	return PairingResult{
-		State: "pending", PairingID: authorization.ID, UserCode: authorization.UserCode,
-		VerificationURI: authorization.VerificationURI, VerificationURIComplete: authorization.VerificationURIComplete,
-		ExpiresAt: authorization.ExpiresAt, IntervalSeconds: authorization.IntervalSeconds,
-	}, nil
 }
 
 func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResult, error) {
@@ -273,206 +211,6 @@ func (c *Client) forgetPairing(id string) {
 	c.pairingMu.Unlock()
 }
 
-func (c *Client) validVerificationURL(raw, forbidden string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil || !parsed.IsAbs() || parsed.User != nil ||
-		parsed.Scheme != c.BaseURL.Scheme || parsed.Host != c.BaseURL.Host {
-		return false
-	}
-	decoded, _ := url.QueryUnescape(raw)
-	return forbidden == "" || !strings.Contains(raw, forbidden) && !strings.Contains(decoded, forbidden)
-}
-
-type uploadResponse struct {
-	SessionID          string    `json:"sessionId"`
-	RevisionID         string    `json:"revisionId"`
-	RepositoryID       string    `json:"repositoryId"`
-	CanonicalWeekStart string    `json:"canonicalWeekStart"`
-	Deduplicated       bool      `json:"deduplicated"`
-	SharedAt           time.Time `json:"sharedAt"`
-	BriefStatus        string    `json:"briefStatus"`
-	TeamURL            string    `json:"teamUrl,omitempty"`
-}
-
-func (c *Client) Share(ctx context.Context, input ShareRequest) (ShareResult, error) {
-	if !c.configured() || (c.LoadSession == nil && c.LoadSourceSession == nil) {
-		return ShareResult{}, errors.New("Hub sharing is not configured")
-	}
-	if input.ContractVersion != ContractVersion || strings.TrimSpace(input.RequestID) == "" || len(input.Items) == 0 || len(input.Items) > 100 {
-		return ShareResult{}, errors.New("invalid hub-share/v1 request")
-	}
-	credential, err := c.Credentials.Load(ctx)
-	if errors.Is(err, ErrNotPaired) {
-		result := ShareResult{ContractVersion: ContractVersion, RequestID: input.RequestID, State: "failed"}
-		for _, item := range input.Items {
-			result.Results = append(result.Results, ShareItemResult{
-				LocalSessionID: item.LocalSessionID, IdempotencyKey: item.IdempotencyKey, State: "failed",
-				Error: &ItemError{Code: "unauthorized", Retryable: true},
-			})
-		}
-		return result, nil
-	}
-	if err != nil {
-		return ShareResult{}, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, batchTimeout)
-	defer cancel()
-	result := ShareResult{ContractVersion: ContractVersion, RequestID: input.RequestID, Results: make([]ShareItemResult, 0, len(input.Items))}
-	accepted := 0
-	for _, item := range input.Items {
-		itemResult := c.shareItem(ctx, credential, item)
-		if itemResult.State != "failed" {
-			accepted++
-		}
-		result.Results = append(result.Results, itemResult)
-	}
-	switch {
-	case accepted == len(input.Items):
-		result.State = "succeeded"
-	case accepted == 0:
-		result.State = "failed"
-	default:
-		result.State = "partial"
-	}
-	return result, nil
-}
-
-func (c *Client) shareItem(ctx context.Context, credential string, item ShareItemRequest) ShareItemResult {
-	failed := func(code string, retryable bool) ShareItemResult {
-		return ShareItemResult{LocalSessionID: item.LocalSessionID, IdempotencyKey: item.IdempotencyKey,
-			State: "failed", Error: &ItemError{Code: code, Retryable: retryable}}
-	}
-	if ctx.Err() != nil {
-		return failed("timeout", true)
-	}
-	if item.Consent.PreviewContractVersion != PreviewVersion || item.Consent.SourceRevision <= 0 ||
-		item.Consent.PayloadBytes <= 0 || item.Consent.DestinationWorkspaceID == "" ||
-		len(item.IdempotencyKey) < 16 || len(item.IdempotencyKey) > 200 {
-		return failed("invalid_share_request", false)
-	}
-	sourceID, agent, sessionID, ok := parseShareSessionID(item.LocalSessionID)
-	if !ok {
-		return failed("invalid_share_request", false)
-	}
-	found, err := c.loadSourceSession(sourceID, agent, sessionID, item.Consent.SourceRevision)
-	if err != nil {
-		return failed("share_failed", true)
-	}
-	if found == nil || found.Agent != agent || found.LastActivityTime != item.Consent.SourceRevision {
-		return failed("consent_stale", true)
-	}
-	preview := sessionpreview.Build(*found, sessionexport.BuildOptions{
-		CollectorVersion: c.CollectorVersion,
-		RepositoryRoot:   session.RepositoryRoot(found.WorkingDirectory),
-	}, item.Consent.SourceRevision)
-	payload, err := sessionpreview.UploadBytes(preview)
-	if err != nil || preview.Snapshot == nil || strings.TrimPrefix(preview.Snapshot.ContentHash, "sha256:") != item.Consent.ContentHash || len(payload) != item.Consent.PayloadBytes {
-		return failed("consent_stale", true)
-	}
-	var compressed bytes.Buffer
-	writer := gzip.NewWriter(&compressed)
-	if _, err := writer.Write(payload); err != nil || writer.Close() != nil {
-		return failed("share_failed", true)
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("/v1/session-revisions"), &compressed)
-	if err != nil {
-		return failed("share_failed", true)
-	}
-	request.Header.Set("Authorization", "Device "+credential)
-	request.Header.Set("Content-Type", snapshotMediaType)
-	request.Header.Set("Content-Encoding", "gzip")
-	request.Header.Set("Idempotency-Key", item.IdempotencyKey)
-	request.Header.Set("Coslash-Destination-Workspace-Id", item.Consent.DestinationWorkspaceID)
-	response, err := c.httpClient().Do(request)
-	if err != nil {
-		var networkError net.Error
-		if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError) && networkError.Timeout() {
-			if accepted, ok := c.lookupAcceptedUpload(ctx, credential, item); ok {
-				return accepted
-			}
-			return failed("timeout", true)
-		}
-		return failed("network_unavailable", true)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusOK {
-		problem := readProblem(response)
-		result := failed(mapProblem(problem.Code), retryable(problem.Code))
-		result.Error.RetryAfterSeconds = problem.RetryAfterSeconds
-		return result
-	}
-	var upload uploadResponse
-	if err := decodeBounded(response.Body, &upload); err != nil || upload.SessionID == "" || upload.RevisionID == "" || upload.RepositoryID == "" || upload.CanonicalWeekStart == "" {
-		return failed("share_failed", true)
-	}
-	return acceptedShareItem(item, upload)
-}
-
-func parseShareSessionID(value string) (sourceID, agent, sessionID string, ok bool) {
-	parts := strings.SplitN(value, ":", 3)
-	if len(parts) == 2 {
-		// Accept the original local-only request format during the additive
-		// rollout; all newly built browser requests include their source ID.
-		return "local", parts[0], parts[1], parts[0] != "" && parts[1] != ""
-	}
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		return "", "", "", false
-	}
-	return parts[0], parts[1], parts[2], true
-}
-
-func (c *Client) loadSourceSession(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
-	if c.LoadSourceSession != nil {
-		return c.LoadSourceSession(sourceID, agent, sessionID, revision)
-	}
-	if sourceID != "local" || c.LoadSession == nil {
-		return nil, nil
-	}
-	return c.LoadSession(sessionID, revision)
-}
-
-func acceptedShareItem(item ShareItemRequest, upload uploadResponse) ShareItemResult {
-	state := "accepted"
-	if upload.Deduplicated {
-		state = "already_accepted"
-	}
-	path := "/repos/" + url.PathEscape(upload.RepositoryID) + "/sessions/" + url.PathEscape(upload.CanonicalWeekStart)
-	return ShareItemResult{
-		LocalSessionID: item.LocalSessionID, IdempotencyKey: item.IdempotencyKey, State: state,
-		SessionID: upload.SessionID, RevisionID: upload.RevisionID, Deduplicated: upload.Deduplicated,
-		SharedAt: &upload.SharedAt, BriefState: upload.BriefStatus,
-		Route: &RouteHandoff{HubContractVersion: "hub-read/v1", RepositoryID: upload.RepositoryID, CanonicalWeekStart: upload.CanonicalWeekStart, Path: path},
-	}
-}
-
-// lookupAcceptedUpload resolves the ambiguous outcome of a timed-out POST
-// before any caller can retry its idempotency key. A missing record is normal:
-// it leaves the item retryable and preserves the exact binding/key.
-func (c *Client) lookupAcceptedUpload(ctx context.Context, credential string, item ShareItemRequest) (ShareItemResult, bool) {
-	lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	request, err := http.NewRequestWithContext(lookupCtx, http.MethodGet, c.endpoint("/v1/uploads/status"), nil)
-	if err != nil {
-		return ShareItemResult{}, false
-	}
-	request.Header.Set("Authorization", "Device "+credential)
-	request.Header.Set("Idempotency-Key", item.IdempotencyKey)
-	response, err := c.httpClient().Do(request)
-	if err != nil {
-		return ShareItemResult{}, false
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return ShareItemResult{}, false
-	}
-	var upload uploadResponse
-	if decodeBounded(response.Body, &upload) != nil || upload.SessionID == "" || upload.RevisionID == "" ||
-		upload.RepositoryID == "" || upload.CanonicalWeekStart == "" {
-		return ShareItemResult{}, false
-	}
-	return acceptedShareItem(item, upload), true
-}
-
 type Problem struct {
 	Code              string `json:"code"`
 	Detail            string `json:"detail"`
@@ -511,30 +249,4 @@ func decodeBounded(reader io.Reader, target any) error {
 		return errors.New("multiple JSON values")
 	}
 	return nil
-}
-
-func mapProblem(code string) string {
-	switch code {
-	case "unsupported_snapshot", "unsupported_snapshot_version":
-		return "unsupported_snapshot_version"
-	case "device_dormant":
-		return "credential_dormant"
-	case "device_revoked":
-		return "credential_revoked"
-	case "consent_stale", "destination_changed", "idempotency_conflict", "rate_limited", "snapshot_invalid", "snapshot_too_large", "invalid_share_request", "source_deleted", "timeout", "temporary_unavailable":
-		return code
-	case "unauthorized":
-		return "unauthorized"
-	default:
-		return "share_failed"
-	}
-}
-
-func retryable(code string) bool {
-	switch mapProblem(code) {
-	case "unauthorized", "credential_dormant", "consent_stale", "destination_changed", "rate_limited", "network_unavailable", "timeout", "temporary_unavailable", "share_failed":
-		return true
-	default:
-		return false
-	}
 }

@@ -118,10 +118,6 @@ func FilesContext(ctx context.Context) ([]string, error) {
 	return filesForHomeSourceContext(ctx, vendors.LocalReadSource, home)
 }
 
-func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
-	return FilesSourceContext(context.Background(), source, root)
-}
-
 func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
 	return vendors.JSONLFilesUnderSourceContext(ctx, source, root)
 }
@@ -179,11 +175,6 @@ func mergeActiveAndArchivedFiles(active, archived []string) []string {
 		}
 	}
 	return files
-}
-
-// FilesSince keeps recent/live roots and their complete descendant graph.
-func FilesSince(files []string, live map[string]string, since int64) []string {
-	return FilesSinceSource(vendors.LocalReadSource, files, live, since)
 }
 
 func FilesSinceSource(
@@ -291,18 +282,6 @@ func FilesForRootSource(source vendors.ReadSource, files []string, rootID string
 		}
 	}
 	return result
-}
-
-func Scan() (*vendors.SourceScan, error) {
-	return ScanContext(context.Background())
-}
-
-func ScanContext(ctx context.Context) (*vendors.SourceScan, error) {
-	root, err := Root()
-	if err != nil {
-		return nil, err
-	}
-	return ScanSourceContext(ctx, vendors.LocalReadSource, root)
 }
 
 func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {

@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -47,10 +46,6 @@ func protectHandoffFile(*os.File) error    { return nil }
 
 func localCLIExecutable(_ string, fallback string) string {
 	return fallback
-}
-
-func cursorReviewCommand(prompt string) reviewCommandSpec {
-	return reviewCommandSpec{bin: localCLIExecutable(vendors.AgentCursor, settings.CursorExecutable()), args: []string{"--print", "--mode", "ask"}, stdin: prompt}
 }
 
 func interactivePromptCommand(agent, cli, handoff, prompt string) (string, string, error) {

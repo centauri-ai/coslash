@@ -13,12 +13,10 @@ import (
 	"strings"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
-	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/machineid"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
-	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -57,7 +55,6 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 		MachineID:        machineid.Current(),
 		CollectorVersion: collectorVersion,
 		InstallChannel:   detectedInstallChannel(),
-		LoadSession:      collector.GetSessionForPreview,
 	}, nil
 }
 
@@ -108,16 +105,6 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			return
 		}
 		if remoteManager != nil {
-			client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
-				if sourceID == localSourceID {
-					found, err := collector.GetSessionForPreview(sessionID, revision)
-					if found == nil || err != nil || found.Agent != agent {
-						return nil, err
-					}
-					return found, nil
-				}
-				return remoteManager.PreviewSession(sourceID, agent, sessionID, revision)
-			}
 			client.LoadFullSession = func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error) {
 				if sourceID == localSourceID {
 					return nil, fullsessionexport.Repository{}, nil
@@ -142,50 +129,6 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		}
 		return client
 	}
-	api.HandleFunc("GET /api/hub/destination", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil {
-			writeJSON(w, hubclient.DestinationResult{ContractVersion: hubclient.ContractVersion, State: "signed_out", Configured: false})
-			return
-		}
-		result, err := client.Destination(request.Context())
-		if err != nil {
-			http.Error(w, "could not load Hub destination", http.StatusBadGateway)
-			return
-		}
-		writeJSON(w, result)
-	})
-	api.HandleFunc("POST /api/hub/pairings", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil {
-			http.Error(w, "Hub server is not configured", http.StatusConflict)
-			return
-		}
-		result, err := client.BeginPairing(request.Context())
-		if err != nil {
-			http.Error(w, "could not begin Hub pairing", http.StatusBadGateway)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(result)
-	})
-	api.HandleFunc("POST /api/hub/pairings/{id}/poll", func(w http.ResponseWriter, request *http.Request) {
-		client := currentClient()
-		if client == nil {
-			http.Error(w, "Hub server is not configured", http.StatusConflict)
-			return
-		}
-		result, err := client.PollPairing(request.Context(), request.PathValue("id"))
-		if err != nil {
-			writeJSON(w, hubclient.PairingResult{State: hubclient.PairingStateRetrying})
-			return
-		}
-		if result.State == hubclient.PairingStatePaired && onboardings != nil {
-			onboardings.ensureSync(client)
-		}
-		writeJSON(w, result)
-	})
 	api.HandleFunc("POST /api/hub/onboarding/activate", func(w http.ResponseWriter, request *http.Request) {
 		if onboardings == nil {
 			http.Error(w, "Hub onboarding is unavailable", http.StatusServiceUnavailable)

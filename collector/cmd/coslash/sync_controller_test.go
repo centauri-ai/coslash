@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+
 	"errors"
 	"fmt"
 	"net/http"
@@ -95,6 +95,11 @@ func waitSignal(t *testing.T, signal <-chan struct{}) {
 	}
 }
 
+const (
+	pairingAttemptID    = "10000000-0000-4000-8000-000000000151"
+	pairingLaunchIntent = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+)
+
 func TestPairingStartsSyncWithoutRestart(t *testing.T) {
 	credentials := &syncTestCredentials{}
 	var ensureCalls atomic.Int32
@@ -107,9 +112,9 @@ func TestPairingStartsSyncWithoutRestart(t *testing.T) {
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/v1/device-authorizations":
+		case "/v1/device-onboardings/" + pairingAttemptID + "/claim":
 			w.WriteHeader(http.StatusCreated)
-			_, _ = fmt.Fprintf(w, `{"id":"pair","deviceCode":"private-device-code","userCode":"ABCD-EFGH","verificationUri":"http://%s/device","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`, r.Host)
+			_, _ = w.Write([]byte(`{"id":"10000000-0000-4000-8000-000000000152","deviceCode":"private-device-code","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`))
 		case "/v1/device-authorizations/token":
 			_, _ = w.Write([]byte(`{"deviceId":"device","credential":"saved-device-credential","tokenType":"Device","scope":"ingest"}`))
 		default:
@@ -122,21 +127,7 @@ func TestPairingStartsSyncWithoutRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &hubclient.Client{BaseURL: base, Credentials: credentials, HTTP: hub.Client()}
-	api := http.NewServeMux()
-	registerHubRoutes(api, client, nil, onboardings)
-
-	begin := httptest.NewRecorder()
-	api.ServeHTTP(begin, httptest.NewRequest(http.MethodPost, "/api/hub/pairings", nil))
-	var pairing hubclient.PairingResult
-	if begin.Code != http.StatusCreated || json.Unmarshal(begin.Body.Bytes(), &pairing) != nil {
-		t.Fatalf("begin pairing response = %d %s", begin.Code, begin.Body.String())
-	}
-	poll := httptest.NewRecorder()
-	api.ServeHTTP(poll, httptest.NewRequest(http.MethodPost, "/api/hub/pairings/"+pairing.PairingID+"/poll", nil))
-	var result hubclient.PairingResult
-	if poll.Code != http.StatusOK || json.Unmarshal(poll.Body.Bytes(), &result) != nil || result.State != "paired" {
-		t.Fatalf("pairing poll response = %d %s", poll.Code, poll.Body.String())
-	}
+	onboardings.runPairing(t.Context(), client, pairingAttemptID, pairingLaunchIntent)
 	if ensureCalls.Load() != 1 || !loadedBeforeEnsure.Load() {
 		t.Fatalf("sync ensure calls=%d credential-loaded-before-ensure=%t", ensureCalls.Load(), loadedBeforeEnsure.Load())
 	}
@@ -300,9 +291,9 @@ func TestTransportRevocationStopsSyncAndAllowsPairingAgain(t *testing.T) {
 			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
-				case "/v1/device-authorizations":
+				case "/v1/device-onboardings/" + pairingAttemptID + "/claim":
 					w.WriteHeader(http.StatusCreated)
-					_, _ = fmt.Fprintf(w, `{"id":"pair","deviceCode":"secret","userCode":"ABCD-EFGH","verificationUri":"http://%s/device","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`, r.Host)
+					_, _ = fmt.Fprint(w, `{"id":"10000000-0000-4000-8000-000000000152","deviceCode":"secret","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`)
 				case "/v1/device-authorizations/token":
 					_, _ = fmt.Fprint(w, `{"deviceId":"new","credential":"new","tokenType":"Device","scope":"ingest"}`)
 				default:
@@ -369,7 +360,7 @@ func TestTransportRevocationStopsSyncAndAllowsPairingAgain(t *testing.T) {
 			if requests.Load() != 1 {
 				t.Fatalf("revoked requests=%d, want 1", requests.Load())
 			}
-			pairing, err := client.BeginPairing(t.Context())
+			pairing, err := client.BeginOnboardingPairing(t.Context(), pairingAttemptID, pairingLaunchIntent)
 			if err != nil {
 				t.Fatal(err)
 			}

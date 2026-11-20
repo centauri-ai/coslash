@@ -1313,8 +1313,8 @@ func TestLateHubPairingBindsSessionReaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	onboardings.setHubClient(client)
-	if client.LoadSourceSession == nil || client.LoadFullSession == nil {
-		t.Fatal("Hub client paired after startup has no source-bound session readers")
+	if client.LoadFullSession == nil {
+		t.Fatal("Hub client paired after startup has no source-bound full-session reader")
 	}
 }
 

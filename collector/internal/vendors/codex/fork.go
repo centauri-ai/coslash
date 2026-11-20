@@ -11,20 +11,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// Fork recomputes a forked rollout's Tokens against its parent's cumulative
-// prefix — a fork replays the parent's token_count sequence, so everything
-// before the divergence belongs to the parent. An unresolvable or unreadable
-// parent leaves the full cumulative usage in place; over-counting is the
-// deliberate failure mode, never under-counting.
-func applyForkedUsageSource(
-	source vendors.ReadSource,
-	archivedDir string,
-	knownActiveFiles []string,
-	parsed []*parsedSession,
-) {
-	_ = applyForkedUsageSourceContext(context.Background(), source, archivedDir, knownActiveFiles, parsed)
-}
-
 func applyForkedUsageSourceContext(
 	ctx context.Context,
 	source vendors.ReadSource,
@@ -128,20 +114,6 @@ func applyForkedUsageSourceContext(
 		)
 	}
 	return nil
-}
-
-// parentForkUsages streams a parent rollout's cumulative token_count sequence
-// only as far as the fork needs it: it stops at the first entry that diverges
-// from forkSeq (or once the whole fork prefix has matched), since nothing the
-// parent recorded past the fork point affects token attribution. This avoids
-// fully parsing a parent that may be long-running. The returned slice is enough
-// for tokenBuckets to find the shared prefix.
-func parentForkUsagesSource(
-	source vendors.ReadSource,
-	path string,
-	forkSeq []codexTokenUsage,
-) ([]codexTokenUsage, error) {
-	return parentForkUsagesSourceContext(context.Background(), source, path, forkSeq)
 }
 
 func parentForkUsagesSourceContext(

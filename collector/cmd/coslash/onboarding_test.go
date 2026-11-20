@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 )
 
@@ -88,7 +90,7 @@ func TestHubClientInstallIDUsesInitializedQueue(t *testing.T) {
 	}
 }
 
-func TestOnboardingUpdatesHubDestinationRouteClient(t *testing.T) {
+func TestOnboardingUpdatesHubRouteClient(t *testing.T) {
 	baseURL, err := url.Parse("https://hub.coslash.io")
 	if err != nil {
 		t.Fatal(err)
@@ -97,9 +99,14 @@ func TestOnboardingUpdatesHubDestinationRouteClient(t *testing.T) {
 	defer onboardings.Close()
 	api := http.NewServeMux()
 	registerHubRoutes(api, nil, nil, onboardings)
+	var requested []string
 	onboardings.setHubClient(&hubclient.Client{
 		BaseURL: baseURL, Credentials: fixedHubCredential("device-credential"),
+		LoadFullSession: func(string, string, string, string) (*fullsessionv1.Record, fullsessionexport.Repository, error) {
+			return nil, fullsessionexport.Repository{}, nil
+		},
 		HTTP: &http.Client{Transport: onboardingRoundTripper(func(request *http.Request) (*http.Response, error) {
+			requested = append(requested, request.URL.Path)
 			if request.URL.Path != "/v1/share-destination" {
 				return onboardingResponse(http.StatusNotFound, ""), nil
 			}
@@ -108,11 +115,9 @@ func TestOnboardingUpdatesHubDestinationRouteClient(t *testing.T) {
 	})
 
 	response := httptest.NewRecorder()
-	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hub/destination", nil))
-	var destination hubclient.DestinationResult
-	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &destination) != nil ||
-		destination.State != "ready" || !destination.Configured || destination.HubURL != baseURL.String() {
-		t.Fatalf("destination status=%d body=%s", response.Code, response.Body.String())
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hub/full-session-preview?source=r_0123456789abcdef&agent=codex&id=session&revision=revision", nil))
+	if response.Code != http.StatusOK || len(requested) == 0 || requested[0] != "/v1/share-destination" {
+		t.Fatalf("preview status=%d body=%s Hub requests=%v", response.Code, response.Body.String(), requested)
 	}
 }
 
