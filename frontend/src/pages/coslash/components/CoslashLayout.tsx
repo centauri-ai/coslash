@@ -9,6 +9,7 @@ import {
   Folder,
   FolderGit2,
   GitCompareArrows,
+  GitFork,
   LoaderCircle,
   Monitor,
   Moon,
@@ -39,6 +40,13 @@ import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
+import {
+  locationGroups,
+  matchesLocation,
+  matchingLocation,
+  sidebarGroups,
+  type Group,
+} from '@/pages/coslash/lib/detected-groups';
 import { handoffLabel, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
@@ -94,7 +102,6 @@ import {
 import './coslash-layout.css';
 import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
 import { statusDot, styles, tokenTotal } from '@/pages/coslash/components/session-list/styles';
-import { detectedGroup, type Group } from '@/pages/coslash/lib/detected-groups';
 import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 
 const SessionBoard = lazy(() =>
@@ -107,6 +114,7 @@ type FacetOption = {
   count: number;
   selected: boolean;
   onClick: () => void;
+  context?: string;
   status?: StatusKey;
   icon?: ReactNode;
   indicator?: ReactNode;
@@ -137,9 +145,10 @@ const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'month', label: '30 days' },
   { value: 'all', label: 'All time' },
 ];
-const GROUP_KINDS: Group['kind'][] = ['Repository', 'Folder', 'No location'];
+const GROUP_KINDS: Group['kind'][] = ['Repository', 'Worktree', 'Folder', 'No location'];
 const GROUP_LABELS: Record<Group['kind'], string> = {
   'Repository': 'Repositories',
+  'Worktree': 'Worktrees',
   'Folder': 'Folders',
   'No location': 'No location',
 };
@@ -235,7 +244,7 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
   );
 }
 
-function FacetRow({ label, count, selected, icon, indicator, status, onClick }: FacetOption) {
+function FacetRow({ label, context, count, selected, icon, indicator, status, onClick }: FacetOption) {
   return (
     <div
       className={cn(styles.facet, 'relative gap-1.5', {
@@ -250,7 +259,14 @@ function FacetRow({ label, count, selected, icon, indicator, status, onClick }: 
         onClick={onClick}
       >
         {status ? <span className={cn('size-[7px] shrink-0 rounded-full', statusDot(status))} /> : icon}
-        <span className="truncate">{label}</span>
+        <span className="min-w-0">
+          <span className="block truncate">{label}</span>
+          {context && (
+            <span className="text-coslash-muted text-meta block truncate" title={context}>
+              {context}
+            </span>
+          )}
+        </span>
       </button>
       {indicator && <span className="relative flex">{indicator}</span>}
       <span className="text-meta ml-auto tabular-nums">{count}</span>
@@ -517,6 +533,11 @@ function SessionRow({
             </code>
           )}
         </div>
+        {group.context && (
+          <div className="text-meta text-coslash-muted truncate px-1.5" title={group.basis}>
+            {group.context}
+          </div>
+        )}
         <div className={cn('mt-1 flex min-w-0 items-center gap-1', hideWhenCompact)}>
           <span
             className={cn(
@@ -716,7 +737,7 @@ function SessionListView({
   handoffs,
 }: {
   sections: { status: StatusKey; rows: Session[] }[];
-  groups: Map<string, Group>;
+  groups: ReadonlyMap<string, Group>;
   selectedSessionKey: string | null;
   compact: boolean;
   sort: SessionSort;
@@ -915,21 +936,12 @@ export function CoslashLayout({
 
   useEffect(() => saveSessionViewPreferences({ ...preferences, range }), [preferences, range]);
 
-  const sessionGroups = useMemo(() => {
-    const groupsById = new Map<string, Group>();
-    const result = new Map<string, Group>();
-    for (const session of sessions) {
-      const detected = detectedGroup(session);
-      const group = groupsById.get(detected.id) ?? detected;
-      groupsById.set(group.id, group);
-      result.set(sessionKey(session), group);
-    }
-    return result;
-  }, [sessions]);
-  const groups = useMemo(
-    () => [...new Set(sessionGroups.values())].sort((a, b) => a.label.localeCompare(b.label)),
-    [sessionGroups],
+  const [collapsedGroups, setCollapsedGroups] = useState<Partial<Record<Group['kind'], boolean>>>({});
+  const sessionGroups = useMemo(
+    () => new Map(sessions.map((session) => [sessionKey(session), locationGroups(session)])),
+    [sessions],
   );
+  const groups = useMemo(() => sidebarGroups(sessionGroups.values()), [sessionGroups]);
   const agents = useMemo(() => getSessionVendors(sessions), [sessions]);
   const sessionsInRange = useMemo(() => {
     const start = rangeStart(range);
@@ -940,7 +952,14 @@ export function CoslashLayout({
       new Map(
         sessionsInRange.map((session) => [
           sessionKey(session),
-          sessionMatchesSearch(session, sessionGroups.get(sessionKey(session))!.label, preferences.query),
+          sessionMatchesSearch(
+            session,
+            sessionGroups
+              .get(sessionKey(session))!
+              .options.map((g) => [g.label, g.basis].join(' '))
+              .join(' '),
+            preferences.query,
+          ),
         ]),
       ),
     [preferences.query, sessionGroups, sessionsInRange],
@@ -959,26 +978,49 @@ export function CoslashLayout({
   );
   // Each facet counts the sessions that pass search and every other facet.
   const facetCounts = useMemo(() => {
-    const valueOf: Record<FacetKey, (session: Session, group: Group) => string> = {
+    const valueOf: Record<Exclude<FacetKey, 'group'>, (session: Session) => string> = {
       status: (session) => boardStatusKey(session),
       machine: (session) => session.sourceId,
       agent: (session) => session.agent,
-      group: (_session, group) => group.id,
     };
     const counts = {} as Record<FacetKey, Map<string, number>>;
-    for (const facet of Object.keys(valueOf) as FacetKey[]) {
+    for (const facet of [...Object.keys(valueOf), 'group'] as FacetKey[]) {
       const facetCount = new Map<string, number>();
       for (const session of sessionsInRange) {
         const group = sessionGroups.get(sessionKey(session))!;
         if (!searchMatches.get(sessionKey(session)) || !matchesFacets(session, group, preferences, facet))
           continue;
-        const value = valueOf[facet](session, group);
-        facetCount.set(value, (facetCount.get(value) ?? 0) + 1);
+        if (facet === 'group') {
+          const counted = new Set<string>();
+          for (const location of group.locations)
+            for (const option of location) {
+              if (
+                !counted.has(option.id) &&
+                matchesLocation(location, preferences.groupFilters, option.kind)
+              ) {
+                counted.add(option.id);
+                facetCount.set(option.id, (facetCount.get(option.id) ?? 0) + 1);
+              }
+            }
+        } else {
+          const value = valueOf[facet](session);
+          facetCount.set(value, (facetCount.get(value) ?? 0) + 1);
+        }
       }
       counts[facet] = facetCount;
     }
     return counts;
   }, [preferences, searchMatches, sessionGroups, sessionsInRange]);
+  const displayedGroups = useMemo(
+    () =>
+      new Map(
+        visibleSessions.map((session) => {
+          const key = sessionKey(session);
+          return [key, matchingLocation(sessionGroups.get(key)!, preferences.groupFilters)!];
+        }),
+      ),
+    [visibleSessions, sessionGroups, preferences.groupFilters],
+  );
   const toggleStatus = (status: StatusKey) =>
     patchPreferences({
       statusFilters: preferences.statusFilters.includes(status)
@@ -1095,11 +1137,17 @@ export function CoslashLayout({
     groups
       .filter(
         (group) =>
-          group.kind === kind && `${group.label} ${group.basis}`.toLowerCase().includes(normalizedGroupQuery),
+          group.kind === kind &&
+          (!group.main ||
+            !group.repositoryId ||
+            (group.repositoryId && preferences.groupFilters.includes(group.repositoryId)) ||
+            preferences.groupFilters.includes(group.id)) &&
+          `${group.label} ${group.basis}`.toLowerCase().includes(normalizedGroupQuery),
       )
       .map((group) => ({
         id: group.id,
         label: group.label,
+        context: group.context,
         count: facetCounts.group.get(group.id) ?? 0,
         selected: preferences.groupFilters.includes(group.id),
         onClick: () => toggleGroup(group),
@@ -1216,13 +1264,24 @@ export function CoslashLayout({
                   {groupSections.map(({ kind, options }) => (
                     <div key={kind}>
                       {kind !== 'No location' && (
-                        <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
+                        <button
+                          type="button"
+                          aria-expanded={!!normalizedGroupQuery || !collapsedGroups[kind]}
+                          onClick={() => setCollapsedGroups((state) => ({ ...state, [kind]: !state[kind] }))}
+                          className="text-meta text-coslash-muted flex w-full cursor-pointer items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5"
+                        >
+                          <ChevronRight
+                            className={cn('transition-transform', {
+                              'rotate-90': !!normalizedGroupQuery || !collapsedGroups[kind],
+                            })}
+                          />
                           {kind === 'Repository' && <FolderGit2 />}
                           {kind === 'Folder' && <Folder />}
+                          {kind === 'Worktree' && <GitFork />}
                           {GROUP_LABELS[kind]}
-                        </div>
+                        </button>
                       )}
-                      <FacetRows options={options} />
+                      {(normalizedGroupQuery || !collapsedGroups[kind]) && <FacetRows options={options} />}
                     </div>
                   ))}
                   {groupSections.length === 0 && (
@@ -1392,6 +1451,7 @@ export function CoslashLayout({
                       sessions={visibleSessions}
                       handoffs={latestHandoffs}
                       onOpenHandoffTarget={onOpenHandoffTarget}
+                      displayedGroups={displayedGroups}
                       columnGroupBy={preferences.boardColumns}
                       rowGroupBy={preferences.boardRows}
                       selectedSessionKey={selectedSessionKey}
@@ -1412,7 +1472,7 @@ export function CoslashLayout({
                   <SessionListView
                     sections={sections}
                     handoffs={latestHandoffs}
-                    groups={sessionGroups}
+                    groups={displayedGroups}
                     selectedSessionKey={selectedSessionKey}
                     compact={preferences.density === 'compact'}
                     sort={preferences.sort}

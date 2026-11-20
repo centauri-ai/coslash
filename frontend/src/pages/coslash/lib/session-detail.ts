@@ -157,6 +157,7 @@ export function overlayLiveSessionFields(detail: SessionDetail, current: Session
     branch: current.branch,
     repo: current.repo,
     repoLocalOnly: current.repoLocalOnly,
+    locations: isLocalSession(current) ? current.locations : (detail.locations ?? current.locations),
     reviewPending: current.reviewPending,
     reviewError: current.reviewError,
     completion: current.completion,

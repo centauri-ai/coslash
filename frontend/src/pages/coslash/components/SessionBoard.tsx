@@ -6,6 +6,7 @@ import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandof
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
+import type { Group } from '@/pages/coslash/lib/detected-groups';
 import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
@@ -306,6 +307,7 @@ function BoardCell({
 export function SessionBoard({
   sessions,
   columnGroupBy,
+  displayedGroups,
   rowGroupBy,
   selectedSessionKey = null,
   onSelectSession,
@@ -314,6 +316,7 @@ export function SessionBoard({
   onOpenHandoffTarget,
 }: {
   sessions: Session[];
+  displayedGroups?: ReadonlyMap<string, Group>;
   columnGroupBy: BoardGroupBy;
   rowGroupBy: BoardRowGroupBy;
   selectedSessionKey?: string | null;
@@ -323,10 +326,10 @@ export function SessionBoard({
   onOpenHandoffTarget: (handoff: DirectedHandoff) => void;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const columns = groupSessions(sessions, columnGroupBy);
+  const columns = groupSessions(sessions, columnGroupBy, displayedGroups);
   const showRowHeaders = rowGroupBy !== 'none';
   const rows: BoardGroup[] = showRowHeaders
-    ? groupSessions(sessions, rowGroupBy)
+    ? groupSessions(sessions, rowGroupBy, displayedGroups)
     : [{ key: 'all', label: 'All sessions', sessions }];
   const columnPositions = new Map(columns.map((column, index) => [column.key, index + 1]));
 
@@ -355,7 +358,7 @@ export function SessionBoard({
             )}
             {open && (
               <div className="border-coslash-line bg-coslash-soft col-span-full grid grid-cols-subgrid border-b">
-                {groupSessions(row.sessions, columnGroupBy).map((cell) => (
+                {groupSessions(row.sessions, columnGroupBy, displayedGroups).map((cell) => (
                   <BoardCell
                     key={cell.key}
                     sessions={cell.sessions}
