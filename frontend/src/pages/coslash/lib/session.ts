@@ -74,6 +74,26 @@ type SessionPrivacy = 'shareable' | 'private';
 export type ShareEligibility =
   'eligible' | 'private' | 'running' | 'failed' | 'incomplete' | 'stale' | 'offline' | 'deleted';
 
+export type SessionLocation = {
+  id: string;
+  label: string;
+  root: string;
+  cwd: string;
+  repo?: string;
+  cloneId: string;
+  main: boolean;
+  primary?: boolean;
+  headKind: 'branch' | 'detached' | 'unborn' | 'unknown';
+  head?: string;
+  lastSeen: number;
+  availability: 'available' | 'stale' | 'removed';
+};
+
+export function currentLocation(session: Session) {
+  const latest = session.locations?.[0];
+  return latest && (latest.primary ?? (!!latest.cwd && latest.cwd === session.cwd)) ? latest : undefined;
+}
+
 export type Session = {
   sourceId: string;
   hubSyncChip?: 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out' | 'parked_failed' | 'none';
@@ -104,6 +124,7 @@ export type Session = {
   branch: string | null;
   repo: string | null;
   repoLocalOnly: boolean;
+  locations?: SessionLocation[];
   files: number;
   durationMs: number | null;
   tokens: Record<string, ModelTokens>;

@@ -34,6 +34,10 @@ also contains the two maintenance commits that were already on `origin/main`.
   install and its saved Hub; supported script installs use checksum-verified
   release assets and restart through the staged updater.
 
+## Finding sessions by checkout
+
+In the session list, expand **Repositories**, **Worktrees**, or **Folders**. A repository filter includes its main checkout and every linked checkout verified by Git. Select a worktree to narrow the list. You can search the sidebar for a checkout name or use `worktree:<name>` in session search. Directories without verified checkout evidence stay under Folders. A separately recorded repository still matches its repository filter. The inspector shows the session's directory and its verified checkout history. The board also supports grouping by worktree.
+
 ## Local architecture and storage
 
 | Area | Implementation |

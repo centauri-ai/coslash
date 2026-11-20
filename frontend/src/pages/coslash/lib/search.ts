@@ -14,6 +14,8 @@ function sessionSearchDocument(session: Session): string {
   if (cached != null) return cached;
 
   const fields: (string | null | undefined)[] = [session.name, session.repo, session.branch, session.agent];
+  for (const location of session.locations ?? [])
+    fields.push(location.label, location.root, location.cwd, location.repo);
   if (isLocalSession(session)) {
     fields.push(session.firstPrompt, session.summary, session.declaredGoal);
     for (const entry of session.digest) {
@@ -46,14 +48,26 @@ export function sessionMatchesSearchTerm(session: Session, searchTerm: string): 
   return sessionSearchDocument(session).includes(searchTerm.trim().toLowerCase());
 }
 
-/** Every word must match. A `repo:`, `group:`, `machine:`, `agent:`, or `status:` word matches one field. */
+/** Every word must match. A `repo:`, `worktree:`, `group:`, `machine:`, `agent:`, or `status:` word matches one field. */
 export function sessionMatchesSearch(session: Session, groupLabel: string, query: string): boolean {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return words.every((word) => {
-    const prefix = word.match(/^(repo|group|machine|agent|status):(.+)$/);
-    if (!prefix) return sessionMatchesSearchTerm(session, word);
+    const prefix = word.match(/^(repo|worktree|group|machine|agent|status):(.+)$/);
+    if (!prefix) return groupLabel.toLowerCase().includes(word) || sessionMatchesSearchTerm(session, word);
     const [, kind, value] = prefix;
-    if (kind === 'repo') return (session.repo ?? '').toLowerCase().includes(value);
+    if (kind === 'repo')
+      return [
+        session.repoLocalOnly ? null : session.repo,
+        ...(session.locations ?? []).map((loc) => loc.repo),
+      ].some((repo) => repo?.toLowerCase().includes(value));
+    if (kind === 'worktree')
+      return (
+        session.locations?.some((loc) =>
+          [loc.main ? 'Main checkout' : loc.label, loc.root].some((label) =>
+            label.toLowerCase().includes(value),
+          ),
+        ) ?? false
+      );
     if (kind === 'group') return groupLabel.toLowerCase().includes(value);
     if (kind === 'machine') return session.sourceLabel.toLowerCase().includes(value);
     if (kind === 'agent') return getVendor(session.agent).label.toLowerCase().includes(value);
