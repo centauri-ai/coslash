@@ -263,15 +263,33 @@ func ParseRemoteFiles(
 	files []string,
 	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := parseFilesSourceStrict(
+	return ParseRemoteFilesContext(context.Background(), source, home, files, knownActiveFiles)
+}
+
+// ParseRemoteFilesContext parses exactly the given files and stops parsing or
+// finalizing them when the collection context is canceled.
+func ParseRemoteFilesContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	home string,
+	files []string,
+	knownActiveFiles []string,
+) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+	parsed, failures, parseErr := vendors.ParseSourceFilesStrict(ctx, source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+		return parseSourceContext(ctx, source, path, func(string, string) bool { return true })
+	})
+	finalized, finalizeErr := finalizeParsedFilesContext(
+		ctx,
 		source,
 		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),
 		knownActiveFiles,
-		files,
-		func(string, string) bool { return true },
+		parsed,
 	)
-	clearPromptDerivedNames(parsed)
-	return parsed, failures, err
+	if finalizeErr != nil {
+		return nil, failures, finalizeErr
+	}
+	clearPromptDerivedNames(finalized)
+	return finalized, failures, parseErr
 }
 
 // clearPromptDerivedNames prevents the parser's first-user-prompt fallback
@@ -338,19 +356,6 @@ func parseFilesSource(
 		return parseSourceCachedContext(ctx, source, path, needsApproval)
 	})
 	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed)
-}
-
-func parseFilesSourceStrict(
-	source vendors.ReadSource,
-	archivedDir string,
-	knownActiveFiles []string,
-	files []string,
-	needsApproval func(string, string) bool,
-) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := vendors.ParseSourceFilesStrict(context.Background(), source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSourceContext(ctx, source, path, needsApproval)
-	})
-	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed), failures, err
 }
 
 func finalizeParsedFiles(

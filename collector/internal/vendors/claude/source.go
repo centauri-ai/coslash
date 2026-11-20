@@ -184,7 +184,22 @@ func ParseRemoteFiles(
 	source vendors.ReadSource,
 	files []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	return parseFilesSourceStrict(source, files)
+	return ParseRemoteFilesContext(context.Background(), source, files)
+}
+
+// ParseRemoteFilesContext parses exactly the given files and stops parsing or
+// finalizing them when the collection context is canceled.
+func ParseRemoteFilesContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	files []string,
+) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+	parsed, failures, parseErr := vendors.ParseSourceFilesStrict(ctx, source, files, parseSourceContext)
+	finalized, finalizeErr := finalizeParsedFilesContext(ctx, source, parsed)
+	if finalizeErr != nil {
+		return nil, failures, finalizeErr
+	}
+	return finalized, failures, parseErr
 }
 
 func FamilyIDFromPath(file string) string {
@@ -316,14 +331,6 @@ func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSe
 func parseFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
 	parsed, _ := vendors.ParseSourceFiles(context.Background(), source, files, parseSourceCachedContext)
 	return finalizeParsedFiles(source, parsed)
-}
-
-func parseFilesSourceStrict(
-	source vendors.ReadSource,
-	files []string,
-) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := vendors.ParseSourceFilesStrict(context.Background(), source, files, parseSourceContext)
-	return finalizeParsedFiles(source, parsed), failures, err
 }
 
 func finalizeParsedFiles(
