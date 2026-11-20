@@ -80,43 +80,73 @@ func LoadMetadataForSessionsContext(ctx context.Context, ids []string) (*vendors
 }
 
 func LoadRelationshipMetadataForSessions(ids []string) (*vendors.SessionMetadata, error) {
+	return LoadRelationshipMetadataForSessionsContext(context.Background(), ids)
+}
+
+func LoadRelationshipMetadataForSessionsContext(ctx context.Context, ids []string) (*vendors.SessionMetadata, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return loadRelationshipMetadataForSessions(home, ids)
+	return loadRelationshipMetadataForSessionsContext(ctx, home, ids)
 }
 
 func loadRelationshipMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
+	return loadRelationshipMetadataForSessionsContext(context.Background(), home, ids)
+}
+
+func loadRelationshipMetadataForSessionsContext(ctx context.Context, home string, ids []string) (*vendors.SessionMetadata, error) {
+	ids, err := canonicalCursorIDsContext(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	metadata := vendors.EmptySessionMetadata()
 	path := filepath.Join(GlobalStorage(home), "state.vscdb")
-	db, err := openCursorDB(path)
+	db, err := openCursorDBContext(ctx, path)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
 	} else {
 		defer db.Close()
-		loadIDERelationships(metadata, db, canonicalCursorIDs(ids))
+		if err := loadIDERelationshipsContext(ctx, metadata, db, ids); err != nil {
+			return nil, err
+		}
 	}
-	for _, path := range cursorChatStores(home, canonicalCursorIDs(ids)) {
-		loadCLIRelationship(metadata, path)
+	stores, err := cursorChatStoresContext(ctx, home, ids)
+	if err != nil {
+		return nil, err
 	}
-	return metadata, nil
+	for _, path := range stores {
+		if err := loadCLIRelationshipContext(ctx, metadata, path); err != nil {
+			return nil, err
+		}
+	}
+	return metadata, ctx.Err()
 }
 
 func loadCLIRelationship(metadata *vendors.SessionMetadata, path string) {
-	db, err := openCursorDB(path)
+	_ = loadCLIRelationshipContext(context.Background(), metadata, path)
+}
+
+func loadCLIRelationshipContext(ctx context.Context, metadata *vendors.SessionMetadata, path string) error {
+	db, err := openCursorDBContext(ctx, path)
 	if err != nil {
-		return
+		return ctx.Err()
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT value FROM meta WHERE key = '0'`)
+	rows, err := db.QueryContext(ctx, `SELECT value FROM meta WHERE key = '0'`)
 	if err != nil {
-		return
+		return ctx.Err()
 	}
 	defer rows.Close()
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var value string
 		if rows.Scan(&value) != nil {
 			continue
@@ -141,6 +171,7 @@ func loadCLIRelationship(metadata *vendors.SessionMetadata, path string) {
 			metadata.Session(id).Relationship = vendors.SessionRelationship{ParentID: parentID, SpawnKey: item.SubagentInfo.ToolCallID, Task: item.SubagentInfo.TypeName}
 		}
 	}
+	return ctx.Err()
 }
 
 func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {

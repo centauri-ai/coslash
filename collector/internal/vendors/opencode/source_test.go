@@ -43,7 +43,7 @@ func TestListAndExactFamilyUseSameMemberOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exact, _, err := GetSessionFamily("ses_root")
+	exact, _, err := GetSessionFamily(t.Context(), "ses_root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestCollectionDistinguishesUnavailableLivenessFromNoLiveProcess(t *testing.
 		if metadata.LivenessChecked != (processErr == nil) {
 			t.Fatalf("collection liveness checked = %t; process error = %v", metadata.LivenessChecked, processErr)
 		}
-		_, metadata, err = GetSessionFamily("ses_incomplete")
+		_, metadata, err = GetSessionFamily(t.Context(), "ses_incomplete")
 		if err != nil {
 			t.Fatal(err)
 		}

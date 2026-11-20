@@ -65,7 +65,7 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 		t.Fatalf("done subagent = %+v", done)
 	}
 
-	family, familyMetadata, err := grok.GetSessionFamily("parent")
+	family, familyMetadata, err := grok.GetSessionFamily(t.Context(), "parent")
 	if err != nil || len(family) != 3 {
 		t.Fatalf("family = %v, err = %v", family, err)
 	}
@@ -106,7 +106,7 @@ func TestGrokSinceWindowKeepsSubagentFamiliesTogether(t *testing.T) {
 			if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 {
 				t.Fatalf("listed roots = %+v", roots)
 			}
-			family, _, err := grok.GetSessionFamily("parent")
+			family, _, err := grok.GetSessionFamily(t.Context(), "parent")
 			if err != nil || len(family) != len(parsed) {
 				t.Fatalf("family = %d sessions, listed = %d, err = %v", len(family), len(parsed), err)
 			}
@@ -137,7 +137,7 @@ func TestGrokSinceWindowUsesParentMetaWhenChildOmitsParent(t *testing.T) {
 	if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 || roots[0].Session.Subagents[0].ID != "child" {
 		t.Fatalf("listed roots = %+v", roots)
 	}
-	family, _, err := grok.GetSessionFamily("child")
+	family, _, err := grok.GetSessionFamily(t.Context(), "child")
 	if err != nil || len(family) != 2 || family[0].Session.ID != "parent" {
 		t.Fatalf("family = %v, err = %v", family, err)
 	}
@@ -258,7 +258,7 @@ func TestGrokLiveProjectionMatchesPlannedAndFrozenIndependentRoots(t *testing.T)
 				t.Fatalf("facts=%+v err=%v", facts, err)
 			}
 			check(t, []*vendors.ParsedSession{facts}, vendors.EmptySessionMetadata(), map[string][]string{id: want[id]})
-			family, _, err := grok.GetSessionFamily(id)
+			family, _, err := grok.GetSessionFamily(t.Context(), id)
 			count := 1
 			if id == "root" {
 				count = 2
