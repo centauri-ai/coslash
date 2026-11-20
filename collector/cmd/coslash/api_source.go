@@ -145,6 +145,13 @@ func withoutDetailBodies(value session.Session) session.Session {
 
 func boardRemoteSession(value remote.IndexedSession) boardSession {
 	safeSession := sessionWithJSONCollections(remoteLibrarySession(*value.Session))
+	if value.DisplayStale {
+		for i := range safeSession.Locations {
+			if safeSession.Locations[i].Availability == "available" {
+				safeSession.Locations[i].Availability = "stale"
+			}
+		}
+	}
 	fullRevision := ""
 	if value.Session.Agent == vendors.AgentCodex {
 		fullRevision = value.RevisionID
@@ -172,13 +179,18 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 // to belong to the remote helper/launch paths rather than the web list model.
 func remoteLibrarySession(value session.Session) session.Session {
 	repository := safeRepository(value.Repository)
+	locations := slices.Clone(value.Locations)
 	if repository != nil {
+		for i := range locations {
+			locations[i].CWD = ""
+			locations[i].Root = ""
+		}
 		value.WorkingDirectory = ""
 	}
 	return session.Session{
 		Agent: value.Agent, ID: value.ID, Name: value.Name, Status: value.Status,
-		WorkingDirectory: value.WorkingDirectory,
-		Branch:           value.Branch, Repository: repository, RepositoryLocalOnly: value.RepositoryLocalOnly,
+		Locations: locations, WorkingDirectory: value.WorkingDirectory,
+		Branch: value.Branch, Repository: repository, RepositoryLocalOnly: value.RepositoryLocalOnly,
 		EditedFileCount: value.EditedFileCount, DurationMs: value.DurationMs,
 		Tokens: value.Tokens, Cost: value.Cost, UnpricedModels: value.UnpricedModels,
 		StartedAt: value.StartedAt, LastActivityTime: value.LastActivityTime, Entrypoint: value.Entrypoint,
