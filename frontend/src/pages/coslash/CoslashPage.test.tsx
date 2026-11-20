@@ -29,7 +29,9 @@ vi.mock('@/pages/coslash/components/SettingsDialog', () => ({
   },
 }));
 vi.mock('@/pages/coslash/hooks/use-settings', () => ({ useSettings: vi.fn() }));
-vi.mock('@/pages/coslash/components/SessionInspector', () => ({ SessionInspector: () => null }));
+vi.mock('@/pages/coslash/components/session-inspector/SessionInspector', () => ({
+  SessionInspector: () => null,
+}));
 vi.mock('@/pages/coslash/hooks/use-sessions', () => ({
   useSessions: () => ({ sessions: [], machines: [], isLoading: false, retrySessions }),
 }));

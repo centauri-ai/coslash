@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-} from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { LoaderCircleIcon } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { DiffList } from '@/pages/coslash/components/DiffList';
@@ -21,6 +13,7 @@ import {
   HeaderMeta,
   SessionInspectorTitle,
 } from '@/pages/coslash/components/session-inspector/InspectorHeader';
+import { useInspectorWidth } from '@/pages/coslash/components/session-inspector/use-inspector-width';
 import { useSessionDetail } from '@/pages/coslash/hooks/use-session-detail';
 import { useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
@@ -42,49 +35,6 @@ import {
 
 /** Must stay in sync with the docked-inspector breakpoint in coslash-layout.css. */
 const DOCKED_INSPECTOR_QUERY = '(min-width: 1720px)';
-const INSPECTOR_WIDTH_KEY = 'coslash.inspector-width.v1';
-const MIN_INSPECTOR_WIDTH = 360;
-const MAX_INSPECTOR_VIEWPORT_SHARE = 0.8;
-const DEFAULT_INSPECTOR_WIDTH = 'clamp(420px, 32vw, 760px)';
-const INSPECTOR_KEYBOARD_STEP = 16;
-
-function maximumInspectorWidth(viewportWidth: number): number {
-  return Math.max(MIN_INSPECTOR_WIDTH, Math.round(viewportWidth * MAX_INSPECTOR_VIEWPORT_SHARE));
-}
-
-function clampInspectorWidth(width: number, viewportWidth = window.innerWidth): number {
-  return Math.round(Math.min(Math.max(width, MIN_INSPECTOR_WIDTH), maximumInspectorWidth(viewportWidth)));
-}
-
-function defaultInspectorWidth(viewportWidth: number): number {
-  return clampInspectorWidth(Math.min(Math.max(viewportWidth * 0.32, 420), 760), viewportWidth);
-}
-
-// oxlint-disable-next-line react/only-export-components -- exported for focused keyboard tests
-export function inspectorWidthForKey(
-  key: string,
-  currentWidth: number,
-  viewportWidth: number,
-): number | null {
-  if (key === 'Home') return MIN_INSPECTOR_WIDTH;
-  if (key === 'End') return maximumInspectorWidth(viewportWidth);
-  if (key === 'ArrowLeft') {
-    return clampInspectorWidth(currentWidth + INSPECTOR_KEYBOARD_STEP, viewportWidth);
-  }
-  if (key === 'ArrowRight') {
-    return clampInspectorWidth(currentWidth - INSPECTOR_KEYBOARD_STEP, viewportWidth);
-  }
-  return null;
-}
-
-function readInspectorWidth(): number | null {
-  try {
-    const stored = Number(window.localStorage.getItem(INSPECTOR_WIDTH_KEY));
-    return Number.isFinite(stored) && stored > 0 ? Math.max(stored, MIN_INSPECTOR_WIDTH) : null;
-  } catch {
-    return null;
-  }
-}
 
 export function SessionInspector({
   session,
@@ -120,12 +70,6 @@ export function SessionInspector({
   const { detail, isLoading, loadError, loadErrorKind, cachedOffline, summaryOnly, synthesisSettledCount } =
     useSessionDetail(session, detailRetryToken, sessionsVersion, synthesisSettingsKey);
   const contentRef = useRef<HTMLDivElement>(null);
-  const resizeRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startWidth: number;
-    currentWidth: number;
-  } | null>(null);
   const [selectedDiffState, setSelectedDiff] = useState<FileSelection | null>(null);
   const diffTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedDiff = filePanelOpen(selectedDiffState, detail) ? selectedDiffState : null;
@@ -135,53 +79,6 @@ export function SessionInspector({
       ? !window.matchMedia(DOCKED_INSPECTOR_QUERY).matches
       : true,
   );
-  const [width, setWidth] = useState<number | null>(readInspectorWidth);
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === 'undefined' ? 1375 : window.innerWidth,
-  );
-
-  const persistWidth = (nextWidth: number) => {
-    setWidth(nextWidth);
-    try {
-      window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(nextWidth));
-    } catch {
-      // a blocked store just means the width resets next session
-    }
-  };
-
-  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const startWidth = clampInspectorWidth(contentRef.current?.offsetWidth ?? MIN_INSPECTOR_WIDTH);
-    resizeRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startWidth,
-      currentWidth: startWidth,
-    };
-  };
-  const continueResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const resize = resizeRef.current;
-    if (resize == null || resize.pointerId !== event.pointerId) return;
-    resize.currentWidth = clampInspectorWidth(resize.startWidth + resize.startX - event.clientX);
-    setWidth(resize.currentWidth);
-  };
-  const finishResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const resize = resizeRef.current;
-    if (resize == null || resize.pointerId !== event.pointerId) return;
-    resizeRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    persistWidth(resize.currentWidth);
-  };
-  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const currentWidth = contentRef.current?.offsetWidth ?? width ?? MIN_INSPECTOR_WIDTH;
-    const nextWidth = inspectorWidthForKey(event.key, currentWidth, viewportWidth);
-    if (nextWidth == null) return;
-    event.preventDefault();
-    persistWidth(nextWidth);
-  };
   const {
     changes: fileChanges,
     isLoading: fileDiffLoading,
@@ -189,6 +86,7 @@ export function SessionInspector({
     loadErrorKind: fileDiffErrorKind,
   } = useFileDiff(selectedDiff, fileDiffRetryToken);
   const isOpen = session != null;
+  const { inspectorWidth, separatorProps } = useInspectorWidth(contentRef, isOpen);
   const remoteLaunchable =
     detail != null &&
     !isLocalSession(detail) &&
@@ -221,28 +119,10 @@ export function SessionInspector({
     if (typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia(DOCKED_INSPECTOR_QUERY);
     const updateModal = () => setModal(!media.matches);
-    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
     media.addEventListener('change', updateModal);
-    window.addEventListener('resize', updateViewportWidth);
-    return () => {
-      media.removeEventListener('change', updateModal);
-      window.removeEventListener('resize', updateViewportWidth);
-    };
+    return () => media.removeEventListener('change', updateModal);
   }, []);
 
-  const inspectorWidth =
-    width == null ? DEFAULT_INSPECTOR_WIDTH : `min(${width}px, ${MAX_INSPECTOR_VIEWPORT_SHARE * 100}vw)`;
-  const ariaWidth = clampInspectorWidth(width ?? defaultInspectorWidth(viewportWidth), viewportWidth);
-  const ariaMaximumWidth = maximumInspectorWidth(viewportWidth);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const root = document.documentElement;
-    root.style.setProperty('--coslash-inspector-width', inspectorWidth);
-    return () => {
-      root.style.removeProperty('--coslash-inspector-width');
-    };
-  }, [isOpen, inspectorWidth]);
   return (
     <Sheet
       modal={modal}
@@ -274,15 +154,7 @@ export function SessionInspector({
           tabIndex={0}
           aria-orientation="vertical"
           aria-label="Resize inspector"
-          aria-valuemin={MIN_INSPECTOR_WIDTH}
-          aria-valuemax={ariaMaximumWidth}
-          aria-valuenow={ariaWidth}
-          onPointerDown={startResize}
-          onPointerMove={continueResize}
-          onPointerUp={finishResize}
-          onPointerCancel={finishResize}
-          onLostPointerCapture={finishResize}
-          onKeyDown={resizeWithKeyboard}
+          {...separatorProps}
           className="hover:bg-coslash-accent focus-visible:bg-coslash-accent absolute inset-y-0 left-0 z-20 hidden w-1.5 cursor-col-resize touch-none transition-colors outline-none sm:block"
         />
         {session != null && <SheetTitle className="sr-only">{sessionDisplayTitle(session)}</SheetTitle>}
