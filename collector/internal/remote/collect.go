@@ -688,7 +688,10 @@ func collectIncremental(
 	if codexOut.outcome.Err == nil {
 		freshMetadata[vendors.AgentCodex] = codexOut.outcome.Metadata
 	}
-	repairRemoteDisplay(ctx, &snapshot, baseline.SourceID, source.ssh.gitFacts)
+	probes := repairRemoteDisplay(ctx, &snapshot, baseline.SourceID, source.ssh.gitFacts)
 	sessions := composeFromGeneration(toGeneration(snapshot), source, freshMetadata, since)
+	if err := session.RecordLocations(ctx, baseline.SourceID, sessions, probes); err != nil {
+		return snapshot, nil, failures, err
+	}
 	return snapshot, sessions, failures, nil
 }

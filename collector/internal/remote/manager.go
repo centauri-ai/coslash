@@ -915,7 +915,11 @@ func (manager *Manager) readCache(sourceID string) (cachedView, error) {
 		return cachedView{}, err
 	}
 	if ok {
-		return cachedView{snapshot: &v2, sessions: composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0), familyStale: staleSessions(v2), lastSuccessAt: int64Ptr(v2.FetchedAtMs), lastCheckedAt: int64Ptr(v2.FetchedAtMs)}, nil
+		sessions := composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0)
+		if err := session.RecordLocations(context.Background(), v2.SourceID, sessions, nil); err != nil {
+			return cachedView{}, err
+		}
+		return cachedView{snapshot: &v2, sessions: sessions, familyStale: staleSessions(v2), lastSuccessAt: int64Ptr(v2.FetchedAtMs), lastCheckedAt: int64Ptr(v2.FetchedAtMs)}, nil
 	}
 	legacy, ok, err := manager.cache.Load(sourceID)
 	if err != nil || !ok {

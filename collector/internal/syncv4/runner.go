@@ -169,6 +169,7 @@ type Runner struct {
 	checkInRejections   atomic.Int32
 	lastReportedPhase   string
 	lastDiscoveryAt     time.Time
+	lastLocationProbe   time.Time
 	discoveryRequests   atomic.Uint64
 	completedDiscovery  uint64
 	discoveredPlan      int64
@@ -688,9 +689,9 @@ func discoveredEntries(sessions []*session.Session, installID string, claudeRevi
 			meta.EndedAt = nil
 		}
 		found = append(found, Entry{
-			Key:       localKey("local", item.Agent, item.ID),
-			Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: item.Agent, SessionID: item.ID},
-			Session:   meta, Activity: item.LastActivityTime, SourceRevision: revision, Live: live,
+			Key:         localKey("local", item.Agent, item.ID),
+			LocationCWD: item.WorkingDirectory, Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: item.Agent, SessionID: item.ID},
+			Session: meta, Activity: item.LastActivityTime, SourceRevision: revision, Live: live,
 		})
 	}
 	return found

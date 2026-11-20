@@ -34,6 +34,10 @@ also contains the two maintenance commits that were already on `origin/main`.
   install and its saved Hub; supported script installs use checksum-verified
   release assets and restart through the staged updater.
 
+## Finding sessions by checkout
+
+In the session list, select a repository under **Locations** to see sessions verified in its main checkout. Its count covers those sessions, including when the count is zero. Expand **Worktrees** beneath the repository to browse its linked checkouts. **Find a location** searches names and observed paths and reveals matching worktrees. Select a result to filter the session list. **Other worktrees** contains verified linked checkouts whose parent repository could not be identified. Unverified working directories and main checkouts without a remote appear under **Folders** when their paths are available. A session with a recorded repository but no checkout evidence or permitted path appears under **Checkout unknown** for that repository. The inspector shows the session's directory and verified checkout history. Session search supports `worktree:<name>`, and the board supports grouping by worktree.
+
 ## Local architecture and storage
 
 | Area | Implementation |

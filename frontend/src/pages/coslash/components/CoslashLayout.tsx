@@ -7,8 +7,8 @@ import {
   ChevronRight,
   Ellipsis,
   Folder,
-  FolderGit2,
   GitCompareArrows,
+  GitFork,
   LoaderCircle,
   Monitor,
   Moon,
@@ -39,6 +39,14 @@ import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
+import {
+  locationChoiceId,
+  locationChoices,
+  locationGroups,
+  matchingLocation,
+  sidebarGroups,
+  type Group,
+} from '@/pages/coslash/lib/detected-groups';
 import { handoffLabel, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
@@ -94,7 +102,6 @@ import {
 import './coslash-layout.css';
 import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
 import { statusDot, styles, tokenTotal } from '@/pages/coslash/components/session-list/styles';
-import { detectedGroup, type Group } from '@/pages/coslash/lib/detected-groups';
 import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 
 const SessionBoard = lazy(() =>
@@ -107,6 +114,9 @@ type FacetOption = {
   count: number;
   selected: boolean;
   onClick: () => void;
+  context?: string;
+  title?: string;
+  highlight?: string;
   status?: StatusKey;
   icon?: ReactNode;
   indicator?: ReactNode;
@@ -137,13 +147,6 @@ const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'month', label: '30 days' },
   { value: 'all', label: 'All time' },
 ];
-const GROUP_KINDS: Group['kind'][] = ['Repository', 'Folder', 'No location'];
-const GROUP_LABELS: Record<Group['kind'], string> = {
-  'Repository': 'Repositories',
-  'Folder': 'Folders',
-  'No location': 'No location',
-};
-
 function ViewSwitch({ view, onChange }: { view: SessionView; onChange: (view: SessionView) => void }) {
   return (
     <div className={styles.segmented} aria-label="View">
@@ -235,7 +238,19 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
   );
 }
 
-function FacetRow({ label, count, selected, icon, indicator, status, onClick }: FacetOption) {
+function FacetRow({
+  label,
+  context,
+  title,
+  highlight,
+  count,
+  selected,
+  icon,
+  indicator,
+  status,
+  onClick,
+}: FacetOption) {
+  const index = highlight ? label.toLowerCase().indexOf(highlight) : -1;
   return (
     <div
       className={cn(styles.facet, 'relative gap-1.5', {
@@ -246,11 +261,31 @@ function FacetRow({ label, count, selected, icon, indicator, status, onClick }: 
       <button
         type="button"
         className="flex min-w-0 cursor-pointer items-center gap-[9px] text-left after:absolute after:inset-0 [&>svg]:size-3.5"
+        title={title}
         aria-pressed={selected}
         onClick={onClick}
       >
         {status ? <span className={cn('size-[7px] shrink-0 rounded-full', statusDot(status))} /> : icon}
-        <span className="truncate">{label}</span>
+        <span className="min-w-0">
+          <span className="block truncate">
+            {index < 0 ? (
+              label
+            ) : (
+              <>
+                {label.slice(0, index)}
+                <mark className="bg-coslash-tint text-coslash-accent-ink">
+                  {label.slice(index, index + highlight!.length)}
+                </mark>
+                {label.slice(index + highlight!.length)}
+              </>
+            )}
+          </span>
+          {context && (
+            <span className="text-coslash-muted text-meta block truncate" title={context}>
+              {context}
+            </span>
+          )}
+        </span>
       </button>
       {indicator && <span className="relative flex">{indicator}</span>}
       <span className="text-meta ml-auto tabular-nums">{count}</span>
@@ -517,6 +552,11 @@ function SessionRow({
             </code>
           )}
         </div>
+        {group.context && (
+          <div className="text-meta text-coslash-muted truncate px-1.5" title={group.basis}>
+            {group.context}
+          </div>
+        )}
         <div className={cn('mt-1 flex min-w-0 items-center gap-1', hideWhenCompact)}>
           <span
             className={cn(
@@ -716,7 +756,7 @@ function SessionListView({
   handoffs,
 }: {
   sections: { status: StatusKey; rows: Session[] }[];
-  groups: Map<string, Group>;
+  groups: ReadonlyMap<string, Group>;
   selectedSessionKey: string | null;
   compact: boolean;
   sort: SessionSort;
@@ -915,21 +955,13 @@ export function CoslashLayout({
 
   useEffect(() => saveSessionViewPreferences({ ...preferences, range }), [preferences, range]);
 
-  const sessionGroups = useMemo(() => {
-    const groupsById = new Map<string, Group>();
-    const result = new Map<string, Group>();
-    for (const session of sessions) {
-      const detected = detectedGroup(session);
-      const group = groupsById.get(detected.id) ?? detected;
-      groupsById.set(group.id, group);
-      result.set(sessionKey(session), group);
-    }
-    return result;
-  }, [sessions]);
-  const groups = useMemo(
-    () => [...new Set(sessionGroups.values())].sort((a, b) => a.label.localeCompare(b.label)),
-    [sessionGroups],
+  const [expandedRepos, setExpandedRepos] = useState<Record<string, boolean>>({});
+  const locationInput = useRef<HTMLInputElement>(null);
+  const sessionGroups = useMemo(
+    () => new Map(sessions.map((session) => [sessionKey(session), locationGroups(session)])),
+    [sessions],
   );
+  const groups = useMemo(() => sidebarGroups(sessionGroups.values()), [sessionGroups]);
   const agents = useMemo(() => getSessionVendors(sessions), [sessions]);
   const sessionsInRange = useMemo(() => {
     const start = rangeStart(range);
@@ -940,7 +972,14 @@ export function CoslashLayout({
       new Map(
         sessionsInRange.map((session) => [
           sessionKey(session),
-          sessionMatchesSearch(session, sessionGroups.get(sessionKey(session))!.label, preferences.query),
+          sessionMatchesSearch(
+            session,
+            sessionGroups
+              .get(sessionKey(session))!
+              .options.map((g) => [g.label, g.basis].join(' '))
+              .join(' '),
+            preferences.query,
+          ),
         ]),
       ),
     [preferences.query, sessionGroups, sessionsInRange],
@@ -959,37 +998,49 @@ export function CoslashLayout({
   );
   // Each facet counts the sessions that pass search and every other facet.
   const facetCounts = useMemo(() => {
-    const valueOf: Record<FacetKey, (session: Session, group: Group) => string> = {
+    const valueOf: Record<Exclude<FacetKey, 'group'>, (session: Session) => string> = {
       status: (session) => boardStatusKey(session),
       machine: (session) => session.sourceId,
       agent: (session) => session.agent,
-      group: (_session, group) => group.id,
     };
     const counts = {} as Record<FacetKey, Map<string, number>>;
-    for (const facet of Object.keys(valueOf) as FacetKey[]) {
+    for (const facet of [...Object.keys(valueOf), 'group'] as FacetKey[]) {
       const facetCount = new Map<string, number>();
       for (const session of sessionsInRange) {
         const group = sessionGroups.get(sessionKey(session))!;
         if (!searchMatches.get(sessionKey(session)) || !matchesFacets(session, group, preferences, facet))
           continue;
-        const value = valueOf[facet](session, group);
-        facetCount.set(value, (facetCount.get(value) ?? 0) + 1);
+        if (facet === 'group') {
+          const counted = new Set<string>();
+          for (const option of group.options) {
+            // A repository name alone doesn't verify that a session used its main checkout.
+            if (option.kind !== 'Repository') counted.add(locationChoiceId(option));
+          }
+          for (const id of counted) facetCount.set(id, (facetCount.get(id) ?? 0) + 1);
+        } else {
+          const value = valueOf[facet](session);
+          facetCount.set(value, (facetCount.get(value) ?? 0) + 1);
+        }
       }
       counts[facet] = facetCount;
     }
     return counts;
   }, [preferences, searchMatches, sessionGroups, sessionsInRange]);
+  const displayedGroups = useMemo(
+    () =>
+      new Map(
+        visibleSessions.map((session) => {
+          const key = sessionKey(session);
+          return [key, matchingLocation(sessionGroups.get(key)!, preferences.groupFilters)!];
+        }),
+      ),
+    [visibleSessions, sessionGroups, preferences.groupFilters],
+  );
   const toggleStatus = (status: StatusKey) =>
     patchPreferences({
       statusFilters: preferences.statusFilters.includes(status)
         ? preferences.statusFilters.filter((value) => value !== status)
         : [...preferences.statusFilters, status],
-    });
-  const toggleGroup = (group: Group) =>
-    patchPreferences({
-      groupFilters: preferences.groupFilters.includes(group.id)
-        ? preferences.groupFilters.filter((value) => value !== group.id)
-        : [...preferences.groupFilters, group.id],
     });
   const toggleMachine = (id: string) =>
     patchPreferences({
@@ -1091,22 +1142,32 @@ export function CoslashLayout({
     },
   ];
   const normalizedGroupQuery = groupQuery.trim().toLowerCase();
-  const groupOptions = (kind: Group['kind']): FacetOption[] =>
-    groups
-      .filter(
-        (group) =>
-          group.kind === kind && `${group.label} ${group.basis}`.toLowerCase().includes(normalizedGroupQuery),
-      )
-      .map((group) => ({
-        id: group.id,
-        label: group.label,
-        count: facetCounts.group.get(group.id) ?? 0,
-        selected: preferences.groupFilters.includes(group.id),
-        onClick: () => toggleGroup(group),
-      }));
-  const groupSections = GROUP_KINDS.map((kind) => ({ kind, options: groupOptions(kind) })).filter(
-    ({ options }) => options.length > 0,
-  );
+  const choices = locationChoices(groups, normalizedGroupQuery);
+  const locationOption = (group: Group): FacetOption => {
+    const id = locationChoiceId(group);
+    const selected = preferences.groupFilters.includes(id);
+    const isRepo = group.kind === 'Repository';
+    return {
+      id,
+      label: group.label,
+      context: group.context,
+      title: isRepo ? group.basis + ' · Main checkout' : group.root || group.label,
+      highlight: normalizedGroupQuery,
+      icon: group.kind === 'Worktree' ? <GitFork /> : group.kind === 'Folder' ? <Folder /> : undefined,
+      count: facetCounts.group.get(id) ?? 0,
+      selected,
+      onClick: () => patchPreferences({ groupFilters: selected ? [] : [id] }),
+    };
+  };
+  const locationHeading = 'text-meta text-coslash-muted px-2.5 pt-2 pb-1 font-semibold';
+  const chipLabel = (value: string) => {
+    const option = groups.find((group) => group.id === value || locationChoiceId(group) === value);
+    if (value.startsWith('main-repo:')) {
+      const repo = groups.find((group) => group.kind === 'Repository' && locationChoiceId(group) === value);
+      return (repo?.label ?? value.slice('main-repo:'.length)) + ' · Main checkout';
+    }
+    return option?.label ?? value;
+  };
   const activeChips = [
     ...preferences.statusFilters.map((value) => ({
       kind: 'Status',
@@ -1120,7 +1181,7 @@ export function CoslashLayout({
     ...preferences.groupFilters.map((value) => ({
       kind: 'Group',
       value,
-      label: groups.find((group) => group.id === value)?.label ?? value,
+      label: chipLabel(value),
       remove: () =>
         patchPreferences({ groupFilters: preferences.groupFilters.filter((item) => item !== value) }),
     })),
@@ -1183,7 +1244,7 @@ export function CoslashLayout({
                     className={cn('size-[13px] transition-transform', { 'rotate-90': sideOpen.group })}
                   />
                   <span className="flex flex-1 items-center justify-between">
-                    Detected groups
+                    Locations
                     {isLoading && <InlineSpinner />}
                   </span>
                 </button>
@@ -1194,16 +1255,23 @@ export function CoslashLayout({
                       type="search"
                       value={groupQuery}
                       onChange={(event) => setGroupQuery(event.target.value)}
-                      placeholder="Filter groups"
-                      aria-label="Filter detected groups"
+                      ref={locationInput}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') setGroupQuery('');
+                      }}
+                      placeholder="Find a location"
+                      aria-label="Find a location"
                       className="text-coslash-ink min-w-0 flex-1 bg-transparent text-xs outline-none [&::-webkit-search-cancel-button]:hidden"
                     />
                     {groupQuery && (
                       <button
                         type="button"
                         className="hover:bg-coslash-soft grid size-5 cursor-pointer place-items-center rounded transition-colors [&>svg]:size-3"
-                        onClick={() => setGroupQuery('')}
-                        aria-label="Clear group filter"
+                        onClick={() => {
+                          setGroupQuery('');
+                          locationInput.current?.focus();
+                        }}
+                        aria-label="Clear location search"
                       >
                         <X />
                       </button>
@@ -1213,23 +1281,80 @@ export function CoslashLayout({
               </div>
               {sideOpen.group && (
                 <div id="coslash-group">
-                  {groupSections.map(({ kind, options }) => (
-                    <div key={kind}>
-                      {kind !== 'No location' && (
-                        <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
-                          {kind === 'Repository' && <FolderGit2 />}
-                          {kind === 'Folder' && <Folder />}
-                          {GROUP_LABELS[kind]}
-                        </div>
-                      )}
-                      <FacetRows options={options} />
-                    </div>
-                  ))}
-                  {groupSections.length === 0 && (
-                    <div className="text-coslash-muted px-2.5 py-2 text-xs">
-                      {groupQuery.trim() === '' ? 'No groups yet.' : `No groups match “${groupQuery}”.`}
-                    </div>
+                  {choices.repositories.length > 0 && (
+                    <section>
+                      <h3 className={locationHeading}>Repositories</h3>
+                      {choices.repositories.map(({ group, worktrees, unknown }) => {
+                        const expanded = !!normalizedGroupQuery || !!expandedRepos[group.id];
+                        return (
+                          <div key={group.id}>
+                            <FacetRow {...locationOption(group)} />
+                            {unknown && (
+                              <div className="border-coslash-line ml-3 border-l pl-1">
+                                <FacetRow {...locationOption(unknown)} />
+                              </div>
+                            )}
+                            {worktrees.length > 0 && (
+                              <div className="border-coslash-line ml-3 border-l pl-1">
+                                <button
+                                  type="button"
+                                  aria-expanded={expanded}
+                                  aria-label={'Worktrees in ' + group.label}
+                                  disabled={!!normalizedGroupQuery}
+                                  onClick={() =>
+                                    setExpandedRepos((state) => ({ ...state, [group.id]: !state[group.id] }))
+                                  }
+                                  className="text-meta text-coslash-muted hover:text-coslash-ink flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1 font-medium disabled:cursor-default"
+                                >
+                                  <ChevronRight
+                                    className={cn('size-3 transition-transform', { 'rotate-90': expanded })}
+                                  />
+                                  Worktrees
+                                </button>
+                                {expanded && (
+                                  <div className="border-coslash-line ml-3 border-l pl-1">
+                                    <FacetRows options={worktrees.map(locationOption)} />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </section>
                   )}
+                  {choices.others.length > 0 && (
+                    <section>
+                      <h3 className={locationHeading}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span tabIndex={0} className="cursor-default">
+                              Other worktrees
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="coslash-shell max-w-64">
+                            These are verified worktrees. Their parent repository could not be identified.
+                          </TooltipContent>
+                        </Tooltip>
+                      </h3>
+                      <FacetRows options={choices.others.map(locationOption)} />
+                    </section>
+                  )}
+                  {choices.folders.length > 0 && (
+                    <section>
+                      <h3 className={locationHeading}>Folders</h3>
+                      <FacetRows options={choices.folders.map(locationOption)} />
+                    </section>
+                  )}
+                  <FacetRows options={choices.unlocated.map(locationOption)} />
+                  {!choices.repositories.length &&
+                    !choices.others.length &&
+                    !choices.folders.length &&
+                    !choices.unlocated.length && (
+                      <div className="text-coslash-muted px-2.5 py-2 text-xs">
+                        {normalizedGroupQuery ? 'No matching locations.' : 'No locations yet.'}
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -1392,6 +1517,7 @@ export function CoslashLayout({
                       sessions={visibleSessions}
                       handoffs={latestHandoffs}
                       onOpenHandoffTarget={onOpenHandoffTarget}
+                      displayedGroups={displayedGroups}
                       columnGroupBy={preferences.boardColumns}
                       rowGroupBy={preferences.boardRows}
                       selectedSessionKey={selectedSessionKey}
@@ -1412,7 +1538,7 @@ export function CoslashLayout({
                   <SessionListView
                     sections={sections}
                     handoffs={latestHandoffs}
-                    groups={sessionGroups}
+                    groups={displayedGroups}
                     selectedSessionKey={selectedSessionKey}
                     compact={preferences.density === 'compact'}
                     sort={preferences.sort}

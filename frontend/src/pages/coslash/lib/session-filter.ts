@@ -1,4 +1,4 @@
-import type { Group } from '@/pages/coslash/lib/detected-groups';
+import { matchingLocation, type SessionGroups } from '@/pages/coslash/lib/detected-groups';
 import { boardStatusKey, sessionCost, sessionDisplayTitle, type Session } from '@/pages/coslash/lib/session';
 import type {
   SessionRange,
@@ -26,14 +26,14 @@ export function rangeStart(range: SessionRange): number | null {
 
 export function matchesFacets(
   session: Session,
-  group: Group,
+  groups: SessionGroups,
   preferences: SessionViewPreferences,
   skip?: FacetKey,
 ): boolean {
   const { statusFilters, groupFilters, machineFilters, agentFilters } = preferences;
   if (skip !== 'status' && statusFilters.length > 0 && !statusFilters.includes(boardStatusKey(session)))
     return false;
-  if (skip !== 'group' && groupFilters.length > 0 && !groupFilters.includes(group.id)) return false;
+  if (skip !== 'group' && groupFilters.length > 0 && !matchingLocation(groups, groupFilters)) return false;
   if (skip !== 'machine' && machineFilters.length > 0 && !machineFilters.includes(session.sourceId))
     return false;
   if (skip !== 'agent' && agentFilters.length > 0 && !agentFilters.includes(session.agent)) return false;

@@ -11,9 +11,10 @@ import {
 } from '@/pages/coslash/components/SessionCard';
 import { SynthesisCosts } from '@/pages/coslash/components/SynthesisCosts';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
-import { formatDuration, formatEstimatedCost } from '@/pages/coslash/lib/format';
+import { formatDuration, formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
 import {
   boardStatusKey,
+  currentLocation,
   displayStatusLabel,
   getModality,
   getVendor,
@@ -87,11 +88,14 @@ export function HeaderMeta({
 }) {
   const status = STATUSES[boardStatusKey(detail)];
 
+  const checkout = currentLocation(detail);
+
   return (
     <div className="flex flex-col gap-2 pt-2">
       <div className="text-coslash-muted flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-xs">
         <div className="flex min-w-40 flex-1 items-center gap-1 overflow-hidden">
-          <Badge variant="secondary">{sessionLocationFact(detail)}</Badge>
+          <Badge variant="secondary">{checkout?.repo ?? sessionLocationFact(detail)}</Badge>
+          {checkout && !checkout.main && <Badge variant="secondary">{checkout.label}</Badge>}
           <span>/</span>
           {detail.branch == null || detail.branch.trim() === '' ? (
             <Badge variant="secondary">—</Badge>
@@ -118,6 +122,36 @@ export function HeaderMeta({
           <PiErrorBadge diagnostic={detail.agentError} />
         </span>
       </div>
+      {detail.cwd && (
+        <div className="text-coslash-muted text-xs break-all">
+          Working directory <code>{detail.cwd}</code>
+        </div>
+      )}
+      {!!detail.locations?.length && (
+        <details className="text-coslash-muted rounded-lg border px-2 py-1 text-xs">
+          <summary className="cursor-pointer">Verified checkout history ({detail.locations.length})</summary>
+          <ul className="mt-2 space-y-2">
+            {detail.locations.map((loc) => (
+              <li key={JSON.stringify([loc.id, loc.cwd, loc.repo])} className="break-all">
+                <strong>{loc.main ? 'Main checkout' : loc.label}</strong> · {loc.repo || 'Local repository'} ·{' '}
+                {detail.sourceLabel}
+                <div>
+                  Worktree root <code>{loc.root}</code>
+                </div>
+                {loc.cwd !== loc.root && (
+                  <div>
+                    Session directory <code>{loc.cwd}</code>
+                  </div>
+                )}
+                <div>
+                  Git HEAD ({loc.headKind}) {loc.head} · {loc.availability} · last observed{' '}
+                  {formatTimeAgo(loc.lastSeen)}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div className="bg-coslash-soft rounded-lg border p-2 font-mono text-xs">
         <div className="flex flex-wrap items-baseline justify-between gap-1">
           <SessionModelUsage

@@ -22,7 +22,7 @@ func TestParseOriginProbeOutputCanonicalizesURL(t *testing.T) {
 		t.Fatalf("origins = %#v", found)
 	}
 	found = parseOriginProbeOutput(cwds, "0\thttps://github.com/o/r.git\tcodex/fix\n1\t\tmain\n")
-	if found[cwds[0]] != (remoteGit{"github.com/o/r", "codex/fix"}) || found[cwds[1]] != (remoteGit{branch: "main"}) {
+	if found[cwds[0]] != (remoteGit{origin: "github.com/o/r", branch: "codex/fix"}) || found[cwds[1]] != (remoteGit{branch: "main"}) {
 		t.Fatalf("facts = %#v", found)
 	}
 }
@@ -209,7 +209,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := parseOriginProbeOutput([]string{cwd}, string(output))[cwd]; got != (remoteGit{"github.com/o/r", "codex/test"}) {
+	if got := parseOriginProbeOutput([]string{cwd}, string(output))[cwd]; got != (remoteGit{origin: "github.com/o/r", branch: "codex/test"}) {
 		t.Fatalf("facts = %#v", got)
 	}
 }
@@ -320,7 +320,7 @@ func TestRepairRemoteDisplayFillsOrigin(t *testing.T) {
 
 // Codex starts worktrees on a detached HEAD, so a session often records no
 // branch; the probe still reads its remote and the branch checked out now.
-func TestRepairFillsRepositoryAndBranchWithoutRecordedBranch(t *testing.T) {
+func TestRepairFillsRepositoryAndPreservesUnknownRecordedBranch(t *testing.T) {
 	family := validFamily(t, "root-1")
 	family.Sessions[0].Display.WorkingDirectory = "/home/dev/.codex/worktrees/0040/coslash"
 	snapshot := CachedSnapshotV2{
@@ -333,12 +333,12 @@ func TestRepairFillsRepositoryAndBranchWithoutRecordedBranch(t *testing.T) {
 		return map[string]remoteGit{cwds[0]: {origin: "github.com/centauri-ai/coslash", branch: "codex/align-session-inspector-layout"}}
 	})
 	got := snapshot.Families[0].Facts.Sessions[0]
-	if got.Display.Repository == nil || *got.Display.Repository != "github.com/centauri-ai/coslash" || got.Branch != "codex/align-session-inspector-layout" {
+	if got.Display.Repository == nil || *got.Display.Repository != "github.com/centauri-ai/coslash" || got.Branch != "" {
 		t.Fatalf("repository = %v branch = %q", got.Display.Repository, got.Branch)
 	}
 }
 
-func TestRepairRefreshesCachedBranch(t *testing.T) {
+func TestRepairPreservesRecordedBranch(t *testing.T) {
 	family := validFamily(t, "root-1")
 	family.Sessions[0].Branch = "codex/old-branch"
 	family.Sessions[0].Display.WorkingDirectory = "/home/dev/repos/coslash"
@@ -355,7 +355,7 @@ func TestRepairRefreshesCachedBranch(t *testing.T) {
 		}
 		return map[string]remoteGit{cwds[0]: {origin: repository, branch: "codex/new-branch"}}
 	})
-	if calls != 1 || snapshot.Families[0].Facts.Sessions[0].Branch != "codex/new-branch" {
+	if calls != 1 || snapshot.Families[0].Facts.Sessions[0].Branch != "codex/old-branch" {
 		t.Fatalf("calls=%d branch=%q", calls, snapshot.Families[0].Facts.Sessions[0].Branch)
 	}
 }
@@ -399,5 +399,52 @@ func TestRepairDropsEditsWhenValidationFails(t *testing.T) {
 	})
 	if snapshot.Families[0].Facts.Sessions[0].Display.Repository != nil {
 		t.Fatal("invalid family kept the repaired repository")
+	}
+}
+
+func TestSSHProbeVerifiesRegisteredWorktree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("remote POSIX script")
+	}
+	dir := t.TempDir()
+	main := filepath.Join(dir, "repo")
+	work := filepath.Join(dir, "linked")
+	for _, args := range [][]string{{"init", "-q", main}, {"-C", main, "-c", "user.email=test@example.org", "-c", "user.name=test", "commit", "--allow-empty", "-qm", "init"}, {"-C", main, "worktree", "add", "-qb", "feature", work}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("%s %v", out, err)
+		}
+	}
+	cmd := exec.Command("sh", "-c", originProbeScript(3))
+	cwds := []string{work, main, dir}
+	cmd.Stdin = strings.NewReader(strings.Join(cwds, "\n") + "\n")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := parseOriginProbeOutput(cwds, string(out))
+	if got[work].checkout == nil || got[work].checkout.Label != "linked" || got[work].checkout.Main || got[main].checkout == nil || !got[main].checkout.Main || got[dir].checkout != nil {
+		t.Fatalf("unexpected checkout facts %s", out)
+	}
+}
+
+func TestLegacyCacheUsesRecordedBranch(t *testing.T) {
+	family := validFamily(t, "root-1")
+	f := &family.Sessions[0]
+	f.Display.ID = f.ID
+	f.Display.WorkingDirectory = "/checkout"
+	f.Branch = "old-live-head"
+	for _, recorded := range []string{"", "recorded"} {
+		f.Display.Branch = nil
+		if recorded != "" {
+			f.Display.Branch = &recorded
+		}
+		rows, _, err := family.Parsed()
+		if err != nil {
+			t.Fatal(err)
+		}
+		branch := rows[0].Session.Branch
+		if recorded == "" && branch != nil || recorded != "" && (branch == nil || *branch != recorded) {
+			t.Fatalf("recorded %q, got %v", recorded, branch)
+		}
 	}
 }

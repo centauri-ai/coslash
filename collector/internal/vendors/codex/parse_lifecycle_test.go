@@ -105,3 +105,24 @@ func TestSessionMetaRecordsCanonicalRepository(t *testing.T) {
 		}
 	}
 }
+
+func TestResumedRolloutKeepsOnlyItsOwnDirectories(t *testing.T) {
+	const own = "01a0c51b-94c2-72b0-90ef-b23ea631af2f"
+	parsed := parseLifecycleRows(t, []string{
+		`{"timestamp":"2026-09-21T17:55:15Z","type":"session_meta","payload":{"id":"ancestor","cwd":"/private/ancestor"}}`,
+		`{"timestamp":"2026-09-21T17:55:16Z","type":"session_meta","payload":{"id":"` + own + `","cwd":"/work/one","git":{"repository_url":"https://example.org/a/one"}}}`,
+		`{"timestamp":"2026-09-21T17:55:17Z","type":"session_meta","payload":{"id":"` + own + `","cwd":"/work/two"}}`,
+	})
+	encoded, err := vendors.EncodeParsedSession(parsed, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	round, err := vendors.DecodeParsedSession(encoded, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := round.Session.RecordedDirectories
+	if len(dirs) != 2 || dirs["/work/one\x00example.org/a/one"].CWD != "/work/one" || round.Session.WorkingDirectory != "/work/two" {
+		t.Fatalf("resumed rollout directories: %+v", dirs)
+	}
+}

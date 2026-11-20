@@ -258,6 +258,9 @@ func Validate(f Family) error {
 }
 
 func validateSession(s Session) error {
+	if len(s.Display.Locations) > 0 {
+		return errors.New("unexpected local checkout observations")
+	}
 	if !identifier(s.ID) || (s.ParentID != "" && !identifier(s.ParentID)) || (s.SpawnKey != "" && !identifier(s.SpawnKey)) {
 		return errors.New("invalid identity")
 	}
@@ -410,6 +413,7 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 			f.State = StatePartial
 		}
 		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, PullRequestLinks: slices.Clone(s.PullRequestLinks), Display: *display}
+		fact.Display.Locations = nil
 		fact.Display.PullRequestLinks = nil // the fact field is the only copy that survives compaction
 		if p.StatusHint != nil {
 			fact.StatusHint = truncate(*p.StatusHint, MaxDisplayBytes)
@@ -577,7 +581,12 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 			return nil, nil, err
 		}
 		s.Agent, s.ID = f.Vendor, fact.ID
-		s.Branch, s.DurationMs = pointer(fact.Branch), cloneInt(fact.DurationMs)
+		branch := fact.Branch
+		// Older SSH caches overwrote the top-level branch with live HEAD. The display copy kept the recording.
+		if fact.Display.ID != "" && fact.Display.WorkingDirectory != "" {
+			branch = optional(fact.Display.Branch, MaxDisplayBytes)
+		}
+		s.Branch, s.DurationMs = pointer(branch), cloneInt(fact.DurationMs)
 		s.StartedAt, s.LastActivityTime = fact.StartedAtMs, fact.LastActivityAtMs
 		s.Entrypoint, s.EditedFileCount = pointer(fact.Entrypoint), fact.Counts.EditedFiles
 		s.Model, s.ContextTokens, s.ContextWindow = pointer(fact.Model), cloneInt(fact.ContextTokens), cloneInt(fact.ContextWindow)

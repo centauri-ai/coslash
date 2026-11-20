@@ -120,8 +120,8 @@ describe('CoslashLayout', () => {
   it('does not quote an empty group filter when there are no groups', () => {
     const markup = renderLayout({ sessions: [] });
 
-    expect(markup).not.toContain('No groups match');
-    expect(markup).toContain('No groups yet.');
+    expect(markup).not.toContain('No matching locations.');
+    expect(markup).toContain('No locations yet.');
   });
 
   it('shows the monthly insights view with existing session data', () => {
@@ -302,7 +302,7 @@ describe('CoslashLayout', () => {
     expect(dotFor(markup, 'success')).toContain('aria-label="Synced no saved history over SSH.');
     expect(markup).not.toContain('lucide-activity');
     expect(markup).not.toContain('running ·');
-    expect(markup).toContain('Filter groups');
+    expect(markup).toContain('Find a location');
     expect(markup).toContain('sticky top-[-20px] z-20');
     expect(markup).toContain('placeholder="Search sessions -- title, repo, prompt, recap"');
     expect(markup).toContain(
@@ -371,7 +371,7 @@ describe('CoslashLayout', () => {
       ],
     });
     const countOf = (label: string) =>
-      markup.match(new RegExp(`>${label}</span></button>.*?tabular-nums">(\\d+)<`))?.[1];
+      markup.match(new RegExp(`>${label}</span>(?:</span>)?</button>.*?tabular-nums">(\\d+)<`))?.[1];
 
     expect(countOf('Active')).toBe('1');
     expect(countOf('Inactive')).toBe('1');
@@ -484,6 +484,77 @@ describe('CoslashLayout', () => {
     expect(markup.match(/>coslash</g)).toHaveLength(2);
   });
 
+  it('keeps legacy inclusive repository filters and only verifies main from checkout evidence', () => {
+    const repo = 'github.com/centauri-ai/coslash';
+    const location = {
+      id: 'wt-1',
+      label: 'quiet-raven',
+      repo,
+      cloneId: 'clone',
+      root: '/trees/quiet-raven',
+      cwd: '/trees/quiet-raven',
+      main: false,
+      headKind: 'branch' as const,
+      lastSeen: 1,
+      availability: 'available' as const,
+    };
+    const sessions = [
+      session({
+        id: 'main',
+        name: 'Main task',
+        repo,
+        cwd: '/main',
+        locations: [{ ...location, id: 'main', main: true, root: '/main', cwd: '/main' }],
+      }),
+      session({ id: 'unknown', name: 'Legacy task', repo }),
+      session({ id: 'root', name: 'Worktree root task', cwd: location.root, locations: [location] }),
+      session({
+        id: 'sub',
+        name: 'Worktree subdirectory task',
+        cwd: location.root + '/ui',
+        locations: [{ ...location, cwd: location.root + '/ui' }],
+      }),
+      session({
+        id: 'moved',
+        name: 'Moved task',
+        cwd: '/another',
+        locations: [
+          { ...location, id: 'other', repo: 'github.com/other/app', cwd: '/another', root: '/another' },
+          location,
+        ],
+      }),
+      session({
+        id: 'missing',
+        name: 'Layout only task',
+        repo: 'coslash',
+        repoLocalOnly: true,
+        cwd: '/superset/worktrees/coslash/orphan',
+      }),
+    ];
+    const render = (groupFilters: string[], query = '') => {
+      vi.stubGlobal('sessionStorage', {
+        getItem: () => JSON.stringify({ groupFilters, query }),
+        setItem: () => {},
+      });
+      return renderLayout({ sessions });
+    };
+    const id = 'worktree:' + JSON.stringify(['remote', 'wt-1']);
+    const repoFilter = 'repo:' + repo;
+    const byMain = render(['main-' + repoFilter]);
+    expect(byMain).toContain('Main task');
+    for (const name of ['Legacy task', 'Worktree root task', 'Moved task'])
+      expect(byMain).not.toContain(name);
+    const byRepo = render([repoFilter]);
+    for (const name of ['Main task', 'Worktree root task', 'Worktree subdirectory task', 'Moved task'])
+      expect(byRepo).toContain(name);
+    expect(byRepo).not.toContain('Layout only task');
+    const byWorktree = render([id], 'worktree:quiet-raven');
+    expect(byWorktree).toContain('Moved task');
+    expect(byWorktree).not.toContain('Main task');
+    expect(render(['repo:github.com/other/app', id])).not.toContain('Moved task');
+    expect(render([], 'orphan')).toContain('Layout only task');
+  });
+
   it('sorts A-Z on the title the row actually renders', () => {
     storeSort({ key: 'title', dir: 'asc' });
     const markup = renderLayout({
@@ -551,8 +622,8 @@ describe('CoslashLayout', () => {
 
     expect(markup.indexOf('>centauri-ai<')).toBeGreaterThan(repositoryHeading);
     expect(markup.indexOf('>centauri-ai<')).toBeLessThan(folderHeading);
-    expect(markup.match(/lucide-folder(?!-git)/g)).toHaveLength(1);
-    expect(markup.match(/lucide-folder-git-2/g)).toHaveLength(1);
+    expect(markup.match(/lucide-folder(?!-git)/g)).toHaveLength(3);
+    expect(markup).toContain('github.com/centauri-ai/centauri-ai · Main checkout');
   });
 
   it('keeps same-named local folders apart by their path', () => {

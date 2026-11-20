@@ -28,6 +28,10 @@ const (
 )
 
 type Entry struct {
+	LocationCWD string `json:"locationCwd,omitempty"`
+
+	ListedLocationVersion int64 `json:"listedLocationVersion,omitempty"`
+
 	Key                  string                          `json:"key"`
 	Selection            sessionbackupproducer.Selection `json:"selection"`
 	Session              hubclient.V4Session             `json:"session"`
@@ -289,6 +293,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.SourceBlocked = false
 			entry.SyncedActivity, entry.SyncedSourceRevision = 0, ""
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
+			entry.ListedLocationVersion = 0
 			entry.Listed, entry.ListRejected, entry.ServerLeftOut = false, false, false
 			entry.Manifest, entry.Attempt = nil, 0
 			entry.Frozen, entry.LastSentAt = nil, 0
@@ -961,6 +966,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 		}
 		if i, ok := index[item.Key]; ok {
 			entry := &q.state.Entries[i]
+			entry.LocationCWD = item.LocationCWD
 			if entry.LastSentAt == 0 {
 				entry.LastSentAt = now.UnixMilli()
 			}
@@ -1090,6 +1096,8 @@ func (q *Queue) update(entry Entry, line *LogLine) error {
 			if entry.SourceBlocked != stored.SourceBlocked {
 				entry.SourceEpoch = stored.SourceEpoch + 1
 			}
+			entry.LocationCWD = stored.LocationCWD
+			entry.ListedLocationVersion = stored.ListedLocationVersion
 			priorEntry := q.state.Entries[i]
 			priorDiscards := slices.Clone(q.state.DiscardBundles)
 			priorLog, priorLogSeq := slices.Clone(q.state.Log), q.state.LogSeq

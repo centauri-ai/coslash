@@ -112,8 +112,25 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
 			return
 		}
+		projection, err := session.StoredLocations(r.Context(), identity.SourceID, identity.Agent, identity.SessionID, 0)
+		if err != nil {
+			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
+			return
+		}
+		for _, location := range projection.Locations {
+			if location.ID != "" {
+				value.Locations = append(value.Locations, location)
+			}
+		}
 		health := remoteManager.DiagnosticsHealth()
 		cachedOffline = health.State != remote.StateOK && health.State != remote.StateLimited
+		if cachedOffline {
+			for i := range value.Locations {
+				if value.Locations[i].Availability == "available" {
+					value.Locations[i].Availability = "stale"
+				}
+			}
+		}
 	}
 
 	writeJSON(w, sessionDetailResponse{
