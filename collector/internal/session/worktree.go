@@ -209,9 +209,9 @@ func probeMovedCheckout(ctx context.Context, cwd string) *CheckoutObservation {
 		locationMemory.Unlock()
 		return nil
 	}
-	var admin, repo string
-	err := locationMemory.db.QueryRowContext(ctx, `SELECT admin,l.repo FROM links l JOIN trees t ON tree=t.id
-  WHERE source='local' AND cwd=? AND main=0 AND availability!='removed' ORDER BY observed DESC LIMIT 1`, cwd).Scan(&admin, &repo)
+	var admin string
+	err := locationMemory.db.QueryRowContext(ctx, `SELECT admin FROM links l JOIN trees t ON tree=t.id
+  WHERE source='local' AND cwd=? AND main=0 AND availability!='removed' ORDER BY observed DESC LIMIT 1`, cwd).Scan(&admin)
 	locationMemory.Unlock()
 	if err != nil {
 		return nil
@@ -219,6 +219,10 @@ func probeMovedCheckout(ctx context.Context, cwd string) *CheckoutObservation {
 	root := registeredRoot(admin)
 	if root == "" {
 		return nil
+	}
+	repo, localOnly := repositoryName(ctx, root, root)
+	if localOnly {
+		repo = ""
 	}
 	return ProbeCheckout(ctx, root, repo)
 }
@@ -265,11 +269,14 @@ func openLocationMemory(path string) error {
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS namespace (salt TEXT PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS trees(id TEXT PRIMARY KEY, clone TEXT, main INTEGER, root TEXT, label TEXT, common TEXT, admin TEXT, head_kind TEXT, head TEXT, observed INTEGER, availability TEXT);
+ CREATE TABLE IF NOT EXISTS tree_origins(tree TEXT, repo TEXT, observed INTEGER, PRIMARY KEY(tree,repo));
  CREATE TABLE IF NOT EXISTS links(source TEXT, agent TEXT, session TEXT, tree TEXT, repo TEXT, cwd TEXT, activity INTEGER, PRIMARY KEY(source,agent,session,tree,repo,cwd));
  CREATE TABLE IF NOT EXISTS observed_activity(source TEXT,agent TEXT,session TEXT,activity INTEGER,PRIMARY KEY(source,agent,session));
  CREATE TABLE IF NOT EXISTS projections(source TEXT,agent TEXT,session TEXT,version INTEGER,signature TEXT,data BLOB,PRIMARY KEY(source,agent,session));
  CREATE INDEX IF NOT EXISTS cwd_links ON links(source,cwd);
- CREATE INDEX IF NOT EXISTS latest_links ON links(source,agent,session,activity DESC);`)
+ CREATE INDEX IF NOT EXISTS latest_links ON links(source,agent,session,activity DESC);
+ INSERT INTO tree_origins SELECT DISTINCT l.tree,l.repo,t.observed FROM links l JOIN trees t ON l.tree=t.id
+ WHERE NOT EXISTS (SELECT 1 FROM tree_origins);`)
 	if err == nil {
 		_, err = db.Exec("INSERT INTO namespace SELECT ? WHERE NOT EXISTS (SELECT 1 FROM namespace)", uuid.NewString())
 	}
@@ -325,6 +332,10 @@ func RecordLocations(ctx context.Context, source string, sessions []*Session, pr
 		if err != nil {
 			return err
 		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO tree_origins VALUES(?,?,?) ON CONFLICT(tree,repo) DO UPDATE SET observed=max(tree_origins.observed,excluded.observed)`, probe.ID, probe.Repo, probe.LastSeen)
+		if err != nil {
+			return err
+		}
 	}
 	for _, s := range sessions {
 		if s.ID == "" {
@@ -338,30 +349,24 @@ func RecordLocations(ctx context.Context, source string, sessions []*Session, pr
 			return cmp.Or(cmp.Compare(a.Activity, b.Activity), cmp.Compare(a.CWD, b.CWD), cmp.Compare(a.Repo, b.Repo))
 		})
 		current := RecordedDirectory{CWD: s.WorkingDirectory, Activity: s.LastActivityTime}
-		if s.Repository != nil && !s.RepositoryLocalOnly {
-			current.Repo = *s.Repository
-		}
 		dirs = append(dirs, current)
 		for _, dir := range dirs {
 			probe := probes[dir.CWD]
 			if probe == nil {
 				continue
 			}
-			repo := dir.Repo
-			if repo == "" {
-				repo = probe.Repo
-			}
+			// A transcript may independently name a different repository. Only Git identifies the checkout's remote.
 			// An unchanged transcript at a reused path must keep its original checkout.
 			_, err = tx.ExecContext(ctx, `INSERT INTO links SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS
-     (SELECT 1 FROM links WHERE source=? AND agent=? AND session=? AND activity>=? AND cwd=? AND (tree!=? OR repo!=?))
+     (SELECT 1 FROM links WHERE source=? AND agent=? AND session=? AND activity>=? AND cwd=? AND tree!=?)
      ON CONFLICT(source,agent,session,tree,repo,cwd) DO UPDATE SET activity=max(links.activity,excluded.activity)`,
-				source, s.Agent, s.ID, probe.ID, repo, dir.CWD, dir.Activity, source, s.Agent, s.ID, dir.Activity, dir.CWD, probe.ID, repo)
+				source, s.Agent, s.ID, probe.ID, probe.Repo, dir.CWD, dir.Activity, source, s.Agent, s.ID, dir.Activity, dir.CWD, probe.ID)
 			if err != nil {
 				return err
 			}
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT t.id,t.clone,t.main,t.root,t.label,t.head_kind,t.head,t.observed,t.availability,l.cwd,l.repo,t.common,t.admin,l.activity
-    FROM links l JOIN trees t ON l.tree=t.id WHERE source=? AND agent=? AND session=? ORDER BY activity DESC,(l.cwd=?) DESC,l.rowid DESC`, source, s.Agent, s.ID, s.WorkingDirectory)
+		rows, err := tx.QueryContext(ctx, `SELECT t.id,t.clone,t.main,t.root,t.label,t.head_kind,t.head,coalesce(o.observed,t.observed),t.availability,l.cwd,l.repo,t.common,t.admin,l.activity
+    FROM links l JOIN trees t ON l.tree=t.id LEFT JOIN tree_origins o ON o.tree=l.tree AND o.repo=l.repo WHERE source=? AND agent=? AND session=? ORDER BY activity DESC,(l.cwd=?) DESC,o.observed DESC,l.rowid DESC`, source, s.Agent, s.ID, s.WorkingDirectory)
 		if err != nil {
 			return err
 		}
