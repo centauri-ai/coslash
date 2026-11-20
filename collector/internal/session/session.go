@@ -92,20 +92,22 @@ const (
 
 // A DigestEntry's position in Session.Digest is its position in the transcript
 type DigestEntry struct {
-	SourceEntryID      string  `json:"sourceEntryId,omitempty"`
-	ParentEntryID      string  `json:"parentEntryId,omitempty"`
-	BranchID           string  `json:"branchId,omitempty"`
-	Inherited          *bool   `json:"inherited,omitempty"`
-	Active             *bool   `json:"active,omitempty"`
-	ContextSelected    *bool   `json:"contextSelected,omitempty"`
-	ContextDescription *string `json:"contextDescription,omitempty"`
-	Turn               int     `json:"turn"`
-	Category           string  `json:"category"`
-	Description        string  `json:"description"`
-	Answer             string  `json:"answer,omitempty"`
-	SubagentID         string  `json:"subagentId,omitempty"`
-	Time               int64   `json:"time,omitempty"`
-	SpawnKey           string  `json:"-"`
+	SearchText          string  `json:"-"`
+	SearchTextTruncated bool    `json:"-"`
+	SourceEntryID       string  `json:"sourceEntryId,omitempty"`
+	ParentEntryID       string  `json:"parentEntryId,omitempty"`
+	BranchID            string  `json:"branchId,omitempty"`
+	Inherited           *bool   `json:"inherited,omitempty"`
+	Active              *bool   `json:"active,omitempty"`
+	ContextSelected     *bool   `json:"contextSelected,omitempty"`
+	ContextDescription  *string `json:"contextDescription,omitempty"`
+	Turn                int     `json:"turn"`
+	Category            string  `json:"category"`
+	Description         string  `json:"description"`
+	Answer              string  `json:"answer,omitempty"`
+	SubagentID          string  `json:"subagentId,omitempty"`
+	Time                int64   `json:"time,omitempty"`
+	SpawnKey            string  `json:"-"`
 }
 
 type FileEdit struct {

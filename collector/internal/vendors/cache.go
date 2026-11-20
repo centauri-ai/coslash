@@ -87,15 +87,18 @@ func FilesFingerprint(source ReadSource, paths []string) (string, error) {
 // cachedSession carries the session fields the API JSON hides, so a cached
 // summary round-trips exactly what the parser produced.
 type cachedSession struct {
-	Session          json.RawMessage             `json:"session"`
-	ParentSessionID  string                      `json:"parentSessionId,omitempty"`
-	StartedAt        int64                       `json:"startedAt,omitempty"`
-	ActivityFallback bool                        `json:"activityFallback,omitempty"`
-	CommitLog        []session.CommitObservation `json:"commitLog,omitempty"`
-	CommitSHAs       []string                    `json:"commitShas,omitempty"`
-	CompactionSeed   string                      `json:"compactionSeed,omitempty"`
-	DigestSpawnKeys  []string                    `json:"digestSpawnKeys,omitempty"`
-	FileEditChanges  [][]session.FileChange      `json:"fileEditChanges,omitempty"`
+	SearchTextVersion     int                         `json:"searchTextVersion,omitempty"`
+	DigestSearchText      []string                    `json:"digestSearchText,omitempty"`
+	DigestSearchTruncated []bool                      `json:"digestSearchTruncated,omitempty"`
+	Session               json.RawMessage             `json:"session"`
+	ParentSessionID       string                      `json:"parentSessionId,omitempty"`
+	StartedAt             int64                       `json:"startedAt,omitempty"`
+	ActivityFallback      bool                        `json:"activityFallback,omitempty"`
+	CommitLog             []session.CommitObservation `json:"commitLog,omitempty"`
+	CommitSHAs            []string                    `json:"commitShas,omitempty"`
+	CompactionSeed        string                      `json:"compactionSeed,omitempty"`
+	DigestSpawnKeys       []string                    `json:"digestSpawnKeys,omitempty"`
+	FileEditChanges       [][]session.FileChange      `json:"fileEditChanges,omitempty"`
 }
 
 type cachedParsed struct {
@@ -136,11 +139,13 @@ func EncodeParsedSession(parsed *ParsedSession, extra any) (json.RawMessage, err
 		}
 		s := parsed.Session
 		envelope.Session = cachedSession{
-			Session: body, ParentSessionID: s.ParentSessionID, StartedAt: s.StartedAt,
+			SearchTextVersion: 1, Session: body, ParentSessionID: s.ParentSessionID, StartedAt: s.StartedAt,
 			ActivityFallback: s.ActivityFallback, CommitLog: s.CommitLog, CommitSHAs: s.CommitSHAs,
 			CompactionSeed: s.CompactionSeed,
 		}
 		for _, entry := range s.Digest {
+			envelope.Session.DigestSearchText = append(envelope.Session.DigestSearchText, entry.SearchText)
+			envelope.Session.DigestSearchTruncated = append(envelope.Session.DigestSearchTruncated, entry.SearchTextTruncated)
 			envelope.Session.DigestSpawnKeys = append(envelope.Session.DigestSpawnKeys, entry.SpawnKey)
 		}
 		for _, edit := range s.FileEdits {
@@ -182,6 +187,28 @@ func DecodeParsedSession(payload json.RawMessage, extra any) (*ParsedSession, er
 		return nil, errCachedSessionMissing
 	}
 	cached := envelope.Session
+	if cached.SearchTextVersion == 1 && (len(cached.DigestSearchText) != len(s.Digest) || len(cached.DigestSearchTruncated) != len(s.Digest)) {
+		return nil, errors.New("invalid cached search text")
+	}
+	searchBytes := 0
+	for _, text := range cached.DigestSearchText {
+		searchBytes += len(text)
+		if len(text) > session.MaxSearchEntryBytes || searchBytes > session.MaxSearchSessionBytes {
+			return nil, errors.New("cached search text exceeds budget")
+		}
+	}
+	for i := range s.Digest {
+		entry := &s.Digest[i]
+		if cached.SearchTextVersion != 1 && (entry.Category == session.DigestUser || entry.Category == session.DigestFirstPrompt || entry.Category == session.DigestQuestion) {
+			return nil, errors.New("cached summary lacks search text")
+		}
+		if len(cached.DigestSearchText) == len(s.Digest) {
+			entry.SearchText = cached.DigestSearchText[i]
+		}
+		if len(cached.DigestSearchTruncated) == len(s.Digest) {
+			entry.SearchTextTruncated = cached.DigestSearchTruncated[i]
+		}
+	}
 	s.ParentSessionID, s.StartedAt, s.ActivityFallback = cached.ParentSessionID, cached.StartedAt, cached.ActivityFallback
 	s.CommitLog, s.CommitSHAs, s.CompactionSeed = cached.CommitLog, cached.CommitSHAs, cached.CompactionSeed
 	if len(cached.DigestSpawnKeys) == len(s.Digest) {

@@ -15,7 +15,8 @@ import (
 // centralizing it here keeps each vendor from re-establishing it by hand.
 
 type DigestLog struct {
-	entries []DigestEntry
+	entries     []DigestEntry
+	searchBytes int
 }
 
 // Push appends an entry attributed to turn (at least 1). Recaps and plans keep
@@ -33,7 +34,9 @@ func (log *DigestLog) Push(turn int, category, description string, time int64) {
 			text = strings.Clone(text)
 		}
 	}
+	searchText, truncated := log.captureSearch(category, description)
 	log.entries = append(log.entries, DigestEntry{
+		SearchText: searchText, SearchTextTruncated: truncated,
 		Turn:        max(turn, 1),
 		Category:    category,
 		Description: text,
@@ -43,7 +46,10 @@ func (log *DigestLog) Push(turn int, category, description string, time int64) {
 
 func (log *DigestLog) PushQuestion(turn int, description, answer string, time int64) {
 	log.Push(turn, DigestQuestion, description, time)
-	log.entries[len(log.entries)-1].Answer = Truncate(answer, TruncateTextLimit)
+	entry := &log.entries[len(log.entries)-1]
+	log.searchBytes -= len(entry.SearchText)
+	entry.SearchText, entry.SearchTextTruncated = log.captureSearch(DigestQuestion, description+"\n"+answer)
+	entry.Answer = Truncate(answer, TruncateTextLimit)
 }
 
 func (log *DigestLog) PushSubagent(turn int, spawnKey string, time int64) {
@@ -152,4 +158,33 @@ func (log *CommandLog) Outputs() []*string {
 		outputs[i] = entry.Output
 	}
 	return outputs
+}
+
+const MaxSearchEntryBytes = 8 * 1024
+const MaxSearchSessionBytes = 128 * 1024
+
+func (log *DigestLog) captureSearch(category, text string) (string, bool) {
+	if category != DigestFirstPrompt && category != DigestUser && category != DigestQuestion {
+		return "", false
+	}
+	limit := min(MaxSearchEntryBytes, MaxSearchSessionBytes-log.searchBytes)
+	truncated := len(text) > limit
+	if truncated {
+		text = text[:limit]
+		for !utf8.ValidString(text) {
+			text = text[:len(text)-1]
+		}
+	}
+	text = strings.Clone(text)
+	log.searchBytes += len(text)
+	return text, truncated
+}
+
+func SearchTextPartial(digest []DigestEntry) bool {
+	for _, entry := range digest {
+		if entry.SearchTextTruncated {
+			return true
+		}
+	}
+	return false
 }

@@ -976,3 +976,24 @@ func TestSessionRoundTripPreservesPullRequestLinks(t *testing.T) {
 		t.Fatalf("a count without links must stay valid: %#v, %v", record.Session, err)
 	}
 }
+
+func TestLocalSearchEnrichmentExcludedFromPortableRecord(t *testing.T) {
+	s := session.Session{Agent: "claude", ID: "search", StartedAt: 1, LastActivityTime: 2, SessionDetails: session.SessionDetails{
+		Digest:    []session.DigestEntry{{Turn: 1, Category: session.DigestUser, Description: "display", SearchText: "private full prompt"}},
+		Synthesis: &session.SessionSynthesis{Goals: []string{"goal"}, KeyDecisions: []string{"keep"}},
+	}}
+	record, err := FromSession("local", s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(record.Session.Synthesis.KeyDecisions, []string{"keep"}) {
+		t.Fatal("existing decisions changed during export")
+	}
+	restored, err := ToSession(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Digest[0].SearchText != "" {
+		t.Fatal("local enrichment crossed portable boundary")
+	}
+}
