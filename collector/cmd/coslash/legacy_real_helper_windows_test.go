@@ -438,7 +438,13 @@ func (f *realHelperFixture) startHelper(keepRuntimeLock bool) *realHelperRun {
 			if !f.ownerActive() {
 				f.t.Fatal("fixture runtime owner stopped being visible before it was released")
 			}
-			_ = os.Remove(f.ready)
+			// The legacy helper can still hold the file open after its write is visible.
+			for err := os.Remove(f.ready); err != nil && !errors.Is(err, os.ErrNotExist); err = os.Remove(f.ready) {
+				if time.Now().After(deadline) {
+					f.t.Fatalf("remove the helper ready file: %v", err)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
 			f.releaseOwnerReadiness()
 			if !keepRuntimeLock {
 				f.releaseRuntimeLock()
