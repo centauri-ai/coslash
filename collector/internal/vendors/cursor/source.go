@@ -48,7 +48,7 @@ func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendo
 		}
 		ids = append(ids, IDFromPath(path))
 	}
-	metadata, metadataErr := loadMetadataForSessionsWithLive(ctx, home, canonicalCursorIDs(ids), live)
+	metadata, metadataErr := loadMetadataForSessionsWithLive(ctx, home, ids, live)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}

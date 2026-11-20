@@ -394,7 +394,11 @@ func healthForHome(ctx context.Context, source vendors.ReadSource, home string) 
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Root: root, Err: err}
 	}
-	return vendors.FileSourceHealth(vendors.AgentCodex, root, scan, func(path string) (bool, error) {
+	health := vendors.FileSourceHealth(vendors.AgentCodex, root, scan, func(path string) (bool, error) {
 		return IsRootRollout(ctx, source, path)
 	})
+	if err := ctx.Err(); err != nil {
+		return vendors.SourceHealth{Agent: vendors.AgentCodex, Root: root, Err: err}
+	}
+	return health
 }
