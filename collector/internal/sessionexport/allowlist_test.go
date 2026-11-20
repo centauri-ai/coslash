@@ -34,6 +34,7 @@ var census = map[string]decision{
 	"WorkingDirectory":    {true, "session.cwd, repository-relative or omitted"},
 	"Branch":              {true, "bounded session.branch"},
 	"Repository":          {true, "repository.canonical"},
+	"RecordedDirectories": {false, "private Git observations"}, "Locations": {false, "private Git observations"},
 	"RepositoryLocalOnly": {true, "repository.localOnly"},
 	"EditedFileCount":     {true, "session.counts.editedFiles"},
 	"DurationMs":          {true, "session.durationMs"},

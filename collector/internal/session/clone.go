@@ -1,5 +1,7 @@
 package session
 
+import "maps"
+
 // Clone returns a deep copy suitable for composition stages that mutate a
 // parsed session while deriving display or portable-record fields.
 func Clone(source *Session) *Session {
@@ -10,6 +12,8 @@ func Clone(source *Session) *Session {
 	cloned.Name = clonePointer(source.Name)
 	cloned.Summary = clonePointer(source.Summary)
 	cloned.Status = clonePointer(source.Status)
+	cloned.RecordedDirectories = maps.Clone(source.RecordedDirectories)
+	cloned.Locations = append([]Location(nil), source.Locations...)
 	cloned.Branch = clonePointer(source.Branch)
 	cloned.Repository = clonePointer(source.Repository)
 	cloned.DurationMs = clonePointer(source.DurationMs)

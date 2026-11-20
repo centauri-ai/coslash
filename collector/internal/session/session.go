@@ -77,6 +77,9 @@ type Session struct {
 	ReviewError         string                 `json:"reviewError,omitempty"`
 	CommitLog           []CommitObservation    `json:"-"`
 	SessionDetails
+
+	RecordedDirectories map[string]RecordedDirectory `json:"-"`
+	Locations           []Location                   `json:"locations,omitempty"`
 }
 
 const (

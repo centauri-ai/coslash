@@ -183,6 +183,7 @@ type codexTokenSample struct {
 // sessionID is the PARENT's id — only payload.id (= the filename uuid) is its
 // own.
 type codexMeta struct {
+	at               int64
 	payloadID        string
 	sessionID        string
 	forkedFromID     string

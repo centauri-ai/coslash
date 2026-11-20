@@ -503,6 +503,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"LocalSSHMirror":   "excluded local Desktop SSH mirror marker",
 		"DetailRevision":   "excluded local detail cache revision", "Entrypoint": "included", "CommitLog": "parser-only source observation",
 		"ReviewPending": "excluded transient local review state", "ReviewError": "excluded transient local review state",
+		"RecordedDirectories": "parser evidence for local Git observations", "Locations": "local Git observation only",
 		"SessionDetails": "included field-by-field",
 	}
 	typeOf := reflect.TypeOf(session.Session{})
