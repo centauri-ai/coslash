@@ -167,56 +167,6 @@ func (c *Cache) Load(sourceID string) (CachedSnapshot, bool, error) {
 	return cached, true, nil
 }
 
-func (c *Cache) Store(sourceID string, cached CachedSnapshot) error {
-	dir, err := c.sourceDir(sourceID)
-	if err != nil {
-		return err
-	}
-	remotes := filepath.Join(c.Root, "remotes")
-	if err := os.MkdirAll(remotes, 0o700); err != nil {
-		return err
-	}
-	if err := protectCacheDirectory(remotes); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if err := protectCacheDirectory(dir); err != nil {
-		return err
-	}
-	data, err := json.Marshal(cached)
-	if err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(dir, ".snapshot-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if err := protectCacheFile(tempPath, temp); err != nil {
-		temp.Close()
-		return err
-	}
-	if _, err := temp.Write(data); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	path, err := c.snapshotPath(sourceID)
-	if err != nil {
-		return err
-	}
-	return os.Rename(tempPath, path)
-}
-
 func (c *Cache) RemoveSource(sourceID string) error {
 	return c.removeSourceWithCommit(sourceID, func() error { return nil }, nil)
 }

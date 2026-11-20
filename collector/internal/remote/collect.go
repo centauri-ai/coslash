@@ -655,8 +655,6 @@ func collectIncremental(
 		coverage = append(coverage, outcome.Coverage)
 	}
 	if allVendorsCompleted && len(failures) == 0 {
-		reservedRecords--
-		reservedBytes -= completionSize(remoteprotocol.Record{Type: remoteprotocol.RecordRequestComplete})
 		if err := apply(remoteprotocol.Record{Type: remoteprotocol.RecordRequestComplete}, 0); err != nil {
 			return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply request completion: %w", err)
 		}

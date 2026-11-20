@@ -240,8 +240,6 @@ func main() {
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
-	} else if err := synthesis.MigrateLegacyCache(collector.NewLegacySessionExistsResolver()); err != nil {
-		log.Printf("migrate synthesis cache: %v", err)
 	}
 	if err := synthesis.CleanupScratch(); err != nil {
 		log.Printf("sweep synthesis scratch directories: %v", err)

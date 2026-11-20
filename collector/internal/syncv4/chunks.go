@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
+
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +28,7 @@ func retryableChunk(err error) bool {
 }
 
 func (r *Runner) chunkScalingEnabled() bool {
-	return os.Getenv("COSLASH_SCALE_IMPORT") != "0" && (r.scaleEnabled || r.config.ImportPlan != nil)
+	return hubclient.ScaleImportEnabled() && (r.scaleEnabled || r.config.ImportPlan != nil)
 }
 
 func (r *Runner) putChunk(ctx context.Context, reader *sessionbackupproducer.BundleReader, uploadID string, job chunkJob) (error, bool) {

@@ -30,33 +30,29 @@ const (
 )
 
 type vendorSource struct {
-	name           string
-	collect        func(context.Context, int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	loadFacts      func(id string) (*vendors.ParsedSession, error)
-	newFactsLoader func() (func(string) (*vendors.ParsedSession, error), error)
-	loadFamily     func(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	health         func() vendors.SourceHealth
+	name       string
+	collect    func(context.Context, int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	loadFacts  func(id string) (*vendors.ParsedSession, error)
+	loadFamily func(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	health     func() vendors.SourceHealth
 }
 
 var vendorSources = func() []vendorSource {
 	sources := []vendorSource{
 		{
 			name: vendors.AgentClaude, collect: claude.CollectContext, loadFacts: claude.GetSessionFacts,
-			newFactsLoader: claude.NewSessionFactsLoader,
-			loadFamily:     claude.GetSessionFamily,
-			health:         claude.Health,
+			loadFamily: claude.GetSessionFamily,
+			health:     claude.Health,
 		},
 		{
 			name: vendors.AgentCodex, collect: codex.CollectContext, loadFacts: codex.GetSessionFacts,
-			newFactsLoader: codex.NewSessionFactsLoader,
-			loadFamily:     codex.GetSessionFamily,
-			health:         codex.Health,
+			loadFamily: codex.GetSessionFamily,
+			health:     codex.Health,
 		},
 		{
 			name: vendors.AgentOpenCode, collect: opencode.CollectContext, loadFacts: opencode.GetSessionFacts,
-			newFactsLoader: opencode.NewSessionFactsLoader,
-			loadFamily:     opencode.GetSessionFamily,
-			health:         opencode.Health,
+			loadFamily: opencode.GetSessionFamily,
+			health:     opencode.Health,
 		},
 		{
 			name: vendors.AgentCursor, collect: cursor.CollectContext, loadFacts: cursor.GetSessionFacts,
@@ -1108,36 +1104,6 @@ func GetSessionFacts(id string) (*session.Session, error) {
 
 func GetSessionFactsByAgent(agent, id string) (*session.Session, error) {
 	return getSessionFacts(agent, id)
-}
-
-func NewLegacySessionExistsResolver() func(agent, id string) (bool, error) {
-	loaders := make(map[string]func() (func(string) (*vendors.ParsedSession, error), error), len(vendorSources))
-	for _, source := range vendorSources {
-		factory := source.newFactsLoader
-		if factory == nil {
-			load := source.loadFacts
-			factory = func() (func(string) (*vendors.ParsedSession, error), error) { return load, nil }
-		}
-		loaders[source.name] = sync.OnceValues(factory)
-	}
-	return func(agent, id string) (bool, error) {
-		initialize := loaders[agent]
-		if initialize == nil || id == "" {
-			return false, nil
-		}
-		load, err := initialize()
-		if err != nil {
-			return false, fmt.Errorf("%s: %w", agent, err)
-		}
-		candidate, err := load(id)
-		if err != nil {
-			return false, fmt.Errorf("%s: %w", agent, err)
-		}
-		if candidate == nil || candidate.Session == nil || candidate.ParentID != "" {
-			return false, nil
-		}
-		return filepath.Clean(candidate.Session.WorkingDirectory) != filepath.Clean(synthesis.SynthesisCwd()), nil
-	}
 }
 
 func getSessionFacts(agent, id string) (*session.Session, error) {

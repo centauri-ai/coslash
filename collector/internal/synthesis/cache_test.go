@@ -15,26 +15,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func writeLegacyRecord(t *testing.T, id string) string {
-	t.Helper()
-	if err := os.MkdirAll(SummariesDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	data, err := json.Marshal(struct {
-		SessionID string                   `json:"sessionId"`
-		Revision  int64                    `json:"mtime"`
-		Synthesis session.SessionSynthesis `json:"synthesis"`
-	}{SessionID: id, Revision: 42, Synthesis: session.SessionSynthesis{Outcome: id}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(SummariesDir(), id+".json")
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
 type runnerFunc func(context.Context, string) (session.SessionSynthesis, error)
 
 func (run runnerFunc) Run(ctx context.Context, input string) (RunResult, error) {
@@ -181,51 +161,6 @@ func TestManagerDoesNotReuseSynthesisAcrossAgents(t *testing.T) {
 	}
 	if got := manager.Lookup("codex", "same", 42); got == nil || got.Outcome != "codex" {
 		t.Fatalf("Codex synthesis = %#v", got)
-	}
-}
-
-func TestMigrateLegacyCacheMovesUniqueSession(t *testing.T) {
-	t.Setenv("COSLASH_HOME", t.TempDir())
-	legacy := writeLegacyRecord(t, "unique")
-	if err := MigrateLegacyCache(func(agent, id string) (bool, error) {
-		return agent == "codex" && id == "unique", nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := NewCache().LookupLatest("codex", "unique"); got == nil || got.Outcome != "unique" {
-		t.Fatalf("migrated synthesis = %#v", got)
-	}
-	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy cache remains: %v", err)
-	}
-}
-
-func TestMigrateLegacyCacheDiscardsAmbiguousSession(t *testing.T) {
-	t.Setenv("COSLASH_HOME", t.TempDir())
-	legacy := writeLegacyRecord(t, "same")
-	if err := MigrateLegacyCache(func(agent, id string) (bool, error) {
-		return (agent == "claude" || agent == "codex") && id == "same", nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for _, agent := range []string{"claude", "codex"} {
-		if got := NewCache().LookupLatest(agent, "same"); got != nil {
-			t.Fatalf("%s received ambiguous synthesis %#v", agent, got)
-		}
-	}
-	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("ambiguous legacy cache remains: %v", err)
-	}
-}
-
-func TestMigrateLegacyCachePreservesUnresolvedSession(t *testing.T) {
-	t.Setenv("COSLASH_HOME", t.TempDir())
-	legacy := writeLegacyRecord(t, "unresolved")
-	if err := MigrateLegacyCache(func(string, string) (bool, error) { return false, nil }); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(legacy); err != nil {
-		t.Fatalf("unresolved legacy cache was removed: %v", err)
 	}
 }
 

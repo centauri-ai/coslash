@@ -90,31 +90,6 @@ func TestGetSessionFactsUsesNewestDuplicate(t *testing.T) {
 	}
 }
 
-func TestSessionFactsLoaderUsesNewestDuplicate(t *testing.T) {
-	home := t.TempDir()
-	setClaudeTestHome(t, home)
-
-	id := "55555555-5555-5555-5555-555555555555"
-	older := filepath.Join(ProjectsRoot(home), "a-old", id+".jsonl")
-	newer := filepath.Join(ProjectsRoot(home), "z-new", id+".jsonl")
-	writeTranscript(t, older, id, "C:\\Users\\old")
-	writeTranscript(t, newer, id, "C:\\Users\\new")
-	setModifiedTime(t, older, 1_000)
-	setModifiedTime(t, newer, 2_000)
-
-	load, err := NewSessionFactsLoader()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := load(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.LogPath != newer || got.LogModifiedAtMs != 2_000 {
-		t.Fatalf("session facts = %#v, want %q at 2000", got, newer)
-	}
-}
-
 func TestParseFilesDuplicateTieUsesLexicalPath(t *testing.T) {
 	t.Parallel()
 

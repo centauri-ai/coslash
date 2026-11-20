@@ -24,7 +24,8 @@ func CurrentUserExecutable(pid uint32) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	currentToken, err := windows.OpenCurrentProcessToken()
+	var currentToken windows.Token
+	err = windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &currentToken)
 	if err != nil {
 		return "", err
 	}

@@ -391,14 +391,6 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	return vendors.FindAndParse(files, id, SessionIDFromRollout, parseTranscript)
 }
 
-func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), error) {
-	files, err := Files()
-	if err != nil {
-		return nil, err
-	}
-	return vendors.NewIndexedParser(files, SessionIDFromRollout, parseTranscript), nil
-}
-
 func Health() vendors.SourceHealth {
 	home, err := os.UserHomeDir()
 	if err != nil {
