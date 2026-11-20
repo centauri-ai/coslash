@@ -57,6 +57,7 @@ func TestFailuresMapToTheHubsClosedLogCodes(t *testing.T) {
 		{"unavailable", preparationProblem(sessionbackupv1.ProblemUnavailable, true), "unreadable_source"},
 		{"unstable", preparationProblem(sessionbackupv1.ProblemUnstable, true), "transcript_changed_during_read"},
 		{"invalid", preparationProblem(sessionbackupv1.ProblemInvalid, false), "malformed_artifact"},
+		{"compressed transcript", &sessionbackupproducer.PreparationError{Compressed: true}, "compressed_source"},
 		{"oversized artifact", &sessionbackupproducer.PreparationError{TooLarge: true}, "too_large"},
 		{"unattributable", preparationProblem(sessionbackupv1.ProblemUnattributable, false), "malformed_artifact"},
 		{"unsupported", preparationProblem(sessionbackupv1.ProblemUnsupported, false), "malformed_artifact"},

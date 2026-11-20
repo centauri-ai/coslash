@@ -668,6 +668,36 @@ func TestOversizedCodexTranscriptOnlyBlocksItsFamily(t *testing.T) {
 	}
 }
 
+func TestCompressedCodexRootIsPresentButCannotSync(t *testing.T) {
+	home, workspace := writeFamilyFixture(t, 0)
+	selection := localSelection()
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	root := familyFile(home, false, testRootID)
+	compressed := familyFile(home, true, testRootID) + ".zst"
+	writeRollout(t, compressed, "archive contents must stay untouched")
+	if err := os.Remove(root); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := manager.MissingLocalFamilies(t.Context(), []Selection{selection})
+	if err != nil || missing[selection] {
+		t.Fatalf("compressed root reported missing: %v, %v", missing, err)
+	}
+	_, err = manager.Prepare(t.Context(), selection)
+	var failure *PreparationError
+	if !errors.As(err, &failure) || !failure.Compressed || failure.SourceMissing || failure.Coverage.Problems[0].Retryable {
+		t.Fatalf("compressed root with a readable child: %v", err)
+	}
+	writeRollout(t, root, completeRollout(testRootID, "", workspace, 0))
+	if _, err := manager.Prepare(t.Context(), selection); err != nil {
+		t.Fatalf("plain root beside a compressed copy: %v", err)
+	}
+	if got, err := os.ReadFile(compressed); err != nil || string(got) != "archive contents must stay untouched" {
+		t.Fatalf("archive changed: %v", err)
+	}
+}
+
 func TestMissingCodexFamilyIsDefinitive(t *testing.T) {
 	home, _ := writeFamilyFixture(t, 0)
 	selection := localSelection()

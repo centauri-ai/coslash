@@ -964,7 +964,7 @@ func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan
 			if entry.LastSentAt == 0 {
 				entry.LastSentAt = now.UnixMilli()
 			}
-			sourceChanged := item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision
+			sourceChanged := entry.FailureCode == "compressed_source" || item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision
 			entry.Recent = entry.Recent || item.Activity >= now.Add(-recentWindow).UnixMilli()
 			wasLive := entry.Live
 			if item.ContentBytes > 0 || entry.ContentBytes == 0 {

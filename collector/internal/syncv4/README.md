@@ -323,3 +323,8 @@ Owner-readable detail and artifact proof after server completion belongs to
 IC-1; the current device credential has no v4 owner-read route. Live SSH,
 metered-platform coverage and 500-session completion belong to
 G-local-network and frozen-candidate validation.
+
+A queued Codex root found only as `.jsonl.zst` reports `compressed_source`.
+Local identifies it by the rollout filename and leaves the archive untouched.
+The failure stays parked until Local rediscovers the plain transcript, the
+Local version changes, or a retry is requested. Folder exclusions still apply.
