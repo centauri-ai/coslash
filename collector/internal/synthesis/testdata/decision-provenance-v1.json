@@ -1,0 +1,5 @@
+{
+  "version": "decisions-2026-11-v1",
+  "normalization": "NFKC; Unicode lowercase; curly single/double quotes to ASCII; en/em/minus dash to hyphen; remove backtick, asterisk, underscore; split Unicode whitespace and join with ASCII space; substring match; quote at least 4 words, <=160 Unicode code points",
+  "sha256": "65646695f68d7bfa57d1cf45b4790d76288425921368399c4bc4f059ef658124"
+}

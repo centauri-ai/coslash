@@ -369,7 +369,8 @@ func runSynthesisWithInvocation(ctx context.Context, s *session.Session, record 
 		partials = append(partials, partial.Synthesis)
 	}
 	for len(partials) > 1 {
-		inputs = BuildMergeInputs(s, partials)
+		var groups [][]int
+		inputs, groups = buildMergeInputs(s, partials)
 		if len(inputs) >= len(partials) {
 			return session.SessionSynthesis{}, fmt.Errorf("synthesis merge did not reduce %d partials", len(partials))
 		}
@@ -378,17 +379,22 @@ func runSynthesisWithInvocation(ctx context.Context, s *session.Session, record 
 		}
 		runs += len(inputs)
 		merged := make([]session.SessionSynthesis, 0, len(inputs))
-		for _, input := range inputs {
+		for batch, input := range inputs {
 			partial, err := invoke("merge", input)
 			if err != nil {
 				return session.SessionSynthesis{}, err
 			}
+			carryEvidence(&partial.Synthesis, partials, groups[batch])
 			merged = append(merged, partial.Synthesis)
 		}
 		partials = merged
 	}
 	result := partials[0]
-	result.KeyDecisions = result.KeyDecisions[:min(len(result.KeyDecisions), maxFinalKeyDecisions)]
+	if result.DecisionsVersion != "" {
+		checkEvidence(s, &result)
+	} else {
+		result.KeyDecisions = result.KeyDecisions[:min(len(result.KeyDecisions), maxFinalKeyDecisions)]
+	}
 	return result, nil
 }
 

@@ -1,0 +1,23 @@
+{
+  "early": {
+    "goals": ["Choose a retry boundary"],
+    "outcome": "Initially chose caller retries.",
+    "nextStep": "Implement the boundary.",
+    "designDoc": "",
+    "decisions": [{"text":"Keep retries in callers","why":"Callers know the operation.","alternative":"","byYou":true,"evidence":[{"turn":1,"quote":"keep retries in callers for now"}]}]
+  },
+  "later": {
+    "goals": ["Choose a retry boundary"],
+    "outcome": "Replaced caller retries with adapter retries.",
+    "nextStep": "Implement adapter retries.",
+    "designDoc": "",
+    "decisions": [{"text":"Keep retries in the adapter","why":"Hide transport errors from callers.","alternative":"Keep retries in callers","byYou":true,"evidence":[{"turn":30,"quote":"keep retries in the adapter instead"}]}]
+  },
+  "merge": {
+    "goals": ["Choose a retry boundary"],
+    "outcome": "The final choice is adapter retries.",
+    "nextStep": "Implement adapter retries.",
+    "designDoc": "",
+    "decisions": [{"text":"Keep retries in the adapter","why":"Hide transport errors from callers.","alternative":"Keep retries in callers","byYou":true,"from":["p2.1"]}]
+  }
+}

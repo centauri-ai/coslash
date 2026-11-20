@@ -181,9 +181,9 @@ func TestOpenCodeCommandDiagnostic(t *testing.T) {
 func TestParseOpenCodeSynthesisRejectsIncompleteObject(t *testing.T) {
 	cases := map[string]string{
 		"missing every other field": `{"outcome":"done"}`,
-		"missing nextStep":          `{"goals":["ship"],"outcome":"done","keyDecisions":[]}`,
-		"empty goals":               `{"goals":[],"outcome":"done","keyDecisions":[],"nextStep":"land it"}`,
-		"null goals":                `{"goals":null,"outcome":"done","keyDecisions":[],"nextStep":"land it"}`,
+		"missing nextStep":          `{"goals":["ship"],"outcome":"done","decisions":[],"designDoc":""}`,
+		"empty goals":               `{"goals":[],"outcome":"done","decisions":[],"designDoc":"","nextStep":"land it"}`,
+		"null goals":                `{"goals":null,"outcome":"done","decisions":[],"designDoc":"","nextStep":"land it"}`,
 	}
 	for name, text := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -196,9 +196,9 @@ func TestParseOpenCodeSynthesisRejectsIncompleteObject(t *testing.T) {
 
 func TestParseOpenCodeSynthesisAcceptsCompleteObject(t *testing.T) {
 	cases := map[string]string{
-		"bare object":  `{"goals":["ship the fix"],"outcome":"done","keyDecisions":[],"nextStep":"land it"}`,
-		"fenced":       "```json\n{\"goals\":[\"ship the fix\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"land it\"}\n```",
-		"around prose": `Here you go: {"goals":["ship the fix"],"outcome":"done","keyDecisions":[],"nextStep":"land it"} hope that helps.`,
+		"bare object":  `{"goals":["ship the fix"],"outcome":"done","decisions":[],"designDoc":"","nextStep":"land it"}`,
+		"fenced":       "```json\n{\"goals\":[\"ship the fix\"],\"outcome\":\"done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"land it\"}\n```",
+		"around prose": `Here you go: {"goals":["ship the fix"],"outcome":"done","decisions":[],"designDoc":"","nextStep":"land it"} hope that helps.`,
 	}
 	for name, text := range cases {
 		t.Run(name, func(t *testing.T) {

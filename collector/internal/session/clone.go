@@ -71,6 +71,11 @@ func Clone(source *Session) *Session {
 		value := *source.Synthesis
 		value.Goals = cloneSlice(source.Synthesis.Goals)
 		value.KeyDecisions = cloneSlice(source.Synthesis.KeyDecisions)
+		value.Decisions = cloneSlice(source.Synthesis.Decisions)
+		for i := range value.Decisions {
+			value.Decisions[i].Evidence = cloneSlice(source.Synthesis.Decisions[i].Evidence)
+			value.Decisions[i].From = cloneSlice(source.Synthesis.Decisions[i].From)
+		}
 		cloned.Synthesis = &value
 	}
 	return &cloned

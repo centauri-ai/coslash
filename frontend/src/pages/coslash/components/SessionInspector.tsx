@@ -91,9 +91,11 @@ import {
   sessionKey,
   sessionLocationFact,
   sessionReadiness,
+  sessionRevision,
   STATUSES,
   SUBAGENT_STATUSES,
   subagentParentName,
+  type DecisionEvidence,
   type DigestEntry,
   type Session,
   type SessionDetail,
@@ -1050,7 +1052,15 @@ function HandoffSection({
   );
 }
 
-function RecapSection({ detail }: { detail: SessionDetail }) {
+export function RecapSection({
+  detail,
+  onEvidence,
+  onOpenSynthesisSettings,
+}: {
+  detail: SessionDetail;
+  onEvidence?: (evidence: DecisionEvidence) => void;
+  onOpenSynthesisSettings?: () => void;
+}) {
   const goal = resolveGoal(detail);
   const synthesizing = detail.synthesis == null && detail.synthesisPending;
   const synthesisPlaceholder = (
@@ -1059,6 +1069,15 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
       <span>Synthesizing…</span>
     </div>
   );
+  const synthesisSettingsPrompt =
+    onOpenSynthesisSettings && isLocalSession(detail) ? (
+      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+        <span>Decisions come from an AI summary using your own CLI account and quota.</span>
+        <Button variant="outline" size="sm" onClick={onOpenSynthesisSettings}>
+          Choose synthesis settings
+        </Button>
+      </div>
+    ) : null;
   const outcome = getSessionOutcome(detail);
 
   return (
@@ -1096,6 +1115,42 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
         <div className="text-coslash-muted pt-3 text-xs">KEY DECISIONS</div>
         {synthesizing ? (
           synthesisPlaceholder
+        ) : detail.synthesis?.decisionsVersion ? (
+          <div className="flex min-w-0 flex-col gap-2 pt-1 text-xs wrap-break-word">
+            {detail.synthesis.designDoc && <div>Design doc: {detail.synthesis.designDoc}</div>}
+            {(detail.synthesis.decisions ?? []).map((decision) => (
+              <div
+                key={decision.id}
+                className={cn({ 'text-coslash-muted': !decision.cited })}
+                title={decision.cited ? undefined : 'The quote was not found in the timeline.'}
+              >
+                <div>
+                  {decision.text} {decision.byYou && <Badge variant="secondary">You</Badge>}
+                </div>
+                {(decision.why || decision.alternative) && (
+                  <div className="text-coslash-muted pt-1">
+                    {decision.why}
+                    {decision.alternative &&
+                      `${decision.why ? ' — instead' : 'Instead'} of ${decision.alternative}`}
+                  </div>
+                )}
+                {decision.cited &&
+                  decision.evidence.map((evidence) => (
+                    <button
+                      key={`${evidence.entry}:${evidence.quote}`}
+                      type="button"
+                      className="text-coslash-accent cursor-pointer py-1 pr-2 underline"
+                      onClick={() => onEvidence?.(evidence)}
+                    >
+                      Turn {evidence.turn}
+                    </button>
+                  ))}
+              </div>
+            ))}
+            {detail.synthesis.designDoc && <div>More decisions are in the design doc.</div>}
+            {!detail.synthesis.decisions?.length && !detail.synthesis.designDoc && <div>—</div>}
+            {synthesisSettingsPrompt}
+          </div>
         ) : detail.synthesis?.keyDecisions.length ? (
           <div className="flex flex-col gap-1 pt-1">
             {detail.synthesis.keyDecisions.map((decision) => (
@@ -1104,7 +1159,10 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
                 <span>{decision}</span>
               </div>
             ))}
+            {synthesisSettingsPrompt}
           </div>
+        ) : synthesisSettingsPrompt ? (
+          synthesisSettingsPrompt
         ) : (
           <div className="pt-1 text-xs">—</div>
         )}
@@ -1416,11 +1474,58 @@ function DateDivider({ label }: { label: string }) {
   );
 }
 
-export function DigestSection({ detail }: { detail: SessionDetail }) {
+function normalizeEvidenceText(text: string): string {
+  return text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—−]/g, '-')
+    .replace(/[`*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// A summary started from GET /api/synthesis numbers entries without subagent
+// rows, so the stored index can be shifted in the composed digest shown here.
+function citedEntryIndex(digest: DigestEntry[], evidence: DecisionEvidence): number {
+  const quote = normalizeEvidenceText(evidence.quote);
+  const cites = (entry: DigestEntry | undefined) =>
+    entry?.turn === evidence.turn &&
+    entry.contextSelected !== false &&
+    normalizeEvidenceText(`${entry.contextDescription ?? entry.description} ${entry.answer ?? ''}`).includes(
+      quote,
+    );
+  if (cites(digest[evidence.entry])) return evidence.entry;
+  const match = digest.findIndex(cites);
+  return match >= 0 ? match : evidence.entry;
+}
+
+export function DigestSection({
+  detail,
+  evidence,
+}: {
+  detail: SessionDetail;
+  evidence?: DecisionEvidence | null;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [lastEvidence, setLastEvidence] = useState(evidence);
+
   const [categoryFilter, setCategoryFilter] = useState<{
     category: DigestCategory;
     mode: 'only' | 'exclude';
   } | null>(null);
+  if (lastEvidence !== evidence) {
+    setLastEvidence(evidence);
+    if (evidence != null) setCategoryFilter(null);
+  }
+  const citedIndex = evidence == null ? null : citedEntryIndex(detail.digest, evidence);
+  useLayoutEffect(() => {
+    if (citedIndex == null) return;
+    const row = containerRef.current?.querySelector<HTMLElement>(`[data-entry="${citedIndex}"]`);
+    row?.scrollIntoView?.({ block: 'center' });
+    row?.focus({ preventScroll: true });
+  }, [evidence, citedIndex]);
   const digest = detail.digest;
   if (digest.length === 0)
     return detail.detailsIncomplete ? (
@@ -1442,7 +1547,10 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
       ? category === categoryFilter.category
       : category !== categoryFilter.category;
   };
-  const visible = digest.filter((entry) => categoryVisible(entry.category));
+  const indexed = digest
+    .map((entry, fullIndex) => ({ entry, fullIndex }))
+    .filter(({ entry }) => categoryVisible(entry.category));
+  const visible = indexed.map(({ entry }) => entry);
   const times = digest.map((e) => e.time ?? 0).filter((t) => t > 0);
   const dateRange = formatDigestDateRange(times);
 
@@ -1463,14 +1571,29 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
   }
 
   const rows = visible.map((entry, index) => {
+    const cited = citedIndex === indexed[index].fullIndex;
     return (
-      <div key={entry.sourceEntryId ? `${entry.sourceEntryId}:${entry.category}` : index}>
+      <div
+        key={entry.sourceEntryId ? `${entry.sourceEntryId}:${entry.category}` : indexed[index].fullIndex}
+        data-entry={indexed[index].fullIndex}
+        tabIndex={cited ? -1 : undefined}
+        className={cn({ 'bg-coslash-soft rounded ring-2 ring-current ring-inset': cited })}
+      >
         {startsDayIndices.has(index) && <DateDivider label={formatDigestDateDivider(entry.time!)} />}
         {entry.category === 'subagent' ? (
           <SubagentDigestRow subagentId={entry.subagentId!} detail={detail} />
         ) : (
           <DigestRow entry={entry} endsDay={endsDayIndices.has(index) || index === visible.length - 1} />
         )}
+        {cited &&
+          evidence &&
+          !normalizeEvidenceText(`${entry.description} ${entry.answer ?? ''}`).includes(
+            normalizeEvidenceText(evidence.quote),
+          ) && (
+            <div className="px-2 pb-2 text-xs">
+              Cited quote: <q>{evidence.quote}</q>
+            </div>
+          )}
       </div>
     );
   });
@@ -1502,7 +1625,9 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
       {detail.detailsIncomplete && (
         <p className="text-warning-fg pb-2 text-xs">Some nested tool details are unavailable.</p>
       )}
-      <div className="flex flex-col gap-1">{rows}</div>
+      <div ref={containerRef} className="flex flex-col gap-1">
+        {rows}
+      </div>
     </div>
   );
 }
@@ -1658,6 +1783,7 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
 
 function InspectorBody({
   detail,
+  onOpenSynthesisSettings,
   exactDetailsAvailable,
   onSelectFile,
   remoteLaunchable,
@@ -1668,6 +1794,7 @@ function InspectorBody({
 }: {
   detail: SessionDetail;
   exactDetailsAvailable: boolean;
+  onOpenSynthesisSettings?: () => void;
   onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number], trigger: HTMLButtonElement) => void) | null;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
@@ -1676,6 +1803,8 @@ function InspectorBody({
   onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
   const currentSessionKey = sessionKey(detail);
+  const citationKey = `${currentSessionKey}@${sessionRevision(detail)}`;
+  const [citation, setCitation] = useState<{ key: string; evidence: DecisionEvidence } | null>(null);
   const [tabSelection, setTabSelection] = useState<{
     sessionKey: string;
     tab: 'session' | 'files' | 'skills';
@@ -1738,11 +1867,18 @@ function InspectorBody({
             onHandoffStarted={onHandoffStarted}
             onOpenTarget={onOpenTarget}
           />
-          <RecapSection detail={detail} />
+          <RecapSection
+            detail={detail}
+            onOpenSynthesisSettings={onOpenSynthesisSettings}
+            onEvidence={(evidence) => setCitation({ key: citationKey, evidence: { ...evidence } })}
+          />
           <ArtifactStats detail={detail} />
           <CommandsSection detail={detail} />
           <CommitsAndTodos detail={detail} />
-          <DigestSection detail={detail} />
+          <DigestSection
+            detail={detail}
+            evidence={citation?.key === citationKey ? citation.evidence : null}
+          />
         </TabsContent>
         <TabsContent value="files" forceMount className="px-4 py-4 data-[state=inactive]:hidden">
           <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
@@ -1810,6 +1946,7 @@ function InspectorFooter({
 
 export function SessionInspector({
   session,
+  onOpenSynthesisSettings,
   sessionsVersion,
   synthesisSettingsKey,
   synthesisCostVersion,
@@ -1822,6 +1959,7 @@ export function SessionInspector({
   onOpenTarget,
 }: {
   session: Session | null;
+  onOpenSynthesisSettings?: () => void;
   sessionsVersion: number;
   synthesisSettingsKey: string;
   synthesisCostVersion: string | null;
@@ -2061,6 +2199,7 @@ export function SessionInspector({
             {summaryOnly && <SummaryOnlyBanner />}
             <InspectorBody
               detail={detail}
+              onOpenSynthesisSettings={onOpenSynthesisSettings}
               exactDetailsAvailable={!summaryOnly}
               remoteLaunchable={remoteLaunchable}
               remoteLaunchHint={remoteLaunchHint}
