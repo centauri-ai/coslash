@@ -22,7 +22,11 @@ func locationListing(e Entry, l session.Location, version int64) hubclient.V4Lis
 	item := hubclient.V4ListItem{V4Session: meta, ActivityAt: time.UnixMilli(e.Activity).UTC(), ContentBytes: max(0, e.ContentBytes), LocationVersion: version, MainCheckout: l.Main, Location: &hubclient.V4Location{CWD: l.CWD, Root: l.Root, Source: "Local"}}
 	if l.ID != "" {
 		if !l.Main {
-			item.Worktree = &hubclient.V4Worktree{ID: l.ID, Label: l.Label}
+			label := strings.TrimSpace(strings.ReplaceAll(l.Label, "\\", "_"))
+			if label == "" || label == "." || label == ".." {
+				label = "Checkout " + l.ID[:min(8, len(l.ID))]
+			}
+			item.Worktree = &hubclient.V4Worktree{ID: l.ID, Label: label}
 		}
 		item.Location.Evidence = "Git worktree"
 		item.Location.Availability = l.Availability

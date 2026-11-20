@@ -77,6 +77,10 @@ func TestLocationRefreshNegotiatesAndPreservesSyncedContent(t *testing.T) {
 	}
 
 	unknown := locationListing(Entry{Session: hubclient.V4Session{Repo: "example.org/new/project"}}, session.Location{ID: "old", Label: "old"}, 1)
+	unixName := locationListing(entry, session.Location{ID: "checkout", Label: `test\one`}, 1)
+	if unixName.Worktree.Label != "test_one" {
+		t.Fatalf("invalid wire basename: %q", unixName.Worktree.Label)
+	}
 	if unknown.Repo != "" {
 		t.Fatalf("origin-less historical checkout acquired %q", unknown.Repo)
 	}
