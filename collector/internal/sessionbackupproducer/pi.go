@@ -180,7 +180,7 @@ func (frozen *piFrozen) verify(ctx context.Context, inputs pi.SessionInputs) err
 			return captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 		}
 		hash := sha256.New()
-		n, readErr := io.Copy(hash, io.LimitReader(&contextReader{ctx: ctx, reader: file}, sessionbackupv1.MaxArtifactBytes+1))
+		n, readErr := io.Copy(hash, io.LimitReader(vendors.ContextReader{Ctx: ctx, Reader: file}, sessionbackupv1.MaxArtifactBytes+1))
 		closeErr := file.Close()
 		evidence := frozen.writes.evidence[frozen.writes.artifacts[i].LogicalName]
 		before := frozen.infos[i]

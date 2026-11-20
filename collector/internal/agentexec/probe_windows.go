@@ -2,12 +2,11 @@ package agentexec
 
 import (
 	"os/exec"
-	"syscall"
 
-	"golang.org/x/sys/windows"
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 )
 
 func configureProbeProcess(command *exec.Cmd) func() {
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	backgroundexec.HideConsole(command)
 	return func() {} // Run closes the Job Object, including remaining descendants.
 }

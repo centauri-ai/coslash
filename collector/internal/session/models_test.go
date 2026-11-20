@@ -62,6 +62,17 @@ func TestCloneDeepCopiesFileEditChangeIDs(t *testing.T) {
 	}
 }
 
+func TestCloneKeepsNilAndEmptyCollectionsDistinct(t *testing.T) {
+	empty := Clone(&Session{Tokens: map[string]ModelTokens{}, SessionDetails: SessionDetails{Commits: []string{}}})
+	if empty.Tokens == nil || empty.Commits == nil {
+		t.Fatalf("empty collections became nil: tokens=%v commits=%v", empty.Tokens, empty.Commits)
+	}
+	absent := Clone(&Session{})
+	if absent.Tokens != nil || absent.Commits != nil {
+		t.Fatalf("nil collections became empty: tokens=%v commits=%v", absent.Tokens, absent.Commits)
+	}
+}
+
 func TestLocalSSHMirrorIsNotSerialized(t *testing.T) {
 	encoded, err := json.Marshal(Session{LocalSSHMirror: true})
 	if err != nil {

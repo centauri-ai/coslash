@@ -97,12 +97,12 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 			WorkingDirectory: b.relativePath("/session/cwd", "/session", local.WorkingDirectory),
 			Branch:           b.optionalText("/session/branch", local.Branch, maxBranchBytes),
 			Entrypoint:       b.optionalText("/session/entrypoint", local.Entrypoint, maxEntrypointBytes),
-			DurationMs:       copyIntPointer(local.DurationMs),
+			DurationMs:       session.ClonePointer(local.DurationMs),
 			LastActivityAtMs: max(local.LastActivityTime, local.StartedAt),
-			LastEditAtMs:     copyInt64Pointer(local.LastEditAt),
+			LastEditAtMs:     session.ClonePointer(local.LastEditAt),
 			Model:            b.optionalRequiredText("/session/model", local.Model, maxModelBytes),
-			ContextTokens:    copyIntPointer(local.ContextTokens),
-			ContextWindow:    copyIntPointer(local.ContextWindow),
+			ContextTokens:    session.ClonePointer(local.ContextTokens),
+			ContextWindow:    session.ClonePointer(local.ContextWindow),
 			Counts: snapshotv1.Counts{
 				EditedFiles:  local.EditedFileCount,
 				Turns:        local.Turns,
@@ -526,22 +526,6 @@ func cleanRoot(root string) string {
 
 func outsideRoot(path string) bool {
 	return path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator)) || filepath.IsAbs(path)
-}
-
-func copyIntPointer(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	copy := *value
-	return &copy
-}
-
-func copyInt64Pointer(value *int64) *int64 {
-	if value == nil {
-		return nil
-	}
-	copy := *value
-	return &copy
 }
 
 func intPointer(value int) *int { return &value }

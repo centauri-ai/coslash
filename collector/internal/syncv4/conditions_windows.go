@@ -3,13 +3,13 @@ package syncv4
 import (
 	"context"
 	"encoding/json"
-	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 )
 
 type systemPowerStatus struct {
@@ -80,8 +80,7 @@ func readWindowsNetworkCost(ctx context.Context) (windowsNetworkCost, error) {
 	if err != nil {
 		return cost, err
 	}
-	cmd := exec.CommandContext(ctx, filepath.Join(directory, "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-Command", windowsNetworkCostScript)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	cmd := backgroundexec.CommandContext(ctx, filepath.Join(directory, "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-Command", windowsNetworkCostScript)
 	body, err := cmd.Output()
 	if ctx.Err() != nil {
 		return cost, ctx.Err()

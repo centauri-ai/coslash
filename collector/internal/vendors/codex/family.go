@@ -2,22 +2,9 @@ package codex
 
 import (
 	"context"
-	"io"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
-
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (reader contextReader) Read(destination []byte) (int, error) {
-	if err := reader.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return reader.reader.Read(destination)
-}
 
 // FileHeader is the session identity a rollout's first row carries. Err marks a
 // file whose header could not be read; its family cannot be resolved from it.

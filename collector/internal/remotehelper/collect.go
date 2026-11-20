@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"time"
 
@@ -152,7 +154,7 @@ func collectVendor(
 		CandidateFiles:    scanned.scan.candidateFiles,
 		SelectedFiles:     scanned.scan.selectedFiles,
 	}
-	for _, item := range pageFamilies(scanned.scan.sortedFamilies(), pageAfter(request, vendor)) {
+	for _, item := range pageFamilies(scanned.scan.sortedFamilies(), request.PageAfterFor(vendor)) {
 		cached, isKnown := known[item.id]
 		switch {
 		case item.skipReason != "":
@@ -216,7 +218,7 @@ func collectVendor(
 	}
 
 	if baselineKnown && scanned.scan.complete {
-		for _, id := range sortedKeys(known) {
+		for _, id := range slices.Sorted(maps.Keys(known)) {
 			if _, exists := scanned.scan.families[id]; exists {
 				continue
 			}
@@ -251,15 +253,6 @@ func collectVendor(
 	}
 	result.complete = true
 	return result, nil
-}
-
-func pageAfter(request remoteprotocol.Request, vendor string) string {
-	for _, cursor := range request.PageAfter {
-		if cursor.Vendor == vendor {
-			return cursor.AfterFamilyID
-		}
-	}
-	return ""
 }
 
 // pageFamilies starts just after the last family committed by the prior
@@ -392,7 +385,7 @@ func publishFamily(
 			if fullErr != nil && scanned.vendor == vendors.AgentCodex {
 				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
 			}
-			if fullErr == nil && !containsFullRecord(complete, item.id) {
+			if fullErr == nil && !slices.ContainsFunc(complete, func(record fullsessionv1.Record) bool { return record.SessionID == item.id }) {
 				delete(scanned.scan.families, item.id)
 				return parser, nil
 			}
@@ -538,15 +531,6 @@ func potentialTombstoneIDs(scanned *vendorScan, changed []*family, known map[str
 	return ids
 }
 
-func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
-	for _, record := range records {
-		if record.SessionID == sessionID {
-			return true
-		}
-	}
-	return false
-}
-
 // familyFacts assembles one rooted family. Membership comes from the grouping
 // pass, so the family ID the Mac caches always matches the ID the inventory
 // proves exists.
@@ -567,7 +551,7 @@ func familyFacts(
 		state = remotefacts.StatePartial
 	}
 	family, err := remotefacts.FromParsed(
-		scanned.vendor, item.id, vendors.ParserVersion, state, "",
+		scanned.vendor, item.id, remotefacts.ParserVersion(scanned.vendor), state, "",
 		sessions, scanned.metadata, item.fingerprints, item.headerMappings,
 	)
 	if err != nil {
@@ -741,15 +725,6 @@ func familyFiles(families []*family) []string {
 	}
 	sort.Strings(files)
 	return files
-}
-
-func sortedKeys(values map[string]string) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func timing(parser, total time.Duration) remoteprotocol.Timing {

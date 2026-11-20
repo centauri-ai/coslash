@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -923,7 +923,7 @@ func commandNeedsApprovalContext(ctx context.Context, command, cwd string) bool 
 		return true
 	}
 	arguments := execPolicyArguments(rules, command)
-	output, err := exec.CommandContext(ctx, "codex", arguments...).Output()
+	output, err := backgroundexec.CommandContext(ctx, "codex", arguments...).Output()
 	if err != nil {
 		return true
 	}

@@ -2,11 +2,10 @@ package launch
 
 import (
 	"os/exec"
-	"syscall"
 
-	"golang.org/x/sys/windows"
+	"github.com/centauri-ai/coslash/collector/internal/backgroundexec"
 )
 
 func configureReviewProcess(command *exec.Cmd) {
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	backgroundexec.HideConsole(command)
 }

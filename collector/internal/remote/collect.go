@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -25,10 +26,11 @@ import (
 // model (family commits are eager, deletion requires a complete inventory,
 // and an incomplete vendor withholds vendor_complete so request_complete —
 // and any coverage-window advance — never happens for it).
-const (
-	claudeParserVersion        = vendors.ParserVersion
-	codexParserVersion         = vendors.ParserVersion
-	sftpCollectorParserVersion = "sftp-collector.1"
+const sftpCollectorParserVersion = "sftp-collector.1"
+
+var (
+	claudeParserVersion = remotefacts.ParserVersion(vendors.AgentClaude)
+	codexParserVersion  = remotefacts.ParserVersion(vendors.AgentCodex)
 )
 
 func familySkipReason(err error) string {
@@ -167,7 +169,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 				familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_full_record", in.Vendor))
 				continue
 			}
-			if fullErr == nil && !containsFullRecord(complete, id) {
+			if fullErr == nil && !slices.ContainsFunc(complete, func(record fullsessionv1.Record) bool { return record.SessionID == id }) {
 				intentionallyAbsent[id] = true
 				continue
 			}
@@ -253,15 +255,6 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		Truncated:      in.Truncated || len(in.AllFamilyIDs) > remoteprotocol.MaxInventoryFamilies,
 	}
 	return vendorOutcome{Records: records, Complete: complete, Coverage: coverage, Metadata: in.Metadata, Failures: familyFailures}
-}
-
-func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
-	for _, record := range records {
-		if record.SessionID == sessionID {
-			return true
-		}
-	}
-	return false
 }
 
 func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
@@ -437,15 +430,6 @@ func fitAggregateRecord(
 	return record, preparedSize, fits(preparedSize)
 }
 
-func pageAfterFor(request remoteprotocol.Request, vendor string) string {
-	for _, cursor := range request.PageAfter {
-		if cursor.Vendor == vendor {
-			return cursor.AfterFamilyID
-		}
-	}
-	return ""
-}
-
 func sortVendorRecords(records []remoteprotocol.Record, after string) {
 	sort.SliceStable(records, func(i, j int) bool {
 		left, right := records[i].FamilyID, records[j].FamilyID
@@ -610,7 +594,7 @@ func collectIncremental(
 		vendorLimited := false
 		aggregateLimited := false
 		aggregateSkipped := 0
-		sortVendorRecords(outcome.Records, pageAfterFor(request, vendorName))
+		sortVendorRecords(outcome.Records, request.PageAfterFor(vendorName))
 		for _, record := range outcome.Records {
 			bounded, limited, preparedSize, boundErr := boundChangedRecord(record, requestID, sequence, request.Limits.MaxRecordBytes)
 			if boundErr != nil {
