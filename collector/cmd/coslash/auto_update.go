@@ -407,7 +407,7 @@ func runUpdateApply(arguments []string) {
 	defer os.Remove(staged)
 	updateLock, err := acquireUpdateLock()
 	if err != nil {
-		_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+		_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 		return
 	}
 	lockHeld := true
@@ -419,21 +419,21 @@ func runUpdateApply(arguments []string) {
 	if attemptID != "" {
 		confirmation, err := os.OpenFile(filepath.Join(settings.Home(), updateConfirmationLockName), os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
-			_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+			_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 			return
 		}
 		if err := lockRuntimeFileExclusive(confirmation, true); err != nil {
 			_ = confirmation.Close()
-			_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+			_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 			return
 		}
 		defer confirmation.Close()
 	}
 	if err := verifyUpdateVersions(target, staged); err != nil {
-		_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+		_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 		return
 	}
-	if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+	if err := atomicfile.Write(readyPath, []byte("ready"), 0o600, nil); err != nil {
 		return
 	}
 	for deadline := time.Now().Add(time.Minute); runtimeOwnerActive() && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
