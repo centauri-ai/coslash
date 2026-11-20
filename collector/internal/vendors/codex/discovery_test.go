@@ -2,7 +2,9 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -162,6 +164,30 @@ func TestHealthIsMissingWhenBothCodexTreesAreAbsent(t *testing.T) {
 	if !health.Missing {
 		t.Fatal("health did not mark Codex missing when both session trees are absent")
 	}
+}
+
+func TestHealthReportsCancellationDuringRolloutAggregation(t *testing.T) {
+	home := t.TempDir()
+	const id = "11111111-2222-3333-4444-555555555555"
+	writeDiscoveryRollout(t, ArchivedDir(home), id, id, "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	source := cancelOnOpenReadSource{ReadSource: vendors.LocalReadSource, cancel: cancel}
+	health := healthForHome(ctx, source, home)
+	if !errors.Is(health.Err, context.Canceled) {
+		t.Fatalf("health error = %v, want context.Canceled", health.Err)
+	}
+}
+
+type cancelOnOpenReadSource struct {
+	vendors.ReadSource
+	cancel context.CancelFunc
+}
+
+func (source cancelOnOpenReadSource) Open(path string) (io.ReadCloser, error) {
+	source.cancel()
+	return source.ReadSource.Open(path)
 }
 
 func writeDiscoveryRollout(t *testing.T, directory, filenameIDs, sessionID, parentID string) string {

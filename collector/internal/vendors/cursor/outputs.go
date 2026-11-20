@@ -228,12 +228,16 @@ func orderedShellCalls(list []bubbleCall) []shellCall {
 }
 
 func loadIDEShellCalls(ctx context.Context, home string, ids []string) (map[string][]shellCall, error) {
+	ids, err := canonicalCursorIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	db, err := openCursorDB(ctx, filepath.Join(GlobalStorage(home), "state.vscdb"))
 	if err != nil {
 		return nil, ctx.Err()
 	}
 	defer db.Close()
-	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", canonicalCursorIDs(ids))
+	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", ids)
 	rows, err := db.QueryContext(ctx, query+` AND (value LIKE '%run_terminal_c%' OR value LIKE '%read_file%')`, args...)
 	if err != nil {
 		return nil, ctx.Err()
@@ -290,7 +294,11 @@ func ideShellOutput(status, result string) *string {
 }
 
 func loadCLIShellCalls(ctx context.Context, home string, ids []string) (map[string][]shellCall, error) {
-	stores, err := cursorChatStores(ctx, home, canonicalCursorIDs(ids))
+	ids, err := canonicalCursorIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	stores, err := cursorChatStores(ctx, home, ids)
 	if err != nil {
 		return nil, err
 	}
