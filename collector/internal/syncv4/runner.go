@@ -813,7 +813,9 @@ func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure b
 	} else {
 		var preparation *sessionbackupproducer.PreparationError
 		if errors.As(failure, &preparation) {
-			if preparation.TooLarge {
+			if preparation.Compressed {
+				entry.FailureCode = "compressed_source"
+			} else if preparation.TooLarge {
 				entry.FailureCode = "too_large"
 			} else {
 				entry.FailureCode = "unreadable_source"

@@ -43,6 +43,7 @@ var logMessages = map[string]string{
 	"client_update_required":         "coSlash Local needs an update.",
 	"too_large":                      "The session exceeds the size limit.",
 	"auth_revoked":                   "The device was removed.",
+	"compressed_source":              "coSlash Local cannot sync a compressed Codex transcript.",
 	"unreadable_source":              "coSlash Local cannot read the session folder.",
 	"hash_mismatch":                  "Uploaded data did not match its checksum.",
 	"space_full":                     "The space is full.",
@@ -61,6 +62,9 @@ func hubLogCode(code string, failure error) string {
 	}
 	var preparation *sessionbackupproducer.PreparationError
 	if errors.As(failure, &preparation) {
+		if preparation.Compressed {
+			return "compressed_source"
+		}
 		if preparation.TooLarge {
 			return "too_large"
 		}

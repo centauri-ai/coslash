@@ -406,6 +406,22 @@ func TestProgressUsesImportPlanOnlyWhenScaleImportIsActive(t *testing.T) {
 	}
 }
 
+func TestPlainCodexRediscoveryReleasesCompressedFailure(t *testing.T) {
+	now := time.Now().UTC()
+	queue, found := logQueue(t, t.TempDir(), "ses_archived", now)
+	parked := found
+	parked.FailureCode, parked.ParkedVersion = "compressed_source", "0.4.4"
+	if err := queue.Update(parked); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{found}, now); err != nil {
+		t.Fatal(err)
+	}
+	if entry := queue.Entries()[0]; entry.ParkedVersion != "" || entry.FailureCode != "" {
+		t.Fatalf("rediscovered plain transcript is still parked: %+v", entry)
+	}
+}
+
 // A prepared bundle that no entry refers to any more is scheduled for
 // deletion whichever path dropped it: a new bundle, changed source activity,
 // or a new Hub binding.
