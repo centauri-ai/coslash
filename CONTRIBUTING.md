@@ -68,6 +68,7 @@ not replace the regular coSlash install or its data.
 cd collector
 make test
 make check
+make lint          # needs golangci-lint v2 on PATH
 
 cd ../frontend
 npm test

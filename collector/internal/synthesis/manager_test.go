@@ -975,3 +975,9 @@ func TestPiSynthesisKeepsSharedAccountingReadable(t *testing.T) {
 		})
 	}
 }
+
+func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (session.SessionSynthesis, error) {
+	return runSynthesisWithInvocation(ctx, s, func(ctx context.Context, _ string, _ int, input string) (RunResult, error) {
+		return runner.Run(ctx, input)
+	})
+}

@@ -83,8 +83,6 @@ older clients, but there is no separate full-revision action in the normal UI.
 ## Contracts and privacy boundary
 
 - `collector/snapshot/v1`: canonical `session-snapshot/v1` schema and fixtures.
-- `collector/internal/sessionpreview`: exact review document presented before
-  an upload.
 - `collector/internal/sessionexport`: allow-listed metadata-only serialization.
 - `collector/sessionbackup/v1`: canonical complete logical-family manifest,
   artifact taxonomy, hashing, fixtures, and verifier.
@@ -131,6 +129,7 @@ cd collector
 make release       # staged frontend + embedded remote helpers + local binary
 make test          # Go, OpenCode plugin, and embedded-helper tests
 make check         # formatting and go vet
+make lint          # golangci-lint for darwin, linux, and windows
 make dist          # reproducible darwin/arm64 and darwin/amd64 archives
 ./bin/coslash
 ```

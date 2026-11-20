@@ -38,7 +38,6 @@ Package and directory level only. Each line names what the unit owns.
 - `session` - the private session model, exact detail, local revisions, and file-change IDs.
 - `sessionbackupproducer` - frozen complete Codex backups and restart-safe spools.
 - `sessionexport` - allow-listed mapping from the private model to `session-snapshot/v1`.
-- `sessionpreview` - canonical snapshot bytes for preview and upload.
 - `settings` - `settings.json` schema, validation, defaults, and SSH destination parsing.
 - `syncv4` - personal Hub sync: discovery, the durable upload queue, transfer, check-in, and Hub commands. The contract is in its `README.md`.
 - `synthesis` - synthesis scheduling, prompt construction, CLI runners, results, and cost accounting.

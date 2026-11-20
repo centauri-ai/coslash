@@ -16,10 +16,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func discover(ctx context.Context) (*vendors.SourceScan, string, error) {
-	scan, root, _, err := discoverHeaders(ctx)
-	return scan, root, err
-}
 func discoverHeaders(ctx context.Context) (*vendors.SourceScan, string, map[string]header, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, "", nil, err
@@ -157,9 +153,6 @@ func discoverHeaders(ctx context.Context) (*vendors.SourceScan, string, map[stri
 	return scan, root, headers, nil
 }
 
-func readSessionsContext(ctx context.Context) ([]*transcript, *vendors.SourceScan, string, error) {
-	return readSessionsSince(ctx, 0, nil)
-}
 func readSessionsSince(ctx context.Context, since int64, metadata *vendors.SessionMetadata) ([]*transcript, *vendors.SourceScan, string, error) {
 	scan, root, headers, err := discoverHeaders(ctx)
 	if err != nil {
