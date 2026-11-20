@@ -3,7 +3,7 @@ import { currentLocation, isLocalSession, type Session } from './session';
 export type Group = {
   id: string;
   label: string;
-  kind: 'Repository' | 'Worktree' | 'Folder' | 'No location';
+  kind: 'Repository' | 'Worktree' | 'Checkout unknown' | 'Folder' | 'No location';
   basis: string;
   context?: string;
   source?: string;
@@ -44,11 +44,12 @@ function homeRelativeLabel(path: string): string {
   return path;
 }
 
-function folderGroup(session: Session): Group {
+function folderGroup(session: Session, observedRoot?: string): Group {
   const repo = session.repo?.trim() ?? '';
   const cwd = session.cwd.trim().replaceAll('\\', '/');
   const name = session.repoLocalOnly ? repo : '';
-  const root = cwd ? folderRoot(cwd, name) : name;
+  const root =
+    observedRoot === undefined ? (cwd ? folderRoot(cwd, name) : name) : observedRoot.replaceAll('\\', '/');
   if (root) {
     const label = homeRelativeLabel(root);
     return {
@@ -86,10 +87,10 @@ export function locationGroups(session: Session): SessionGroups {
     const repo = loc.repo ? repositoryGroup(loc.repo) : undefined;
     const group: Group = {
       id: `worktree:${JSON.stringify([session.sourceId, loc.id])}`,
-      label: loc.main ? 'Main checkout' : loc.label,
+      label: loc.main && repo ? 'Main checkout' : loc.label,
       context: loc.repo || session.sourceLabel,
       kind: 'Worktree',
-      basis: [loc.root, loc.repo, session.sourceLabel, loc.label].filter(Boolean).join(' '),
+      basis: [loc.root, loc.cwd, loc.repo, session.sourceLabel, loc.label].filter(Boolean).join(' '),
       main: loc.main,
       observed: loc.lastSeen,
       source: session.sourceLabel,
@@ -97,14 +98,28 @@ export function locationGroups(session: Session): SessionGroups {
       checkout: loc.id,
       repositoryId: repo?.id,
     };
-    return repo ? [group, repo] : [group];
+    if (repo) return [group, repo];
+    if (loc.main) return [folderGroup({ ...session, cwd: loc.cwd }, loc.root || loc.cwd), group];
+    return [group];
   });
   const folder = folderGroup(session);
   const recorded = recordedRepo ?? folder;
   const primary = current && locations[0] ? locations[0][0] : recorded;
   if (!current) {
-    const fallback = recordedRepo && folder.kind === 'Folder' ? [recordedRepo, folder] : [recorded];
-    locations.unshift(fallback);
+    if (recordedRepo && folder.kind !== 'Folder') {
+      locations.unshift([
+        recordedRepo,
+        {
+          ...recordedRepo,
+          kind: 'Checkout unknown',
+          id: 'unknown-' + recordedRepo.id,
+          label: 'Checkout unknown',
+          repositoryId: recordedRepo.id,
+        },
+      ]);
+    } else {
+      locations.unshift(recordedRepo ? [recordedRepo, folder] : [folder]);
+    }
   } else if (recordedRepo && !locations[0].some((group) => group.id === recordedRepo.id)) {
     locations.push([recordedRepo]);
   }
@@ -115,20 +130,29 @@ export function locationGroups(session: Session): SessionGroups {
   };
 }
 
-export function matchesLocation(location: Group[], selected: string[], skipKind?: Group['kind']) {
+/** Main checkout selection is scoped to its repo; linked checkout IDs survive moves and renames. */
+export function locationChoiceId(group: Group): string {
+  if (group.kind === 'Repository') return 'main-' + group.id;
+  if (group.kind === 'Worktree' && group.main && group.repositoryId) return 'main-' + group.repositoryId;
+  return group.id;
+}
+
+const FILTER_SCOPES = [['repo:'], ['worktree:', 'unknown-repo:', 'main-repo:'], ['folder:'], ['unlocated']];
+const FILTER_PREFIXES = FILTER_SCOPES.flat();
+
+function matchesLocation(location: Group[], selected: string[]) {
   if (!selected.length) return true;
-  const prefixes: [Group['kind'], string][] = [
-    ['Repository', 'repo:'],
-    ['Worktree', 'worktree:'],
-    ['Folder', 'folder:'],
-    ['No location', 'unlocated'],
-  ];
-  const required = prefixes
-    .filter(([kind]) => kind !== skipKind)
-    .map(([, prefix]) => selected.filter((id) => id.startsWith(prefix)))
-    .filter((ids) => ids.length);
-  if (selected.some((id) => !prefixes.some(([, prefix]) => id.startsWith(prefix)))) return false;
-  return required.every((ids) => location.some((group) => ids.includes(group.id)));
+  // Saved inclusive repository filters may be combined with a checkout filter.
+  // Both must match this observation, including when the checkout's remote changed.
+  const choices = new Set(location.map((group) => group.id));
+  for (const group of location) {
+    if (group.kind !== 'Repository') choices.add(locationChoiceId(group));
+  }
+  if (selected.some((id) => !FILTER_PREFIXES.some((prefix) => id.startsWith(prefix)))) return false;
+  return FILTER_SCOPES.every((prefixes) => {
+    const ids = selected.filter((id) => prefixes.some((prefix) => id.startsWith(prefix)));
+    return !ids.length || ids.some((id) => choices.has(id));
+  });
 }
 
 export function matchingLocation(groups: SessionGroups, selected: string[]) {
@@ -143,11 +167,12 @@ export function sidebarGroups(sessions: Iterable<SessionGroups>): Group[] {
   const aliases = new Map<string, Set<string>>();
   for (const session of sessions)
     for (const group of session.options) {
-      const previous = byId.get(group.id);
-      if (!previous || (group.observed ?? 0) > (previous.observed ?? 0)) byId.set(group.id, group);
-      const names = aliases.get(group.id) ?? new Set<string>();
+      const key = group.id;
+      const previous = byId.get(key);
+      if (!previous || (group.observed ?? 0) > (previous.observed ?? 0)) byId.set(key, group);
+      const names = aliases.get(key) ?? new Set<string>();
       names.add(group.basis);
-      aliases.set(group.id, names);
+      aliases.set(key, names);
     }
   const byName = new Map<string, Group[]>();
   for (const group of byId.values()) {
@@ -175,9 +200,48 @@ export function sidebarGroups(sessions: Iterable<SessionGroups>): Group[] {
       groups.push({
         ...group,
         basis: [...aliases.get(group.id)!].join(' '),
-        context: [group.context, extra].filter(Boolean).join(' · '),
+        // A nested row already shows the repository above it. Keep just the distinguishing path.
+        context: group.repositoryId ? extra : [group.context, extra].filter(Boolean).join(' · '),
       });
     });
   }
   return groups.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** Search the location picker independently of the session list and its active filter. */
+export function locationChoices(groups: Group[], query: string) {
+  const needle = query.trim().toLowerCase();
+  const matches = (group: Group) =>
+    [group.label, group.basis, group.context].some((value) => value?.toLowerCase().includes(needle));
+  const checkoutsByRepo = new Map<string, Group[]>();
+  const others: Group[] = [];
+  const folders: Group[] = [];
+  const unlocated: Group[] = [];
+  for (const group of groups) {
+    if (group.repositoryId) {
+      const checkouts = checkoutsByRepo.get(group.repositoryId) ?? [];
+      checkouts.push(group);
+      checkoutsByRepo.set(group.repositoryId, checkouts);
+    } else if (matches(group)) {
+      if (group.kind === 'Worktree' && !group.main) others.push(group);
+      if (group.kind === 'Folder') folders.push(group);
+      if (group.kind === 'No location') unlocated.push(group);
+    }
+  }
+  const repositories = groups
+    .filter((group) => group.kind === 'Repository')
+    .flatMap((group) => {
+      const checkouts = checkoutsByRepo.get(group.id) ?? [];
+      const repoMatch = matches(group);
+      const visible = checkouts.filter((checkout) => repoMatch || matches(checkout));
+      if (!repoMatch && !visible.length) return [];
+      return [
+        {
+          group,
+          worktrees: visible.filter((checkout) => checkout.kind === 'Worktree' && !checkout.main),
+          unknown: visible.find((checkout) => checkout.kind === 'Checkout unknown'),
+        },
+      ];
+    });
+  return { repositories, others, folders, unlocated };
 }
