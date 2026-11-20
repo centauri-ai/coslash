@@ -438,13 +438,12 @@ func TestNativeCollectorConfirmsUpdateHandoffFromHelperReceipt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(receipts, fixtureAttemptID), []byte("update_ready"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "update handoff confirmation", 30*time.Second, func() bool {
+	// The collector confirms before it removes the receipt, so wait for both.
+	waitFor(t, "update handoff confirmation and receipt removal", 30*time.Second, func() bool {
 		update := f.update()
-		return update != nil && update.HandoffReady
+		_, err := os.Lstat(filepath.Join(receipts, fixtureAttemptID))
+		return update != nil && update.HandoffReady && os.IsNotExist(err)
 	})
-	if _, err := os.Lstat(filepath.Join(receipts, fixtureAttemptID)); !os.IsNotExist(err) {
-		t.Fatalf("receipt was not consumed: %v", err)
-	}
 	f.shutdown()
 	f.waitExit(command)
 	f.requireNoHostAccess()

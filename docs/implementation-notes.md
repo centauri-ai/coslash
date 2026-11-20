@@ -10,10 +10,13 @@ Package and directory level only. Each line names what the unit owns.
 
 - `coslash` - the local binary: HTTP server, API routes, CLI subcommands (`sessions`, `send`, `review`, `doctor`, and more), startup, token, and runtime discovery.
 - `coslash-helper` - the Linux SSH collection helper entry point. It is embedded in release builds.
+- `synthetic-home` - a test tool that generates a synthetic agent home for integration and scale runs. It is never part of a release build.
 
 ### Collector internal packages (`collector/internal`)
 
 - `agentexec` - child-process environment for launched agents, including removal of parent session markers and Windows shims.
+- `atomicfile` - file replacement that a reader or a crash sees as either the old or the complete new content.
+- `backgroundexec` - child processes without a console window when Local runs detached on Windows.
 - `collector` - local session collection across all vendor packages and composition with remote facts.
 - `diagnostics` - content-free readiness checks for `coslash doctor` and the diagnostics dialog.
 - `directedhandoff` - store and state tracking for a handoff addressed to a target session.
@@ -22,8 +25,10 @@ Package and directory level only. Each line names what the unit owns.
 - `grokcli` - Grok CLI location and private Grok home preparation.
 - `handoff` - canonical Markdown context passed between agent sessions.
 - `httpsec` - the loopback request guard and security headers.
+- `inventory` - the stat-only inventory of local agent roots that feeds the pairing summary and the sync discovery plan.
 - `hubclient` - Hub discovery, pairing, destination, upload, status, and credential storage.
 - `launch` - terminal launches (resume, start fresh, send) and headless review processes per OS.
+- `machineid` - the platform machine ID that Local sends to Hub when it pairs and checks in.
 - `remote` - the Mac side of SSH collection: manager, helper lifecycle, SFTP fallback, cache, and health.
 - `remotefacts` - transport-independent remote family facts used by composition.
 - `remotehelper` - the Linux-side collector logic that the helper runs.
@@ -35,6 +40,7 @@ Package and directory level only. Each line names what the unit owns.
 - `sessionexport` - allow-listed mapping from the private model to `session-snapshot/v1`.
 - `sessionpreview` - canonical snapshot bytes for preview and upload.
 - `settings` - `settings.json` schema, validation, defaults, and SSH destination parsing.
+- `syncv4` - personal Hub sync: discovery, the durable upload queue, transfer, check-in, and Hub commands. The contract is in its `README.md`.
 - `synthesis` - synthesis scheduling, prompt construction, CLI runners, results, and cost accounting.
 - `vendors` - shared source scanning, plus one subpackage per agent: `claude`, `codex`, `cursor`, `grok`, `opencode`, `pi`. Each subpackage owns read-only parsing, discovery, and liveness for that agent. Vendor behavior notes are in [`docs/vendors/`](vendors/).
 - `web` - serves the frontend assets embedded in the binary.
@@ -46,7 +52,7 @@ Package and directory level only. Each line names what the unit owns.
 - `collector/snapshot/v1` - `session-snapshot/v1`, the metadata-only portable record.
 - `collector/fullsession/v1` - `full-session-record/v1`, one complete parsed revision.
 - `collector/sessionbackup/v1` - `session-backup/v1`, one complete logical family backup.
-- `collector/scripts` - smoke tests and the model price table filter.
+- `collector/scripts` - smoke tests, branch install scripts, the source version script, the Windows helper scripts, and the model price table filter.
 
 ### Frontend (`frontend/src`)
 
@@ -57,7 +63,7 @@ Package and directory level only. Each line names what the unit owns.
 
 ### Plugins (`plugins/coslash`)
 
-- The Claude Code and Codex plugin manifests and the `skills` (`doctor`, `handoff`, `review`, `send`, `sessions`). The skills call the `coslash` CLI.
+- The Claude Code and Codex plugin manifests and the `skills` (`doctor`, `handoff`, `hub`, `review`, `send`, `sessions`). The skills call the `coslash` CLI.
 
 ## Boundary rules
 

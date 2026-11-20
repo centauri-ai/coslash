@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -1331,25 +1332,5 @@ func (q *Queue) save() error {
 	if err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(filepath.Dir(q.path), ".queue-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	if err := protectQueueFile(file.Name(), file); err != nil {
-		file.Close()
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), q.path)
+	return atomicfile.Write(q.path, data, 0o600, protectQueueFile)
 }

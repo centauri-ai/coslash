@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
@@ -406,7 +407,7 @@ func runUpdateApply(arguments []string) {
 	defer os.Remove(staged)
 	updateLock, err := acquireUpdateLock()
 	if err != nil {
-		_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+		_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 		return
 	}
 	lockHeld := true
@@ -418,21 +419,21 @@ func runUpdateApply(arguments []string) {
 	if attemptID != "" {
 		confirmation, err := os.OpenFile(filepath.Join(settings.Home(), updateConfirmationLockName), os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
-			_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+			_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 			return
 		}
 		if err := lockRuntimeFileExclusive(confirmation, true); err != nil {
 			_ = confirmation.Close()
-			_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+			_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 			return
 		}
 		defer confirmation.Close()
 	}
 	if err := verifyUpdateVersions(target, staged); err != nil {
-		_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+		_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 		return
 	}
-	if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+	if err := atomicfile.Write(readyPath, []byte("ready"), 0o600, nil); err != nil {
 		return
 	}
 	for deadline := time.Now().Add(time.Minute); runtimeOwnerActive() && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
@@ -640,19 +641,7 @@ func writeUpdateOutcome(id, outcome string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(dir, ".result-*")
-	if err != nil {
-		return err
-	}
-	tmp := file.Name()
-	defer os.Remove(tmp)
-	_, writeErr := file.WriteString(outcome)
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(dir, id))
+	return atomicfile.Write(filepath.Join(dir, id), []byte(outcome), 0o600, nil)
 }
 
 func consumeUpdateFailure(queue *syncv4.Queue) bool {

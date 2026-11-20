@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -232,24 +233,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	if err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(directory, ".synthesis-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempName := temp.Name()
-	defer os.Remove(tempName)
-	if err := protectSynthesisFile(tempName, temp); err != nil {
-		temp.Close()
-		return err
-	}
-	if _, err := temp.Write(data); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tempName, path); err != nil {
+	if err := atomicfile.Write(path, data, 0o600, protectSynthesisFile); err != nil {
 		return err
 	}
 	key := cacheKey{agent: agent, id: id}

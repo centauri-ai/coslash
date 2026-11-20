@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 )
 
 const backgroundLoginMarker = "COSLASH_LAUNCH_AGENT"
@@ -131,23 +133,7 @@ func installBackgroundLogin() error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	temporary, err := os.CreateTemp(dir, ".coslash-local-*.plist")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temporary.Name())
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(contents); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporary.Name(), path); err != nil {
+	if err := atomicfile.Write(path, contents, 0o600, nil); err != nil {
 		return err
 	}
 	if replaced {

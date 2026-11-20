@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
@@ -250,25 +251,5 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".handoffs-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), s.path)
+	return atomicfile.Write(s.path, data, 0o600, nil)
 }

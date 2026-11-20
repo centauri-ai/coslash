@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 )
 
 // FileCredentialStore keeps the device credential in a private file. Linux
@@ -54,27 +56,7 @@ func (s FileCredentialStore) Save(ctx context.Context, credential string) error 
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return fmt.Errorf("save Hub credential: %w", err)
 	}
-	temporary, err := os.CreateTemp(dir, ".credential-*")
-	if err != nil {
-		return fmt.Errorf("save Hub credential: %w", err)
-	}
-	defer os.Remove(temporary.Name())
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("save Hub credential: %w", err)
-	}
-	if _, err := temporary.WriteString(credential + "\n"); err != nil {
-		temporary.Close()
-		return fmt.Errorf("save Hub credential: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return fmt.Errorf("save Hub credential: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("save Hub credential: %w", err)
-	}
-	if err := os.Rename(temporary.Name(), s.Path); err != nil {
+	if err := atomicfile.Write(s.Path, []byte(credential+"\n"), 0o600, nil); err != nil {
 		return fmt.Errorf("save Hub credential: %w", err)
 	}
 	return nil

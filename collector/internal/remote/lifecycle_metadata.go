@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 )
 
 // FileMetadataSequenceStore persists the highest authenticated metadata
@@ -42,31 +44,12 @@ func (store *FileMetadataSequenceStore) Accept(sequence uint64) error {
 	if err := protectMetadataSequenceDirectory(directory); err != nil {
 		return fmt.Errorf("secure metadata sequence directory: %w", err)
 	}
-	temporary, err := os.CreateTemp(directory, ".helper-metadata-sequence-*")
-	if err != nil {
-		return fmt.Errorf("create metadata sequence temporary file: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := protectMetadataSequenceFile(temporaryPath, temporary); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.WriteString(strconv.FormatUint(sequence, 10) + "\n"); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryPath, store.Path); err != nil {
+	if err := atomicfile.Write(store.Path, []byte(strconv.FormatUint(sequence, 10)+"\n"), 0o600, protectMetadataSequenceFile); err != nil {
 		return fmt.Errorf("commit metadata sequence: %w", err)
 	}
-	return syncMetadataDirectory(directory)
+	// Write syncs the directory only on a best-effort basis; a lost sequence
+	// would let a rolled-back helper pass, so this sync must succeed.
+	return atomicfile.SyncDir(directory)
 }
 
 func readMetadataSequence(path string) (uint64, error) {

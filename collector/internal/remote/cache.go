@@ -18,6 +18,7 @@ import (
 	"time"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -265,7 +266,7 @@ func (c *Cache) removeSourceWithCommit(sourceID string, commit func() error, pre
 		_ = os.Remove(marker)
 		return err
 	}
-	syncDirBestEffort(filepath.Dir(dir))
+	_ = atomicfile.SyncDir(filepath.Dir(dir))
 	if err := commit(); err != nil {
 		if restoreErr := os.Rename(staged, dir); restoreErr != nil {
 			return errors.Join(err, fmt.Errorf("restore remote cache: %w", restoreErr))
@@ -564,32 +565,11 @@ func (c *Cache) StoreHelperVersion(sourceID, version, alias string) error {
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(dir, ".helper-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := protectCacheFile(temporaryPath, temporary); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(content); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
 	path, err := c.helperOwnershipPath(sourceID)
 	if err != nil {
 		return err
 	}
-	return os.Rename(temporaryPath, path)
+	return atomicfile.Write(path, content, 0o600, protectCacheFile)
 }
 
 func (c *Cache) RemoveHelperVersion(sourceID string) error {
@@ -1035,14 +1015,10 @@ func (c *Cache) storePreparedV2Locked(sourceID string, prepared preparedCachedSn
 		return err
 	}
 	digest := sha256.Sum256(prepared.data)
-	if err := writeAtomicCacheFile(dir, checksumPath, []byte(hex.EncodeToString(digest[:]))); err != nil {
+	if err := atomicfile.Write(checksumPath, []byte(hex.EncodeToString(digest[:])), 0o600, protectCacheFile); err != nil {
 		return err
 	}
-	if err := writeAtomicCacheFile(dir, path, prepared.data); err != nil {
-		return err
-	}
-	syncDirBestEffort(dir)
-	return nil
+	return atomicfile.Write(path, prepared.data, 0o600, protectCacheFile)
 }
 
 func splitChangeBodies(cached CachedSnapshotV2) (CachedSnapshotV2, error) {
@@ -1179,31 +1155,6 @@ func rotateValidatedCacheFile(dir, current, previous, checksumPath string) error
 	return os.Rename(tempPath, previous)
 }
 
-func writeAtomicCacheFile(dir, target string, data []byte) error {
-	temp, err := os.CreateTemp(dir, ".snapshot-v2-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if err := protectCacheFile(tempPath, temp); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, target)
-}
-
 // Claude cards remain visible when their exact records are pruned; Codex families stay atomic.
 func retainFullRecordFamilies(cached CachedSnapshotV2, budget int) (CachedSnapshotV2, bool, error) {
 	type familyRecords struct {
@@ -1331,16 +1282,4 @@ func privacySafeSnapshot(cached CachedSnapshotV2) CachedSnapshotV2 {
 		cached.Families[i].Facts = facts
 	}
 	return cached
-}
-
-// syncDirBestEffort fsyncs a directory so a rename inside it is durable. Not
-// every platform supports fsync on a directory descriptor; failure here is
-// deliberately ignored since the rename itself already completed.
-func syncDirBestEffort(dir string) {
-	handle, err := os.Open(dir)
-	if err != nil {
-		return
-	}
-	defer handle.Close()
-	_ = handle.Sync()
 }

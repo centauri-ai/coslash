@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/atomicfile"
 )
 
 const (
@@ -432,21 +434,5 @@ func writePrivateFile(dir, path string, contents []byte) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(dir, ".coslash-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temporary.Name())
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(contents); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporary.Name(), path)
+	return atomicfile.Write(path, contents, 0o600, nil)
 }
