@@ -7,7 +7,24 @@ import (
 	"time"
 )
 
+type V4Worktree struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+type V4Location struct {
+	Availability string `json:"availability,omitempty"`
+	CWD          string `json:"cwd,omitempty"`
+	Root         string `json:"root,omitempty"`
+	Source       string `json:"source,omitempty"`
+	ObservedAt   string `json:"observedAt,omitempty"`
+	Head         string `json:"head,omitempty"`
+	Evidence     string `json:"evidence,omitempty"`
+}
 type V4ListItem struct {
+	LocationVersion int64       `json:"locationVersion,omitempty"`
+	Worktree        *V4Worktree `json:"worktree,omitempty"`
+	MainCheckout    bool        `json:"mainCheckout,omitempty"`
+	Location        *V4Location `json:"location,omitempty"`
 	V4Session
 	ActivityAt   time.Time `json:"activityAt"`
 	ContentBytes int64     `json:"contentBytes"`
