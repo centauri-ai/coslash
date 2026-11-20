@@ -19,11 +19,7 @@ import (
 var databasePathLookupTimeout = 2 * time.Second
 var commandContext = backgroundexec.CommandContext
 
-func Root() (string, error) {
-	return RootContext(context.Background())
-}
-
-func RootContext(ctx context.Context) (string, error) {
+func Root(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -69,12 +65,8 @@ func RootContext(ctx context.Context) (string, error) {
 	return filepath.Join(home, ".local", "share", "opencode", "opencode.db"), nil
 }
 
-func open() (*sql.DB, error) {
-	return openContext(context.Background())
-}
-
-func openContext(ctx context.Context) (*sql.DB, error) {
-	path, err := RootContext(ctx)
+func open(ctx context.Context) (*sql.DB, error) {
+	path, err := Root(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +82,7 @@ func openContext(ctx context.Context) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := validateSchemaContext(ctx, db); err != nil {
+	if err := validateSchema(ctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -117,8 +109,8 @@ func readOnlyDatabaseDSN(path string) string {
 	}).String()
 }
 
-func validateSchemaContext(ctx context.Context, db *sql.DB) error {
-	_, err := sessionSourceContext(ctx, db)
+func validateSchema(ctx context.Context, db *sql.DB) error {
+	_, err := sessionSource(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -148,7 +140,7 @@ func validateSchemaContext(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
+func sessionSource(ctx context.Context, db *sql.DB) (string, error) {
 	var v1, v2 bool
 	for _, table := range []struct {
 		name  string

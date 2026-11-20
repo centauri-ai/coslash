@@ -368,7 +368,7 @@ func powerShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
-func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) {
+func handoffCommand(ctx context.Context, agent, cli, handoff, prompt string) (string, string, error) {
 	context := handoffPreamble + handoff
 	switch agent {
 	case vendors.AgentClaude:
@@ -398,7 +398,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		}
 		return withPowerShellCleanup(command, path), path, nil
 	case vendors.AgentOpenCode:
-		args, err := openCodeHandoffArguments(cli)
+		args, err := openCodeHandoffArguments(ctx, cli)
 		if err != nil {
 			return "", "", err
 		}

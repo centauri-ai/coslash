@@ -16,12 +16,11 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func discover() (*vendors.SourceScan, string, error) { return discoverContext(context.Background()) }
-func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
-	scan, root, _, err := discoverHeadersContext(ctx)
+func discover(ctx context.Context) (*vendors.SourceScan, string, error) {
+	scan, root, _, err := discoverHeaders(ctx)
 	return scan, root, err
 }
-func discoverHeadersContext(ctx context.Context) (*vendors.SourceScan, string, map[string]header, error) {
+func discoverHeaders(ctx context.Context) (*vendors.SourceScan, string, map[string]header, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, "", nil, err
 	}
@@ -96,7 +95,7 @@ func discoverHeadersContext(ctx context.Context) (*vendors.SourceScan, string, m
 			headers[abs] = h
 		}
 	}
-	paths, err := RuntimeTranscriptPathsContext(ctx)
+	paths, err := RuntimeTranscriptPaths(ctx)
 	if err != nil {
 		scan.RecordSkipped("Pi runtime metadata", err)
 	}
@@ -158,23 +157,11 @@ func discoverHeadersContext(ctx context.Context) (*vendors.SourceScan, string, m
 	return scan, root, headers, nil
 }
 
-func Files() ([]string, error) {
-	scan, _, err := discover()
-	if err != nil {
-		return nil, err
-	}
-	return scan.Files, nil
-}
-
-// Conflicting header identities are excluded together, never picked by filename order.
-func readSessions() ([]*transcript, *vendors.SourceScan, string, error) {
-	return readSessionsContext(context.Background())
-}
 func readSessionsContext(ctx context.Context) ([]*transcript, *vendors.SourceScan, string, error) {
-	return readSessionsSinceContext(ctx, 0, nil)
+	return readSessionsSince(ctx, 0, nil)
 }
-func readSessionsSinceContext(ctx context.Context, since int64, metadata *vendors.SessionMetadata) ([]*transcript, *vendors.SourceScan, string, error) {
-	scan, root, headers, err := discoverHeadersContext(ctx)
+func readSessionsSince(ctx context.Context, since int64, metadata *vendors.SessionMetadata) ([]*transcript, *vendors.SourceScan, string, error) {
+	scan, root, headers, err := discoverHeaders(ctx)
 	if err != nil {
 		return nil, nil, root, err
 	}
@@ -237,7 +224,7 @@ func readSessionsSinceContext(ctx context.Context, since int64, metadata *vendor
 		if !selected[file] {
 			continue
 		}
-		t, err := parseTranscriptContext(ctx, file)
+		t, err := parseTranscript(ctx, file)
 		if ctx.Err() != nil {
 			return nil, nil, root, ctx.Err()
 		}
@@ -259,22 +246,19 @@ func readSessionsSinceContext(ctx context.Context, since int64, metadata *vendor
 	return sessions, scan, root, nil
 }
 
-func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	return CollectContext(context.Background(), since)
-}
-func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	snapshot, _ := snapshotContext(ctx)
+	snapshot, _ := currentSnapshot(ctx)
 	ctx = WithRuntimeSnapshot(ctx, snapshot)
-	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
-	items, scan, _, err := readSessionsSinceContext(ctx, since, metadata)
+	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadata(ctx) })
+	items, scan, _, err := readSessionsSince(ctx, since, metadata)
 	if err != nil {
 		return nil, nil, err
 	}
 	result := make([]*vendors.ParsedSession, 0, len(items))
-	parents := parentCacheContext(ctx, items, scan)
+	parents := parentCache(ctx, items, scan)
 	for _, t := range items {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -282,7 +266,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		if info, err := os.Stat(t.Path); err == nil && since > 0 && info.ModTime().UnixMilli() < since && !runtimeLive(metadata, t.Header.ID) {
 			continue
 		}
-		projected, err := projectContext(ctx, t, parents(t))
+		projected, err := project(ctx, t, parents(t))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -294,20 +278,19 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	return result, metadata, nil
 }
 
-func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
-	ctx := context.Background()
-	snapshot, _ := LoadRuntimeSnapshotContext(ctx)
-	return getSessionFactsContext(WithRuntimeSnapshot(ctx, snapshot), id)
+func GetSessionFacts(ctx context.Context, id string) (*vendors.ParsedSession, error) {
+	snapshot, _ := LoadRuntimeSnapshot(ctx)
+	return getSessionFacts(WithRuntimeSnapshot(ctx, snapshot), id)
 }
-func getSessionFactsContext(ctx context.Context, id string) (*vendors.ParsedSession, error) {
-	items, scan, _, err := readSessionsContext(ctx)
+func getSessionFacts(ctx context.Context, id string) (*vendors.ParsedSession, error) {
+	items, scan, _, err := readSessionsSince(ctx, 0, nil)
 	if err != nil {
 		return nil, err
 	}
-	parents := parentCacheContext(ctx, items, scan)
+	parents := parentCache(ctx, items, scan)
 	for _, t := range items {
 		if t.Header.ID == id {
-			return projectContext(ctx, t, parents(t))
+			return project(ctx, t, parents(t))
 		}
 	}
 	// A capped health diagnostic list must not hide a conflicting requested identity.
@@ -316,7 +299,7 @@ func getSessionFactsContext(ctx context.Context, id string) (*vendors.ParsedSess
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		t, err := parseTranscriptContext(ctx, path)
+		t, err := parseTranscript(ctx, path)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -334,13 +317,13 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	snapshot, _ := LoadRuntimeSnapshotContext(ctx)
+	snapshot, _ := LoadRuntimeSnapshot(ctx)
 	ctx = WithRuntimeSnapshot(ctx, snapshot)
-	facts, err := getSessionFactsContext(ctx, id)
+	facts, err := getSessionFacts(ctx, id)
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
+	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadata(ctx) })
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -350,8 +333,8 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 	return []*vendors.ParsedSession{facts}, metadata, nil
 }
 
-func Health() vendors.SourceHealth {
-	items, scan, root, err := readSessions()
+func Health(ctx context.Context) vendors.SourceHealth {
+	items, scan, root, err := readSessionsSince(ctx, 0, nil)
 	h := vendors.SourceHealth{Agent: vendors.AgentPi, Root: root, Err: err}
 	if err != nil {
 		return h

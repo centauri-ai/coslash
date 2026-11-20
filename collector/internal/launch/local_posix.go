@@ -3,6 +3,7 @@
 package launch
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -120,7 +121,7 @@ interact`
 	return command, path, nil
 }
 
-func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) {
+func handoffCommand(ctx context.Context, agent, cli, handoff, prompt string) (string, string, error) {
 	context := handoffPreamble + handoff
 	switch agent {
 	case vendors.AgentClaude:
@@ -150,7 +151,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		}
 		return withCleanup(command, path), path, nil
 	case vendors.AgentOpenCode:
-		args, err := openCodeHandoffArguments(cli)
+		args, err := openCodeHandoffArguments(ctx, cli)
 		if err != nil {
 			return "", "", err
 		}

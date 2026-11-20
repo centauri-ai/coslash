@@ -234,7 +234,7 @@ func TestFrozenFamilySkillsBelongToEachParsedSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	refs, err := PlanFamiliesContext(t.Context(), []string{parent, child})
+	refs, err := PlanFamilies(t.Context(), []string{parent, child})
 	if err != nil || len(refs) != 1 {
 		t.Fatalf("plan = %#v, %v", refs, err)
 	}
@@ -250,7 +250,7 @@ func TestFrozenFamilySkillsBelongToEachParsedSession(t *testing.T) {
 	if err := os.RemoveAll(live); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := ParseFrozenFamilyContext(t.Context(), refs[0], dirs, nil)
+	parsed, err := ParseFrozenFamily(t.Context(), refs[0], dirs, nil)
 	if err != nil || len(parsed) != 2 {
 		t.Fatalf("frozen family = %#v, %v", parsed, err)
 	}

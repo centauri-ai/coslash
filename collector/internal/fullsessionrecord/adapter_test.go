@@ -678,7 +678,7 @@ func TestGrokSourceAccountingSurvivesPortableFamily(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			parsed, metadata, err := grok.CollectContext(t.Context(), 0)
+			parsed, metadata, err := grok.Collect(t.Context(), 0)
 			if err != nil {
 				t.Fatal(err)
 			}

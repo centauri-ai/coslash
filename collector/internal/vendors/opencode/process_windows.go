@@ -47,11 +47,7 @@ type windowsTUIProcess struct {
 	CommandLine string `json:"CommandLine"`
 }
 
-func listTUIProcesses() ([]tuiProcess, error) {
-	return listTUIProcessesContext(context.Background())
-}
-
-func listTUIProcessesContext(ctx context.Context) ([]tuiProcess, error) {
+func listTUIProcesses(ctx context.Context) ([]tuiProcess, error) {
 	ctx, cancel := context.WithTimeout(ctx, listTUIProcessTimeout)
 	defer cancel()
 	output, err := runTUIProcessQuery(ctx)
@@ -92,11 +88,7 @@ func parseWindowsTUIProcesses(output []byte) ([]tuiProcess, error) {
 	return processes, nil
 }
 
-func processWorkingDirectory(pid int) string {
-	return processWorkingDirectoryContext(context.Background(), pid)
-}
-
-func processWorkingDirectoryContext(ctx context.Context, pid int) string {
+func processWorkingDirectory(ctx context.Context, pid int) string {
 	if ctx.Err() != nil {
 		return ""
 	}

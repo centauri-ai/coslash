@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,7 +17,7 @@ func TestOpenCodeHandoffUsesPrivateV2ServerButKeepsV1Launch(t *testing.T) {
 		t.Run(fmt.Sprint(major), func(t *testing.T) {
 			stubOpenCodeMajor(t, major)
 			t.Setenv("COSLASH_HOME", t.TempDir())
-			command, path, err := handoffCommand("opencode", "opencode", "private historical notes", "")
+			command, path, err := handoffCommand(t.Context(), "opencode", "opencode", "private historical notes", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -28,7 +29,7 @@ func TestOpenCodeHandoffUsesPrivateV2ServerButKeepsV1Launch(t *testing.T) {
 			if err != nil || !strings.Contains(string(content), handoffPreamble+"private historical notes") {
 				t.Fatalf("handoff = %q, error = %v", content, err)
 			}
-			resume, _, err := cliCommand("opencode", "ses_test", ResumeSession, "")
+			resume, _, err := cliCommand(t.Context(), "opencode", "ses_test", ResumeSession, "", "")
 			if err != nil || strings.Contains(resume, "--standalone") || !strings.Contains(resume, "--session") {
 				t.Fatalf("resume command = %q, error = %v", resume, err)
 			}
@@ -39,7 +40,7 @@ func TestOpenCodeHandoffUsesPrivateV2ServerButKeepsV1Launch(t *testing.T) {
 func stubOpenCodeMajor(t *testing.T, major int) {
 	t.Helper()
 	original := openCodeMajorVersion
-	openCodeMajorVersion = func() (int, error) { return major, nil }
+	openCodeMajorVersion = func(context.Context) (int, error) { return major, nil }
 	t.Cleanup(func() { openCodeMajorVersion = original })
 }
 
@@ -51,7 +52,7 @@ func TestOpenCodeV2ReviewIsolatedAndReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := reviewCLICommand("opencode", worktree, "review title", "--untrusted prompt")
+	got, err := reviewCLICommand(t.Context(), "opencode", worktree, "review title", "--untrusted prompt")
 	if err != nil {
 		t.Fatal(err)
 	}

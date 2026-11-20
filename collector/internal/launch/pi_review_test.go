@@ -57,7 +57,7 @@ func TestPiReviewReadOnlyCommandAndAvailability(t *testing.T) {
 			t.Fatalf("missing %q: Pi availability = %v", missing, got)
 		}
 	}
-	spec, err := reviewCLICommand("pi", t.TempDir(), "Review", "private session context")
+	spec, err := reviewCLICommand(t.Context(), "pi", t.TempDir(), "Review", "private session context")
 	if err != nil {
 		t.Fatal(err)
 	}

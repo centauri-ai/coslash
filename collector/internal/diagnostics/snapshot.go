@@ -233,13 +233,13 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	if userHomeErr != nil {
 		snapshot.homeError = userHomeErr.Error()
 	}
-	snapshot.openCodePlugin = opencode.PluginDiagnostics()
+	snapshot.openCodePlugin = opencode.PluginDiagnostics(ctx)
 	snapshot.openCodePlugin.Path = displayPath(userHome, snapshot.openCodePlugin.Path)
 	if snapshot.openCodePlugin.Err != nil {
 		snapshot.openCodePluginError = displayError(userHome, snapshot.openCodePlugin.Err.Error())
 	}
 
-	snapshot.piExtension = pi.ExtensionDiagnostics()
+	snapshot.piExtension = pi.ExtensionDiagnostics(ctx)
 	snapshot.piExtension.Path = displayPath(userHome, snapshot.piExtension.Path)
 	if snapshot.piExtension.Err != nil {
 		snapshot.piExtensionError = displayError(userHome, snapshot.piExtension.Err.Error())

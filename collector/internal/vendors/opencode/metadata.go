@@ -21,7 +21,7 @@ const (
 
 var sessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 
-var loadProcessesContext = listTUIProcessesContext
+var loadProcessesContext = listTUIProcesses
 
 var nonTUICommands = map[string]struct{}{
 	"acp": {}, "agent": {}, "attach": {}, "auth": {}, "completion": {}, "db": {},
@@ -52,11 +52,7 @@ type liveCandidate struct {
 	userMessages []int64
 }
 
-func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
-	return loadMetadataContext(context.Background(), db)
-}
-
-func loadMetadataContext(ctx context.Context, db *sql.DB) (*vendors.SessionMetadata, error) {
+func loadMetadata(ctx context.Context, db *sql.DB) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
 	processes, err := loadProcessesContext(ctx)
 	if err != nil {
@@ -66,7 +62,7 @@ func loadMetadataContext(ctx context.Context, db *sql.DB) (*vendors.SessionMetad
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		cwd := processWorkingDirectoryContext(ctx, processes[index].pid)
+		cwd := processWorkingDirectory(ctx, processes[index].pid)
 		if cwd == "" {
 			continue
 		}
@@ -79,14 +75,14 @@ func loadMetadataContext(ctx context.Context, db *sql.DB) (*vendors.SessionMetad
 		}
 		processes[index].directory = filepath.Clean(cwd)
 	}
-	candidates, err := loadLiveCandidatesContext(ctx, db)
+	candidates, err := loadLiveCandidates(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("load live candidates: %w", err)
 	}
 	for id := range matchLiveSessions(processes, candidates) {
 		metadata.Session(id).Live = "interactive"
 	}
-	if err := markPendingPermissionsContext(ctx, db, metadata, permissionStateDir()); err != nil {
+	if err := markPendingPermissions(ctx, db, metadata, permissionStateDir()); err != nil {
 		return nil, err
 	}
 	metadata.LivenessChecked = true
@@ -119,7 +115,7 @@ func clientStateDir() string {
 	return filepath.Join(home, ".coslash", "opencode-clients")
 }
 
-func sessionEntrypointContext(ctx context.Context, id, directory string) *string {
+func sessionEntrypoint(ctx context.Context, id, directory string) *string {
 	if !sessionIDPattern.MatchString(id) || directory == "" {
 		return nil
 	}
@@ -142,7 +138,7 @@ func sessionEntrypointContext(ctx context.Context, id, directory string) *string
 	return &value
 }
 
-func markPendingPermissionsContext(
+func markPendingPermissions(
 	ctx context.Context,
 	db *sql.DB,
 	metadata *vendors.SessionMetadata,
@@ -152,7 +148,7 @@ func markPendingPermissionsContext(
 	if err != nil {
 		return nil
 	}
-	source, err := sessionSourceContext(ctx, db)
+	source, err := sessionSource(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -227,8 +223,8 @@ func parseTUIArgs(args []string) (project, sessionID string, fork, tui bool) {
 	return
 }
 
-func loadLiveCandidatesContext(ctx context.Context, db *sql.DB) ([]liveCandidate, error) {
-	source, err := sessionSourceContext(ctx, db)
+func loadLiveCandidates(ctx context.Context, db *sql.DB) ([]liveCandidate, error) {
+	source, err := sessionSource(ctx, db)
 	if err != nil {
 		return nil, err
 	}

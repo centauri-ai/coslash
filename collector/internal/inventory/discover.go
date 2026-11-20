@@ -207,7 +207,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 				}
 				activityMs = info.ModTime().UnixMilli()
 			}
-			inputs, err := opts.Pi.SessionInputsContext(ctx, ref.ID)
+			inputs, err := opts.Pi.SessionInputs(ctx, ref.ID)
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -287,7 +287,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 				dirs = append(dirs, file.FamilyID)
 			}
 		}
-		refs, err := grok.PlanFamiliesContext(ctx, dirs)
+		refs, err := grok.PlanFamilies(ctx, dirs)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -310,7 +310,7 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		}
 	}
 
-	refs, err := opencode.FamiliesContext(ctx)
+	refs, err := opencode.Families(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -492,7 +492,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		for _, path := range inputs.Files {
 			files[path] = path
 		}
-		item, _, err := pi.ParseFrozenSessionContext(ctx, inputs, files)
+		item, _, err := pi.ParseFrozenSession(ctx, inputs, files)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -527,7 +527,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		metadata[vendors.AgentCursor] = mergeMetadata(plan.metadata[vendors.AgentCursor], batchMetadata)
 	}
 	if len(grokFamilies) > 0 {
-		items, grokMetadata, err := grok.ParseFamiliesContext(ctx, grokFamilies)
+		items, grokMetadata, err := grok.ParseFamilies(ctx, grokFamilies)
 		if err != nil {
 			return nil, err
 		}
@@ -535,7 +535,7 @@ func (plan *discoveryPlan) parseBatch(ctx context.Context, batch []family) ([]*s
 		metadata[vendors.AgentGrok] = grokMetadata
 	}
 	if len(opencodeIDs) > 0 {
-		items, dbMetadata, err := opencode.LoadFamiliesContext(ctx, opencodeIDs)
+		items, dbMetadata, err := opencode.LoadFamilies(ctx, opencodeIDs)
 		if err != nil {
 			return nil, err
 		}

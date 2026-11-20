@@ -155,12 +155,7 @@ func readSummary(dir string) (*summaryFile, error) {
 	return &summary, nil
 }
 
-// parseSession returns nil for a chat_format_version other than 1.
-func parseSession(dir string) (*vendors.ParsedSession, error) {
-	return parseSessionContext(context.Background(), dir)
-}
-
-func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSession, error) {
+func parseSession(ctx context.Context, dir string) (*vendors.ParsedSession, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

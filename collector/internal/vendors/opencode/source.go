@@ -54,20 +54,16 @@ type skippedFamily struct {
 	err error
 }
 
-func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	return CollectContext(context.Background(), since)
-}
-
-func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if path, err := pluginPath(); err == nil {
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			_ = EnsurePlugin()
+			_ = EnsurePlugin(ctx)
 		}
 	}
-	db, err := openContext(ctx)
+	db, err := open(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return []*vendors.ParsedSession{}, vendors.EmptySessionMetadata(), nil
 	}
@@ -75,7 +71,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		return nil, nil, err
 	}
 	defer db.Close()
-	metadata, metadataErr := loadMetadataContext(ctx, db)
+	metadata, metadataErr := loadMetadata(ctx, db)
 	if ctx.Err() != nil {
 		return nil, nil, ctx.Err()
 	}
@@ -100,7 +96,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		query += ")"
 	}
 	query += familyOrder
-	parsed, skipped, err := loadContext(ctx, db, query, args...)
+	parsed, skipped, err := load(ctx, db, query, args...)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -110,11 +106,11 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	return parsed, metadata, err
 }
 
-func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
+func GetSessionFacts(ctx context.Context, id string) (*vendors.ParsedSession, error) {
 	if id == "" {
 		return nil, nil
 	}
-	db, err := open()
+	db, err := open(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -123,7 +119,7 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	}
 	defer db.Close()
 
-	parsed, skipped, err := load(db, activeRootQuery+" AND root.id = ?", id)
+	parsed, skipped, err := load(ctx, db, activeRootQuery+" AND root.id = ?", id)
 	if err != nil || len(parsed) == 0 {
 		if len(skipped) > 0 {
 			return nil, fmt.Errorf(
@@ -144,7 +140,7 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 	if id == "" {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
-	db, err := openContext(ctx)
+	db, err := open(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
@@ -153,12 +149,12 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 	}
 	defer db.Close()
 	metadata := vendors.BestEffortMetadata(vendors.AgentOpenCode, func() (*vendors.SessionMetadata, error) {
-		return loadMetadataContext(ctx, db)
+		return loadMetadata(ctx, db)
 	})
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	parsed, skipped, err := loadContext(ctx, db, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, id)
+	parsed, skipped, err := load(ctx, db, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, id)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -168,12 +164,12 @@ func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession,
 	return parsed, metadata, err
 }
 
-func Health() vendors.SourceHealth {
-	root, rootErr := Root()
+func Health(ctx context.Context) vendors.SourceHealth {
+	root, rootErr := Root(ctx)
 	if rootErr != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentOpenCode, Err: rootErr}
 	}
-	db, err := open()
+	db, err := open(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return vendors.SourceHealth{Agent: vendors.AgentOpenCode, Root: root, Missing: true}
 	}
@@ -183,12 +179,12 @@ func Health() vendors.SourceHealth {
 	defer db.Close()
 
 	health := vendors.SourceHealth{Agent: vendors.AgentOpenCode, Root: root}
-	source, err := sessionSourceContext(context.Background(), db)
+	source, err := sessionSource(ctx, db)
 	if err != nil {
 		health.Err = err
 		return health
 	}
-	err = db.QueryRow(source+`
+	err = db.QueryRowContext(ctx, source+`
 		SELECT COUNT(*), COALESCE(SUM(parent_id IS NULL), 0)
 		FROM sessions
 		WHERE time_archived IS NULL
@@ -198,14 +194,6 @@ func Health() vendors.SourceHealth {
 }
 
 func load(
-	db *sql.DB,
-	query string,
-	args ...any,
-) ([]*vendors.ParsedSession, []skippedFamily, error) {
-	return loadContext(context.Background(), db, query, args...)
-}
-
-func loadContext(
 	ctx context.Context,
 	db *sql.DB,
 	query string,
@@ -214,7 +202,7 @@ func loadContext(
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	source, err := sessionSourceContext(ctx, db)
+	source, err := sessionSource(ctx, db)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -223,7 +211,7 @@ func loadContext(
 		return nil, nil, err
 	}
 	defer tx.Rollback()
-	parsed, skipped, err := loadTxContext(ctx, tx, source, query, args...)
+	parsed, skipped, err := loadTx(ctx, tx, source, query, args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -233,7 +221,7 @@ func loadContext(
 	return parsed, skipped, nil
 }
 
-func loadTxContext(ctx context.Context, tx *sql.Tx, source, query string, args ...any) ([]*vendors.ParsedSession, []skippedFamily, error) {
+func loadTx(ctx context.Context, tx *sql.Tx, source, query string, args ...any) ([]*vendors.ParsedSession, []skippedFamily, error) {
 	query = strings.TrimSpace(query)
 	if strings.HasPrefix(query, "WITH ") {
 		query = source + ", " + strings.TrimPrefix(query, "WITH ")
@@ -303,7 +291,7 @@ func loadTxContext(ctx context.Context, tx *sql.Tx, source, query string, args .
 		}
 		family := make([]parsedSession, 0, len(families[familyID]))
 		for _, row := range families[familyID] {
-			item, err := parseContext(ctx, tx, row)
+			item, err := parse(ctx, tx, row)
 			if err != nil {
 				if !errors.Is(err, errMalformedSession) {
 					return nil, nil, fmt.Errorf("parse OpenCode session %q: %w", row.id, err)

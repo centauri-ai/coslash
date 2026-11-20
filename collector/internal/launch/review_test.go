@@ -99,12 +99,12 @@ func TestReviewCLICommands(t *testing.T) {
 		},
 	}
 	for reviewer, want := range tests {
-		got, err := reviewCLICommand(reviewer, "/repo", name, prompt)
+		got, err := reviewCLICommand(t.Context(), reviewer, "/repo", name, prompt)
 		if err != nil {
-			t.Fatalf("reviewCLICommand(%q): %v", reviewer, err)
+			t.Fatalf("reviewCLICommand(t.Context(), %q): %v", reviewer, err)
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("reviewCLICommand(%q) = %#v, want %#v", reviewer, got, want)
+			t.Errorf("reviewCLICommand(t.Context(), %q) = %#v, want %#v", reviewer, got, want)
 		}
 	}
 }
@@ -341,7 +341,7 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 	prompt := "Review the change\nDo not edit."
 	if !vendors.GrokSynthesisSupported() {
-		if _, err := reviewCLICommand(vendors.AgentGrok, "/repo", "name", prompt); err == nil || !strings.Contains(err.Error(), "macOS") {
+		if _, err := reviewCLICommand(t.Context(), vendors.AgentGrok, "/repo", "name", prompt); err == nil || !strings.Contains(err.Error(), "macOS") {
 			t.Fatalf("error = %v", err)
 		}
 		return
@@ -369,7 +369,7 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 		}
 		t.Setenv("PATH", root)
 	}
-	got, err := reviewCLICommand(vendors.AgentGrok, ".", "name", prompt)
+	got, err := reviewCLICommand(t.Context(), vendors.AgentGrok, ".", "name", prompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,8 +462,8 @@ func TestGrokReviewerFindsInstalledExecutable(t *testing.T) {
 }
 
 func TestReviewCLICommandRejectsUnknownReviewer(t *testing.T) {
-	if _, err := reviewCLICommand("invalid", "/repo", "name", "prompt"); err == nil {
-		t.Fatal("reviewCLICommand() accepted an unsupported reviewer")
+	if _, err := reviewCLICommand(t.Context(), "invalid", "/repo", "name", "prompt"); err == nil {
+		t.Fatal("reviewCLICommand(t.Context(), ) accepted an unsupported reviewer")
 	}
 }
 

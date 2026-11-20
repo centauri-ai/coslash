@@ -92,7 +92,7 @@ func TestPiProjectionFailureClassifiesStableSource(t *testing.T) {
 					ctx.at = ".openPiInput"
 					ctx.hook = func() {
 						writeGrokInput(t, path, append(append([]byte(nil), original...), []byte("{invalid}\n")...))
-						ctx.at = ".PlanSourcesContext"
+						ctx.at = ".PlanSources"
 						ctx.hook = func() {
 							writeGrokInput(t, path, original)
 							fired = true

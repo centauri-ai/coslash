@@ -48,7 +48,7 @@ func TestCommandOutputsCollected(t *testing.T) {
 		`{"type":"message","id":"rc","parentId":"rp","message":{"role":"toolResult","toolCallId":"commit","content":"[main abcdef1] done","isError":false}}`,
 	)
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", filepath.Dir(tr.Path))
-	items, _, err := Collect(0)
+	items, _, err := Collect(t.Context(), 0)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("collect = %d sessions, %v", len(items), err)
 	}
@@ -65,7 +65,7 @@ func TestCommandOutputsCollected(t *testing.T) {
 	if got := items[0].Session.PullRequestLinks; !reflect.DeepEqual(got, []session.PullRequestLink{{URL: pr, Repository: "example/project", Number: 42}}) {
 		t.Fatalf("PR links = %+v", got)
 	}
-	facts, err := GetSessionFacts(tr.Header.ID)
+	facts, err := GetSessionFacts(t.Context(), tr.Header.ID)
 	if err != nil || facts == nil {
 		t.Fatalf("session facts = %v, %v", facts, err)
 	}
@@ -85,7 +85,7 @@ func TestCommandOutputsFollowBranchCallIdentity(t *testing.T) {
 		`{"type":"message","id":"no-id","parentId":"u","message":{"role":"assistant","content":[{"type":"toolCall","name":"bash","arguments":{"command":"ls"}}]}}`,
 		`{"type":"message","id":"no-result-id","parentId":"no-id","message":{"role":"toolResult","content":"unidentified"}}`,
 	)
-	parsed, err := projectLeaf(tr, nil, "ra", false)
+	parsed, err := projectLeaf(t.Context(), tr, nil, "ra", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestCommandOutputsBoundedUTF8(t *testing.T) {
 				`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"call","name":"bash","arguments":{"command":"cat output"}}]}}`,
 				fmt.Sprintf(`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"call","content":%s}}`, output),
 			)
-			parsed, err := projectLeaf(tr, nil, "r", false)
+			parsed, err := projectLeaf(t.Context(), tr, nil, "r", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,7 +121,7 @@ func TestCommandOutputsBoundedUTF8(t *testing.T) {
 			}
 		})
 	}
-	parsed, err := projectLeaf(projectionFixture(t, "no-commands", "", userRow("u", "", "hello", "2026-01-01T00:00:01Z")), nil, "u", false)
+	parsed, err := projectLeaf(t.Context(), projectionFixture(t, "no-commands", "", userRow("u", "", "hello", "2026-01-01T00:00:01Z")), nil, "u", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestCommandOutputsKeepFullResultPRLinks(t *testing.T) {
 		`{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"pr","name":"bash","arguments":{"command":"gh pr create --fill"}}]}}`,
 		fmt.Sprintf(`{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"pr","content":%q}}`, output),
 	)
-	parsed, err := projectLeaf(tr, nil, "r", false)
+	parsed, err := projectLeaf(t.Context(), tr, nil, "r", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestCommandOutputsMalformedContentStaysPending(t *testing.T) {
 					output := "actual output"
 					leaf, want = "good", []*string{&output}
 				}
-				parsed, err := projectLeaf(projectionFixture(t, "malformed", "", rows...), nil, leaf, false)
+				parsed, err := projectLeaf(t.Context(), projectionFixture(t, "malformed", "", rows...), nil, leaf, false)
 				if err != nil {
 					t.Fatal(err)
 				}

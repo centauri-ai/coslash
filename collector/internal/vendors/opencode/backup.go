@@ -33,8 +33,8 @@ func (capture *FamilyCapture) Stable(ctx context.Context) bool {
 	return capture.db.QueryRowContext(ctx, "PRAGMA data_version").Scan(&current) == nil && current == capture.version
 }
 
-func CaptureFamilyContext(ctx context.Context, rootID string) (_ *FamilyCapture, err error) {
-	db, err := openContext(ctx)
+func CaptureFamily(ctx context.Context, rootID string) (_ *FamilyCapture, err error) {
+	db, err := open(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func CaptureFamilyContext(ctx context.Context, rootID string) (_ *FamilyCapture,
 	if err = db.QueryRowContext(ctx, "PRAGMA data_version").Scan(&version); err != nil {
 		return nil, err
 	}
-	source, err := sessionSourceContext(ctx, db)
+	source, err := sessionSource(ctx, db)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func CaptureFamilyContext(ctx context.Context, rootID string) (_ *FamilyCapture,
 		return nil, err
 	}
 	defer tx.Rollback()
-	parsed, skipped, err := loadTxContext(ctx, tx, source, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, rootID)
+	parsed, skipped, err := loadTx(ctx, tx, source, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, rootID)
 	if err != nil {
 		return nil, err
 	}

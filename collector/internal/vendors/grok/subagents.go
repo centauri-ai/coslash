@@ -154,11 +154,7 @@ func scanSubagentUpdates(ctx context.Context, sessionDir string, withDetails boo
 }
 
 // attachSubagents links children using parent metadata or structured spawn events.
-func attachSubagents(parsed []*vendors.ParsedSession, metasByDir map[string][]subagentMeta) {
-	_ = attachSubagentsContext(context.Background(), parsed, metasByDir)
-}
-
-func attachSubagentsContext(ctx context.Context, parsed []*vendors.ParsedSession, metasByDir map[string][]subagentMeta) error {
+func attachSubagents(ctx context.Context, parsed []*vendors.ParsedSession, metasByDir map[string][]subagentMeta) error {
 	byID := make(map[string]*vendors.ParsedSession, len(parsed))
 	for _, item := range parsed {
 		if err := ctx.Err(); err != nil {

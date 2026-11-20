@@ -71,7 +71,7 @@ func TestV2FamilySkillsAndBackupCapture(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	parsed, skipped, err := load(db, activeFamiliesQuery+familyOrder)
+	parsed, skipped, err := load(t.Context(), db, activeFamiliesQuery+familyOrder)
 	if err != nil || len(skipped) != 0 || len(parsed) != 2 {
 		t.Fatalf("parsed %d, skipped %v, error %v", len(parsed), skipped, err)
 	}
@@ -81,7 +81,7 @@ func TestV2FamilySkillsAndBackupCapture(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	captured, err := CaptureFamilyContext(context.Background(), "root")
+	captured, err := CaptureFamily(context.Background(), "root")
 	if err != nil {
 		t.Fatal(err)
 	}

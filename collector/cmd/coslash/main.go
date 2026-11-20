@@ -217,7 +217,7 @@ func main() {
 	if err := ensurePiExtensionIfDetected(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
-	if err := opencode.EnsurePlugin(); err != nil {
+	if err := opencode.EnsurePlugin(context.Background()); err != nil {
 		log.Printf("install OpenCode coSlash plugin: %v", err)
 	}
 	settingsState := settingsStore.State()
@@ -508,7 +508,7 @@ func localPiSourcePlan(ctx context.Context) (*pi.SourcePlan, error) {
 	if !vendors.PiCollectionSupported() {
 		return nil, ctx.Err()
 	}
-	plan, err := pi.PlanSourcesContext(ctx)
+	plan, err := pi.PlanSources(ctx)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}

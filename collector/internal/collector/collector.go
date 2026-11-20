@@ -50,12 +50,9 @@ var vendorSources = func() []vendorSource {
 			health:     codex.Health,
 		},
 		{
-			name: vendors.AgentOpenCode, collect: opencode.CollectContext,
-			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) {
-				return opencode.GetSessionFacts(id)
-			},
+			name: vendors.AgentOpenCode, collect: opencode.Collect, loadFacts: opencode.GetSessionFacts,
 			loadFamily: opencode.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return opencode.Health() },
+			health:     opencode.Health,
 		},
 		{
 			name: vendors.AgentCursor, collect: cursor.Collect, loadFacts: cursor.GetSessionFacts,
@@ -63,19 +60,13 @@ var vendorSources = func() []vendorSource {
 			health:     cursor.Health,
 		},
 		{
-			name: vendors.AgentGrok, collect: grok.CollectContext,
-			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return grok.GetSessionFacts(id) },
+			name: vendors.AgentGrok, collect: grok.Collect, loadFacts: grok.GetSessionFacts,
 			loadFamily: grok.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return grok.Health() },
+			health:     grok.Health,
 		},
 	}
 	if vendors.PiCollectionSupported() {
-		sources = append([]vendorSource{{
-			name: vendors.AgentPi, collect: pi.CollectContext,
-			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return pi.GetSessionFacts(id) },
-			loadFamily: pi.GetSessionFamily,
-			health:     func(context.Context) vendors.SourceHealth { return pi.Health() },
-		}}, sources...)
+		sources = append([]vendorSource{{name: vendors.AgentPi, collect: pi.Collect, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health}}, sources...)
 	}
 	return sources
 }()

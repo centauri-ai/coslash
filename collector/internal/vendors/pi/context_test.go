@@ -11,7 +11,7 @@ func TestSourcePlanSharesRuntimeWithLegacyCollection(t *testing.T) {
 	leaf := "a"
 	owner := runtimeEvidence{Record: RuntimeRecord{RuntimeID: "synthetic", SessionID: "shared-plan", TranscriptPath: path, LeafID: &leaf}}
 	snapshot := &RuntimeSnapshot{owners: map[string][]runtimeEvidence{"shared-plan\x00" + path: {owner}}, states: map[string]string{runtimeOwnerKey(owner): "live"}}
-	plan, err := PlanSourcesContext(WithRuntimeSnapshot(t.Context(), snapshot))
+	plan, err := PlanSources(WithRuntimeSnapshot(t.Context(), snapshot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestSourcePlanSharesRuntimeWithLegacyCollection(t *testing.T) {
 	if shared, ok := SourcePlanFromContext(ctx); !ok || shared != plan {
 		t.Fatal("source plan was not retained")
 	}
-	items, _, err := CollectContext(ctx, 0)
+	items, _, err := Collect(ctx, 0)
 	if err != nil || len(items) != 1 || items[0].Session.Summary == nil || *items[0].Session.Summary != "earlier" {
 		t.Fatalf("legacy collection replaced the caller's runtime snapshot: %+v, %v", items, err)
 	}

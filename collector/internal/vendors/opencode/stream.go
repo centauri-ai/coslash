@@ -28,10 +28,10 @@ SELECT root.id,
 FROM sessions AS root
 WHERE root.parent_id IS NULL AND root.time_archived IS NULL`
 
-// FamiliesContext lists active root families without reading any message.
+// Families lists active root families without reading any message.
 // A missing database is an empty list.
-func FamiliesContext(ctx context.Context) ([]FamilyRef, error) {
-	db, err := openContext(ctx)
+func Families(ctx context.Context) ([]FamilyRef, error) {
+	db, err := open(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -39,7 +39,7 @@ func FamiliesContext(ctx context.Context) ([]FamilyRef, error) {
 		return nil, err
 	}
 	defer db.Close()
-	source, err := sessionSourceContext(ctx, db)
+	source, err := sessionSource(ctx, db)
 	if err != nil {
 		return nil, err
 	}
@@ -59,13 +59,13 @@ func FamiliesContext(ctx context.Context) ([]FamilyRef, error) {
 	return families, rows.Err()
 }
 
-// LoadFamiliesContext parses exactly the named families through the parse
+// LoadFamilies parses exactly the named families through the parse
 // cache and returns the database's live metadata.
-func LoadFamiliesContext(ctx context.Context, ids []string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+func LoadFamilies(ctx context.Context, ids []string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	if len(ids) == 0 {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
-	db, err := openContext(ctx)
+	db, err := open(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
@@ -73,7 +73,7 @@ func LoadFamiliesContext(ctx context.Context, ids []string) ([]*vendors.ParsedSe
 		return nil, nil, err
 	}
 	defer db.Close()
-	metadata, metadataErr := loadMetadataContext(ctx, db)
+	metadata, metadataErr := loadMetadata(ctx, db)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -86,7 +86,7 @@ func LoadFamiliesContext(ctx context.Context, ids []string) ([]*vendors.ParsedSe
 		args = append(args, id)
 	}
 	query := activeFamiliesQuery + " AND selected_roots.id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")" + familyOrder
-	parsed, skipped, err := loadContext(ctx, db, query, args...)
+	parsed, skipped, err := load(ctx, db, query, args...)
 	if err != nil {
 		return nil, nil, err
 	}
