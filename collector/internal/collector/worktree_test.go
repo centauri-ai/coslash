@@ -109,4 +109,19 @@ func TestLinkedCheckoutInSessionList(t *testing.T) {
 	if l := probe("one", main, 2).Locations; len(l) != 2 || !l[0].Main || !l[0].Primary || l[1].ID != id || l[1].Primary {
 		t.Fatalf("resumed across checkouts: %+v", l)
 	}
+	run("-C", main, "remote", "remove", "origin")
+	unrelated := "example.org/unrelated/project"
+	record := &session.Session{ID: "independent-origin", Agent: "codex", WorkingDirectory: work, Repository: &unrelated, LastActivityTime: 3}
+	if err := probeGitEnvironmentContext(t.Context(), []*vendors.ParsedSession{{Session: record}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Locations) != 1 || record.Locations[0].Repo != "" || record.Repository == nil || *record.Repository != unrelated {
+		t.Fatalf("Git checkout and independently recorded remote were conflated: %+v, repo=%v", record.Locations, record.Repository)
+	}
+	run("-C", main, "remote", "add", "origin", "https://example.org/new/project.git")
+	changed := probe("independent-origin", work, 3).Locations
+	if len(changed) != 2 || changed[0].Repo != "example.org/new/project" || changed[1].Repo != "" || changed[0].ID != changed[1].ID {
+		t.Fatalf("unchanged session did not retain checkout history across a remote change: %+v", changed)
+	}
+
 }
