@@ -68,7 +68,7 @@ func ParseFiles(ctx context.Context, files []string, live map[string]string) ([]
 	for _, path := range files {
 		ids = append(ids, IDFromPath(path))
 	}
-	metadata, metadataErr := loadMetadataForSessionsWithLive(ctx, home, canonicalCursorIDs(ids), live)
+	metadata, metadataErr := loadMetadataForSessionsWithLive(ctx, home, ids, live)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}

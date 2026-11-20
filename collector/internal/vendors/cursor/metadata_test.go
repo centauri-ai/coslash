@@ -20,6 +20,40 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
+type cancelAfterErrContext struct {
+	context.Context
+	cancel          context.CancelFunc
+	checksRemaining int
+	calls           int
+}
+
+func (ctx *cancelAfterErrContext) Err() error {
+	ctx.calls++
+	if ctx.checksRemaining > 0 {
+		ctx.checksRemaining--
+		return nil
+	}
+	ctx.cancel()
+	return ctx.Context.Err()
+}
+
+func TestCanonicalCursorIDsStopsOnCancellation(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx := &cancelAfterErrContext{Context: parent, cancel: cancel, checksRemaining: 2}
+
+	ids, err := canonicalCursorIDs(ctx, []string{" first ", "SECOND", "third"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if ids != nil {
+		t.Fatalf("canonical IDs = %v, want nil on cancellation", ids)
+	}
+	if ctx.calls != 3 {
+		t.Fatalf("context error checks = %d, want cancellation on the second item", ctx.calls)
+	}
+}
+
 func TestLoadCursorRowsStopsDuringCancellation(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

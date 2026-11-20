@@ -72,7 +72,10 @@ func LoadRelationshipMetadataForSessions(ctx context.Context, ids []string) (*ve
 }
 
 func loadRelationshipMetadataForSessions(ctx context.Context, home string, ids []string) (*vendors.SessionMetadata, error) {
-	ids = canonicalCursorIDs(ids)
+	ids, err := canonicalCursorIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	metadata := vendors.EmptySessionMetadata()
 	path := filepath.Join(GlobalStorage(home), "state.vscdb")
 	db, err := openCursorDB(ctx, path)
@@ -148,7 +151,11 @@ func loadMetadataForSessions(ctx context.Context, home string, ids []string) (*v
 }
 
 func loadMetadataForSessionsWithLive(ctx context.Context, home string, ids []string, live map[string]string) (*vendors.SessionMetadata, error) {
-	ids = canonicalCursorIDs(ids)
+	var err error
+	ids, err = canonicalCursorIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	metadata := vendors.EmptySessionMetadata()
 	lanes := map[string]map[string]bool{}
 	globalStorage := GlobalStorage(home)
@@ -165,7 +172,6 @@ func loadMetadataForSessionsWithLive(ctx context.Context, home string, ids []str
 		if err := loadIDERelationships(ctx, metadata, stateDB, ids); err != nil {
 			return nil, err
 		}
-		var err error
 		ids, err = cursorMetadataIDs(ctx, ids, metadata)
 		if err != nil {
 			return nil, err
@@ -397,20 +403,26 @@ func applyCursorLiveness(ctx context.Context, metadata *vendors.SessionMetadata,
 	return ctx.Err()
 }
 
-func canonicalCursorIDs(ids []string) []string {
+func canonicalCursorIDs(ctx context.Context, ids []string) ([]string, error) {
 	if ids == nil {
-		return nil
+		return nil, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	result := make([]string, 0, len(ids))
 	seen := map[string]bool{}
 	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		id = canonicalCursorID(id)
 		if id != "" && !seen[id] {
 			seen[id] = true
 			result = append(result, id)
 		}
 	}
-	return result
+	return result, ctx.Err()
 }
 
 func canonicalCursorID(id string) string {
@@ -427,7 +439,7 @@ func cursorMetadataIDs(ctx context.Context, ids []string, metadata *vendors.Sess
 		}
 		ids = append(ids, id, entry.Relationship.ParentID)
 	}
-	return canonicalCursorIDs(ids), ctx.Err()
+	return canonicalCursorIDs(ctx, ids)
 }
 
 func cursorIDQuery(query, column string, ids []string) (string, []any) {
@@ -504,7 +516,10 @@ func cursorChatStores(ctx context.Context, home string, ids []string) ([]string,
 }
 
 func loadIDERelationships(ctx context.Context, metadata *vendors.SessionMetadata, db *sql.DB, ids []string) error {
-	familyIDs := canonicalCursorIDs(ids)
+	familyIDs, err := canonicalCursorIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -577,7 +592,10 @@ func loadIDERelationships(ctx context.Context, metadata *vendors.SessionMetadata
 			parentIDs = append(parentIDs, entry.Relationship.ParentID)
 		}
 	}
-	bubbleIDs := canonicalCursorIDs(parentIDs)
+	bubbleIDs, err := canonicalCursorIDs(ctx, parentIDs)
+	if err != nil {
+		return err
+	}
 	if ids == nil {
 		bubbleIDs = nil
 	}
