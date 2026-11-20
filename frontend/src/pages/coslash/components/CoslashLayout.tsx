@@ -1,37 +1,25 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
-import {
-  AlertTriangle,
-  ChevronRight,
-  Folder,
-  FolderGit2,
-  Monitor,
-  Moon,
-  RefreshCw,
-  Rows3,
-  Rows4,
-  Search,
-  Server,
-  Settings,
-  Sun,
-  X,
-} from 'lucide-react';
+import { AlertTriangle, Folder, FolderGit2, Monitor, Rows3, Rows4, Search, Server, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
-import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
-import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
-import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
+import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
+import { CoslashHeader } from '@/pages/coslash/components/session-list/CoslashHeader';
+import { MachineDot } from '@/pages/coslash/components/session-list/MachineDot';
+import { Rollup } from '@/pages/coslash/components/session-list/Rollup';
+import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
 import {
-  MACHINE_TONE_DOT,
-  machineRetryable,
-  machineStatusText,
-  machineTone,
-  needsBanner,
-  needsSettings,
-} from '@/pages/coslash/lib/machine-status';
+  FacetRows,
+  SidebarSection,
+  type FacetOption,
+  type FacetSection,
+} from '@/pages/coslash/components/session-list/SidebarSection';
+import { styles } from '@/pages/coslash/components/session-list/styles';
+import { detectedGroup, type Group } from '@/pages/coslash/lib/detected-groups';
+import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import type { ReviewerOption, ReviewIndex } from '@/pages/coslash/lib/review';
 import { sessionMatchesSearch } from '@/pages/coslash/lib/search';
@@ -40,14 +28,13 @@ import {
   getSessionVendors,
   getVendor,
   LOCAL_SOURCE_ID,
-  sessionCost,
   sessionKey,
   STATUS_ORDER,
   STATUSES,
-  sumKnown,
   type Session,
   type StatusKey,
 } from '@/pages/coslash/lib/session';
+import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 import {
   BOARD_GROUP_BY_OPTIONS,
   BOARD_ROW_GROUP_BY_OPTIONS,
@@ -63,28 +50,13 @@ import {
   type SessionViewPreferences,
 } from '@/pages/coslash/lib/session-view-preferences';
 import './coslash-layout.css';
-import { BoardGroupByMenu } from '@/pages/coslash/components/session-list/BoardGroupByMenu';
-import { InlineSpinner } from '@/pages/coslash/components/session-list/InlineSpinner';
-import { SessionListView } from '@/pages/coslash/components/session-list/SessionListView';
-import { statusDot, styles, tokenTotal } from '@/pages/coslash/components/session-list/styles';
-import { detectedGroup, type Group } from '@/pages/coslash/lib/detected-groups';
-import { matchesFacets, rangeStart, sortSessions, type FacetKey } from '@/pages/coslash/lib/session-filter';
 
 const SessionBoard = lazy(() =>
   import('@/pages/coslash/components/SessionBoard').then((module) => ({ default: module.SessionBoard })),
 );
 
-type FacetOption = {
-  id: string;
-  label: string;
-  count: number;
-  selected: boolean;
-  onClick: () => void;
-  status?: StatusKey;
-  icon?: ReactNode;
-  indicator?: ReactNode;
-};
-type FacetSection = { id: FacetKey; label: string; options: FacetOption[] };
+type FilterKey = 'statusFilters' | 'groupFilters' | 'machineFilters' | 'agentFilters';
+
 const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'this-week', label: 'This week' },
@@ -117,250 +89,6 @@ function ViewSwitch({ view, onChange }: { view: SessionView; onChange: (view: Se
         </button>
       ))}
     </div>
-  );
-}
-
-function MachineDot({
-  machine,
-  onRetry,
-  retrying,
-}: {
-  machine: MachineFact;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  const tone = machineTone(machine);
-  const retryable = machineRetryable(machine) && !retrying;
-  const status = machineStatusText(machine);
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className={cn('size-[7px] shrink-0 rounded-full', MACHINE_TONE_DOT[tone])}
-          role="img"
-          aria-label={status}
-        />
-      </TooltipTrigger>
-      {/* Portaled outside the shell, so the tokens have to be re-scoped here. */}
-      <TooltipContent className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line [&_svg]:bg-coslash-surface [&_svg]:fill-coslash-surface flex-col items-start gap-1 border">
-        <span>{status}</span>
-        {retrying && <span className="text-coslash-muted">Retrying…</span>}
-        {retryable && (
-          <button
-            type="button"
-            className="cursor-pointer font-semibold underline underline-offset-2"
-            onClick={onRetry}
-          >
-            Retry the connection
-          </button>
-        )}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boolean }) {
-  const unpriced = sessions.filter(
-    (session) => sessionCost(session) == null || session.unpricedModels.length > 0,
-  );
-  return (
-    <div className="text-cell max-narrow:w-full flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap">
-      {isLoading && <span className="sr-only">Refreshing sessions</span>}
-      <strong className="flex items-center gap-1 font-[650]">
-        {isLoading ? <InlineSpinner /> : sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
-      </strong>
-      <span className="text-coslash-muted">in this scope</span>
-      <span className="text-coslash-muted">·</span>
-      <span className="text-coslash-muted flex items-center gap-1">
-        {isLoading ? <InlineSpinner /> : formatTokens(tokenTotal(sessions))} tokens
-      </span>
-      <span className="text-coslash-muted">·</span>
-      {isLoading ? (
-        <InlineSpinner />
-      ) : (
-        <UnpricedModelWarning unpriced={unpriced.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(sumKnown(sessions.map(sessionCost)))}
-        </UnpricedModelWarning>
-      )}
-      {!isLoading && unpriced.length > 0 && (
-        <span className="text-coslash-muted max-actions:hidden">· {unpriced.length} not priced</span>
-      )}
-      <span className="text-meta text-coslash-muted max-actions:hidden">at list API prices</span>
-    </div>
-  );
-}
-
-function FacetRow({ label, count, selected, icon, indicator, status, onClick }: FacetOption) {
-  return (
-    <div
-      className={cn(styles.facet, 'relative gap-1.5', {
-        'bg-coslash-tint text-coslash-accent-ink font-semibold': selected,
-      })}
-    >
-      {/* Stretched over the row, so the whole row still toggles the facet. */}
-      <button
-        type="button"
-        className="flex min-w-0 cursor-pointer items-center gap-[9px] text-left after:absolute after:inset-0 [&>svg]:size-3.5"
-        aria-pressed={selected}
-        onClick={onClick}
-      >
-        {status ? <span className={cn('size-[7px] shrink-0 rounded-full', statusDot(status))} /> : icon}
-        <span className="truncate">{label}</span>
-      </button>
-      {indicator && <span className="relative flex">{indicator}</span>}
-      <span className="text-meta ml-auto tabular-nums">{count}</span>
-    </div>
-  );
-}
-
-function FacetRows({ options }: { options: FacetOption[] }) {
-  return options.map((option) => <FacetRow key={option.id} {...option} />);
-}
-
-function SidebarSection({
-  section,
-  open,
-  isLoading,
-  onToggle,
-}: {
-  section: FacetSection;
-  open: boolean;
-  isLoading: boolean;
-  onToggle: () => void;
-}) {
-  const contentId = `coslash-${section.id}`;
-  return (
-    <div className="pb-3.5">
-      <div className="flex items-center">
-        <button
-          className={styles.sideHeading}
-          aria-expanded={open}
-          aria-controls={contentId}
-          onClick={onToggle}
-        >
-          <ChevronRight className={cn('size-[13px] transition-transform', { 'rotate-90': open })} />
-          <span className="flex flex-1 items-center justify-between">
-            {section.label}
-            {isLoading && <InlineSpinner />}
-          </span>
-        </button>
-      </div>
-      {open && (
-        <div id={contentId}>
-          <FacetRows options={section.options} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CoslashHeader({
-  machines,
-  diagnostics,
-  onSettings,
-  theme,
-  onThemeChange,
-  themeDisabled,
-  onRetry,
-  retrying,
-  actions,
-}: {
-  machines: MachineFact[];
-  diagnostics: ReactNode;
-  onSettings: () => void;
-  theme: Theme;
-  onThemeChange: (theme: Theme) => void;
-  themeDisabled: boolean;
-  onRetry: () => void;
-  retrying: boolean;
-  actions?: ReactNode;
-}) {
-  const problems = machines.filter(needsBanner);
-  return (
-    <>
-      <div className={styles.header}>
-        <div className="flex min-w-0 shrink-0 items-center gap-3.5">
-          <span role="img" aria-label="coSlash">
-            <img src="/brand/coslash-logo.svg" alt="" className="w-[104px] dark:hidden" />
-            <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden w-[104px] dark:block" />
-          </span>
-          <span className="text-meta text-coslash-muted max-sidebar:hidden truncate">
-            Run more agents. Lose less context.
-          </span>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {actions}
-          <div className="bg-coslash-soft rounded-[10px] p-0.5">{diagnostics}</div>
-          <div className="bg-coslash-soft rounded-[10px] p-0.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-meta min-h-7 cursor-pointer gap-1.5 rounded-[7px] px-2.5 font-[550] [&>svg]:size-3.5"
-              onClick={onSettings}
-            >
-              <Settings /> Settings
-            </Button>
-          </div>
-          <div
-            className="bg-coslash-soft inline-flex items-center gap-0.5 rounded-[10px] p-0.5"
-            aria-label="Theme"
-          >
-            {(
-              [
-                ['light', Sun],
-                ['dark', Moon],
-              ] as const
-            ).map(([value, Icon]) => (
-              <button
-                key={value}
-                type="button"
-                className={cn(
-                  'text-coslash-muted hover:bg-coslash-surface grid size-7 cursor-pointer place-items-center rounded-[7px] disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-3.5',
-                  { 'bg-coslash-surface text-coslash-ink shadow-sm': theme === value },
-                )}
-                aria-label={`${value === 'light' ? 'Light' : 'Dark'} theme`}
-                aria-pressed={theme === value}
-                disabled={themeDisabled}
-                onClick={() => onThemeChange(value)}
-              >
-                <Icon aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      {problems.length > 0 && (
-        <div className={styles.banner} role="alert">
-          <AlertTriangle />
-          <span>
-            <strong className="font-[650]">{problems.map((machine) => machine.label).join(', ')}</strong>{' '}
-            {problems.length === 1
-              ? machineStatusText(problems[0])
-              : 'need attention — open Settings for guidance.'}
-          </span>
-          {problems.some(needsSettings) ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-danger-fg text-danger-fg ml-auto bg-transparent"
-              onClick={onSettings}
-            >
-              <Settings /> Open Settings
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-danger-fg text-danger-fg ml-auto bg-transparent"
-              onClick={onRetry}
-              disabled={retrying}
-            >
-              <RefreshCw className={cn({ 'animate-spin': retrying })} /> Retry
-            </Button>
-          )}
-        </div>
-      )}
-    </>
   );
 }
 
@@ -518,30 +246,12 @@ export function CoslashLayout({
     }
     return counts;
   }, [preferences, searchMatches, sessionGroups, sessionsInRange]);
-  const toggleStatus = (status: StatusKey) =>
+  const toggleFilter = <K extends FilterKey>(key: K, value: SessionViewPreferences[K][number]) => {
+    const values: string[] = preferences[key];
     patchPreferences({
-      statusFilters: preferences.statusFilters.includes(status)
-        ? preferences.statusFilters.filter((value) => value !== status)
-        : [...preferences.statusFilters, status],
+      [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value],
     });
-  const toggleGroup = (group: Group) =>
-    patchPreferences({
-      groupFilters: preferences.groupFilters.includes(group.id)
-        ? preferences.groupFilters.filter((value) => value !== group.id)
-        : [...preferences.groupFilters, group.id],
-    });
-  const toggleMachine = (id: string) =>
-    patchPreferences({
-      machineFilters: preferences.machineFilters.includes(id)
-        ? preferences.machineFilters.filter((value) => value !== id)
-        : [...preferences.machineFilters, id],
-    });
-  const toggleAgent = (id: string) =>
-    patchPreferences({
-      agentFilters: preferences.agentFilters.includes(id)
-        ? preferences.agentFilters.filter((value) => value !== id)
-        : [...preferences.agentFilters, id],
-    });
+  };
   const clearFacets = () =>
     patchPreferences({ statusFilters: [], groupFilters: [], machineFilters: [], agentFilters: [] });
   const setSortKey = (key: SessionSort['key']) =>
@@ -598,7 +308,7 @@ export function CoslashLayout({
         label: STATUSES[status].label,
         count: facetCounts.status.get(status) ?? 0,
         selected: preferences.statusFilters.includes(status),
-        onClick: () => toggleStatus(status),
+        onClick: () => toggleFilter('statusFilters', status),
       })),
     },
     {
@@ -614,7 +324,7 @@ export function CoslashLayout({
           ),
         count: facetCounts.machine.get(machine.sourceId) ?? 0,
         selected: preferences.machineFilters.includes(machine.sourceId),
-        onClick: () => toggleMachine(machine.sourceId),
+        onClick: () => toggleFilter('machineFilters', machine.sourceId),
       })),
     },
     {
@@ -625,7 +335,7 @@ export function CoslashLayout({
         label: getVendor(agent).label,
         count: facetCounts.agent.get(agent) ?? 0,
         selected: preferences.agentFilters.includes(agent),
-        onClick: () => toggleAgent(agent),
+        onClick: () => toggleFilter('agentFilters', agent),
       })),
     },
   ];
@@ -641,7 +351,7 @@ export function CoslashLayout({
         label: group.label,
         count: facetCounts.group.get(group.id) ?? 0,
         selected: preferences.groupFilters.includes(group.id),
-        onClick: () => toggleGroup(group),
+        onClick: () => toggleFilter('groupFilters', group.id),
       }));
   const groupSections = GROUP_KINDS.map((kind) => ({ kind, options: groupOptions(kind) })).filter(
     ({ options }) => options.length > 0,
@@ -651,33 +361,25 @@ export function CoslashLayout({
       kind: 'Status',
       value,
       label: STATUSES[value].label,
-      remove: () =>
-        patchPreferences({
-          statusFilters: preferences.statusFilters.filter((item) => item !== value),
-        }),
+      remove: () => toggleFilter('statusFilters', value),
     })),
     ...preferences.groupFilters.map((value) => ({
       kind: 'Group',
       value,
       label: groups.find((group) => group.id === value)?.label ?? value,
-      remove: () =>
-        patchPreferences({ groupFilters: preferences.groupFilters.filter((item) => item !== value) }),
+      remove: () => toggleFilter('groupFilters', value),
     })),
     ...preferences.machineFilters.map((value) => ({
       kind: 'Machine',
       value,
       label: machines.find((machine) => machine.sourceId === value)?.label ?? value,
-      remove: () =>
-        patchPreferences({
-          machineFilters: preferences.machineFilters.filter((item) => item !== value),
-        }),
+      remove: () => toggleFilter('machineFilters', value),
     })),
     ...preferences.agentFilters.map((value) => ({
       kind: 'Agent',
       value,
       label: getVendor(value).label,
-      remove: () =>
-        patchPreferences({ agentFilters: preferences.agentFilters.filter((item) => item !== value) }),
+      remove: () => toggleFilter('agentFilters', value),
     })),
   ];
   const sections = STATUS_ORDER.map((status) => ({
@@ -704,29 +406,24 @@ export function CoslashLayout({
             {facetSections.map((section) => (
               <SidebarSection
                 key={section.id}
-                section={section}
+                id={section.id}
+                label={section.label}
                 open={sideOpen[section.id]}
                 isLoading={isLoading}
                 onToggle={() => setSideOpen((state) => ({ ...state, [section.id]: !state[section.id] }))}
-              />
+              >
+                <FacetRows options={section.options} />
+              </SidebarSection>
             ))}
-            <div className="pb-3.5">
-              <div className="bg-coslash-surface sticky top-[-20px] z-20 pb-1">
-                <button
-                  className={styles.sideHeading}
-                  aria-expanded={sideOpen.group}
-                  aria-controls="coslash-group"
-                  onClick={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
-                >
-                  <ChevronRight
-                    className={cn('size-[13px] transition-transform', { 'rotate-90': sideOpen.group })}
-                  />
-                  <span className="flex flex-1 items-center justify-between">
-                    Detected groups
-                    {isLoading && <InlineSpinner />}
-                  </span>
-                </button>
-                {sideOpen.group && (
+            <SidebarSection
+              id="group"
+              label="Detected groups"
+              open={sideOpen.group}
+              isLoading={isLoading}
+              onToggle={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
+              headerClassName="bg-coslash-surface sticky top-[-20px] z-20 pb-1"
+              headerExtra={
+                sideOpen.group && (
                   <div className="border-coslash-line bg-coslash-bg text-coslash-muted focus-within:border-coslash-accent mx-2 mt-1 mb-1.5 flex items-center gap-1.5 rounded-[7px] border px-2 py-1.5 [&>svg]:size-3.5">
                     <Search />
                     <input
@@ -748,30 +445,27 @@ export function CoslashLayout({
                       </button>
                     )}
                   </div>
-                )}
-              </div>
-              {sideOpen.group && (
-                <div id="coslash-group">
-                  {groupSections.map(({ kind, options }) => (
-                    <div key={kind}>
-                      {kind !== 'No location' && (
-                        <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
-                          {kind === 'Repository' && <FolderGit2 />}
-                          {kind === 'Folder' && <Folder />}
-                          {GROUP_LABELS[kind]}
-                        </div>
-                      )}
-                      <FacetRows options={options} />
-                    </div>
-                  ))}
-                  {groupSections.length === 0 && (
-                    <div className="text-coslash-muted px-2.5 py-2 text-xs">
-                      {groupQuery.trim() === '' ? 'No groups yet.' : `No groups match “${groupQuery}”.`}
+                )
+              }
+            >
+              {groupSections.map(({ kind, options }) => (
+                <div key={kind}>
+                  {kind !== 'No location' && (
+                    <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
+                      {kind === 'Repository' && <FolderGit2 />}
+                      {kind === 'Folder' && <Folder />}
+                      {GROUP_LABELS[kind]}
                     </div>
                   )}
+                  <FacetRows options={options} />
+                </div>
+              ))}
+              {groupSections.length === 0 && (
+                <div className="text-coslash-muted px-2.5 py-2 text-xs">
+                  {groupQuery.trim() === '' ? 'No groups yet.' : `No groups match “${groupQuery}”.`}
                 </div>
               )}
-            </div>
+            </SidebarSection>
           </div>
 
           <div className={styles.main}>
