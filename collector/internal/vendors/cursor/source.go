@@ -103,32 +103,64 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	return parsed, nil
 }
 
-func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if id == "" {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
-	files, err := Files()
+	files, err := FilesContext(ctx)
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, nil, err
+	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadRelationshipMetadataForSessions([]string{id})
+		return loadRelationshipMetadataForSessionsContext(ctx, home, []string{id})
 	})
-	familyFiles := cursorFamilyFilesWithMetadata(files, id, metadata)
-	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, familyFiles)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	familyFiles, err := cursorFamilyFilesWithMetadataContext(ctx, files, id, metadata)
+	if err != nil {
+		return nil, nil, err
+	}
+	parsed, err := parseTranscriptFilesSourceContext(ctx, vendors.LocalReadSource, familyFiles)
+	if err != nil {
+		return nil, nil, err
+	}
 	ids := make([]string, 0, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		if item != nil && item.Session != nil {
 			ids = append(ids, item.Session.ID)
 		}
 	}
 	metadata = vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions(ids)
+		return loadMetadataForSessionsContext(ctx, home, ids)
 	})
-	applyCursorEnrichment(parsed, metadata)
-	applyLocalCommandOutputs(parsed, metadata)
-	applyRelationships(parsed, metadata)
-	return selectFamily(parsed, id), metadata, nil
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if err := applyCursorEnrichmentContext(ctx, parsed, metadata); err != nil {
+		return nil, nil, err
+	}
+	if err := applyCommandOutputs(ctx, home, parsed, metadata); err != nil {
+		return nil, nil, err
+	}
+	if err := applyRelationshipsContext(ctx, parsed, metadata); err != nil {
+		return nil, nil, err
+	}
+	family, err := selectFamilyContext(ctx, parsed, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return family, metadata, nil
 }
 
 func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
@@ -348,8 +380,16 @@ func cursorFamilyFiles(files []string, id string) []string {
 }
 
 func cursorFamilyFilesWithMetadata(files []string, id string, metadata *vendors.SessionMetadata) []string {
+	selected, _ := cursorFamilyFilesWithMetadataContext(context.Background(), files, id, metadata)
+	return selected
+}
+
+func cursorFamilyFilesWithMetadataContext(ctx context.Context, files []string, id string, metadata *vendors.SessionMetadata) ([]string, error) {
 	union := newCursorFamilyUnion()
 	for _, path := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		childID := IDFromPath(path)
 		union.add(childID)
 		if parentID := ParentIDFromPath(path); parentID != "" {
@@ -358,6 +398,9 @@ func cursorFamilyFilesWithMetadata(files []string, id string, metadata *vendors.
 	}
 	if metadata != nil {
 		for childID, entry := range metadata.Sessions {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if entry.Relationship.ParentID != "" {
 				union.union(childID, entry.Relationship.ParentID)
 			}
@@ -366,11 +409,14 @@ func cursorFamilyFilesWithMetadata(files []string, id string, metadata *vendors.
 	want := union.find(strings.ToLower(id))
 	selected := make([]string, 0, len(files))
 	for _, path := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if union.find(IDFromPath(path)) == want {
 			selected = append(selected, path)
 		}
 	}
-	return selected
+	return selected, nil
 }
 
 func parseTranscriptFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
@@ -512,31 +558,45 @@ func (u *cursorFamilyUnion) union(left, right string) {
 }
 
 func selectFamily(parsed []*vendors.ParsedSession, id string) []*vendors.ParsedSession {
+	family, _ := selectFamilyContext(context.Background(), parsed, id)
+	return family
+}
+
+func selectFamilyContext(ctx context.Context, parsed []*vendors.ParsedSession, id string) ([]*vendors.ParsedSession, error) {
 	id = strings.ToLower(id)
 	byID := make(map[string]*vendors.ParsedSession, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if item != nil && item.Session != nil {
 			byID[item.Session.ID] = item
 		}
 	}
 	root, ok := byID[id]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	ancestors := map[string]bool{}
 	for root.ParentID != "" {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if ancestors[root.Session.ID] || root.ParentID == root.Session.ID {
-			return nil
+			return nil, nil
 		}
 		ancestors[root.Session.ID] = true
 		parent, ok := byID[root.ParentID]
 		if !ok {
-			return nil
+			return nil, nil
 		}
 		root = parent
 	}
 	children := map[string][]*vendors.ParsedSession{}
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if item != nil && item.Session != nil && item.ParentID != "" {
 			if _, ok := byID[item.ParentID]; ok {
 				children[item.ParentID] = append(children[item.ParentID], item)
@@ -548,19 +608,27 @@ func selectFamily(parsed []*vendors.ParsedSession, id string) []*vendors.ParsedS
 	}
 	family := []*vendors.ParsedSession{}
 	seen := map[string]bool{}
-	var visit func(*vendors.ParsedSession)
-	visit = func(item *vendors.ParsedSession) {
+	var visit func(*vendors.ParsedSession) error
+	visit = func(item *vendors.ParsedSession) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if seen[item.Session.ID] {
-			return
+			return nil
 		}
 		seen[item.Session.ID] = true
 		family = append(family, item)
 		for _, child := range children[item.Session.ID] {
-			visit(child)
+			if err := visit(child); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
-	visit(root)
-	return family
+	if err := visit(root); err != nil {
+		return nil, err
+	}
+	return family, nil
 }
 
 func Health() vendors.SourceHealth {

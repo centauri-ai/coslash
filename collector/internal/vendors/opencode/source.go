@@ -137,11 +137,14 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	return parsed[0], nil
 }
 
-func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+func GetSessionFamily(ctx context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if id == "" {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
-	db, err := open()
+	db, err := openContext(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, vendors.EmptySessionMetadata(), nil
 	}
@@ -150,9 +153,15 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	}
 	defer db.Close()
 	metadata := vendors.BestEffortMetadata(vendors.AgentOpenCode, func() (*vendors.SessionMetadata, error) {
-		return loadMetadata(db)
+		return loadMetadataContext(ctx, db)
 	})
-	parsed, skipped, err := load(db, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, id)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	parsed, skipped, err := loadContext(ctx, db, activeFamiliesQuery+" AND selected_roots.id = ?"+familyOrder, id)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if len(skipped) > 0 {
 		return nil, nil, fmt.Errorf("parse OpenCode session family %q: %w", skipped[0].id, skipped[0].err)
 	}

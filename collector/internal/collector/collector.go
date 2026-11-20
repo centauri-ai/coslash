@@ -46,47 +46,37 @@ var vendorSources = func() []vendorSource {
 		},
 		{
 			name: vendors.AgentCodex, collect: codex.CollectContext,
-			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) { return codex.GetSessionFacts(id) },
-			loadFamily: func(_ context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-				return codex.GetSessionFamily(id)
-			},
-			health: func(context.Context) vendors.SourceHealth { return codex.Health() },
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return codex.GetSessionFacts(id) },
+			loadFamily: codex.GetSessionFamily,
+			health:     func(context.Context) vendors.SourceHealth { return codex.Health() },
 		},
 		{
 			name: vendors.AgentOpenCode, collect: opencode.CollectContext,
 			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) {
 				return opencode.GetSessionFacts(id)
 			},
-			loadFamily: func(_ context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-				return opencode.GetSessionFamily(id)
-			},
-			health: func(context.Context) vendors.SourceHealth { return opencode.Health() },
+			loadFamily: opencode.GetSessionFamily,
+			health:     func(context.Context) vendors.SourceHealth { return opencode.Health() },
 		},
 		{
 			name: vendors.AgentCursor, collect: cursor.CollectContext,
-			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) { return cursor.GetSessionFacts(id) },
-			loadFamily: func(_ context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-				return cursor.GetSessionFamily(id)
-			},
-			health: func(context.Context) vendors.SourceHealth { return cursor.Health() },
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return cursor.GetSessionFacts(id) },
+			loadFamily: cursor.GetSessionFamily,
+			health:     func(context.Context) vendors.SourceHealth { return cursor.Health() },
 		},
 		{
 			name: vendors.AgentGrok, collect: grok.CollectContext,
-			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) { return grok.GetSessionFacts(id) },
-			loadFamily: func(_ context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-				return grok.GetSessionFamily(id)
-			},
-			health: func(context.Context) vendors.SourceHealth { return grok.Health() },
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return grok.GetSessionFacts(id) },
+			loadFamily: grok.GetSessionFamily,
+			health:     func(context.Context) vendors.SourceHealth { return grok.Health() },
 		},
 	}
 	if vendors.PiCollectionSupported() {
 		sources = append([]vendorSource{{
 			name: vendors.AgentPi, collect: pi.CollectContext,
-			loadFacts: func(_ context.Context, id string) (*vendors.ParsedSession, error) { return pi.GetSessionFacts(id) },
-			loadFamily: func(_ context.Context, id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-				return pi.GetSessionFamily(id)
-			},
-			health: func(context.Context) vendors.SourceHealth { return pi.Health() },
+			loadFacts:  func(_ context.Context, id string) (*vendors.ParsedSession, error) { return pi.GetSessionFacts(id) },
+			loadFamily: pi.GetSessionFamily,
+			health:     func(context.Context) vendors.SourceHealth { return pi.Health() },
 		}}, sources...)
 	}
 	return sources
