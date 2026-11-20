@@ -21,6 +21,7 @@ type claudeSessionAnalysis struct {
 	rowUUIDs                 map[string]struct{}
 	rowCount                 int
 	workingDirectory         string
+	recordedDirectories      map[string]session.RecordedDirectory
 	branch                   *string
 	entrypoint               *string
 	durationMs               int
@@ -259,6 +260,13 @@ func analyzeClaudeSessionSource(
 			}
 		}
 		if row.WorkingDirectory != "" {
+			if analysis.workingDirectory != "" && row.WorkingDirectory != analysis.workingDirectory {
+				analysis.branch = nil
+				if analysis.recordedDirectories == nil {
+					analysis.recordedDirectories = map[string]session.RecordedDirectory{}
+				}
+				session.NoteDirectory(analysis.recordedDirectories, analysis.workingDirectory, "", analysis.timestamps.Latest)
+			}
 			analysis.workingDirectory = row.WorkingDirectory
 		}
 		if row.Branch != nil && *row.Branch != "" && *row.Branch != "HEAD" {
@@ -559,9 +567,9 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 	}
 	summary = session.Truncate(summary, session.TruncateTextLimit)
 	unifiedSession := session.Session{
-		Agent:            vendors.AgentClaude,
-		ID:               sessionID,
-		WorkingDirectory: analysis.workingDirectory,
+		Agent:               vendors.AgentClaude,
+		ID:                  sessionID,
+		RecordedDirectories: analysis.recordedDirectories, WorkingDirectory: analysis.workingDirectory,
 		Branch:           analysis.branch,
 		Entrypoint:       analysis.entrypoint,
 		CommitLog:        analysis.commitLog,

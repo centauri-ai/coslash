@@ -884,20 +884,25 @@ func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSess
 		localOnly bool
 	}
 	repoByCwd := map[string]repository{}
-	branchByCwd := map[string]*string{}
+	origins := map[string]string{}
+	recordedRepo := map[*session.Session]bool{}
+	cards := make([]*session.Session, 0, len(roots))
 	drifts := map[driftKey]*driftSlot{}
 	for _, p := range roots {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		s := p.Session
+		cards = append(cards, s)
+		recordedRepo[s] = s.Repository != nil && *s.Repository != "" && !s.RepositoryLocalOnly
+		for _, dir := range s.RecordedDirectories {
+			repoByCwd[dir.CWD] = repository{}
+		}
 		if s.WorkingDirectory == "" {
 			continue
 		}
 		repoByCwd[s.WorkingDirectory] = repository{}
-		if deref(s.Branch) == "" {
-			branchByCwd[s.WorkingDirectory] = nil
-		}
+
 	}
 	for cwd := range repoByCwd {
 		if err := ctx.Err(); err != nil {
@@ -908,11 +913,8 @@ func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSess
 			return err
 		}
 		repoByCwd[cwd] = repository{name: name, localOnly: localOnly}
-		if _, needsBranchProbe := branchByCwd[cwd]; needsBranchProbe {
-			branchByCwd[cwd] = session.CurrentBranchContext(ctx, cwd)
-			if err := ctx.Err(); err != nil {
-				return err
-			}
+		if !localOnly {
+			origins[cwd] = name
 		}
 	}
 	for _, p := range roots {
@@ -923,9 +925,7 @@ func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSess
 		if s.WorkingDirectory == "" {
 			continue
 		}
-		if deref(s.Branch) == "" {
-			s.Branch = branchByCwd[s.WorkingDirectory]
-		}
+
 		drifts[driftKey{cwd: s.WorkingDirectory, branch: deref(s.Branch)}] = &driftSlot{}
 	}
 	// BranchDrift waits on git subprocesses, so distinct keys probe
@@ -977,9 +977,24 @@ func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSess
 		s.Git = drifts[driftKey{cwd: s.WorkingDirectory, branch: deref(s.Branch)}].drift
 		// A remote the agent recorded (Codex's session_meta) outlives a
 		// folder that no longer has one.
-		if repo := repoByCwd[s.WorkingDirectory]; !repo.localOnly || s.Repository == nil || *s.Repository == "" || s.RepositoryLocalOnly {
+		if repo := repoByCwd[s.WorkingDirectory]; s.Repository == nil || *s.Repository == "" || s.RepositoryLocalOnly {
 			s.Repository = &repo.name
 			s.RepositoryLocalOnly = repo.localOnly
+		}
+	}
+	if err := session.RefreshLocalLocations(ctx, cards, origins); err != nil {
+		return err
+	}
+	for _, s := range cards {
+		if !recordedRepo[s] && len(s.Locations) > 0 && s.Locations[0].Primary {
+			first := s.Locations[0]
+			if first.Repo != "" {
+				s.Repository = &first.Repo
+				s.RepositoryLocalOnly = false
+			} else {
+				s.Repository = &first.Label
+				s.RepositoryLocalOnly = true
+			}
 		}
 	}
 	return nil

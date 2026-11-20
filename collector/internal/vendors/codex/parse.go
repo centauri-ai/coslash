@@ -25,6 +25,9 @@ type codexSessionAnalysis struct {
 	agentNickname    string
 	taskName         string
 	workingDirectory string
+
+	recordedDirectories map[string]session.RecordedDirectory
+
 	branch           *string
 	repository       *string
 	entrypoint       *string
@@ -309,6 +312,9 @@ func analyzeCodexSessionSource(
 				meta.branch = row.Payload.Git.Branch
 				meta.repository = session.CanonicalOriginURL(row.Payload.Git.RepositoryURL)
 			}
+			if timestamp != nil {
+				meta.at = *timestamp
+			}
 			metas = append(metas, meta)
 		case "turn_context":
 			if row.Payload.Model != "" {
@@ -494,6 +500,15 @@ func analyzeCodexSessionSource(
 	analysis.subagentRole = own.subagentRole
 	analysis.agentNickname = own.agentNickname
 	analysis.workingDirectory = own.workingDirectory
+	ownID := cmp.Or(own.payloadID, own.sessionID)
+	if len(metas) > 1 && ownID != "" {
+		analysis.recordedDirectories = map[string]session.RecordedDirectory{}
+		for _, m := range metas {
+			if cmp.Or(m.payloadID, m.sessionID) == ownID {
+				session.NoteDirectory(analysis.recordedDirectories, m.workingDirectory, m.repository, m.at)
+			}
+		}
+	}
 	analysis.branch = nil
 	if own.branch != "" {
 		analysis.branch = &own.branch
@@ -567,9 +582,9 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		unifiedSessionDetails.FirstPrompt = &analysis.firstUserPrompt
 	}
 	unifiedSession := session.Session{
-		Agent:            vendors.AgentCodex,
-		ID:               sessionID,
-		WorkingDirectory: analysis.workingDirectory,
+		Agent:               vendors.AgentCodex,
+		ID:                  sessionID,
+		RecordedDirectories: analysis.recordedDirectories, WorkingDirectory: analysis.workingDirectory,
 		Branch:           analysis.branch,
 		Repository:       analysis.repository,
 		Entrypoint:       analysis.entrypoint,

@@ -71,6 +71,7 @@ func LocalDetailRevisionContext(ctx context.Context, value Session) (string, err
 		stable.Entrypoint = nil
 	}
 	stable.Status = nil
+	stable.Locations = nil
 	stable.Branch = nil
 	stable.Repository = nil
 	stable.RepositoryLocalOnly = false

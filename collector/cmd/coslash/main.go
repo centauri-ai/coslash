@@ -194,6 +194,9 @@ func main() {
 		log.Fatalf("coslash: %v", err)
 	}
 	defer runtimeLock.Close()
+	if err := session.UseLocationMemory(filepath.Join(settings.Home(), "worktrees.sqlite")); err != nil {
+		log.Printf("worktree history unavailable on disk; checkout observations will last for this run: %v", err)
+	}
 	session.UseRepositoryMemory(filepath.Join(settings.Home(), "repositories.json"))
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || runtime.GOOS == "linux" {
 		if err := ensureProtocolHandler(); err != nil {
