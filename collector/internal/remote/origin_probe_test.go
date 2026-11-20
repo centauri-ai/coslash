@@ -426,3 +426,25 @@ func TestSSHProbeVerifiesRegisteredWorktree(t *testing.T) {
 		t.Fatalf("unexpected checkout facts %s", out)
 	}
 }
+
+func TestLegacyCacheUsesRecordedBranch(t *testing.T) {
+	family := validFamily(t, "root-1")
+	f := &family.Sessions[0]
+	f.Display.ID = f.ID
+	f.Display.WorkingDirectory = "/checkout"
+	f.Branch = "old-live-head"
+	for _, recorded := range []string{"", "recorded"} {
+		f.Display.Branch = nil
+		if recorded != "" {
+			f.Display.Branch = &recorded
+		}
+		rows, _, err := family.Parsed()
+		if err != nil {
+			t.Fatal(err)
+		}
+		branch := rows[0].Session.Branch
+		if recorded == "" && branch != nil || recorded != "" && (branch == nil || *branch != recorded) {
+			t.Fatalf("recorded %q, got %v", recorded, branch)
+		}
+	}
+}

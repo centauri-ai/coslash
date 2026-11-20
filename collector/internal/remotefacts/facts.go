@@ -581,7 +581,12 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 			return nil, nil, err
 		}
 		s.Agent, s.ID = f.Vendor, fact.ID
-		s.Branch, s.DurationMs = pointer(fact.Branch), cloneInt(fact.DurationMs)
+		branch := fact.Branch
+		// Older SSH caches overwrote the top-level branch with live HEAD. The display copy kept the recording.
+		if fact.Display.ID != "" && fact.Display.WorkingDirectory != "" {
+			branch = optional(fact.Display.Branch, MaxDisplayBytes)
+		}
+		s.Branch, s.DurationMs = pointer(branch), cloneInt(fact.DurationMs)
 		s.StartedAt, s.LastActivityTime = fact.StartedAtMs, fact.LastActivityAtMs
 		s.Entrypoint, s.EditedFileCount = pointer(fact.Entrypoint), fact.Counts.EditedFiles
 		s.Model, s.ContextTokens, s.ContextWindow = pointer(fact.Model), cloneInt(fact.ContextTokens), cloneInt(fact.ContextWindow)
