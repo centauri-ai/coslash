@@ -137,7 +137,7 @@ func BuildRemoteFamilies(
 	files := scan.Files
 	skippedTotal = scan.SkippedTotal
 	candidateFiles = len(files)
-	fingerprints, err := vendors.FingerprintSourceFiles(source, root, files)
+	fingerprints, err := vendors.FingerprintSourceFiles(context.Background(), source, root, files)
 	if err != nil {
 		return nil, nil, nil, nil, nil, candidateFiles, skippedTotal, false, err
 	}
@@ -263,15 +263,33 @@ func ParseRemoteFiles(
 	files []string,
 	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := parseFilesSourceStrict(
+	return ParseRemoteFilesContext(context.Background(), source, home, files, knownActiveFiles)
+}
+
+// ParseRemoteFilesContext parses exactly the given files and stops parsing or
+// finalizing them when the collection context is canceled.
+func ParseRemoteFilesContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	home string,
+	files []string,
+	knownActiveFiles []string,
+) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+	parsed, failures, parseErr := vendors.ParseSourceFilesStrict(ctx, source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+		return parseSourceContext(ctx, source, path, func(string, string) bool { return true })
+	})
+	finalized, finalizeErr := finalizeParsedFilesContext(
+		ctx,
 		source,
 		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),
 		knownActiveFiles,
-		files,
-		func(string, string) bool { return true },
+		parsed,
 	)
-	clearPromptDerivedNames(parsed)
-	return parsed, failures, err
+	if finalizeErr != nil {
+		return nil, failures, finalizeErr
+	}
+	clearPromptDerivedNames(finalized)
+	return finalized, failures, parseErr
 }
 
 // clearPromptDerivedNames prevents the parser's first-user-prompt fallback
@@ -315,7 +333,7 @@ func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSe
 	if root, err := Root(); err == nil {
 		home = filepath.Dir(filepath.Dir(root))
 	}
-	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files,
+	parsed, err := vendors.ParseSourceFiles(ctx, vendors.LocalReadSource, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
 			return parseSourceCachedContext(ctx, source, path, func(command, cwd string) bool {
 				return commandNeedsApprovalContext(ctx, command, cwd)
@@ -334,23 +352,10 @@ func parseFilesSource(
 	files []string,
 	needsApproval func(string, string) bool,
 ) []*vendors.ParsedSession {
-	parsed := vendors.ParseSourceFiles(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSourceCachedContext(context.Background(), source, path, needsApproval)
+	parsed, _ := vendors.ParseSourceFiles(context.Background(), source, files, func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+		return parseSourceCachedContext(ctx, source, path, needsApproval)
 	})
 	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed)
-}
-
-func parseFilesSourceStrict(
-	source vendors.ReadSource,
-	archivedDir string,
-	knownActiveFiles []string,
-	files []string,
-	needsApproval func(string, string) bool,
-) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := vendors.ParseSourceFilesStrict(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSource(source, path, needsApproval)
-	})
-	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed), failures, err
 }
 
 func finalizeParsedFiles(

@@ -50,7 +50,7 @@ func FilesContext(ctx context.Context) ([]string, error) {
 }
 
 func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
-	files, err := vendors.JSONLFilesUnderSourceContext(ctx, source, root)
+	files, err := vendors.JSONLFilesUnderSource(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, er
 }
 
 func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
-	scan, err := vendors.ScanSourceContext(ctx, source, root)
+	scan, err := vendors.ScanSource(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}

@@ -92,7 +92,7 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	if !transcriptIDPattern.MatchString(rootID) {
 		return nil, vendors.ErrInvalidData
 	}
-	scan, err := vendors.ScanSourceContext(ctx, vendors.LocalReadSource, ProjectsRoot(home))
+	scan, err := vendors.ScanSource(ctx, vendors.LocalReadSource, ProjectsRoot(home))
 	if err != nil || scan.SkippedTotal != 0 {
 		return nil, fmt.Errorf("%w: Cursor transcript discovery incomplete", vendors.ErrInvalidData)
 	}

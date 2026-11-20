@@ -391,7 +391,7 @@ func parseTranscriptFilesSourceContext(ctx context.Context, source vendors.ReadS
 		}
 		groups[id] = append(groups[id], path)
 	}
-	return vendors.ParseFilesContext(ctx, ids, func(ctx context.Context, id string) (*vendors.ParsedSession, error) {
+	return vendors.ParseFiles(ctx, ids, func(ctx context.Context, id string) (*vendors.ParsedSession, error) {
 		return parseTranscriptFragmentsCachedContext(ctx, source, groups[id])
 	})
 }
@@ -465,7 +465,7 @@ func selectCursorFilesSourceWithMetadataContext(ctx context.Context, source vend
 	if since <= 0 {
 		return eligible, nil
 	}
-	selected, _, err := vendors.LimitNewestFileFamiliesContext(ctx, eligible, vendors.MaxCandidateFilesPerAgent,
+	selected, _, err := vendors.LimitNewestFileFamilies(ctx, eligible, vendors.MaxCandidateFilesPerAgent,
 		func(path string) string { return union.find(IDFromPath(path)) },
 		func(path string) int64 {
 			modified := vendors.SourceModificationTime(source, path)

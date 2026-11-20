@@ -57,14 +57,6 @@ func AggregateFingerprint(familyID string, fingerprints []FileFingerprint, sessi
 }
 
 func FingerprintSourceFiles(
-	source ReadSource,
-	root string,
-	files []string,
-) ([]FileFingerprint, error) {
-	return FingerprintSourceFilesContext(context.Background(), source, root, files)
-}
-
-func FingerprintSourceFilesContext(
 	ctx context.Context,
 	source ReadSource,
 	root string,
@@ -139,14 +131,10 @@ type freshStatSource interface {
 	FreshStat(string) (fs.FileInfo, error)
 }
 
-func FingerprintSourceFilesFresh(source ReadSource, root string, files []string) ([]FileFingerprint, error) {
-	return FingerprintSourceFilesFreshContext(context.Background(), source, root, files)
-}
-
-func FingerprintSourceFilesFreshContext(ctx context.Context, source ReadSource, root string, files []string) ([]FileFingerprint, error) {
+func FingerprintSourceFilesFresh(ctx context.Context, source ReadSource, root string, files []string) ([]FileFingerprint, error) {
 	fresh, ok := source.(freshStatSource)
 	if !ok {
-		return FingerprintSourceFilesContext(ctx, source, root, files)
+		return FingerprintSourceFiles(ctx, source, root, files)
 	}
 	fingerprints := make([]FileFingerprint, 0, len(files))
 	for _, file := range files {
@@ -201,27 +189,18 @@ func SourceModificationTime(source ReadSource, path string) int64 {
 
 // LimitNewestSourceFileFamilies keeps whole file families, ordered by their newest member.
 func LimitNewestSourceFileFamilies(
+	ctx context.Context,
 	source ReadSource,
 	files []string,
 	limit int,
 	familyID func(string) string,
-) ([]string, bool) {
-	return LimitNewestFileFamilies(files, limit, familyID, func(path string) int64 {
+) ([]string, bool, error) {
+	return LimitNewestFileFamilies(ctx, files, limit, familyID, func(path string) int64 {
 		return SourceModificationTime(source, path)
 	})
 }
 
 func LimitNewestFileFamilies(
-	files []string,
-	limit int,
-	familyID func(string) string,
-	modified func(string) int64,
-) ([]string, bool) {
-	result, truncated, _ := LimitNewestFileFamiliesContext(context.Background(), files, limit, familyID, modified)
-	return result, truncated
-}
-
-func LimitNewestFileFamiliesContext(
 	ctx context.Context,
 	files []string,
 	limit int,
@@ -349,7 +328,7 @@ func walkReadSourceEntryContext(
 	return nil
 }
 
-func ParseJSONLSourceContext[T any](ctx context.Context, source ReadSource, path string) ([]T, error) {
+func ParseJSONLSource[T any](ctx context.Context, source ReadSource, path string) ([]T, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

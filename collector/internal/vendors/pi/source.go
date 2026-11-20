@@ -131,7 +131,7 @@ func discoverHeadersContext(ctx context.Context) (*vendors.SourceScan, string, m
 			continue
 		}
 		seenRoots[abs] = true
-		part, err := vendors.ScanSourceContext(ctx, vendors.LocalReadSource, abs)
+		part, err := vendors.ScanSource(ctx, vendors.LocalReadSource, abs)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, root, nil, ctx.Err()
