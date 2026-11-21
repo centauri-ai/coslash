@@ -83,11 +83,13 @@ exist.
 
 `vendor_complete` asserts that the vendor's whole allowlisted tree was
 enumerated, so it is emitted only when the scan skipped nothing, hit no limit,
-and finished inside the deadline. An attributed family with invalid transcript
-data emits `skipped_family` and retains its last good records as stale while
+and finished inside the deadline. An attributed family with invalid or empty
+parsed transcript data emits `skipped_family` and retains its last good records as stale while
 healthy families refresh. Unattributable headers still withhold completion because
-family membership is uncertain. A missing vendor root is complete coverage of
-zero families; an unreadable directory is not. Tombstones name known families
+family membership is uncertain. Claude background re-homes can intentionally omit a
+predecessor during parsing; its `no_data` skip retains any cached predecessor
+rather than treating that omission as deletion or blocking healthy families.
+A missing vendor root is complete coverage of zero families; an unreadable directory is not. Tombstones name known families
 that a complete scan did not find, and they commit only against the bounded
 authoritative inventory. An interrupted or incomplete scan therefore cannot
 delete or replace cached data. Whole records received before the failure remain

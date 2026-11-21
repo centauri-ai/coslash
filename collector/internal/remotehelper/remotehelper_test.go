@@ -662,3 +662,76 @@ func noCodexLiveSessions() (map[string]struct{}, error) {
 type discardWriter struct{}
 
 func (*discardWriter) Write(data []byte) (int, error) { return len(data), nil }
+
+func TestCollectIsolatesBackgroundRehomePredecessor(t *testing.T) {
+	for _, known := range []bool{false, true} {
+		t.Run(fmt.Sprintf("known=%t", known), func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(claude.ProjectsRoot(home), "project")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			write := func(id, content string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, id+".jsonl"), []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			shared := `{"type":"user","sessionId":"old","uuid":"shared","timestamp":"2026-07-10T14:11:18Z","message":{"content":"hello"}}` + "\n"
+			write("old", shared)
+			request := validRequest()
+			request.SourceID = "r_0123456789abcdef"
+			request.Vendors = []string{vendors.AgentClaude, vendors.AgentCodex}
+			request.CollectedAtMs = time.Date(2026, 7, 10, 15, 0, 0, 0, time.UTC).UnixMilli()
+			options := testOptions(home)
+			options.Now = func() time.Time { return time.UnixMilli(request.CollectedAtMs) }
+			baseline := remoteprotocol.Generation{BaselineID: request.BaselineID}
+			collect := func() remoteprotocol.Generation {
+				t.Helper()
+				var output bytes.Buffer
+				outcome, err := Collect(t.Context(), request, options, &output)
+				if err != nil || !outcome.RequestComplete {
+					t.Fatalf("collection = %#v, err=%v", outcome, err)
+				}
+				records, err := remoteprotocol.Decode(&output, request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				accumulator, err := remoteprotocol.NewAccumulator(request, baseline)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, record := range records {
+					if err := accumulator.Apply(record); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return accumulator.Proposal()
+			}
+			baseline = collect()
+			key := remoteprotocol.FamilyKey{Vendor: vendors.AgentClaude, FamilyID: "old"}
+			recordKey := remoteprotocol.FullRecordKey{Vendor: vendors.AgentClaude, SessionID: "old"}
+			prior := baseline.FullRecords[recordKey]
+			request.RequestID = "req-2"
+			if known {
+				request.BaselineID = baseline.BaselineID
+				request.Known = []remoteprotocol.KnownFamily{{Vendor: vendors.AgentClaude, FamilyID: "old", Fingerprint: "changed"}}
+			} else {
+				request.BaselineMode, request.BaselineID = remoteprotocol.BaselineNone, ""
+				baseline = remoteprotocol.Generation{}
+			}
+			write("new", shared+`{"type":"user","sessionId":"new","sessionKind":"bg","uuid":"new-row","timestamp":"2026-07-10T14:12:18Z","message":{"content":"continued"}}`+"\n")
+			result := collect()
+			if _, ok := result.Families[remoteprotocol.FamilyKey{Vendor: vendors.AgentClaude, FamilyID: "new"}]; !ok {
+				t.Fatal("replacement family was not published")
+			}
+			if known {
+				if result.Families[key].StaleReason != remotefacts.StaleReasonNoData || result.FullRecords[recordKey].Record.RevisionID != prior.Record.RevisionID {
+					t.Fatal("predecessor did not retain its last good record as stale")
+				}
+			} else if _, exists := result.Families[key]; exists {
+				t.Fatal("omitted predecessor published without a cached record")
+			}
+		})
+	}
+}
