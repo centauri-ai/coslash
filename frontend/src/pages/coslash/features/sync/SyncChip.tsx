@@ -11,6 +11,8 @@ export function SyncChip({
   failureCode?: string;
   className?: string;
 }) {
+  if (state === 'none') return null;
+
   const label = chipLabel(state);
   const description = state === 'parked_failed' ? syncFailureDescription(failureCode) : label;
   return (
