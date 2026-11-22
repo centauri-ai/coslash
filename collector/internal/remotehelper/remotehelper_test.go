@@ -456,11 +456,13 @@ func TestCollectIsolatesInvalidFamilyBody(t *testing.T) {
 	for _, test := range []struct {
 		vendor string
 		known  bool
+		rehome bool
 	}{
-		{vendors.AgentClaude, false}, {vendors.AgentClaude, true},
-		{vendors.AgentCodex, false}, {vendors.AgentCodex, true},
+		{vendors.AgentClaude, false, false}, {vendors.AgentClaude, true, false},
+		{vendors.AgentClaude, false, true}, {vendors.AgentClaude, true, true},
+		{vendors.AgentCodex, false, false}, {vendors.AgentCodex, true, false},
 	} {
-		t.Run(fmt.Sprintf("%s/known=%t", test.vendor, test.known), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/known=%t/rehome=%t", test.vendor, test.known, test.rehome), func(t *testing.T) {
 			home := t.TempDir()
 			root := codex.SessionsRoot(home)
 			goodID := "11111111-2222-3333-4444-555555555555"
@@ -473,7 +475,7 @@ func TestCollectIsolatesInvalidFamilyBody(t *testing.T) {
 			badPath := filepath.Join(root, prefix+badID+".jsonl")
 			content := func(id, prompt string) string {
 				if test.vendor == vendors.AgentClaude {
-					return `{"type":"user","sessionId":"` + id + `","cwd":"/test/project","timestamp":"2026-07-10T14:11:18Z","message":{"content":"` + prompt + `"}}` + "\n"
+					return `{"type":"user","uuid":"` + id + `","sessionId":"` + id + `","cwd":"/test/project","timestamp":"2026-07-10T14:11:18Z","message":{"content":"` + prompt + `"}}` + "\n"
 				}
 				return `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + id + `","cwd":"/test/project"}}` + "\n" +
 					`{"timestamp":"2026-07-10T14:11:19Z","type":"event_msg","payload":{"type":"user_message","message":"` + prompt + `"}}` + "\n"
@@ -534,19 +536,25 @@ func TestCollectIsolatesInvalidFamilyBody(t *testing.T) {
 				request.BaselineMode, request.BaselineID = remoteprotocol.BaselineNone, ""
 				baseline = remoteprotocol.Generation{}
 			}
-			if err := os.WriteFile(goodPath, []byte(content(goodID, "updated healthy session")), 0o600); err != nil {
-				t.Fatal(err)
+			goodBody, badBody := content(goodID, "updated healthy session"), content(badID, "invalid\nmessage")
+			wantPrompt, wantReason := "updated healthy session", remotefacts.StaleReasonInvalidData
+			if test.rehome {
+				badBody = content(badID, "original") + "\n"
+				goodBody = badBody + strings.Replace(strings.Replace(goodBody, `"type":"user"`, `"type":"user","sessionKind":"bg"`, 1), "14:11:18", "14:12:18", 1)
+				wantPrompt, wantReason = "original", remotefacts.StaleReasonNoData
 			}
-			if err := os.WriteFile(badPath, []byte(content(badID, "invalid\nmessage")), 0o600); err != nil {
-				t.Fatal(err)
+			for path, body := range map[string]string{goodPath: goodBody, badPath: badBody} {
+				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			result := collect()
 			good := result.FullRecords[remoteprotocol.FullRecordKey{Vendor: test.vendor, SessionID: goodID}]
-			if good.Record.Session.FirstPrompt == nil || *good.Record.Session.FirstPrompt != "updated healthy session" {
+			if good.Record.Session.FirstPrompt == nil || *good.Record.Session.FirstPrompt != wantPrompt {
 				t.Fatalf("healthy family did not refresh: %#v", good.Record.Session.FirstPrompt)
 			}
 			if test.known {
-				if result.Families[badKey].StaleReason != remotefacts.StaleReasonInvalidData || result.FullRecords[badRecordKey].Record.RevisionID != prior.Record.RevisionID {
+				if result.Families[badKey].StaleReason != wantReason || result.FullRecords[badRecordKey].Record.RevisionID != prior.Record.RevisionID {
 					t.Fatal("invalid family did not retain its last good record as stale")
 				}
 			} else if _, exists := result.Families[badKey]; exists {
