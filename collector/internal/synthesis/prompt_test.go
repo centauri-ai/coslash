@@ -327,3 +327,33 @@ func TestPiSelectedContextFilteredBeforeChunking(t *testing.T) {
 		t.Fatal("branch selection did not invalidate synthesis")
 	}
 }
+
+func TestBuildMergeInputsReducesMaximumUnicodeDecisions(t *testing.T) {
+	partials := make([]session.SessionSynthesis, 8)
+	for p := range partials {
+		partials[p].DecisionsVersion = DecisionsVersion
+		for d := 0; d < 5; d++ {
+			partials[p].Decisions = append(partials[p].Decisions, session.Decision{
+				Text: strings.Repeat("🧭", 200), Why: strings.Repeat("🧭", 240), Alternative: strings.Repeat("🧭", 160),
+			})
+		}
+	}
+	inputs := BuildMergeInputs(&session.Session{ID: "unicode"}, partials)
+	if len(inputs) >= len(partials) {
+		t.Fatalf("merge produced %d inputs for %d partials; must reduce", len(inputs), len(partials))
+	}
+	for _, input := range inputs {
+		if len(input) > maxPromptBytes || !utf8.ValidString(input) {
+			t.Fatalf("invalid merge input: bytes=%d valid=%v", len(input), utf8.ValidString(input))
+		}
+	}
+	all := strings.Join(inputs, "\n")
+	for p := range partials {
+		for d := range partials[p].Decisions {
+			want := fmt.Sprintf("Decision p%d.%d: %s", p+1, d+1, partials[p].Decisions[d].Text)
+			if strings.Count(all, want) != 1 {
+				t.Fatalf("decision p%d.%d was omitted, truncated, or duplicated", p+1, d+1)
+			}
+		}
+	}
+}

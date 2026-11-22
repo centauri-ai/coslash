@@ -6,6 +6,14 @@ Synthesis is off until you enable it and save **Settings**. It uses a local Clau
 
 The Settings dialog offers a short model list per backend. You can set any model that the selected CLI can reach in `settings.json`, including a model behind an API proxy such as `ANTHROPIC_BASE_URL` or a third-party provider.
 
+## Decisions and evidence
+
+New summaries keep up to five lasting choices, with a reason and a rejected alternative when the session names one. Sessions that edited a Markdown design or plan document can name that file and keep their top three choices. Task steps, chores, findings, and release sequencing belong in the timeline.
+
+A turn link means that a short quote matched the timeline text supplied to the model. It does not prove that the quote supports the decision or its reason. The **You** mark additionally requires a match in user-written text. Decisions whose quotes do not match stay visible but dimmed, without a link; handoffs and the compatibility decision list include only cited choices. Clicking a turn opens and highlights its timeline row, clearing a category filter if needed.
+
+Existing cached summaries keep their original bullet list until the session gets a new summary. There is no backfill. Decisions remain local enrichment and do not enter portable records or Hub sync; Hub produces its own summaries. See [cite-checked evidence](decisions/session-decisions-cite-checked-evidence.md) for the trust boundary.
+
 ## OpenCode
 
 Settings prefers *OpenCode default for a new run*, while preserving existing explicit model selections. The list also includes free OpenCode Zen models when the installed CLI can list them. For the default option, OpenCode v2 resolves your configured default through a separate probe with external plugins and project configuration disabled. Synthesis receives only the selected model and its provider configuration, in a fresh, isolated process. OpenCode v1 resolves its default through its existing configuration. The default for new work can differ from the model of an existing session. If the resolved model is paid, each debrief bills your account.

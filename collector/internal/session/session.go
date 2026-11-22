@@ -129,11 +129,32 @@ type Todo struct {
 	Done bool   `json:"done"`
 }
 
+type Evidence struct {
+	Entry         int    `json:"entry"`
+	Turn          int    `json:"turn"`
+	Quote         string `json:"quote"`
+	SourceEntryID string `json:"sourceEntryId,omitempty"`
+}
+
+type Decision struct {
+	ID          string     `json:"id"`
+	Text        string     `json:"text"`
+	Why         string     `json:"why"`
+	Alternative string     `json:"alternative"`
+	ByYou       bool       `json:"byYou"`
+	Cited       bool       `json:"cited"`
+	Evidence    []Evidence `json:"evidence"`
+	From        []string   `json:"-"`
+}
+
 type SessionSynthesis struct {
-	Goals        []string `json:"goals"`
-	Outcome      string   `json:"outcome"`
-	KeyDecisions []string `json:"keyDecisions"`
-	NextStep     string   `json:"nextStep"`
+	DecisionsVersion string     `json:"decisionsVersion,omitempty"`
+	DesignDoc        string     `json:"designDoc"`
+	Decisions        []Decision `json:"decisions"`
+	Goals            []string   `json:"goals"`
+	Outcome          string     `json:"outcome"`
+	KeyDecisions     []string   `json:"keyDecisions"`
+	NextStep         string     `json:"nextStep"`
 }
 
 type SessionDetails struct {

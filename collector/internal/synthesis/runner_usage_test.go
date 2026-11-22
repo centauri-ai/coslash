@@ -50,7 +50,7 @@ func TestClaudeUsageSurvivesFailedSummaryAndExit(t *testing.T) {
 func TestClaudeMalformedAccountingDoesNotDiscardSummary(t *testing.T) {
 	runner := &CLIRunner{Backend: settings.BackendClaude, Model: "claude-sonnet-4-5", Timeout: time.Second}
 	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
-		return []byte(`{"type":"result","result":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"review\"}","usage":{"input_tokens":-1}}`), nil
+		return []byte(`{"type":"result","result":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"review\"}","usage":{"input_tokens":-1}}`), nil
 	}
 	got, err := runner.Run(context.Background(), "facts")
 	if err != nil || got.Synthesis.Outcome != "done" || got.Usage.Coverage != "unknown" {
@@ -127,7 +127,7 @@ func TestCodexCompletedEventsKeepUsageOnInvalidSummary(t *testing.T) {
 func TestCodexCompletedMessageParsesSynthesis(t *testing.T) {
 	runner := &CLIRunner{Backend: settings.BackendCodex, Model: "gpt-5", Timeout: time.Second}
 	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
-		return []byte("{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n" +
+		return []byte("{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"decisions\\\":[],\\\"designDoc\\\":\\\"\\\",\\\"nextStep\\\":\\\"review\\\"}\"}}\n" +
 			"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":2,\"output_tokens\":1}}\n"), nil
 	}
 	got, err := runner.Run(context.Background(), "facts")
@@ -199,7 +199,7 @@ func TestCursorStreamUsesActualModelAndRunTotal(t *testing.T) {
 	runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
 		args = spec.args
 		return []byte(`{"type":"system","subtype":"init","model":"gpt-5"}` + "\n" +
-			`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"review\"}","usage":{"inputTokens":7,"outputTokens":2,"cacheReadTokens":900,"cacheWriteTokens":100}}` + "\n"), nil
+			`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"review\"}","usage":{"inputTokens":7,"outputTokens":2,"cacheReadTokens":900,"cacheWriteTokens":100}}` + "\n"), nil
 	}
 	got, err := runner.Run(context.Background(), "facts")
 	if err != nil || got.Synthesis.Outcome != "done" || !slices.Contains(args, "stream-json") {
@@ -253,7 +253,7 @@ func TestOpenCodeStepFinishDeduplicatesLatestPart(t *testing.T) {
 	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
 		return []byte(`{"type":"step_finish","sessionID":"run-1","part":{"id":"part-1","providerID":"openai","modelID":"gpt-5","cost":0.01,"tokens":{"input":2,"output":1,"cache":{"read":4,"write":1}}}}` + "\n" +
 			`{"type":"step_finish","sessionID":"run-1","part":{"id":"part-1","providerID":"openai","modelID":"gpt-5","cost":0.02,"tokens":{"input":3,"output":2,"cache":{"read":5,"write":1}}}}` + "\n" +
-			`{"type":"text","part":{"id":"answer","text":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"review\"}"}}` + "\n"), nil
+			`{"type":"text","part":{"id":"answer","text":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"review\"}"}}` + "\n"), nil
 	}
 	got, err := runner.Run(context.Background(), "facts")
 	if err != nil || got.Synthesis.Outcome != "done" {

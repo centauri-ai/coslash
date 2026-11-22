@@ -48,7 +48,7 @@ func TestPiSynthesis(t *testing.T) {
 				if _, err := os.Stat(spec.dir); err != nil {
 					t.Fatal(err)
 				}
-				return []byte("```json\n{\"goals\":[\"Ship Pi synthesis\"],\"outcome\":\"Backend added\",\"keyDecisions\":[],\"nextStep\":\"Review\"}\n```"), nil
+				return []byte("```json\n{\"goals\":[\"Ship Pi synthesis\"],\"outcome\":\"Backend added\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"Review\"}\n```"), nil
 			}
 			got, err := runner.Run(context.Background(), "private session facts")
 			if err != nil || got.Synthesis.Outcome != "Backend added" {

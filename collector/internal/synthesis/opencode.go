@@ -393,7 +393,7 @@ func boundedCommandDiagnostic(data []byte) string {
 
 // OpenCode cannot enforce an output schema, so prose around the object is tolerated.
 func parseOpenCodeSynthesis(text string) (session.SessionSynthesis, error) {
-	synthesis, err := parseOpenCodeObject(text)
+	synthesis, err := parseSynthesis([]byte(text))
 	if err == nil {
 		return synthesis, nil
 	}
@@ -401,22 +401,16 @@ func parseOpenCodeSynthesis(text string) (session.SessionSynthesis, error) {
 	if object == "" {
 		return session.SessionSynthesis{}, err
 	}
-	return parseOpenCodeObject(object)
-}
-
-func parseOpenCodeObject(text string) (session.SessionSynthesis, error) {
-	if err := requireSynthesisFields([]byte(stripJSONFence(text))); err != nil {
-		return session.SessionSynthesis{}, err
-	}
-	return parseSynthesis([]byte(text))
+	return parseSynthesis([]byte(object))
 }
 
 func requireSynthesisFields(data []byte) error {
 	var fields struct {
-		Goals        []*string `json:"goals"`
-		Outcome      *string   `json:"outcome"`
-		KeyDecisions []*string `json:"keyDecisions"`
-		NextStep     *string   `json:"nextStep"`
+		Goals     []*string         `json:"goals"`
+		Outcome   *string           `json:"outcome"`
+		Decisions []json.RawMessage `json:"decisions"`
+		DesignDoc *string           `json:"designDoc"`
+		NextStep  *string           `json:"nextStep"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode synthesis result: %w", err)
@@ -432,13 +426,11 @@ func requireSynthesisFields(data []byte) error {
 	if fields.Outcome == nil {
 		return errors.New("synthesis result has no outcome")
 	}
-	if fields.KeyDecisions == nil {
-		return errors.New("synthesis result has no key decisions")
+	if fields.Decisions == nil {
+		return errors.New("synthesis result has no decisions")
 	}
-	for _, decision := range fields.KeyDecisions {
-		if decision == nil {
-			return errors.New("synthesis result has a null key decision")
-		}
+	if fields.DesignDoc == nil {
+		return errors.New("synthesis result has no design doc")
 	}
 	if fields.NextStep == nil {
 		return errors.New("synthesis result has no next step")

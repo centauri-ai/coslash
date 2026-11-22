@@ -36,7 +36,7 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
 		captured = spec
 		configData, configErr = os.ReadFile(filepath.Join(spec.dir, ".cursor", "cli.json"))
-		return []byte(`{"type":"result","subtype":"success","is_error":false,"result":"{\"goals\":[\"Ship Cursor synthesis\"],\"outcome\":\"Backend added\",\"keyDecisions\":[],\"nextStep\":\"Open a PR\"}"}`), nil
+		return []byte(`{"type":"result","subtype":"success","is_error":false,"result":"{\"goals\":[\"Ship Cursor synthesis\"],\"outcome\":\"Backend added\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"Open a PR\"}"}`), nil
 	}
 
 	got, err := runner.Run(context.Background(), "normalized session facts")
@@ -151,7 +151,7 @@ func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 			if got := slices.Contains(spec.args, "--standalone"); got != wantV2 {
 				t.Fatalf("OpenCode v2 flags=%v, want %v", got, wantV2)
 			}
-			return []byte("{\"type\":\"text\",\"part\":{\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
+			return []byte("{\"type\":\"text\",\"part\":{\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"decisions\\\":[],\\\"designDoc\\\":\\\"\\\",\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
 		}
 		if _, err := runner.Run(context.Background(), "facts"); err != nil {
 			t.Fatal(err)
@@ -202,7 +202,7 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 						isolatedConfig, isolatedConfigErr = os.ReadFile(value)
 					}
 				}
-				return []byte("{\"type\":\"text\",\"part\":{\"id\":\"answer\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
+				return []byte("{\"type\":\"text\",\"part\":{\"id\":\"answer\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"decisions\\\":[],\\\"designDoc\\\":\\\"\\\",\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
 			}
 			if _, err := runner.Run(context.Background(), "facts"); err != nil {
 				t.Fatal(err)
@@ -267,7 +267,7 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 func TestParseResultEnvelopeRejectsIncompleteSynthesis(t *testing.T) {
 	data := []byte(`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\"}"}`)
 	if _, err := parseResultEnvelope(data); err == nil {
-		t.Fatal("parseResultEnvelope succeeded without keyDecisions or nextStep")
+		t.Fatal("parseResultEnvelope succeeded without decisions, designDoc, or nextStep")
 	}
 }
 
@@ -318,5 +318,44 @@ func TestOpenCodeVersionCancellationDoesNotCacheAnUnverifiedVersion(t *testing.T
 	}
 	if !detect(context.Background(), "opencode") || calls != 2 {
 		t.Fatal("verified version was not cached")
+	}
+}
+
+// These synthetic envelopes pin each backend's structured-output transport.
+func TestStructuredDecisionBackendFixtures(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		parse func([]byte) (session.SessionSynthesis, error)
+	}{
+		{"claude", parseResultEnvelope},
+		{"cursor", parseCursorSynthesis},
+		{"codex", parseCodexSynthesis},
+		{"grok", parseGrokSynthesis},
+		{"pi", parseSynthesis},
+		{"opencode", func(data []byte) (session.SessionSynthesis, error) {
+			text, err := parseOpenCodeStream(data)
+			if err != nil {
+				return session.SessionSynthesis{}, err
+			}
+			return parseOpenCodeSynthesis(text)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("testdata", "structured-decisions", tc.name+".json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := tc.parse(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.DecisionsVersion != DecisionsVersion || got.DesignDoc != "docs/design/architecture.md" || len(got.Decisions) != 1 || len(got.KeyDecisions) != 0 {
+				t.Fatalf("structured result = %#v", got)
+			}
+			d := got.Decisions[0]
+			if d.Text != "Use stable decision references" || d.Why != "Keep evidence attached through merges" || d.Alternative != "Generate new citations" || !d.ByYou || d.Cited || len(d.Evidence) != 1 || d.Evidence[0].Turn != 2 || d.Evidence[0].Quote != "keep evidence attached through merges" {
+				t.Fatalf("decision = %#v", d)
+			}
+		})
 	}
 }

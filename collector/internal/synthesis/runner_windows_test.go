@@ -49,7 +49,7 @@ func TestPiSynthesisRunsThroughCmdShim(t *testing.T) {
 	}
 	t.Setenv("PI_EXPECTED_PROMPT", expectedPrompt)
 	response := filepath.Join(directory, "response.json")
-	if err := os.WriteFile(response, []byte(`{"goals":["Ship"],"outcome":"from cmd shim","keyDecisions":[],"nextStep":"done"}`), 0o600); err != nil {
+	if err := os.WriteFile(response, []byte(`{"goals":["Ship"],"outcome":"from cmd shim","decisions":[],"designDoc":"","nextStep":"done"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cli := filepath.Join(directory, "pi.cmd")

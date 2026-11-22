@@ -9,7 +9,27 @@ type ModelTokens = {
   cost?: number;
 };
 
+export type DecisionEvidence = {
+  entry: number;
+  turn: number;
+  quote: string;
+  sourceEntryId?: string;
+};
+
+export type SessionDecision = {
+  id: string;
+  text: string;
+  why: string;
+  alternative: string;
+  byYou: boolean;
+  cited: boolean;
+  evidence: DecisionEvidence[];
+};
+
 type SessionSynthesis = {
+  decisionsVersion?: string;
+  designDoc?: string;
+  decisions?: SessionDecision[];
   goals: string[];
   outcome: string;
   keyDecisions: string[];

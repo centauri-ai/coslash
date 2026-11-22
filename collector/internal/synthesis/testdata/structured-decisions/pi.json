@@ -1,0 +1,1 @@
+{"goals":["Preserve references"],"outcome":"Evidence survives merges","nextStep":"Review","designDoc":"docs/design/architecture.md","decisions":[{"text":"Use stable decision references","why":"Keep evidence attached through merges","alternative":"Generate new citations","byYou":true,"evidence":[{"turn":2,"quote":"keep evidence attached through merges"}]}]}

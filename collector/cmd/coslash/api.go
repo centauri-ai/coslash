@@ -248,7 +248,7 @@ func handleSynthesis(w http.ResponseWriter, agent, id string, mgr *synthesis.Man
 	revision := synthesis.Revision(found)
 	response.Revision = revision
 	if revision > 0 {
-		response.Synthesis = mgr.Lookup(found.Agent, found.ID, revision)
+		response.Synthesis = synthesisWithJSONCollections(mgr.Lookup(found.Agent, found.ID, revision))
 		mgr.Ensure(found, revision)
 		response.SynthesisPending = response.Synthesis == nil && synthesis.Eligible(found) &&
 			!mgr.InCooldown(found.Agent, found.ID, revision)
