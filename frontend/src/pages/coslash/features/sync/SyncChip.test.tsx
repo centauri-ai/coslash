@@ -5,6 +5,10 @@ import { SyncChip } from './SyncChip';
 import { SyncHeader } from './SyncHeader';
 
 describe('SyncChip', () => {
+  it('omits the per-session badge when Hub is not connected', () => {
+    expect(renderToStaticMarkup(<SyncChip state="none" />)).toBe('');
+  });
+
   it('exposes persistent row status as static text, not a live region', () => {
     const markup = renderToStaticMarkup(<SyncChip state="in_hub" />);
 
