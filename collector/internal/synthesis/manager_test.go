@@ -1,8 +1,10 @@
 package synthesis
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -835,6 +837,10 @@ func TestRunSynthesisRejectsImpossibleDigestBeforeBuildingPrompts(t *testing.T) 
 
 func TestRunSynthesisCarriesEarlyAndLateDecisionsAcrossMergeRounds(t *testing.T) {
 	s := overflowSessionWithTurns(120)
+	s.Turns = len(s.Digest)
+	for i := range s.Digest {
+		s.Digest[i].Description = fmt.Sprintf("history-%02d choose stable identifiers for evidence %s", i+1, strings.Repeat("x", 460))
+	}
 	sourceCount := len(BuildInputs(s))
 	if sourceCount < 3 {
 		t.Fatalf("test session produced %d source chunks, want at least 3", sourceCount)
@@ -846,42 +852,47 @@ func TestRunSynthesisCarriesEarlyAndLateDecisionsAcrossMergeRounds(t *testing.T)
 		if !strings.Contains(input, "PARTIAL SYNTHESES") {
 			index := sourceCalls
 			sourceCalls++
-			decisions := make([]string, maxIntermediateKeyDecisions)
+			turn := slices.IndexFunc(s.Digest, func(entry session.DigestEntry) bool {
+				marker, _, _ := strings.Cut(entry.Description, " ")
+				return strings.Contains(input, marker)
+			}) + 1
+			if turn == 0 {
+				t.Fatal("source chunk omitted all timeline entries")
+			}
+			decisions := make([]session.Decision, 5)
 			for decisionIndex := range decisions {
-				decisions[decisionIndex] = fmt.Sprintf("source-%02d-%02d", index, decisionIndex)
+				decisions[decisionIndex] = session.Decision{Text: fmt.Sprintf("source-%02d-%02d", index, decisionIndex), Evidence: []session.Evidence{{Turn: turn, Quote: "choose stable identifiers for evidence"}}}
 			}
 			if index == 0 {
-				decisions[0] = "early-decision-marker"
+				decisions[0].Text = "early-decision-marker"
 			}
 			if index == sourceCount-1 {
-				decisions[len(decisions)-1] = "late-decision-marker"
+				decisions[len(decisions)-1].Text = "late-decision-marker"
 			}
-			return session.SessionSynthesis{Outcome: strings.Repeat("o", 2_000), KeyDecisions: decisions}, nil
+			return session.SessionSynthesis{DecisionsVersion: DecisionsVersion, Outcome: strings.Repeat("o", 2_000), Decisions: decisions}, nil
 		}
 
 		mergeCalls++
-		var decisions []string
+		var decisions []session.Decision
 		for _, line := range strings.Split(input, "\n") {
-			if decision, ok := strings.CutPrefix(line, "Decision: "); ok {
-				decisions = append(decisions, decision)
+			if value, ok := strings.CutPrefix(line, "Decision "); ok {
+				ref, value, found := strings.Cut(value, ": ")
+				if !found {
+					continue
+				}
+				value, _, _ = strings.Cut(value, " (byYou:")
+				decisions = append(decisions, session.Decision{Text: value, From: []string{ref}})
 			}
 		}
 		if strings.Contains(input, "early-decision-marker") && strings.Contains(input, "late-decision-marker") {
 			sawCombinedMarkers = true
 		}
-		ranked := make([]string, 0, len(decisions))
-		for _, marker := range []string{"early-decision-marker", "late-decision-marker"} {
-			if slices.Contains(decisions, marker) {
-				ranked = append(ranked, marker)
-			}
-		}
-		for _, decision := range decisions {
-			if decision != "early-decision-marker" && decision != "late-decision-marker" {
-				ranked = append(ranked, decision)
-			}
-		}
-		decisions = ranked[:min(len(ranked), maxIntermediateKeyDecisions)]
-		return session.SessionSynthesis{Outcome: strings.Repeat("m", 2_000), KeyDecisions: decisions}, nil
+		priority := map[string]int{"early-decision-marker": -2, "late-decision-marker": -1}
+		slices.SortStableFunc(decisions, func(a, b session.Decision) int {
+			return cmp.Compare(priority[a.Text], priority[b.Text])
+		})
+		decisions = decisions[:min(len(decisions), 5)]
+		return session.SessionSynthesis{DecisionsVersion: DecisionsVersion, Outcome: strings.Repeat("m", 2_000), Decisions: decisions}, nil
 	})
 
 	got, err := runSynthesis(context.Background(), runner, s)
@@ -891,10 +902,15 @@ func TestRunSynthesisCarriesEarlyAndLateDecisionsAcrossMergeRounds(t *testing.T)
 	if mergeCalls < 3 || !sawCombinedMarkers {
 		t.Fatalf("merge calls = %d, combined markers = %v; want recursive merge carrying both", mergeCalls, sawCombinedMarkers)
 	}
-	if len(got.KeyDecisions) != maxFinalKeyDecisions ||
+	if len(got.KeyDecisions) != 5 ||
 		!slices.Contains(got.KeyDecisions, "early-decision-marker") ||
 		!slices.Contains(got.KeyDecisions, "late-decision-marker") {
-		t.Fatalf("final key decisions = %#v, want 8 including early and late markers", got.KeyDecisions)
+		t.Fatalf("final key decisions = %#v, want 5 including cited early and late markers", got.KeyDecisions)
+	}
+	for _, decision := range got.Decisions {
+		if !decision.Cited || len(decision.Evidence) != 1 || decision.Evidence[0].Entry != decision.Evidence[0].Turn-1 {
+			t.Fatalf("merge lost source evidence: %#v", decision)
+		}
 	}
 }
 
@@ -973,5 +989,58 @@ func TestPiSynthesisKeepsSharedAccountingReadable(t *testing.T) {
 				t.Fatalf("unknown Pi call: %+v, %v", detail, err)
 			}
 		})
+	}
+}
+
+// This fixture records the model's reversal choice; the pipeline must preserve
+// that choice and its provenance, not infer semantic reversals itself.
+func TestRunSynthesisPreservesRecordedLaterReversal(t *testing.T) {
+	var fixture map[string]json.RawMessage
+	readDecisionFixture(t, "decision-reversal-v1.json", &fixture)
+	for _, rule := range []string{"If a later turn reverses a choice, retain only the final choice and put the earlier choice in alternative.", "The later partial wins when choices conflict; retain the reversed choice as alternative."} {
+		if !strings.Contains(systemPrompt, rule) {
+			t.Fatalf("source/merge prompt lost reversal rule: %s", rule)
+		}
+	}
+	s := overflowSessionWithTurns(30)
+	s.Turns = 30
+	s.Digest[0] = session.DigestEntry{Turn: 1, Category: session.DigestUser, Description: "Please keep retries in callers for now"}
+	s.Digest[29] = session.DigestEntry{Turn: 30, Category: session.DigestUser, Description: "We should keep retries in the adapter instead"}
+	if got := len(BuildInputs(s)); got != 2 {
+		t.Fatalf("fixture needs exactly two source chunks, got %d", got)
+	}
+	calls := []string{}
+	result, err := runSynthesisWithInvocation(context.Background(), s, func(_ context.Context, phase string, _ int, input string) (RunResult, error) {
+		key := "merge"
+		if phase == "source" {
+			key = "early"
+			if strings.Contains(input, "keep retries in the adapter instead") {
+				key = "later"
+			}
+		} else if !strings.Contains(input, "Decision p1.1: Keep retries in callers") || !strings.Contains(input, "Decision p2.1: Keep retries in the adapter") {
+			t.Fatalf("merge lost the conflicting choices: %s", input)
+		}
+		calls = append(calls, key)
+		parsed, err := parseSynthesis(fixture[key])
+		return RunResult{Synthesis: parsed}, err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(calls, []string{"early", "later", "merge"}) {
+		t.Fatalf("fixture calls=%v", calls)
+	}
+	if len(result.Decisions) != 1 {
+		t.Fatalf("decisions=%+v", result.Decisions)
+	}
+	decision := result.Decisions[0]
+	if decision.Text != "Keep retries in the adapter" || decision.Alternative != "Keep retries in callers" || !decision.Cited || !decision.ByYou {
+		t.Fatalf("final choice=%+v", decision)
+	}
+	if len(decision.Evidence) != 1 || decision.Evidence[0].Turn != 30 || decision.Evidence[0].Entry != 29 || decision.Evidence[0].Quote != "keep retries in the adapter instead" {
+		t.Fatalf("later evidence=%+v", decision.Evidence)
+	}
+	if !slices.Equal(result.KeyDecisions, []string{"Keep retries in the adapter"}) {
+		t.Fatalf("reversed choice leaked into keys: %v", result.KeyDecisions)
 	}
 }

@@ -405,6 +405,11 @@ export function CoslashPage() {
         onReviewStarted={refreshSessions}
       />
       <SessionInspector
+        onOpenSynthesisSettings={
+          settingsState.response?.valid && !settingsState.response.settings.synthesis.enabled
+            ? () => setSettingsDialogMode('synthesis-consent')
+            : undefined
+        }
         session={selectedSession}
         handoff={selectedSession ? latestHandoffs.get(sessionKey(selectedSession)) : undefined}
         onHandoffStarted={() => void refreshHandoffs()}

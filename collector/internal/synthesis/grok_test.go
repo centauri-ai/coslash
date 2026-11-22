@@ -75,7 +75,7 @@ func TestGrokSynthesis(t *testing.T) {
 				if _, err := os.Stat(filepath.Join(grokHome, "sessions")); err == nil {
 					t.Fatal("scratch home must not start with the user's sessions")
 				}
-				return []byte(`{"text":"{\"goals\":[\"Ship Grok synthesis\"],\"outcome\":\"Backend added\",\"keyDecisions\":[],\"nextStep\":\"Review\"}"}`), nil
+				return []byte(`{"text":"{\"goals\":[\"Ship Grok synthesis\"],\"outcome\":\"Backend added\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"Review\"}"}`), nil
 			}
 			got, err := runner.Run(context.Background(), "private session facts")
 			if err != nil || got.Synthesis.Outcome != "Backend added" {
@@ -97,7 +97,7 @@ func TestGrokSynthesis(t *testing.T) {
 
 func TestParseGrokUsage(t *testing.T) {
 	output := []byte(`{
-		"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"keyDecisions\":[],\"nextStep\":\"Review\"}",
+		"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"Review\"}",
 		"usage":{"input_tokens":7210,"cache_read_input_tokens":41000,"cache_creation_input_tokens":0,"output_tokens":1893,"reasoning_tokens":412,"total_tokens":50103},
 		"modelUsage":{"grok-4.7":{"inputTokens":7210,"outputTokens":1893,"cacheReadInputTokens":41000,"costUSD":9.9}},
 		"total_cost_usd":9.9,
@@ -157,7 +157,7 @@ func TestGrokSynthesisResolvesRelativeHomes(t *testing.T) {
 		if err != nil || string(body) != `{"token":"secret"}` {
 			t.Fatalf("login=%q err=%v", body, err)
 		}
-		return []byte(`{"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"keyDecisions\":[],\"nextStep\":\"Review\"}"}`), nil
+		return []byte(`{"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"Review\"}"}`), nil
 	}
 	if _, err := runner.Run(context.Background(), "facts"); err != nil {
 		t.Fatal(err)
@@ -166,8 +166,8 @@ func TestGrokSynthesisResolvesRelativeHomes(t *testing.T) {
 
 func TestGrokStructuredOutput(t *testing.T) {
 	for _, output := range []string{
-		`{"structuredOutput":{"goals":["Ship"],"outcome":"Done","keyDecisions":[],"nextStep":"Review"},"text":"non-JSON commentary"}`,
-		`{"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"keyDecisions\":[],\"nextStep\":\"Review\"}"}`,
+		`{"structuredOutput":{"goals":["Ship"],"outcome":"Done","decisions":[],"designDoc":"","nextStep":"Review"},"text":"non-JSON commentary"}`,
+		`{"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"Review\"}"}`,
 	} {
 		got, err := parseGrokSynthesis([]byte(output))
 		if err != nil || got.Outcome != "Done" {

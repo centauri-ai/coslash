@@ -50,10 +50,10 @@ func TestCursorAutoOrMissingModelRetainsUnpricedCounts(t *testing.T) {
 }
 
 func TestCodexCursorScannerBoundsRetainCompletedUsage(t *testing.T) {
-	const codex = `{"type":"item.completed","item":{"type":"agent_message","text":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"review\"}"}}` + "\n" +
+	const codex = `{"type":"item.completed","item":{"type":"agent_message","text":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"review\"}"}}` + "\n" +
 		`{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":3}}` + "\n"
 	const cursor = `{"type":"system","subtype":"init","model":"gpt-5"}` + "\n" +
-		`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"review\"}","usage":{"inputTokens":7,"outputTokens":2,"cacheReadTokens":9,"cacheWriteTokens":1}}` + "\n"
+		`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"decisions\":[],\"designDoc\":\"\",\"nextStep\":\"review\"}","usage":{"inputTokens":7,"outputTokens":2,"cacheReadTokens":9,"cacheWriteTokens":1}}` + "\n"
 	for _, tc := range []struct {
 		name, backend, output, model string
 		input, cost                  int64

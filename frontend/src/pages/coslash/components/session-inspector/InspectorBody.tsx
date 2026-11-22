@@ -15,10 +15,17 @@ import {
 import { RecapSection } from '@/pages/coslash/components/session-inspector/RecapSection';
 import { SkillsSection } from '@/pages/coslash/components/SkillsSection';
 import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
-import { getVendor, isLocalSession, sessionKey, type SessionDetail } from '@/pages/coslash/lib/session';
+import {
+  getVendor,
+  isLocalSession,
+  sessionKey,
+  type DecisionEvidence,
+  type SessionDetail,
+} from '@/pages/coslash/lib/session';
 
 export function InspectorBody({
   detail,
+  onOpenSynthesisSettings,
   exactDetailsAvailable,
   onSelectFile,
   remoteLaunchable,
@@ -29,6 +36,7 @@ export function InspectorBody({
 }: {
   detail: SessionDetail;
   exactDetailsAvailable: boolean;
+  onOpenSynthesisSettings?: () => void;
   onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number], trigger: HTMLButtonElement) => void) | null;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
@@ -37,6 +45,9 @@ export function InspectorBody({
   onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
   const currentSessionKey = sessionKey(detail);
+  const citationKey = `${currentSessionKey}@${detail.revision}`;
+  const [citation, setCitation] = useState<{ key: string; evidence: DecisionEvidence } | null>(null);
+  const [designDocRequest, setDesignDocRequest] = useState<{ key: string; path: string } | null>(null);
   const [tabSelection, setTabSelection] = useState<{
     sessionKey: string;
     tab: 'session' | 'files' | 'skills';
@@ -99,14 +110,29 @@ export function InspectorBody({
             onHandoffStarted={onHandoffStarted}
             onOpenTarget={onOpenTarget}
           />
-          <RecapSection detail={detail} />
+          <RecapSection
+            detail={detail}
+            onOpenSynthesisSettings={onOpenSynthesisSettings}
+            onEvidence={(evidence) => setCitation({ key: citationKey, evidence: { ...evidence } })}
+            onOpenDesignDoc={(path) => {
+              setTabSelection({ sessionKey: currentSessionKey, tab: 'files' });
+              setDesignDocRequest({ key: currentSessionKey, path });
+            }}
+          />
           <ArtifactStats detail={detail} />
           <CommandsSection detail={detail} />
           <CommitsAndTodos detail={detail} />
-          <DigestSection detail={detail} />
+          <DigestSection
+            detail={detail}
+            evidence={citation?.key === citationKey ? citation.evidence : null}
+          />
         </TabsContent>
         <TabsContent value="files" forceMount className="px-4 py-4 data-[state=inactive]:hidden">
-          <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
+          <FilesChangedList
+            detail={detail}
+            onSelectFile={onSelectFile}
+            focusRequest={designDocRequest?.key === currentSessionKey ? designDocRequest : null}
+          />
         </TabsContent>
         <TabsContent value="skills" forceMount className="px-4 pb-4 data-[state=inactive]:hidden">
           <SkillsSection skills={detail.skills} />

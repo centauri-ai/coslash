@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDownIcon, ChevronRightIcon, SquareCheckIcon, SquareIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FieldLabel, SectionLabel } from '@/pages/coslash/components/session-inspector/SectionLabel';
@@ -36,18 +36,36 @@ export function ArtifactStats({ detail }: { detail: SessionDetail }) {
 export function FilesChangedList({
   detail,
   onSelectFile,
+  focusRequest,
 }: {
   detail: SessionDetail;
   onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number], trigger: HTMLButtonElement) => void) | null;
+  focusRequest?: { path: string } | null;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (focusRequest == null) return;
+    const index = detail.fileEdits.findIndex(({ path }) => path === focusRequest.path);
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-file-index="${index}"]`);
+    row?.scrollIntoView?.({ block: 'center' });
+    (row?.querySelector<HTMLElement>('button') ?? row)?.focus({ preventScroll: true });
+  }, [focusRequest, detail.fileEdits]);
   if (detail.fileEdits.length === 0) return null;
   const newFiles = detail.fileEdits.filter((fileEdit) => fileEdit.isNew).length;
   return (
     <div>
       <FieldLabel>{`FILES CHANGED · ${detail.fileEdits.length} TOTAL${newFiles ? `, ${newFiles} NEW` : ''}`}</FieldLabel>
-      <div className="rounded-sm border p-2">
-        {detail.fileEdits.map((fileEdit) => (
-          <div key={fileEdit.path} className="flex items-center justify-between gap-2 py-1 font-mono text-xs">
+      <div ref={listRef} className="rounded-sm border p-2">
+        {detail.fileEdits.map((fileEdit, index) => (
+          <div
+            key={fileEdit.path}
+            data-file-index={index}
+            tabIndex={focusRequest?.path === fileEdit.path ? -1 : undefined}
+            className={cn('flex items-center justify-between gap-2 py-1 font-mono text-xs', {
+              'bg-coslash-tint -mx-2 rounded-md px-2 shadow-[inset_3px_0_0_var(--coslash-accent)] outline-none':
+                focusRequest?.path === fileEdit.path,
+            })}
+          >
             {onSelectFile == null ? (
               <span
                 title={fileEdit.path}

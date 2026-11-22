@@ -88,6 +88,7 @@ function readInspectorWidth(): number | null {
 
 export function SessionInspector({
   session,
+  onOpenSynthesisSettings,
   sessionsVersion,
   synthesisSettingsKey,
   synthesisCostVersion,
@@ -100,6 +101,7 @@ export function SessionInspector({
   onOpenTarget,
 }: {
   session: Session | null;
+  onOpenSynthesisSettings?: () => void;
   sessionsVersion: number;
   synthesisSettingsKey: string;
   synthesisCostVersion: string | null;
@@ -339,6 +341,7 @@ export function SessionInspector({
             {summaryOnly && <SummaryOnlyBanner />}
             <InspectorBody
               detail={detail}
+              onOpenSynthesisSettings={onOpenSynthesisSettings}
               exactDetailsAvailable={!summaryOnly}
               remoteLaunchable={remoteLaunchable}
               remoteLaunchHint={remoteLaunchHint}

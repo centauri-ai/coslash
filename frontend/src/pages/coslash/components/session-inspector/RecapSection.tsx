@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { ChevronDownIcon, ChevronRightIcon, LoaderCircleIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, FileTextIcon, LoaderCircleIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { SectionLabel } from '@/pages/coslash/components/session-inspector/SectionLabel';
 import {
@@ -12,14 +14,82 @@ import {
 import {
   getSessionOutcome,
   goalSourceLabel,
+  isLocalSession,
   resolveGoal,
   sessionKey,
+  type DecisionEvidence,
+  type SessionDecision,
   type SessionDetail,
 } from '@/pages/coslash/lib/session';
 
 const DEBRIEF_PREVIEW_UNITS = 3;
 
-export function RecapSection({ detail }: { detail: SessionDetail }) {
+function DecisionRow({
+  decision,
+  onEvidence,
+}: {
+  decision: SessionDecision;
+  onEvidence?: (evidence: DecisionEvidence) => void;
+}) {
+  const notes: string[] = [];
+  if (decision.why) notes.push(decision.why);
+  if (decision.alternative) notes.push(`Instead of ${decision.alternative}`);
+  if (!decision.cited) notes.push('The quote was not found in the timeline.');
+  const statement = (
+    <span className={cn({ 'cursor-help': notes.length > 0 })} tabIndex={notes.length > 0 ? 0 : undefined}>
+      {decision.byYou && <span className="text-brand pr-1 font-bold tracking-wide">YOU</span>}
+      {decision.text}
+    </span>
+  );
+  return (
+    <div className={cn('flex min-w-0 items-start gap-2', { 'text-coslash-muted': !decision.cited })}>
+      <span className="flex h-4 w-3 shrink-0 items-center justify-center">
+        <span className="bg-coslash-muted size-1 rounded-full" />
+      </span>
+      <div className="min-w-0 flex-1">
+        {notes.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{statement}</TooltipTrigger>
+            <TooltipContent side="bottom" align="start" className="flex-col items-start">
+              {notes.map((note) => (
+                <div key={note}>{note}</div>
+              ))}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          statement
+        )}
+      </div>
+      {decision.cited && (
+        <div className="flex shrink-0 flex-col items-end">
+          {decision.evidence.map((evidence) => (
+            <button
+              key={`${evidence.entry}:${evidence.quote}`}
+              type="button"
+              aria-label={`Show turn ${evidence.turn} in the timeline`}
+              className="text-coslash-muted hover:text-coslash-accent cursor-pointer font-mono whitespace-nowrap hover:underline"
+              onClick={() => onEvidence?.(evidence)}
+            >
+              turn {evidence.turn}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function RecapSection({
+  detail,
+  onEvidence,
+  onOpenDesignDoc,
+  onOpenSynthesisSettings,
+}: {
+  detail: SessionDetail;
+  onEvidence?: (evidence: DecisionEvidence) => void;
+  onOpenDesignDoc?: (path: string) => void;
+  onOpenSynthesisSettings?: () => void;
+}) {
   const goal = resolveGoal(detail);
   const synthesizing = detail.synthesis == null && detail.synthesisPending;
   const synthesisPlaceholder = (
@@ -28,7 +98,17 @@ export function RecapSection({ detail }: { detail: SessionDetail }) {
       <span>Synthesizing…</span>
     </div>
   );
+  const synthesisSettingsPrompt =
+    onOpenSynthesisSettings && isLocalSession(detail) ? (
+      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+        <span>Decisions come from an AI summary using your own CLI account and quota.</span>
+        <Button variant="outline" size="sm" onClick={onOpenSynthesisSettings}>
+          Choose synthesis settings
+        </Button>
+      </div>
+    ) : null;
   const outcome = getSessionOutcome(detail);
+  const designDoc = detail.synthesis?.designDoc;
 
   return (
     <div>
@@ -65,6 +145,40 @@ export function RecapSection({ detail }: { detail: SessionDetail }) {
         <div className="text-coslash-muted pt-3 text-xs">KEY DECISIONS</div>
         {synthesizing ? (
           synthesisPlaceholder
+        ) : detail.synthesis?.decisionsVersion ? (
+          <div className="flex min-w-0 flex-col gap-1 pt-1 text-xs wrap-break-word">
+            {designDoc && (
+              <div className="flex min-w-0 items-center gap-2">
+                <FileTextIcon className="text-coslash-muted size-3 shrink-0" />
+                {onOpenDesignDoc && detail.fileEdits.some(({ path }) => path === designDoc) ? (
+                  <button
+                    type="button"
+                    title={`${designDoc} · open in Files`}
+                    className="text-coslash-accent min-w-0 cursor-pointer truncate font-mono hover:underline"
+                    onClick={() => onOpenDesignDoc(designDoc)}
+                  >
+                    {designDoc.split(/[\\/]/).pop()}
+                  </button>
+                ) : (
+                  <span className="truncate font-mono" title={designDoc}>
+                    {designDoc.split(/[\\/]/).pop()}
+                  </span>
+                )}
+                <span className="text-coslash-muted shrink-0">· more decisions in the doc</span>
+              </div>
+            )}
+            <TooltipProvider delayDuration={150}>
+              {(detail.synthesis.decisions ?? []).map((decision) => (
+                <DecisionRow
+                  key={`${sessionKey(detail)}:${decision.id}`}
+                  decision={decision}
+                  onEvidence={onEvidence}
+                />
+              ))}
+            </TooltipProvider>
+            {!detail.synthesis.decisions?.length && !designDoc && <div>—</div>}
+            {synthesisSettingsPrompt}
+          </div>
         ) : detail.synthesis?.keyDecisions.length ? (
           <div className="flex flex-col gap-1 pt-1">
             {detail.synthesis.keyDecisions.map((decision) => (
@@ -73,7 +187,10 @@ export function RecapSection({ detail }: { detail: SessionDetail }) {
                 <span>{decision}</span>
               </div>
             ))}
+            {synthesisSettingsPrompt}
           </div>
+        ) : synthesisSettingsPrompt ? (
+          synthesisSettingsPrompt
         ) : (
           <div className="pt-1 text-xs">—</div>
         )}

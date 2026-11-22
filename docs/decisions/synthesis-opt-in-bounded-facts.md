@@ -36,7 +36,7 @@ If someone "simplifies" this design, these failures come back:
 
 ## Consequences
 
-- New users see only deterministic debriefs until they choose a backend and model and save.
+- New users see only deterministic debriefs until they choose a backend and model and save. The decisions section may open Settings to explain this choice; opening it never enables synthesis or saves settings.
 - Long sessions cost more than one synthesis call per revision. Work stays bounded per revision (98e164e0).
 - The synthesis can miss detail that exists only in raw transcript rows. This is accepted. Parsed session events stay the source of truth.
 - Enforcement: the default lives in `collector/internal/settings` and `frontend/src/pages/coslash/lib/settings.ts`. Prompt budgets, chunking, and untrusted blocks live in `collector/internal/synthesis`. The launch flags for synthesis runs follow [hardened-agent-launches](hardened-agent-launches.md).

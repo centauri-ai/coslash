@@ -516,7 +516,10 @@ func TestSynthesisIsRevisionBoundWithoutChangingPortableRecord(t *testing.T) {
 	exact := synthesisStore{records: map[string]synthesis.Record{
 		testRootID: {
 			Revision: baselineRecord.Session.LastActivityAtMs, Model: "fixture", GeneratedAt: 1,
-			Synthesis: session.SessionSynthesis{Goals: []string{"first", "second"}, Outcome: "done", KeyDecisions: []string{"keep order", "verify"}, NextStep: "ship"},
+			Synthesis: session.SessionSynthesis{Goals: []string{"first", "second"}, Outcome: "done", KeyDecisions: []string{"keep order", "verify"}, NextStep: "ship",
+				DecisionsVersion: "decisions-2026-11-v1", DesignDoc: "docs/plan.md",
+				Decisions: []session.Decision{{Text: "keep order", Cited: true, Evidence: []session.Evidence{{Entry: 0, Turn: 1, Quote: "keep the original item order"}}}},
+			},
 		},
 	}}
 	exactPrepared, exactSpool := prepare(exact)

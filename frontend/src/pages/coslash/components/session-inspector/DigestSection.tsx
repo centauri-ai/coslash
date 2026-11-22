@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon } from 'lucide-react';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
@@ -12,9 +12,13 @@ import {
 import {
   SUBAGENT_STATUSES,
   subagentParentName,
+  type DecisionEvidence,
   type DigestEntry,
   type SessionDetail,
 } from '@/pages/coslash/lib/session';
+
+const highlightedRowClass =
+  'bg-coslash-tint -mx-2 rounded-md px-2 shadow-[inset_3px_0_0_var(--coslash-accent)] outline-none';
 
 type DigestCategory = DigestEntry['category'];
 
@@ -161,11 +165,58 @@ function DateDivider({ label }: { label: string }) {
   );
 }
 
-export function DigestSection({ detail }: { detail: SessionDetail }) {
+function normalizeEvidenceText(text: string): string {
+  return text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—−]/g, '-')
+    .replace(/[`*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// A summary started from GET /api/synthesis numbers entries without subagent
+// rows, so the stored index can be shifted in the composed digest shown here.
+function citedEntryIndex(digest: DigestEntry[], evidence: DecisionEvidence): number {
+  const quote = normalizeEvidenceText(evidence.quote);
+  const cites = (entry: DigestEntry | undefined) =>
+    entry?.turn === evidence.turn &&
+    entry.contextSelected !== false &&
+    normalizeEvidenceText(`${entry.contextDescription ?? entry.description} ${entry.answer ?? ''}`).includes(
+      quote,
+    );
+  if (cites(digest[evidence.entry])) return evidence.entry;
+  const match = digest.findIndex(cites);
+  return match >= 0 ? match : evidence.entry;
+}
+
+export function DigestSection({
+  detail,
+  evidence,
+}: {
+  detail: SessionDetail;
+  evidence?: DecisionEvidence | null;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [lastEvidence, setLastEvidence] = useState(evidence);
+
   const [categoryFilter, setCategoryFilter] = useState<{
     category: DigestCategory;
     mode: 'only' | 'exclude';
   } | null>(null);
+  if (lastEvidence !== evidence) {
+    setLastEvidence(evidence);
+    if (evidence != null) setCategoryFilter(null);
+  }
+  const citedIndex = evidence == null ? null : citedEntryIndex(detail.digest, evidence);
+  useLayoutEffect(() => {
+    if (citedIndex == null) return;
+    const row = containerRef.current?.querySelector<HTMLElement>(`[data-entry="${citedIndex}"]`);
+    row?.scrollIntoView?.({ block: 'center' });
+    row?.focus({ preventScroll: true });
+  }, [evidence, citedIndex]);
   const digest = detail.digest;
   if (digest.length === 0)
     return detail.detailsIncomplete ? (
@@ -187,7 +238,10 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
       ? category === categoryFilter.category
       : category !== categoryFilter.category;
   };
-  const visible = digest.filter((entry) => categoryVisible(entry.category));
+  const indexed = digest
+    .map((entry, fullIndex) => ({ entry, fullIndex }))
+    .filter(({ entry }) => categoryVisible(entry.category));
+  const visible = indexed.map(({ entry }) => entry);
   const times = digest.map((e) => e.time ?? 0).filter((t) => t > 0);
   const dateRange = formatDigestDateRange(times);
 
@@ -208,14 +262,29 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
   }
 
   const rows = visible.map((entry, index) => {
+    const cited = citedIndex === indexed[index].fullIndex;
     return (
-      <div key={entry.sourceEntryId ? `${entry.sourceEntryId}:${entry.category}` : index}>
+      <div
+        key={entry.sourceEntryId ? `${entry.sourceEntryId}:${entry.category}` : indexed[index].fullIndex}
+        data-entry={indexed[index].fullIndex}
+        tabIndex={cited ? -1 : undefined}
+        className={cn({ [highlightedRowClass]: cited })}
+      >
         {startsDayIndices.has(index) && <DateDivider label={formatDigestDateDivider(entry.time!)} />}
         {entry.category === 'subagent' ? (
           <SubagentDigestRow subagentId={entry.subagentId!} detail={detail} />
         ) : (
           <DigestRow entry={entry} endsDay={endsDayIndices.has(index) || index === visible.length - 1} />
         )}
+        {cited &&
+          evidence &&
+          !normalizeEvidenceText(`${entry.description} ${entry.answer ?? ''}`).includes(
+            normalizeEvidenceText(evidence.quote),
+          ) && (
+            <div className="text-coslash-muted pb-2 pl-26 text-xs">
+              Cited quote: <q>{evidence.quote}</q>
+            </div>
+          )}
       </div>
     );
   });
@@ -247,7 +316,9 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
       {detail.detailsIncomplete && (
         <p className="text-warning-fg pb-2 text-xs">Some nested tool details are unavailable.</p>
       )}
-      <div className="flex flex-col gap-1">{rows}</div>
+      <div ref={containerRef} className="flex flex-col gap-1">
+        {rows}
+      </div>
     </div>
   );
 }

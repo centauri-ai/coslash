@@ -145,3 +145,28 @@ func TestPiHandoffUsesSelectedContextAndIndependentAccounting(t *testing.T) {
 		t.Fatalf("invalid Pi handoff: %s", brief)
 	}
 }
+
+func TestBuildStructuredDecisionsIncludesOnlyCitedClaims(t *testing.T) {
+	value := &session.Session{ID: "decisions", SessionDetails: session.SessionDetails{
+		Synthesis: &session.SessionSynthesis{
+			DecisionsVersion: "decisions-2026-11-v1", DesignDoc: "docs/plan.md",
+			KeyDecisions: []string{"stale compatibility text"},
+			Decisions: []session.Decision{
+				{Text: "Use one store", Why: "Keep updates atomic", Alternative: "Separate stores", Cited: true},
+				{Text: "Keep the public API", Cited: true},
+				{Text: "Unverified claim", Why: "Unverified reason"},
+			},
+		},
+	}}
+	got := Build(value)
+	for _, want := range []string{"Design doc: docs/plan.md", "- Use one store — Keep updates atomic (instead of Separate stores)", "- Keep the public API\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in handoff:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"Unverified", "stale compatibility text"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("handoff contains %q", unwanted)
+		}
+	}
+}

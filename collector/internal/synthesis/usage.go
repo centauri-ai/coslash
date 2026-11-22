@@ -215,9 +215,6 @@ func parseCodexSynthesis(data []byte) (session.SessionSynthesis, error) {
 	if message == "" {
 		return session.SessionSynthesis{}, errors.New("Codex produced no completed agent message")
 	}
-	if err := requireSynthesisFields([]byte(stripJSONFence(message))); err != nil {
-		return session.SessionSynthesis{}, err
-	}
 	return parseSynthesis([]byte(message))
 }
 

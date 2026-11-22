@@ -264,7 +264,7 @@ func TestOpenCodeScratchRowCapRetainsKnownSubtotal(t *testing.T) {
 }
 
 func TestOpenCodeScannerBoundsRetainsCompletedUsage(t *testing.T) {
-	const summary = `{"goals":["ship"],"outcome":"done","keyDecisions":[],"nextStep":"review"}`
+	const summary = `{"goals":["ship"],"outcome":"done","decisions":[],"designDoc":"","nextStep":"review"}`
 	opencode := `{"type":"text","part":{"id":"t","text":` + strconv.Quote(summary) + `}}` + "\n" +
 		`{"type":"step_finish","sessionID":"s","part":{"id":"p","cost":0.01,"providerID":"openai","modelID":"gpt-5","tokens":{"input":7,"output":2,"cache":{"read":9,"write":1}}}}` + "\n"
 	for _, tc := range []struct {
