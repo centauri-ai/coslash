@@ -242,6 +242,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [machines, setMachines] = useState<MachineFact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadedWindowKey, setLoadedWindowKey] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [refreshCount, setRefreshCount] = useState(0);
@@ -282,6 +283,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         .then((payload) => {
           if (controller.signal.aborted) return;
           foregroundKey.current = key;
+          setLoadedWindowKey(key);
           setSessions(payload.sessions);
           setMachines(payload.machines);
           setSynthesisCostVersion(payload.synthesisCostVersion);
@@ -301,6 +303,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
           // Keep showing the last good list when an ordinary background
           // refresh fails. Authentication failures invalidate that private data.
           if (!background || requestAuthenticationFailed) {
+            setLoadedWindowKey(key);
             setSessions([]);
             setMachines([]);
             setSynthesisCostVersion(null);
@@ -353,7 +356,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   return {
     sessions,
     machines,
-    isLoading,
+    isLoading: isLoading || loadedWindowKey !== `${localWindow}|${remoteWindow}|${retryCount}`,
     loadError,
     sessionsVersion,
     synthesisCostVersion,

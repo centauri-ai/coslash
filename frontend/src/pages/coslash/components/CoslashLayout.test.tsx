@@ -304,13 +304,9 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('running ·');
     expect(markup).toContain('Find a location');
     expect(markup).toContain('sticky top-[-20px] z-20');
-    expect(markup).toContain('placeholder="Search sessions -- title, repo, prompt, recap"');
-    expect(markup).toContain(
-      'aria-label="Search session metadata and local prompts, recaps, summaries, goals, and syntheses"',
-    );
-    expect(markup).toContain(
-      'Nothing matched session metadata or local prompts, recaps, summaries, goals and syntheses.',
-    );
+    expect(markup).toContain('placeholder="Search sessions — prompts, decisions, file paths…"');
+    expect(markup).toContain('aria-label="Search sessions and decisions"');
+    expect(markup).toContain('No sessions match the current search and filters.');
     expect(markup).toContain('aria-label="View"');
     expect(markup).toContain('>Table<');
     expect(markup).toContain('>Board<');
@@ -333,11 +329,11 @@ describe('CoslashLayout', () => {
 
     const positions = orderOf(
       markup,
-      'aria-label="View"',
       'placeholder="Search sessions',
       '>Columns<',
       '>Rows<',
       'aria-label="Time range"',
+      'aria-label="View"',
     );
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
