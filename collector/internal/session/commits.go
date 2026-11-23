@@ -343,7 +343,7 @@ func ConfirmedCreateURL(command, output string) string {
 	command = strings.TrimSpace(command)
 	masked := maskQuotedShellText(command)
 	if !IsPullRequestCreate(command) || !IsPullRequestCreate(masked) || strings.ContainsAny(masked, ";&|<>\n()") ||
-		strings.ContainsAny(command, "\\$`") || strings.Contains(command, "--dry-run") ||
+		strings.ContainsAny(command, "\\$`") || strings.Contains(masked, "--dry-run") ||
 		strings.Contains(command, "--help") || strings.Contains(command, "--version") {
 		return ""
 	}

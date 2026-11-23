@@ -269,3 +269,36 @@ func TestNativePRCreateNeedsOwnSuccessfulResult(t *testing.T) {
 		})
 	}
 }
+
+func TestCodeModePRCreateNeedsOwnSingleSuccessfulResult(t *testing.T) {
+	const command = "gh pr create --fill"
+	const url = "https://github.com/acme/web/pull/81"
+	script := "text(await tools.exec_command({cmd:`" + command + "`}))"
+	call := string(mustJSON(map[string]any{"type": "response_item", "payload": map[string]any{
+		"type": "custom_tool_call", "name": "exec", "call_id": "code", "input": script,
+	}}))
+	output := []map[string]string{
+		{"type": "input_text", "text": "Script completed"},
+		{"type": "input_text", "text": string(mustJSON(map[string]any{"exit_code": 0, "output": url}))},
+	}
+	result := execResult("custom_tool_call_output", "code", output)
+	for _, tc := range []struct {
+		name        string
+		inherited   bool
+		wantCreated bool
+	}{
+		{name: "own rollout", wantCreated: true},
+		{name: "inherited history", inherited: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := []string{call, result}
+			if tc.inherited {
+				rows = append(rows, `{"type":"session_meta","payload":{"id":"ancestor"}}`)
+			}
+			links := parseLifecycleRows(t, rows).Session.PullRequestLinks
+			if len(links) != 1 || links[0].URL != url || links[0].Created != tc.wantCreated {
+				t.Fatalf("links = %+v", links)
+			}
+		})
+	}
+}

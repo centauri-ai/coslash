@@ -973,13 +973,13 @@ func pullRequestLinksContext(ctx context.Context, rows []codexRow, sessionID str
 	urls := map[string]struct{}{}
 	created := map[string]bool{}
 	calls := map[string]codexPullRequestCall{}
-	// Untagged native calls are unambiguous only in a rollout with a single, own header.
-	ownNativeCalls := false
+	// Calls are attributable only in a rollout with a single, own header.
+	ownCalls := false
 	headers := 0
 	for _, row := range rows {
 		if row.Type == "session_meta" {
 			headers++
-			ownNativeCalls = headers == 1 && sessionID != "" && row.Payload.ID == sessionID && row.Payload.ForkedFromID == ""
+			ownCalls = headers == 1 && sessionID != "" && row.Payload.ID == sessionID && row.Payload.ForkedFromID == ""
 		}
 	}
 	for _, row := range rows {
@@ -990,13 +990,15 @@ func pullRequestLinksContext(ctx context.Context, rows []codexRow, sessionID str
 			switch row.Payload.Type {
 			case "function_call", "custom_tool_call":
 				call := codexPullRequestCall{commands: commandsFrom(row.Payload), tool: session.IsPullRequestCreateTool(row.Payload.Name)}
-				if ownNativeCalls && row.Payload.Type == "function_call" && row.Payload.Name == "exec_command" {
+				if ownCalls && row.Payload.Type == "function_call" && row.Payload.Name == "exec_command" {
 					var args struct {
 						Cmd string `json:"cmd"`
 					}
 					if json.Unmarshal([]byte(row.Payload.Arguments), &args) == nil {
-						call.nativeCommand = args.Cmd
+						call.creatorCommand = args.Cmd
 					}
+				} else if ownCalls && row.Payload.Type == "custom_tool_call" && row.Payload.Name == "exec" && len(call.commands) == 1 {
+					call.creatorCommand = call.commands[0]
 				}
 				if call.tool || slices.ContainsFunc(call.commands, session.IsPullRequestCreate) {
 					calls[row.Payload.CallID] = call
@@ -1025,7 +1027,7 @@ func pullRequestLinksContext(ctx context.Context, rows []codexRow, sessionID str
 				}
 				for i, command := range call.commands {
 					if results[i].succeeded && session.IsPullRequestCreate(command) {
-						if command == call.nativeCommand && len(call.commands) == 1 {
+						if command == call.creatorCommand && len(call.commands) == 1 {
 							if url := session.ConfirmedCreateURL(command, results[i].output); url != "" {
 								created[url] = true
 							}
@@ -1196,9 +1198,9 @@ func payloadText(payload codexPayload) string {
 // codexPullRequestCall is a tool call that can create a pull request: the
 // commands of its script, or a GitHub MCP create call.
 type codexPullRequestCall struct {
-	commands      []string
-	nativeCommand string
-	tool          bool
+	commands       []string
+	creatorCommand string
+	tool           bool
 }
 
 // commandsFrom returns every command that a code-mode script or an exec call runs.
