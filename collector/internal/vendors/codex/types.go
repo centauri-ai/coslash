@@ -15,6 +15,7 @@ type codexRow struct {
 
 type codexPayload struct {
 	Type           string            `json:"type"`
+	ThreadID       string            `json:"thread_id"`
 	Role           string            `json:"role"`
 	SessionID      string            `json:"session_id"`
 	UserFacingHint string            `json:"user_facing_hint"`

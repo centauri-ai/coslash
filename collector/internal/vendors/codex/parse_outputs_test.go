@@ -2,9 +2,11 @@ package codex
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -121,7 +123,7 @@ func TestPullRequestLinksFromSuccessfulCreates(t *testing.T) {
 	}
 	parsed := parseLifecycleRows(t, rows)
 	want := []session.PullRequestLink{
-		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2, Created: true},
 		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
 		{URL: "https://github.com/acme/web/pull/8", Repository: "acme/web", Number: 8},
 	}
@@ -208,5 +210,62 @@ func TestCodeModeScriptPairsEachCommandWithItsResult(t *testing.T) {
 	want := []session.PullRequestLink{{URL: "https://github.com/acme/api/pull/401", Repository: "acme/api", Number: 401}}
 	if got := parseLifecycleRows(t, rows).Session.PullRequestLinks; !reflect.DeepEqual(got, want) {
 		t.Fatalf("links = %#v, want %#v", got, want)
+	}
+}
+
+func TestTemplatePRCreateCommandAndCreatorEvidence(t *testing.T) {
+	const id = "01a0c51b-94c2-72b0-90ef-b23ea631af2f"
+	const url = "https://github.com/acme/hub/pull/820"
+	const command = "rtk gh pr create --repo acme/hub --base main --head topic"
+	script := "text(await tools.exec_command({workdir:'/tmp',cmd:`" + command + "`}))"
+	rows := []string{string(mustJSON(map[string]any{"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "a", "input": script}}))}
+	event := func(thread, cmd, output string, code int) string {
+		return string(mustJSON(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "item_completed", "thread_id": thread, "item": map[string]any{"type": "CommandExecution", "command": []string{"bash", "-lc", cmd}, "exit_code": code, "aggregated_output": output}}}))
+	}
+	rows = append(rows, event(id, command, url, 0), execResult("custom_tool_call_output", "a", []map[string]string{{"type": "input_text", "text": "Script completed"}, {"type": "input_text", "text": string(mustJSON(map[string]any{"exit_code": 0, "output": url}))}}))
+	for i, tc := range []struct {
+		thread, cmd string
+		code        int
+	}{{"parent", command, 0}, {id, command + " || true", 0}, {id, command + " --dry-run", 0}, {id, command, 1}} {
+		rows = append(rows, event(tc.thread, tc.cmd, fmt.Sprintf("https://github.com/acme/hub/pull/%d", i+1), tc.code))
+	}
+	parsed := parseLifecycleRows(t, rows)
+	if !reflect.DeepEqual(parsed.Session.Commands, []string{command}) {
+		t.Fatalf("commands=%v", parsed.Session.Commands)
+	}
+	for _, link := range parsed.Session.PullRequestLinks {
+		if link.Created != (link.URL == url) {
+			t.Fatalf("evidence=%+v", link)
+		}
+	}
+	if !slices.ContainsFunc(parsed.Session.PullRequestLinks, func(link session.PullRequestLink) bool { return link.URL == url && link.Created }) {
+		t.Fatal("missing successful create")
+	}
+}
+
+func TestNativePRCreateNeedsOwnSuccessfulResult(t *testing.T) {
+	const command = "gh pr create --fill"
+	const url = "https://github.com/acme/web/pull/8"
+	for _, tc := range []struct {
+		name        string
+		extraHeader string
+		exit        int
+		created     bool
+	}{
+		{name: "own success", created: true},
+		{name: "failed", exit: 1},
+		{name: "inherited history", extraHeader: `{"type":"session_meta","payload":{"id":"ancestor"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := []string{execCall("function_call", "native", command), execResult("function_call_output", "native", map[string]any{"exit_code": tc.exit, "output": url})}
+			if tc.extraHeader != "" {
+				rows = append(rows, tc.extraHeader)
+			}
+			parsed := parseLifecycleRows(t, rows)
+			created := slices.ContainsFunc(parsed.Session.PullRequestLinks, func(link session.PullRequestLink) bool { return link.URL == url && link.Created })
+			if created != tc.created {
+				t.Fatalf("links=%+v", parsed.Session.PullRequestLinks)
+			}
+		})
 	}
 }

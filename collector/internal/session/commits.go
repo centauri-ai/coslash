@@ -323,17 +323,35 @@ var pullRequestURLPattern = regexp.MustCompile(
 // MaxPullRequestLinks bounds the pull request list of one session.
 const MaxPullRequestLinks = 100
 
-// PullRequestLink is one pull request that a successful agent action created.
+// PullRequestLink identifies a captured PR. Created records a confirmed open by this session.
 type PullRequestLink struct {
 	URL        string `json:"url"`
 	Repository string `json:"repository"`
 	Number     int    `json:"number"`
+	Created    bool   `json:"created,omitempty"`
 }
 
 func IsPullRequestCreate(command string) bool {
 	return prCreateCommand.MatchString(command) &&
 		!prCreateHelpOrVersionCommand.MatchString(command) &&
 		!prCreateDryRunCommand.MatchString(maskQuotedShellText(command))
+}
+
+// ConfirmedCreateURL accepts a standalone gh create and its single returned PR URL.
+// Compound shell commands can succeed even when the create itself failed.
+func ConfirmedCreateURL(command, output string) string {
+	command = strings.TrimSpace(command)
+	masked := maskQuotedShellText(command)
+	if !IsPullRequestCreate(command) || !IsPullRequestCreate(masked) || strings.ContainsAny(masked, ";&|<>\n()") ||
+		strings.ContainsAny(command, "\\$`") || strings.Contains(command, "--dry-run") ||
+		strings.Contains(command, "--help") || strings.Contains(command, "--version") {
+		return ""
+	}
+	url := strings.TrimSpace(output)
+	if pullRequestURLPattern.FindString(url) != url {
+		return ""
+	}
+	return url
 }
 
 // IsPullRequestCreateTool reports whether a tool name is the GitHub MCP create
@@ -380,16 +398,22 @@ func NewPullRequestLinks(urls map[string]struct{}) []PullRequestLink {
 	return links
 }
 
-// MergePullRequestLinks returns the union of two lists in canonical order.
-func MergePullRequestLinks(a, b []PullRequestLink) []PullRequestLink {
-	urls := make(map[string]struct{}, len(a)+len(b))
-	for _, link := range a {
+// MergePullRequestLinks adds descendant artifacts without transferring creator attribution.
+func MergePullRequestLinks(own, descendant []PullRequestLink) []PullRequestLink {
+	urls := make(map[string]struct{}, len(own)+len(descendant))
+	created := map[string]bool{}
+	for _, link := range own {
+		created[link.URL] = link.Created
 		urls[link.URL] = struct{}{}
 	}
-	for _, link := range b {
+	for _, link := range descendant {
 		urls[link.URL] = struct{}{}
 	}
-	return NewPullRequestLinks(urls)
+	links := NewPullRequestLinks(urls)
+	for i := range links {
+		links[i].Created = created[links[i].URL]
+	}
+	return links
 }
 
 // SetPullRequestLinks stores the links and keeps the count equal to their number.

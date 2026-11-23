@@ -37,7 +37,7 @@ Object members occur in the following order:
 - Model usage: `model`, `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Unattributed usage: `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, optional `unattributedTokens`, `costMicroUsd`; a subagent command uses `label`, `command`, optional `output`.
-- Pull request link: `url`, `repository`, `number`.
+- Pull request link: `url`, `repository`, `number`, optional `created`. A true value records a confirmed create operation by this session. False is omitted.
 - Todo: `text`, `done`; digest entry: `turn`, `category`, `description`, `answer`, `subagentId`, `timeMs`, optional `sourceEntryId`, `parentEntryId`, `branchId`, `inherited`, `active`, `contextSelected`, `contextDescription`.
 - File edit: `path`, `additions`, `deletions`, `edits`, `isNew`, `changes`; file change: `id`, `kind`, `text`, `operation`, `additions`, `deletions`, `byteCount`, `sha256`.
 - Synthesis: `goals`, `outcome`, `keyDecisions`, `nextStep`.
