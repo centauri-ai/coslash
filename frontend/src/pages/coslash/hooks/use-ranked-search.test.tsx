@@ -76,6 +76,15 @@ describe('ranked search', () => {
     await tick(15000);
     expect(fetch).toHaveBeenCalledTimes(calls);
   });
+  it('does not request ranked results for a worktree-only filter', async () => {
+    vi.useFakeTimers();
+    fetch.mockResolvedValueOnce(response({ state: 'ready' }));
+    await render('worktree:quiet-raven');
+    await tick(5000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe('/api/search/status');
+    expect(current.results).toBeNull();
+  });
   it('reports failures and retries the search', async () => {
     vi.useFakeTimers();
     fetch

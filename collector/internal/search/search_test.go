@@ -46,10 +46,12 @@ func TestQuery(t *testing.T) {
 		terms  []string
 		intent bool
 	}{
-		{`repo:demo agent:claude machine:x group:g status:idle since:123 why did we choose nonprod.98`, []string{"nonprod 98"}, true},
+		{`repo:demo worktree:checkout agent:claude machine:x group:g status:idle since:123 why did we choose nonprod.98`, []string{"nonprod 98"}, true},
 		{`"merge queue" src/foo.ts #750`, []string{"merge queue", "src foo ts", "750"}, false},
 		{`why did we`, []string{"why", "did", "we"}, true},
 		{`repo:demo`, nil, false},
+		{`worktree:"Main checkout"`, nil, false},
+		{`queue worktree:"Main checkout"`, []string{"queue"}, false},
 		{`alpha OR NOT NEAR * "beta`, []string{"alpha", "near", "beta"}, false},
 		{`one two three four five six seven eight nine ten`, []string{"one", "two", "three", "four", "five", "six", "seven", "eight"}, false},
 	}
@@ -329,5 +331,37 @@ func TestCitedStructuredDecisionRanksAboveUncited(t *testing.T) {
 	r := find(t, i, "why merge queue", Options{})
 	if len(r.Sessions) != 2 || r.Sessions[0].SessionID != "cited" || len(r.Decisions) != 2 || !r.Decisions[0].Cited {
 		t.Fatalf("citation ranking: %+v", r)
+	}
+}
+
+func TestLocationMetadataUpdatesAsSearchOverlay(t *testing.T) {
+	i := openTest(t)
+	s := fixture("locations", "prompt retained")
+	s.Locations = []session.Location{{Label: "review-checkout", Root: "/workspace/project", CWD: "/workspace/project/pkg", Repo: "acme/api"}}
+	put(t, i, "local", s, "full")
+	var promptID int64
+	if err := i.db.QueryRow("SELECT id FROM units WHERE kind='prompt'").Scan(&promptID); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"review-checkout", "workspace/project", "project/pkg", "acme/api"} {
+		r := find(t, i, query, Options{})
+		if len(r.Sessions) != 1 || r.Sessions[0].Match.Kind != "place" {
+			t.Fatalf("location query %q: %+v", query, r)
+		}
+	}
+	s.Locations[0].Label = "release-checkout"
+	put(t, i, "local", s, "full")
+	if r := find(t, i, "review-checkout", Options{}); len(r.Sessions) != 0 {
+		t.Fatalf("stale location label: %+v", r)
+	}
+	if r := find(t, i, "release-checkout", Options{}); len(r.Sessions) != 1 {
+		t.Fatalf("new location label: %+v", r)
+	}
+	var afterID int64
+	if err := i.db.QueryRow("SELECT id FROM units WHERE kind='prompt'").Scan(&afterID); err != nil {
+		t.Fatal(err)
+	}
+	if promptID != afterID {
+		t.Fatal("location overlay rewrote prompt content")
 	}
 }

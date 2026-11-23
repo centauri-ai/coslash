@@ -246,6 +246,9 @@ func unitsFor(s session.Session) (content, overlay []unit) {
 	}
 	add(&overlay, "title", value(s.Name))
 	add(&overlay, "place", value(s.Repository)+" "+value(s.Branch))
+	for _, location := range s.Locations {
+		add(&overlay, "place", location.Label+" "+location.Root+" "+location.CWD+" "+location.Repo)
+	}
 	for _, v := range s.Commits {
 		add(&overlay, "commit", v)
 	}

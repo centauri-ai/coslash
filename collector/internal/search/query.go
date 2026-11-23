@@ -11,7 +11,7 @@ type Query struct {
 	Filters        map[string][]string
 }
 
-var prefixes = map[string]bool{"repo": true, "agent": true, "machine": true, "group": true, "status": true, "since": true}
+var prefixes = map[string]bool{"repo": true, "worktree": true, "agent": true, "machine": true, "group": true, "status": true, "since": true}
 var framing = wordSet("a an the why what when where how did does do we i you they is are was were be been happens happen to about of for in on at and or not with our it this that decide decided decision chose choose agreed")
 var intent = wordSet("why decide decided decision chose choose agreed")
 
