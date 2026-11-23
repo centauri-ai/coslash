@@ -18,10 +18,10 @@ test('session list shows synthetic sessions', async ({ page }) => {
   expect(await rows.count()).toBeGreaterThanOrEqual(1);
 
   const filters = page.getByRole('region', { name: 'Filters' });
-  await expect(filters.getByRole('button', { name: 'Claude Code' })).toBeVisible();
-  await expect(filters.getByRole('button', { name: 'Codex' })).toBeVisible();
-  await expect(filters.getByRole('button', { name: 'OpenCode' })).toBeVisible();
-  await expect(filters.getByRole('button', { name: 'Cursor' })).toBeVisible();
+  await expect(filters.getByRole('button', { name: 'Claude Code', exact: true })).toBeVisible();
+  await expect(filters.getByRole('button', { name: 'Codex', exact: true })).toBeVisible();
+  await expect(filters.getByRole('button', { name: 'OpenCode', exact: true })).toBeVisible();
+  await expect(filters.getByRole('button', { name: 'Cursor', exact: true })).toBeVisible();
   await step(page, 'sessions-listed-all-time');
 
   await page.getByRole('button', { name: 'Board' }).click();
