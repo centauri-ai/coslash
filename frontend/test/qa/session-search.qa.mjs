@@ -44,7 +44,10 @@ test('search and agent filter change the list', async ({ page }) => {
   await search.fill('');
   await expect.poll(count).toBe(before);
 
-  await page.getByRole('region', { name: 'Filters' }).getByRole('button', { name: 'Codex' }).click();
+  await page
+    .getByRole('region', { name: 'Filters' })
+    .getByRole('button', { name: 'Codex', exact: true })
+    .click();
   await expect.poll(count).toBeLessThan(before);
   await step(page, 'filtered-codex');
 });
