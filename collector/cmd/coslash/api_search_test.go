@@ -135,7 +135,7 @@ func TestSearchCLIPath(t *testing.T) {
 	if parsed.Path != "/api/search/status" || parsed.Query().Get("session") != "session" {
 		t.Fatal(path)
 	}
-	for _, args := range [][]string{{"queue machine:ssh", "--json"}, {"repo:coslash", "--json"}, {"queue", "--limit", "0", "--json"}, {"--status", "local/id", "--json"}, {"--status", "--limit", "2", "--json"}} {
+	for _, args := range [][]string{{"queue machine:ssh", "--json"}, {"queue worktree:checkout", "--json"}, {"repo:coslash", "--json"}, {"queue", "--limit", "0", "--json"}, {"--status", "local/id", "--json"}, {"--status", "--limit", "2", "--json"}} {
 		if _, err := searchRequestPath(args); err == nil {
 			t.Fatalf("accepted %v", args)
 		}

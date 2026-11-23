@@ -10,6 +10,10 @@ Local search uses an FTS5 index under `COSLASH_HOME/search/`. It needs no model,
 API key, or synthesis run. Identity is always source, agent, and session ID.
 Parsed content and mutable overlays have independent update keys: newly available
 synthesis and commit subjects update search without rewriting prompt units.
+Location labels, roots, working directories, and repository names are metadata
+overlays too, matching the browser's location search fields. The browser applies
+`worktree:` filters to locations; the index strips that prefix before full-text
+matching (`TestLocationMetadataUpdatesAsSearchOverlay`, `TestQuery`).
 Only a completed inventory can establish deletion. Interrupted passes preserve
 last-good rows, and a lower-coverage representation cannot replace richer content
 at the same revision. A session that fails to index keeps its last-good rows

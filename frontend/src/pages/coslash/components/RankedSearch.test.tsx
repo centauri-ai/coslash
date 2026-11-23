@@ -158,3 +158,71 @@ describe('ranked list', () => {
     expect(html).not.toContain('queue on SSH');
   });
 });
+
+it('uses observed worktrees for ranked prefixes, displayed groups, and facet counts', () => {
+  const location = {
+    id: 'quiet',
+    label: 'quiet-raven',
+    repo: '',
+    cloneId: 'clone',
+    root: '/trees/quiet-raven',
+    cwd: '/trees/quiet-raven',
+    main: false,
+    headKind: 'branch' as const,
+    lastSeen: 1,
+    availability: 'available' as const,
+  };
+  const sessions = [
+    session({
+      sourceId: 'local',
+      id: 'moved',
+      name: 'Moved answer',
+      digest: [],
+      locations: [
+        {
+          ...location,
+          id: 'other',
+          label: 'other-tree',
+          repo: 'github.com/other/app',
+          root: '/trees/other',
+          cwd: '/trees/other',
+        },
+        location,
+      ],
+    }),
+    session({
+      sourceId: 'local',
+      id: 'main',
+      name: 'Main answer',
+      digest: [],
+      locations: [{ ...location, id: 'main', main: true, root: '/main', cwd: '/main' }],
+    }),
+  ];
+  state.results = {
+    truncated: false,
+    sessions: [hit('main', 'codex', 9), hit('moved', 'codex', 1)],
+    decisions: [],
+  };
+  const group = 'worktree:' + JSON.stringify(['local', 'quiet']);
+  const render = (query: string, groupFilters: string[] = []) => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ query, groupFilters }),
+      setItem: () => {},
+    });
+    return renderLayout({ sessions });
+  };
+  const markup = render('queue worktree:quiet-raven', [group]);
+  expect(markup).toContain('Moved answer');
+  expect(markup).not.toContain('Main answer');
+  expect(markup.slice(markup.indexOf('<table'))).toContain('quiet-raven');
+  const facetRow = markup.slice(markup.indexOf('title="/trees/quiet-raven"'));
+  expect(facetRow.slice(0, facetRow.indexOf('</div>'))).toMatch(/>1<\/span>$/);
+  state.results = { truncated: false, sessions: [hit('main', 'codex', 9)], decisions: [] };
+  const refreshed = render('queue worktree:quiet-raven', [group]);
+  expect(refreshed).not.toContain('Moved answer');
+  const refreshedFacet = refreshed.slice(refreshed.indexOf('title="/trees/quiet-raven"'));
+  expect(refreshedFacet.slice(0, refreshedFacet.indexOf('</div>'))).toMatch(/>0<\/span>$/);
+  state.results = { truncated: false, sessions: [hit('moved', 'codex', 1)], decisions: [] };
+  expect(render('queue group:quiet-raven')).toContain('Moved answer');
+  expect(render('queue', ['repo:github.com/other/app', group])).not.toContain('Moved answer');
+});

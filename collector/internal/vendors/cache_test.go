@@ -104,6 +104,7 @@ func TestSearchTextCacheRoundTrip(t *testing.T) {
 	p := &ParsedSession{Session: &session.Session{Agent: "claude", ID: "search", SessionDetails: session.SessionDetails{
 		Digest: []session.DigestEntry{{Category: session.DigestUser, Description: "short", SearchText: "full prompt", SearchTextTruncated: true}},
 	}}}
+	p.Session.RecordedDirectories = map[string]session.RecordedDirectory{"workspace": {CWD: "/workspace", Repo: "acme/api", Activity: 123}}
 	payload, err := EncodeParsedSession(p, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -111,5 +112,8 @@ func TestSearchTextCacheRoundTrip(t *testing.T) {
 	got, err := DecodeParsedSession(payload, nil)
 	if err != nil || got.Session.Digest[0].SearchText != "full prompt" || !got.Session.Digest[0].SearchTextTruncated {
 		t.Fatalf("search cache: %v", err)
+	}
+	if !reflect.DeepEqual(got.Session.RecordedDirectories, p.Session.RecordedDirectories) {
+		t.Fatal("recorded directories lost beside search text")
 	}
 }

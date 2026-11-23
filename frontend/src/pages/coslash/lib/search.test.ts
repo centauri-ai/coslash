@@ -152,6 +152,11 @@ describe('session search', () => {
       filters: 'repo:app agent:codex machine:box group:work status:idle since:123',
     });
     expect(searchParts('repo:app').content).toBe('');
+    expect(searchParts('worktree:quiet-raven')).toEqual({ content: '', filters: 'worktree:quiet-raven' });
+    expect(searchParts('queue worktree:quiet-raven')).toEqual({
+      content: 'queue',
+      filters: 'worktree:quiet-raven',
+    });
     expect(searchParts('* ""').content).toBe('');
     expect(searchParts('repo:app *').content).toBe('');
     expect(canFallbackSearch('merge queue')).toBe(true);
