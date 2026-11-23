@@ -164,9 +164,9 @@ func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []session.DigestEntry{
-		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt"},
+		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt", SearchText: "first prompt"},
 		{Turn: 1, Category: session.DigestRecap, Description: "first reply"},
-		{Turn: 2, Category: session.DigestUser, Description: "follow up?"},
+		{Turn: 2, Category: session.DigestUser, Description: "follow up?", SearchText: "follow up?"},
 		{Turn: 2, Category: session.DigestRecap, Description: "second reply, part one\n\npart two"},
 	}
 	if got := parsed.Session.Digest; len(got) != len(want) {
@@ -209,9 +209,9 @@ func TestParseTranscriptRecordsCreatePlanAsTimelinePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []session.DigestEntry{
-		{Turn: 1, Category: session.DigestFirstPrompt, Description: "plan it"},
+		{Turn: 1, Category: session.DigestFirstPrompt, Description: "plan it", SearchText: "plan it"},
 		{Turn: 1, Category: session.DigestPlan, Description: plan},
-		{Turn: 2, Category: session.DigestUser, Description: "empty plan"},
+		{Turn: 2, Category: session.DigestUser, Description: "empty plan", SearchText: "empty plan"},
 		{Turn: 2, Category: session.DigestRecap, Description: "done"},
 	}
 	if got := parsed.Session.Digest; !reflect.DeepEqual(got, want) {
@@ -241,9 +241,9 @@ func TestParseTranscriptAddsRepliesWithoutTurnEndedRecords(t *testing.T) {
 	}
 	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, vendors.EmptySessionMetadata())
 	want := []session.DigestEntry{
-		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt"},
+		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt", SearchText: "first prompt"},
 		{Turn: 1, Category: session.DigestRecap, Description: "first reply"},
-		{Turn: 2, Category: session.DigestUser, Description: "follow up?"},
+		{Turn: 2, Category: session.DigestUser, Description: "follow up?", SearchText: "follow up?"},
 		{Turn: 2, Category: session.DigestRecap, Description: "second reply"},
 	}
 	if got := parsed.Session.Digest; len(got) != len(want) {
