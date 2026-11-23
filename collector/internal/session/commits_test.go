@@ -63,6 +63,22 @@ func TestIsPullRequestCreateExcludesDryRunHelpAndView(t *testing.T) {
 	}
 }
 
+func TestConfirmedCreateURLIgnoresDryRunTextInsideQuotedArguments(t *testing.T) {
+	const url = "https://github.com/acme/api/pull/42"
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{command: `gh pr create --title 'support --dry-run'`, want: url},
+		{command: `gh pr create --title "support --dry-run"`, want: url},
+		{command: `gh pr create --title support --dry-run`},
+	} {
+		if got := ConfirmedCreateURL(tc.command, url); got != tc.want {
+			t.Errorf("ConfirmedCreateURL(%q) = %q, want %q", tc.command, got, tc.want)
+		}
+	}
+}
+
 func TestPullRequestLinksAreCanonical(t *testing.T) {
 	urls := map[string]struct{}{
 		"https://github.com/acme/web/pull/4":   {},
