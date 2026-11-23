@@ -209,7 +209,7 @@ func (c *Cache) Load(agent, id string) (Record, error) {
 	if (record.SessionID != "" && record.SessionID != id) || (record.Agent != "" && record.Agent != agent) || (agent == "pi" && (record.SessionID != id || record.Agent != agent)) {
 		return Record{}, fmt.Errorf("synthesis cache identity mismatch")
 	}
-	normalizeCachedDecisions(&record.Synthesis)
+	finalizeDecisions(&record.Synthesis)
 	c.records.Store(key, cloneRecord(record))
 	return record, nil
 }
@@ -228,7 +228,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 		return err
 	}
 	record = cloneRecord(record)
-	normalizeCachedDecisions(&record.Synthesis)
+	finalizeDecisions(&record.Synthesis)
 	record.Agent = agent
 	record.SessionID = id
 	data, err := json.Marshal(record)
@@ -336,12 +336,8 @@ func cloneRecord(record Record) Record {
 	return record
 }
 
-func normalizeCachedDecisions(result *session.SessionSynthesis) {
-	normalizeDecisions(result)
-	finalizeDecisions(result)
-}
-
 func finalizeDecisions(result *session.SessionSynthesis) {
+	normalizeDecisions(result)
 	if result.DecisionsVersion == "" {
 		return
 	}

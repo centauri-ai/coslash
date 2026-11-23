@@ -38,16 +38,16 @@ export function handoffBrief(detail: SessionDetail): string {
       : detail.synthesis?.nextStep
         ? [`- ${detail.synthesis.nextStep}`]
         : [];
-  const decisions = detail.synthesis?.decisionsVersion
-    ? (detail.synthesis.decisions ?? [])
+  const structured = detail.synthesis?.decisionsVersion ? detail.synthesis : null;
+  const decisions = structured
+    ? (structured.decisions ?? [])
         .filter((decision) => decision.cited)
         .map(
           (decision) =>
             `- ${decision.text}${decision.why ? ` — ${decision.why}` : ''}${decision.alternative ? ` (instead of ${decision.alternative})` : ''}`,
         )
-    : detail.synthesis?.keyDecisions.length
-      ? detail.synthesis.keyDecisions.map((decision) => `- ${decision}`)
-      : [];
+    : (detail.synthesis?.keyDecisions.map((decision) => `- ${decision}`) ?? []);
+  const designDoc = structured?.designDoc;
   const digest = detail.digest
     .filter((entry) => entry.contextSelected !== false)
     .flatMap((entry) => [
@@ -71,15 +71,8 @@ export function handoffBrief(detail: SessionDetail): string {
     '',
     '## Current state',
     (detail.synthesis?.outcome.trim() || detail.summary) ?? '—',
-    ...(decisions.length || (detail.synthesis?.decisionsVersion && detail.synthesis.designDoc)
-      ? [
-          '',
-          '## Key decisions',
-          ...(detail.synthesis?.decisionsVersion && detail.synthesis.designDoc
-            ? [`Design doc: ${detail.synthesis.designDoc}`]
-            : []),
-          ...decisions,
-        ]
+    ...(decisions.length || designDoc
+      ? ['', '## Key decisions', ...(designDoc ? [`Design doc: ${designDoc}`] : []), ...decisions]
       : []),
     '',
     '## Timeline',

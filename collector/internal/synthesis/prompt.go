@@ -62,11 +62,6 @@ func BuildInputs(s *session.Session) []string {
 	return packDigestGroups(prefix, renderFacts(s), groups)
 }
 
-func BuildMergeInputs(s *session.Session, partials []session.SessionSynthesis) []string {
-	inputs, _ := buildMergeInputs(s, partials)
-	return inputs
-}
-
 func buildMergeInputs(s *session.Session, partials []session.SessionSynthesis) ([]string, [][]int) {
 	if s == nil {
 		s = &session.Session{}
@@ -82,7 +77,7 @@ func buildMergeInputs(s *session.Session, partials []session.SessionSynthesis) (
 	for index, partial := range partials {
 		blocks = append(blocks, renderPartial(index+1, partial, partialBudget))
 	}
-	return packBlockGroups(prefix, facts, untrustedSessionEnd, blocks, 500)
+	return packBlocks(prefix, facts, untrustedSessionEnd, blocks, 500)
 }
 
 func buildPrompt(s *session.Session, digest []session.DigestEntry, includeFacts bool, digestTitle string) string {
@@ -200,41 +195,40 @@ func digestGroups(digest []session.DigestEntry) [][]session.DigestEntry {
 }
 
 func renderPartial(index int, partial session.SessionSynthesis, maximum int) string {
-	if partial.DecisionsVersion != "" {
-		return renderDecisionPartial(index, partial, maximum)
-	}
 	header := fmt.Sprintf("BEGIN UNTRUSTED PARTIAL SYNTHESIS %d\n", index)
 	footer := fmt.Sprintf("END UNTRUSTED PARTIAL SYNTHESIS %d\n", index)
-	labels := make([]string, 0, 11)
-	values := make([]string, 0, 11)
-	for goalIndex, goal := range partial.Goals {
-		if goalIndex == 4 {
-			break
-		}
-		labels = append(labels, "Goal: ")
-		values = append(values, strings.TrimSpace(goal))
+	var decisions strings.Builder
+	for n, d := range partial.Decisions {
+		fmt.Fprintf(&decisions, "Decision p%d.%d: %s (byYou: %t)\n", index, n+1, d.Text, d.ByYou)
 	}
-	labels = append(labels, "Outcome: ")
-	values = append(values, strings.TrimSpace(partial.Outcome))
-	for decisionIndex, decision := range partial.KeyDecisions {
-		if decisionIndex == maxIntermediateKeyDecisions {
-			break
-		}
-		labels = append(labels, "Decision: ")
-		values = append(values, strings.TrimSpace(decision))
+	fixed := header + decisions.String()
+	labels := []string{"Goals: ", "Next step: ", "Design doc: "}
+	values := []string{strings.Join(partial.Goals, "; "), partial.NextStep, partial.DesignDoc}
+	for n, d := range partial.Decisions {
+		labels = append(labels, fmt.Sprintf("Why p%d.%d: ", index, n+1), fmt.Sprintf("Alternative p%d.%d: ", index, n+1))
+		values = append(values, d.Why, d.Alternative)
 	}
-	labels = append(labels, "Next step: ")
-	values = append(values, strings.TrimSpace(partial.NextStep))
-
-	available := maximum - len(header) - len(footer)
-	for _, label := range labels {
+	available := maximum - len(fixed) - len(footer)
+	needed := 0
+	for n, label := range labels {
 		available -= len(label) + 1
+		needed += len(values[n])
 	}
-	budgets := distributeBytes(values, available)
+	if needed > available {
+		for n := 3; n < len(values); n += 2 {
+			values[n] = limited(values[n], 120)
+			values[n+1] = limited(values[n+1], 80)
+		}
+	}
+	budgets := distributeBytes(values, max(available, 0))
 	var out strings.Builder
-	out.WriteString(header)
-	for fieldIndex, label := range labels {
-		fmt.Fprintf(&out, "%s%s\n", label, limitBytes(values[fieldIndex], budgets[fieldIndex]))
+	out.WriteString(fixed)
+	for n, value := range values {
+		fmt.Fprintf(&out, "%s%s\n", labels[n], limitBytes(value, budgets[n]))
+		available -= min(len(value), budgets[n])
+	}
+	if available > len("Outcome: ")+1 {
+		fmt.Fprintf(&out, "Outcome: %s\n", limitBytes(partial.Outcome, available-len("Outcome: ")-1))
 	}
 	out.WriteString(footer)
 	return out.String()
@@ -276,7 +270,8 @@ func packDigestGroups(prefix, facts string, groups [][]session.DigestEntry) []st
 	for _, group := range groups {
 		blocks = append(blocks, renderDigestBlocks(group, budget)...)
 	}
-	return packBlocks(prefix, facts, untrustedSessionEnd, blocks)
+	inputs, _ := packBlocks(prefix, facts, untrustedSessionEnd, blocks, maxMergeFactsBytes)
+	return inputs
 }
 
 func renderDigestBlocks(digest []session.DigestEntry, maximum int) []string {
@@ -337,12 +332,7 @@ func renderDigestEntry(entry session.DigestEntry, maximum int) (string, evidence
 	return render(), text
 }
 
-func packBlocks(prefix, facts, tail string, blocks []string) []string {
-	inputs, _ := packBlockGroups(prefix, facts, tail, blocks, maxMergeFactsBytes)
-	return inputs
-}
-
-func packBlockGroups(prefix, facts, tail string, blocks []string, minimumFacts int) ([]string, [][]int) {
+func packBlocks(prefix, facts, tail string, blocks []string, minimumFacts int) ([]string, [][]int) {
 	minimumSuffix := "\n" + limitBytes(facts, minimumFacts) + tail
 	if len(blocks) == 0 {
 		return []string{limitBytes(prefix+minimumSuffix, maxPromptBytes)}, [][]int{nil}
@@ -415,44 +405,4 @@ func limitBytes(value string, maximum int) string {
 		cut--
 	}
 	return strings.TrimSpace(value[:cut]) + promptMarker
-}
-
-func renderDecisionPartial(index int, partial session.SessionSynthesis, maximum int) string {
-	header := fmt.Sprintf("BEGIN UNTRUSTED PARTIAL SYNTHESIS %d\n", index)
-	footer := fmt.Sprintf("END UNTRUSTED PARTIAL SYNTHESIS %d\n", index)
-	var decisions strings.Builder
-	for n, d := range partial.Decisions {
-		fmt.Fprintf(&decisions, "Decision p%d.%d: %s (byYou: %t)\n", index, n+1, d.Text, d.ByYou)
-	}
-	fixed := header + decisions.String()
-	labels := []string{"Goals: ", "Next step: ", "Design doc: "}
-	values := []string{strings.Join(partial.Goals, "; "), partial.NextStep, partial.DesignDoc}
-	for n, d := range partial.Decisions {
-		labels = append(labels, fmt.Sprintf("Why p%d.%d: ", index, n+1), fmt.Sprintf("Alternative p%d.%d: ", index, n+1))
-		values = append(values, d.Why, d.Alternative)
-	}
-	available := maximum - len(fixed) - len(footer)
-	needed := 0
-	for n, label := range labels {
-		available -= len(label) + 1
-		needed += len(values[n])
-	}
-	if needed > available {
-		for n := 3; n < len(values); n += 2 {
-			values[n] = limited(values[n], 120)
-			values[n+1] = limited(values[n+1], 80)
-		}
-	}
-	budgets := distributeBytes(values, max(available, 0))
-	var out strings.Builder
-	out.WriteString(fixed)
-	for n, value := range values {
-		fmt.Fprintf(&out, "%s%s\n", labels[n], limitBytes(value, budgets[n]))
-		available -= min(len(value), budgets[n])
-	}
-	if available > len("Outcome: ")+1 {
-		fmt.Fprintf(&out, "Outcome: %s\n", limitBytes(partial.Outcome, available-len("Outcome: ")-1))
-	}
-	out.WriteString(footer)
-	return out.String()
 }

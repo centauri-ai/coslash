@@ -26,9 +26,7 @@ function sessionSearchDocument(session: Session): string {
         ...session.synthesis.goals,
         session.synthesis.outcome,
         ...session.synthesis.keyDecisions,
-        ...(session.synthesis.decisionsVersion ? (session.synthesis.decisions ?? []) : []).flatMap(
-          ({ text, why, alternative }) => [text, why, alternative],
-        ),
+        ...(session.synthesis.decisions ?? []).flatMap((d) => [d.text, d.why, d.alternative]),
         session.synthesis.designDoc,
         session.synthesis.nextStep,
       );

@@ -17,7 +17,7 @@ import {
   type SessionDetail,
 } from '@/pages/coslash/lib/session';
 
-const highlightedRowClass =
+export const highlightedRowClass =
   'bg-coslash-tint -mx-2 rounded-md px-2 shadow-[inset_3px_0_0_var(--coslash-accent)] outline-none';
 
 type DigestCategory = DigestEntry['category'];

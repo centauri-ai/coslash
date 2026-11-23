@@ -390,11 +390,7 @@ func runSynthesisWithInvocation(ctx context.Context, s *session.Session, record 
 		partials = merged
 	}
 	result := partials[0]
-	if result.DecisionsVersion != "" {
-		checkEvidence(s, &result)
-	} else {
-		result.KeyDecisions = result.KeyDecisions[:min(len(result.KeyDecisions), maxFinalKeyDecisions)]
-	}
+	checkEvidence(s, &result)
 	return result, nil
 }
 

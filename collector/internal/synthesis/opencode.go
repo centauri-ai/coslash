@@ -404,40 +404,6 @@ func parseOpenCodeSynthesis(text string) (session.SessionSynthesis, error) {
 	return parseSynthesis([]byte(object))
 }
 
-func requireSynthesisFields(data []byte) error {
-	var fields struct {
-		Goals     []*string         `json:"goals"`
-		Outcome   *string           `json:"outcome"`
-		Decisions []json.RawMessage `json:"decisions"`
-		DesignDoc *string           `json:"designDoc"`
-		NextStep  *string           `json:"nextStep"`
-	}
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return fmt.Errorf("decode synthesis result: %w", err)
-	}
-	if len(fields.Goals) == 0 {
-		return errors.New("synthesis result has no goals")
-	}
-	for _, goal := range fields.Goals {
-		if goal == nil {
-			return errors.New("synthesis result has a null goal")
-		}
-	}
-	if fields.Outcome == nil {
-		return errors.New("synthesis result has no outcome")
-	}
-	if fields.Decisions == nil {
-		return errors.New("synthesis result has no decisions")
-	}
-	if fields.DesignDoc == nil {
-		return errors.New("synthesis result has no design doc")
-	}
-	if fields.NextStep == nil {
-		return errors.New("synthesis result has no next step")
-	}
-	return nil
-}
-
 func extractJSONObject(value string) string {
 	start := strings.IndexByte(value, '{')
 	if start < 0 {
