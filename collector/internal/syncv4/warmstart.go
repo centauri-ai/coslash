@@ -173,7 +173,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 			if pickExpired || errors.Is(err, context.DeadlineExceeded) {
 				return nil
 			}
-			if stopSync(err) || Busy(err) {
+			if stopSync(err) || Busy(err) || spaceFull(err) {
 				return r.persistPolicyStop(pick, err)
 			}
 			if updateErr := r.recordFailure(pick, err); updateErr != nil {
@@ -467,7 +467,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 				return firstErr
 			}
 			remoteTimeout := errors.Is(err, context.DeadlineExceeded) && workCtx.Err() == nil && ctx.Err() == nil
-			if (stopSync(err) && !remoteTimeout) || Busy(err) {
+			if (stopSync(err) && !remoteTimeout) || Busy(err) || spaceFull(err) {
 				return r.persistPolicyStop(&entry, err)
 			}
 			if capPreparationUnstable(entry, err) {

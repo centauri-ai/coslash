@@ -308,7 +308,11 @@ sync without a Local restart. It never uploads until a Hub advertising
 Both switches default on. The server's separate v4 upload flag and device
 policy also control whether it accepts uploads. A 409 `sync_paused` or
 `device_sync_off` clears transient failure and backoff state and leaves the
-worker idle until the Hub policy version changes. `device_revoked` removes the
+worker idle until the Hub policy version changes. A `space_full` create
+refusal records that session's failure, ends the planned pass, and holds new
+upload creates for the whole device for the Hub's `Retry-After`, or one hour
+without it. Open uploads keep transferring; an explicit Local or Hub retry
+clears the in-memory hold. `device_revoked` removes the
 stored credential and stops the sync loop. Local's V3 complete-backup preview
 and upload flow is retired; existing Hub backups and workspace links remain.
 See [the sync consent decision](../../../docs/decisions/personal-hub-sync-consent.md).

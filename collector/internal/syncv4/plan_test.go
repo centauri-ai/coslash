@@ -522,6 +522,84 @@ func TestPlannedPassAdvancesOpenUploadWhileCreatesRateLimited(t *testing.T) {
 	}
 }
 
+type spaceFullCreateHub struct {
+	*rateLimitedCreateHub
+	retryAfter time.Duration
+}
+
+func (h *spaceFullCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
+	h.creates++
+	return hubclient.V4Status{}, hubclient.V4Problem{Code: "space_full", HTTPStatus: 413, RetryAfter: h.retryAfter}
+}
+
+func TestSpaceFullHoldsNewCreatesDeviceWide(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		retryAfter time.Duration
+		hold       time.Duration
+	}{{"default hold", 0, time.Hour}, {"Hub Retry-After", 10 * time.Minute, 10 * time.Minute}} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+			q, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager, prepared := artifactLimitBundle(t, 1)
+			plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+			if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+				t.Fatal(err)
+			}
+			hub := &spaceFullCreateHub{rateLimitedCreateHub: &rateLimitedCreateHub{planHub: &planHub{plan: &plan}}, retryAfter: test.retryAfter}
+			runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+				scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}, lastReportedPhase: "recent"}
+			manifest, err := runner.manifest(prepared)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries := []Entry{{Key: "open", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "open"}, Activity: now.Add(-time.Hour).UnixMilli(),
+				Listed: true, BundleID: prepared.BundleID, Manifest: &manifest, ContentSHA256: manifest.ContentSHA256, UploadID: "up_open", SessionID: "ses_open"}}
+			for _, key := range []string{"new-a", "new-b", "new-c"} {
+				entries = append(entries, Entry{Key: key, Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: key}, Activity: now.UnixMilli(),
+					Listed: true, BundleID: prepared.BundleID, Manifest: &manifest, ContentSHA256: manifest.ContentSHA256})
+			}
+			if err := q.Merge(entries, now); err != nil {
+				t.Fatal(err)
+			}
+			pass := func(wantCreates int) {
+				t.Helper()
+				if err := runner.syncPlannedContent(t.Context(), plan); !spaceFull(err) {
+					t.Fatalf("sync error = %v, want space_full", err)
+				}
+				if hub.creates != wantCreates {
+					t.Fatalf("creates = %d, want %d", hub.creates, wantCreates)
+				}
+			}
+			pass(1)
+			if hub.finalized != 1 {
+				t.Fatalf("open upload finalized %d times, want 1", hub.finalized)
+			}
+			failed := 0
+			for _, entry := range q.Entries() {
+				if entry.FailureCode == "space_full" {
+					failed++
+				}
+			}
+			if failed != 1 {
+				t.Fatalf("space_full failures = %d, want only the attempted session", failed)
+			}
+			now = now.Add(test.hold - time.Second)
+			pass(1)
+			if wait := runner.currentWait(t.Context()); wait == nil || wait.Reason != "space_full" {
+				t.Fatalf("wait during hold = %+v, want space_full", wait)
+			}
+			now = now.Add(time.Second)
+			pass(2)
+			runner.BypassRetryBackoff()
+			pass(3)
+		})
+	}
+}
+
 func (h *asyncCompletionHub) V4Status(_ context.Context, uploadID string) (hubclient.V4Status, error) {
 	h.statuses++
 	return hubclient.V4Status{UploadID: uploadID, SessionID: "ses_async", State: "completed", RevisionID: "rev_async"}, nil

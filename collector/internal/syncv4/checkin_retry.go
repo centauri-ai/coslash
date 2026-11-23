@@ -82,5 +82,8 @@ func (r *Runner) resetCheckInBackoff() {
 }
 
 // BypassRetryBackoff lets an explicit Local retry skip the current check-in
-// deadline once. A new failure starts a fresh backoff sequence.
-func (r *Runner) BypassRetryBackoff() { r.resetCheckInBackoff() }
+// deadline and space_full hold once. A new failure starts a fresh backoff sequence.
+func (r *Runner) BypassRetryBackoff() {
+	r.resetCheckInBackoff()
+	r.spaceFullUntil.Store(0)
+}
