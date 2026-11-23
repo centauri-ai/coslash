@@ -23,6 +23,7 @@ import { isLocalUpdate, type LocalUpdate } from '@/pages/coslash/lib/local-updat
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
+import { searchParts } from '@/pages/coslash/lib/search';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { latestLogicalSessions } from '@/pages/coslash/lib/session-library';
 import {
@@ -72,7 +73,10 @@ export function CoslashPage() {
   const [range, setRange] = useState<SessionRange>(() => loadSessionViewPreferences().range);
   const [view, setView] = useState<SessionView>(() => loadSessionViewPreferences().view);
   const [localUpdate, setLocalUpdate] = useState<LocalUpdate | null>(null);
-  const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
+  const [searchActive, setSearchActive] = useState(
+    () => searchParts(loadSessionViewPreferences().query).content !== '',
+  );
+  const apiWindow = view === 'insights' || searchActive ? 'all' : apiWindowForRange(range);
   const {
     sessions,
     machines,
@@ -318,6 +322,7 @@ export function CoslashPage() {
         onOpenHandoffTarget={openHandoffTarget}
         machines={machines}
         range={range}
+        onSearchActiveChange={setSearchActive}
         onRangeChange={setRange}
         onViewChange={(view) => {
           select({ type: 'view', view });
