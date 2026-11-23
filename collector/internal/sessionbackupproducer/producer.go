@@ -36,10 +36,11 @@ const (
 )
 
 type Selection struct {
-	SourceKind string `json:"sourceKind"`
-	SourceID   string `json:"sourceId"`
-	Agent      string `json:"agent"`
-	SessionID  string `json:"sessionId"`
+	OmitPRCreation bool   `json:"-"`
+	SourceKind     string `json:"sourceKind"`
+	SourceID       string `json:"sourceId"`
+	Agent          string `json:"agent"`
+	SessionID      string `json:"sessionId"`
 }
 
 type Coverage struct {

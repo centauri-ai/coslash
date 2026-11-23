@@ -180,10 +180,21 @@ func TestOpenCodeDiscoveryRetainsSourceIdentity(t *testing.T) {
 		{Agent: "codex", ID: "shared", StartedAt: 1, LastActivityTime: 2},
 		{Agent: "cursor", ID: "ignored"},
 		{Agent: "opencode", ID: "child", ParentSessionID: "shared"},
-	}, "install", nil, nil, nil)
+	}, "install", nil, nil, nil, false)
 	if len(items) != 2 || items[0].Key == items[1].Key || items[0].Selection.Agent != "opencode" ||
 		items[0].Selection.SessionID != "shared" || items[0].SourceRevision != "source-revision" {
 		t.Fatalf("discovered entries = %#v", items)
+	}
+}
+
+func TestCreatorCapabilityRequeuesCodexFamiliesWithPRs(t *testing.T) {
+	withPR := &session.Session{Agent: "codex", ID: "with", DetailRevision: "revision"}
+	withPR.SetPullRequestLinks([]session.PullRequestLink{{URL: "https://github.com/acme/app/pull/17", Repository: "acme/app", Number: 17}})
+	sessions := []*session.Session{withPR, {Agent: "codex", ID: "without", DetailRevision: "other"}}
+	before := discoveredEntries(sessions, "install", nil, nil, nil, false)
+	after := discoveredEntries(sessions, "install", nil, nil, nil, true)
+	if before[0].SourceRevision == after[0].SourceRevision || before[1].SourceRevision != after[1].SourceRevision {
+		t.Fatal(before, after)
 	}
 }
 

@@ -52,7 +52,7 @@ func TestPiDiscoveryIdentityAndMixedMetadata(t *testing.T) {
 	entries := discoveredEntries([]*session.Session{
 		{Agent: "pi", ID: "shared", DetailRevision: "detail", Tokens: map[string]session.ModelTokens{"m": {InputTokens: 10, OutputTokens: 5}}, UnattributedTokens: &session.ModelTokens{InputTokens: 2, OutputTokens: 1}},
 		{Agent: "codex", ID: "shared"}, {Agent: "pi", ID: "unverified"},
-	}, "install", nil, nil, map[string]string{"shared": "native-revision"})
+	}, "install", nil, nil, map[string]string{"shared": "native-revision"}, false)
 	if len(entries) != 2 || entries[0].Key == entries[1].Key || entries[0].SourceRevision != "native-revision" || entries[0].Session.Title != "Pi session" || entries[0].Session.Tokens != 18 {
 		t.Fatalf("Pi eligibility/metadata = %+v", entries)
 	}
@@ -209,7 +209,7 @@ func TestPiBatchRefreshPairsCardAndRevisionFromOneSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refreshed := discoveredEntries(piSnapshotSessions(batchSessions, snapshots), q.InstallID(), nil, nil, verified)
+	refreshed := discoveredEntries(piSnapshotSessions(batchSessions, snapshots), q.InstallID(), nil, nil, verified, false)
 	if len(refreshed) != 1 || refreshed[0].Session.Summary != "updated branch" || refreshed[0].SourceRevision != verified[id] || verified[id] == priorRevision {
 		t.Fatalf("refreshed Pi card/revision = %+v, prior=%q", refreshed, priorRevision)
 	}

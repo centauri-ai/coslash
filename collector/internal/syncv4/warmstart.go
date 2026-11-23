@@ -220,7 +220,7 @@ func (r *Runner) estimateContentBytes(ctx context.Context, entry *Entry) error {
 		return err
 	}
 	if entry.BundleID == "" {
-		prepared, err := r.Backup.Prepare(ctx, entry.Selection)
+		prepared, err := r.prepareUpload(ctx, entry.Selection)
 		if err != nil {
 			return err
 		}

@@ -419,6 +419,25 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
+	if selection.OmitPRCreation {
+		for i := range records {
+			changed := false
+			for j, link := range records[i].Session.PullRequestLinks {
+				if link.Created {
+					records[i].Session.PullRequestLinks[j].Created = false
+					changed = true
+				}
+			}
+			if !changed {
+				continue
+			}
+			// The prepared record and its source key must agree with the negotiated bytes.
+			records[i], err = fullsessionv1.Freeze(records[i])
+			if err != nil {
+				return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+			}
+		}
+	}
 	if selection.SourceKind == sessionbackupv1.SourceLocal && manager.synthesis != nil {
 		revisionByID := map[string]int64{}
 		for _, record := range records {
