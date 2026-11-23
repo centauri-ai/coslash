@@ -99,3 +99,32 @@ func TestParsedSessionEnvelopeEncodesAbsence(t *testing.T) {
 		t.Fatal("missing session decoded as a cached absence")
 	}
 }
+
+func TestSearchTextCacheUpgrade(t *testing.T) {
+	p := &ParsedSession{Session: &session.Session{Agent: "claude", ID: "search", SessionDetails: session.SessionDetails{
+		Digest: []session.DigestEntry{{Category: session.DigestUser, Description: "short", SearchText: "full prompt", SearchTextTruncated: true}},
+	}}}
+	payload, err := EncodeParsedSession(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeParsedSession(payload, nil)
+	if err != nil || got.Session.Digest[0].SearchText != "full prompt" || !got.Session.Digest[0].SearchTextTruncated {
+		t.Fatalf("search cache: %v", err)
+	}
+	var envelope cachedParsed
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope.Session.SearchTextVersion = 0
+	old, _ := json.Marshal(envelope)
+	if _, err := DecodeParsedSession(old, nil); err == nil {
+		t.Fatal("old searchable cache must reparse")
+	}
+	envelope.Session.SearchTextVersion = 1
+	envelope.Session.DigestSearchText = nil
+	broken, _ := json.Marshal(envelope)
+	if _, err := DecodeParsedSession(broken, nil); err == nil {
+		t.Fatal("malformed search envelope accepted")
+	}
+}

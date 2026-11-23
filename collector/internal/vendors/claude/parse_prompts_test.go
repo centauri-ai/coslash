@@ -68,7 +68,7 @@ func TestReminderPrefixedPromptRetainsAssistantRecap(t *testing.T) {
 				t.Fatalf("first prompt = %v, turns = %d", got.FirstPrompt, got.Turns)
 			}
 			want := []session.DigestEntry{
-				{Turn: 1, Category: session.DigestFirstPrompt, Description: "debug sharing"},
+				{Turn: 1, Category: session.DigestFirstPrompt, Description: "debug sharing", SearchText: "debug sharing"},
 				{Turn: 1, Category: session.DigestRecap, Description: "Fixed sharing."},
 			}
 			if !reflect.DeepEqual(got.Digest, want) || got.ToolUses != 1 || len(got.CommandOutputs) != 1 || got.CommandOutputs[0] == nil || *got.CommandOutputs[0] != "PASS" {
@@ -96,9 +96,9 @@ func TestWorktreeOpeningPromptStartsTimeline(t *testing.T) {
 		t.Fatalf("first prompt = %v, turns = %d", parsed.Session.FirstPrompt, parsed.Session.Turns)
 	}
 	want := []session.DigestEntry{
-		{Turn: 1, Category: session.DigestFirstPrompt, Description: "debug sharing"},
-		{Turn: 2, Category: session.DigestUser, Description: "Not now"},
-		{Turn: 3, Category: session.DigestUser, Description: "hi"},
+		{Turn: 1, Category: session.DigestFirstPrompt, Description: "debug sharing", SearchText: "debug sharing"},
+		{Turn: 2, Category: session.DigestUser, Description: "Not now", SearchText: "Not now"},
+		{Turn: 3, Category: session.DigestUser, Description: "hi", SearchText: "hi"},
 	}
 	if !reflect.DeepEqual(parsed.Session.Digest, want) {
 		t.Fatalf("digest = %#v, want %#v", parsed.Session.Digest, want)
