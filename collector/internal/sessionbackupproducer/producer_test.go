@@ -123,6 +123,36 @@ func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
 	}
 }
 
+func TestCodexUploadNegotiatesCreatorEvidence(t *testing.T) {
+	home, workspace := writeFamilyFixture(t, 0)
+	const url = "https://github.com/acme/app/pull/17"
+	event := fmt.Sprintf(`{"type":"event_msg","payload":{"type":"item_completed","thread_id":%q,"item":{"type":"CommandExecution","command":["bash","-lc","gh pr create --fill"],"exit_code":0,"aggregated_output":%q}}}`, testRootID, url)
+	writeRollout(t, familyFile(home, false, testRootID), completeRollout(testRootID, "", workspace, 0)+"\n"+event+"\n")
+	spool := t.TempDir()
+	manager := New(Options{Root: spool, CollectorVersion: "fixture", ParserVersion: "fixture", OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	for _, omit := range []bool{true, false} {
+		bundle, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCodex, SessionID: testRootID, OmitPRCreation: omit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := readRootRecord(t, spool, bundle)
+		found := false
+		for _, link := range record.Session.PullRequestLinks {
+			if link.URL == url {
+				found = true
+				if link.Created == omit {
+					t.Fatalf("omit=%v link=%+v", omit, link)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("missing PR link from prepared family")
+		}
+	}
+}
+
 func TestUnsupportedAgentsNeverOpenSourceOrPublishBundle(t *testing.T) {
 	for _, unsupported := range []struct{ agent, sourceKind string }{
 		{vendors.AgentClaude, sessionbackupv1.SourceSSH},

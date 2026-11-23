@@ -145,7 +145,7 @@ func (r *Runner) syncPiSources(ctx context.Context, plan *pi.SourcePlan, found [
 			cards, composeErr := collector.FinalizeBatch(ctx, []*vendors.ParsedSession{item}, map[string]*vendors.SessionMetadata{vendors.AgentPi: metadata})
 			err = composeErr
 			if err == nil && len(cards) == 1 {
-				candidate := discoveredEntries(cards, r.Queue.InstallID(), nil, nil, map[string]string{id: "pending"})
+				candidate := discoveredEntries(cards, r.Queue.InstallID(), nil, nil, map[string]string{id: "pending"}, false)
 				if len(candidate) == 1 {
 					entry.Session, entry.Live = candidate[0].Session, candidate[0].Live
 					entry.Activity = candidate[0].Activity
@@ -270,7 +270,7 @@ func piDiscoveryEntries(sessions []*session.Session, installID string) []Entry {
 		}
 	}
 	var entries []Entry
-	for _, entry := range discoveredEntries(sessions, installID, nil, nil, refs) {
+	for _, entry := range discoveredEntries(sessions, installID, nil, nil, refs, false) {
 		if entry.Selection.Agent == vendors.AgentPi {
 			entries = append(entries, entry)
 		}

@@ -337,7 +337,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 				unlistedSince += count
 				return nil
 			}
-			if err := merge(discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, grokRevisions, nil)); err != nil {
+			if err := merge(discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil, grokRevisions, nil, r.Queue.HubAdvertises(hubclient.CapabilityPRCreation))); err != nil {
 				return err
 			}
 			batchPiPlan := piPlan
@@ -351,7 +351,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 				}
 				sourceErr = errors.Join(sourceErr, piErr)
 			}
-			piEntries := discoveredEntries(piSnapshotSessions(batch.Sessions, piSnapshots), r.Queue.InstallID(), nil, nil, verifiedPi)
+			piEntries := discoveredEntries(piSnapshotSessions(batch.Sessions, piSnapshots), r.Queue.InstallID(), nil, nil, verifiedPi, r.Queue.HubAdvertises(hubclient.CapabilityPRCreation))
 			if err := merge(piEntries); err != nil {
 				return err
 			}
@@ -445,7 +445,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		sourceErr = errors.Join(sourceErr, piErr)
 	}
-	discovered := discoveredEntries(replacePiSnapshots(sessions, piSnapshots), r.Queue.InstallID(), claudeRevisions, revisions, verifiedPi)
+	discovered := discoveredEntries(replacePiSnapshots(sessions, piSnapshots), r.Queue.InstallID(), claudeRevisions, revisions, verifiedPi, r.Queue.HubAdvertises(hubclient.CapabilityPRCreation))
 	if plan := r.config.ImportPlan; plan != nil {
 		if _, err := r.Queue.MergePlannedDiscovery(discovered, r.now(), *plan, r.activeSince); err != nil {
 			return err
@@ -646,7 +646,7 @@ func (r *Runner) reconcileGrokSources(revisions map[string]string, failures map[
 // discoveredEntries selects root sessions of the synced local agents. Child
 // sessions travel inside their root's family bundle. Source revisions also
 // cover family inputs whose changes the root detail revision does not see.
-func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions, grokRevisions, piRevisions map[string]string) []Entry {
+func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions, grokRevisions, piRevisions map[string]string, prCreation bool) []Entry {
 	found := make([]Entry, 0, len(sessions))
 	for _, item := range sessions {
 		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode" && item.Agent != "cursor" && item.Agent != "grok" && item.Agent != "pi") ||
@@ -668,6 +668,10 @@ func discoveredEntries(sessions []*session.Session, installID string, claudeRevi
 			continue
 		}
 		revision := item.DetailRevision
+		// A root lists its descendants' PRs too, so this covers evidence in child records.
+		if prCreation && item.Agent == vendors.AgentCodex && len(item.PullRequestLinks) > 0 {
+			revision += ":" + hubclient.CapabilityPRCreation
+		}
 		if item.Agent == "claude" {
 			revision += ":" + claudeRevisions[item.ID]
 		}
@@ -1477,7 +1481,7 @@ func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 		return err
 	}
 	if entry.BundleID == "" {
-		prepared, err := r.Backup.Prepare(ctx, entry.Selection)
+		prepared, err := r.prepareUpload(ctx, entry.Selection)
 		if err != nil {
 			return err
 		}
@@ -1585,6 +1589,11 @@ func (r *Runner) createUpload(ctx context.Context, entry *Entry) error {
 	}
 	entry.UploadID, entry.FailureCode = status.UploadID, ""
 	return r.Queue.Update(*entry)
+}
+
+func (r *Runner) prepareUpload(ctx context.Context, selection sessionbackupproducer.Selection) (*sessionbackupproducer.Prepared, error) {
+	selection.OmitPRCreation = !r.Queue.HubAdvertises(hubclient.CapabilityPRCreation)
+	return r.Backup.Prepare(ctx, selection)
 }
 
 func (r *Runner) manifest(prepared *sessionbackupproducer.Prepared) (hubclient.V4Manifest, error) {

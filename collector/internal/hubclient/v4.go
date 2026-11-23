@@ -438,7 +438,7 @@ func localCapabilities() []string {
 	}
 	capabilities = append(capabilities, "session-backup/v1", "launch", "ssh-relay")
 	if V4SyncEnabled() {
-		capabilities = append(capabilities, "update-v1", CapabilityWorktreeLabels)
+		capabilities = append(capabilities, "update-v1", CapabilityWorktreeLabels, CapabilityPRCreation)
 	}
 	if ScaleImportEnabled() {
 		capabilities = append(capabilities, CapabilityScaleImport)
@@ -448,6 +448,8 @@ func localCapabilities() []string {
 	}
 	return capabilities
 }
+
+const CapabilityPRCreation = "pr-creation/v1"
 
 const CapabilityWorktreeLabels = "worktreeLabels"
 
