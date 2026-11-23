@@ -1,6 +1,7 @@
 package search
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -41,35 +42,18 @@ func Open(path string) (*Index, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
+	// The private directory also covers the -wal and -shm files SQLite creates.
 	if err := protectDirectory(dir); err != nil {
 		return nil, err
 	}
-	for attempt := 0; attempt < 2; attempt++ {
-		if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-			return nil, errors.New("search index must be a regular file")
-		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return nil, err
-		}
-		err = protectFile(path, f)
-		closeErr := f.Close()
-		if err != nil {
-			return nil, err
-		}
-		if closeErr != nil {
-			return nil, closeErr
-		}
+	for attempt := 0; ; attempt++ {
 		db, err := sql.Open("sqlite", path)
 		if err != nil {
 			return nil, err
 		}
 		db.SetMaxOpenConns(1)
 		idx := &Index{db: db, state: "building"}
-		err = idx.initialize()
-		if err == nil {
+		if err = idx.initialize(); err == nil {
 			return idx, nil
 		}
 		db.Close()
@@ -84,7 +68,6 @@ func Open(path string) (*Index, error) {
 			}
 		}
 	}
-	return nil, errors.New("cannot initialize search index")
 }
 
 var errSchema = errors.New("search schema mismatch")
@@ -169,7 +152,7 @@ func (i *Index) Upsert(ctx context.Context, sourceID string, s session.Session, 
 	if sourceID == "" || s.Agent == "" || s.ID == "" || coverageLevel(coverage) == 0 {
 		return errors.New("invalid search identity or coverage")
 	}
-	content, overlay := unitsFor(s, coverage)
+	content, overlay := unitsFor(s)
 	encoded, _ := json.Marshal(overlay)
 	sum := sha256.Sum256(encoded)
 	key := hex.EncodeToString(sum[:])
@@ -210,44 +193,19 @@ func (i *Index) Upsert(ctx context.Context, sourceID string, s session.Session, 
 
 // Reconcile must only be called after an authoritative, complete pass over the
 // source's sessions active at or after sinceMs; older rows are kept.
-func (i *Index) Reconcile(ctx context.Context, sourceID string, identities []Identity, sinceMs int64) error {
-	tx, err := i.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	keep := map[Identity]bool{}
-	for _, id := range identities {
-		keep[id] = true
-	}
-	rows, err := tx.QueryContext(ctx, "SELECT agent,session_id FROM sessions WHERE source_id=? AND mtime>=?", sourceID, sinceMs)
-	if err != nil {
-		return err
-	}
-	var removed []Identity
-	for rows.Next() {
-		id := Identity{SourceID: sourceID}
-		if err = rows.Scan(&id.Agent, &id.SessionID); err != nil {
-			rows.Close()
-			return err
-		}
-		if !keep[id] {
-			removed = append(removed, id)
-		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, id := range removed {
-		if _, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE source_id=? AND agent=? AND session_id=?", id.SourceID, id.Agent, id.SessionID); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+func (i *Index) Reconcile(ctx context.Context, sourceID string, keep []Identity, sinceMs int64) error {
+	encoded, _ := json.Marshal(append([]Identity{}, keep...))
+	_, err := i.db.ExecContext(ctx, "DELETE FROM sessions WHERE source_id=? AND mtime>=? AND (source_id,agent,session_id) NOT IN (SELECT value->>'sourceId',value->>'agent',value->>'sessionId' FROM json_each(?))", sourceID, sinceMs, string(encoded))
+	return err
 }
-func unitsFor(s session.Session, coverage string) (content, overlay []unit) {
+
+// ReconcileSources removes rows belonging to sources no longer configured.
+func (i *Index) ReconcileSources(ctx context.Context, sources []string) error {
+	encoded, _ := json.Marshal(append([]string{}, sources...))
+	_, err := i.db.ExecContext(ctx, "DELETE FROM sessions WHERE source_id NOT IN (SELECT value FROM json_each(?))", string(encoded))
+	return err
+}
+func unitsFor(s session.Session) (content, overlay []unit) {
 	add := func(dst *[]unit, kind, text string) {
 		if text != "" {
 			*dst = append(*dst, unit{Kind: kind, Text: text})
@@ -269,10 +227,7 @@ func unitsFor(s session.Session, coverage string) (content, overlay []unit) {
 		if kind == "" {
 			continue
 		}
-		text := d.Description
-		if coverage != "record" && d.SearchText != "" {
-			text = d.SearchText
-		}
+		text := cmp.Or(d.SearchText, d.Description)
 		if text != "" {
 			content = append(content, unit{Kind: kind, Text: text, Turn: d.Turn, EntryID: d.SourceEntryID, Time: d.Time})
 		}
@@ -294,7 +249,7 @@ func unitsFor(s session.Session, coverage string) (content, overlay []unit) {
 	for _, v := range s.Commits {
 		add(&overlay, "commit", v)
 	}
-	if s.Synthesis != nil && coverage != "record" {
+	if s.Synthesis != nil {
 		for _, v := range s.Synthesis.Goals {
 			add(&overlay, "goal", v)
 		}
@@ -302,47 +257,8 @@ func unitsFor(s session.Session, coverage string) (content, overlay []unit) {
 		add(&overlay, "recap", s.Synthesis.NextStep)
 		for _, decision := range decisionsForSearch(s.Synthesis) {
 			raw, _ := json.Marshal(decision)
-			overlay = append(overlay, unit{Kind: decision.Kind, Text: decision.Text + " " + decision.Why + " " + decision.Alternative, Record: string(raw)})
+			overlay = append(overlay, unit{Kind: "decision", Text: decision.Text + " " + decision.Why + " " + decision.Alternative, Record: string(raw)})
 		}
 	}
 	return
-}
-
-// ReconcileSources removes rows belonging to sources no longer configured.
-func (i *Index) ReconcileSources(ctx context.Context, sources []string) error {
-	tx, err := i.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	keep := map[string]bool{}
-	for _, source := range sources {
-		keep[source] = true
-	}
-	rows, err := tx.QueryContext(ctx, "SELECT DISTINCT source_id FROM sessions")
-	if err != nil {
-		return err
-	}
-	var removed []string
-	for rows.Next() {
-		var source string
-		if err = rows.Scan(&source); err != nil {
-			rows.Close()
-			return err
-		}
-		if !keep[source] {
-			removed = append(removed, source)
-		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, source := range removed {
-		if _, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE source_id=?", source); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }

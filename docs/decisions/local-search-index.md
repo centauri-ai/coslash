@@ -20,7 +20,9 @@ Full prompt and question text is private enrichment: at most 8 KiB per digest
 entry and 128 KiB per session, preserving earliest entries first. It survives
 local parse caching but never enters JSON APIs, portable records, synthesis
 prompts, or revision hashes. Search responses expose only bounded matching
-snippets. See [session identity and revisions](session-identity-and-revisions.md).
+snippets. Adding this text bumped each vendor `ParserVersion`, so parse caches
+written without it are reparsed. See
+[session identity and revisions](session-identity-and-revisions.md).
 
 SSH indexing reads only complete stored full records from a complete live view;
 it never indexes the stripped startup snapshot or adds remote text that was not
@@ -39,12 +41,12 @@ other attribution is inferred. Uncited choices remain searchable at lower weight
 See [cite-checked decisions](session-decisions-cite-checked-evidence.md).
 
 A versioned empty list is authoritative. Only unversioned legacy summaries fall
-back to `KeyDecisions` strings, with no citation or attribution. All decisions map
-to kind `decision` and status `decided` as compatibility labels: the producer has
-no decision lifecycle. Search never extracts decisions, validates evidence,
-changes synthesis prompts, or regenerates summaries. The overlay key hashes the
-normalized decision content and metadata, so changes to citations or rationale
-refresh decision units without rewriting prompts. These boundaries are pinned by
+back to `KeyDecisions` strings, with no citation or attribution. The producer has
+no decision lifecycle, so search reports none. Search never extracts decisions,
+validates evidence, changes synthesis prompts, or regenerates summaries. The
+overlay key hashes the normalized decision content and metadata, so changes to
+citations or rationale refresh decision units without rewriting prompts. These
+boundaries are pinned by
 `TestDecisionsAdapterUsesStructuredProducerMetadata` and
 `TestStructuredDecisionOverlayUpdatesAndSearchesReasons`.
 

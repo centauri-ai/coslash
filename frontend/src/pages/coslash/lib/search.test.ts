@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { sessionMatchesSearch, sessionMatchesSearchTerm } from './search';
+import {
+  canFallbackSearch,
+  searchHitKey,
+  searchParts,
+  sessionMatchesSearch,
+  sessionMatchesSearchTerm,
+} from './search';
 import type { Session } from './session';
 import { makeSession } from './session-fixture';
 
@@ -136,5 +142,23 @@ describe('session search', () => {
     for (const query of ['repo:main', 'group:website', 'machine:ssh', 'agent:codex', 'status:idle']) {
       expect(sessionMatchesSearch(row, 'compiler', query), query).toBe(false);
     }
+  });
+
+  it('separates all prefixes and retains quoted content', () => {
+    expect(
+      searchParts('repo:app agent:codex machine:box group:work status:idle since:123 "merge queue"'),
+    ).toEqual({
+      content: '"merge queue"',
+      filters: 'repo:app agent:codex machine:box group:work status:idle since:123',
+    });
+    expect(searchParts('repo:app').content).toBe('');
+    expect(searchParts('* ""').content).toBe('');
+    expect(searchParts('repo:app *').content).toBe('');
+    expect(canFallbackSearch('merge queue')).toBe(true);
+    expect(canFallbackSearch('"merge queue"')).toBe(false);
+    expect(canFallbackSearch('since:123 queue')).toBe(false);
+    expect(searchHitKey({ sourceId: 'local', agent: 'codex', sessionId: 'one' })).not.toBe(
+      searchHitKey({ sourceId: 'ssh', agent: 'codex', sessionId: 'one' }),
+    );
   });
 });

@@ -3,7 +3,6 @@ import { type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
-import { SearchDecisions } from '@/pages/coslash/components/SearchDecisions';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
 import type { SearchResults } from '@/pages/coslash/lib/search';
 import { type Session } from '@/pages/coslash/lib/session';
@@ -78,10 +77,7 @@ function session(overrides: Partial<Session>): Session {
 }
 
 const state = vi.hoisted(() => ({ results: null as SearchResults | null, state: 'ready' }));
-vi.mock('@/pages/coslash/lib/search', async (original) => ({
-  ...(await original<object>()),
-  useRankedSearch: () => state,
-}));
+vi.mock('@/pages/coslash/hooks/use-ranked-search', () => ({ useRankedSearch: () => state }));
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -97,7 +93,6 @@ function hit(sessionId: string, agent: string, score: number) {
     agent,
     sessionId,
     score,
-    coverage: 'full',
     match: { kind: 'prompt', turn: 12, snippet: 'Use queue', ranges: [[4, 9]] as [number, number][] },
   };
 }
@@ -114,28 +109,22 @@ describe('ranked list', () => {
         digest: [],
       }),
     );
+    const decision = { sourceId: 'local', agent: 'codex', sessionId: '59' };
     state.results = {
-      indexState: 'ready',
       truncated: false,
       sessions: sessions.map((s, i) => hit(s.id, s.agent, 100 - i)),
       decisions: [
-        {
-          sourceId: 'local',
-          agent: 'codex',
-          sessionId: '59',
-          kind: 'decision',
-          status: 'decided',
-          text: 'Keep queue isolation',
-          turns: [],
-          cited: false,
-          score: 1,
-        },
+        { ...decision, text: 'Use isolated queues', cited: true },
+        { ...decision, text: 'Keep queue isolation', cited: false },
       ],
     };
     const html = renderLayout({ sessions, range: 'today' });
     expect(html).toContain('Answer 59');
     expect(html).not.toContain('Answer 58');
     expect(html).toContain('Keep queue isolation');
+    expect(html).toContain(' · Cited');
+    expect(html).toContain('No cited turn');
+    expect(html).not.toContain('verified');
     expect(html).toContain('prompt, turn 12');
     expect(html).toContain('<mark>queue</mark>');
     expect(html).toContain('All time (search)');
@@ -156,7 +145,6 @@ describe('ranked list', () => {
       }),
     ];
     state.results = {
-      indexState: 'ready',
       truncated: false,
       sessions: [hit('older', 'codex', 9), hit('newer', 'codex', 2)],
       decisions: [],
@@ -169,47 +157,4 @@ describe('ranked list', () => {
     html = renderLayout({ sessions });
     expect(html).not.toContain('queue on SSH');
   });
-});
-
-it('preserves structured decision citation labels in the search strip', () => {
-  const origin = session({ sourceId: 'local', id: 'decision-origin', name: 'Queue tradeoffs' });
-  const common = {
-    sourceId: origin.sourceId,
-    agent: origin.agent,
-    sessionId: origin.id,
-    kind: 'decision' as const,
-    status: 'decided' as const,
-    score: 1,
-  };
-  const html = renderToStaticMarkup(
-    <SearchDecisions
-      sessions={[origin]}
-      onSelect={() => {}}
-      decisions={[
-        {
-          ...common,
-          decisionId: 'cited-decision',
-          text: 'Use isolated queues',
-          why: 'Prevent cross-job interference',
-          alternative: 'Shared queue',
-          cited: true,
-          turns: [3],
-          decidedBy: 'user',
-        },
-        {
-          ...common,
-          decisionId: 'uncited-decision',
-          text: 'Keep batch boundaries',
-          cited: false,
-          turns: [],
-          decidedBy: '',
-        },
-      ]}
-    />,
-  );
-  expect(html).toContain('Use isolated queues');
-  expect(html).toContain(' · Cited');
-  expect(html).toContain('Keep batch boundaries');
-  expect(html).toContain('No cited turn');
-  expect(html).not.toContain('verified');
 });

@@ -14,65 +14,29 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
 
-type searchService struct {
-	index   *searchpkg.Index
-	trigger chan struct{}
-	cancel  context.CancelFunc
-	done    chan struct{}
-}
-
-func startSearchService(mgr *synthesis.Manager, remotes *remote.Manager) *searchService {
-	service := &searchService{trigger: make(chan struct{}, 1), done: make(chan struct{})}
+// startSearchIndex refreshes the index every 30 seconds until stop returns.
+// A nil index means search is unavailable.
+func startSearchIndex(mgr *synthesis.Manager, remotes *remote.Manager) (*searchpkg.Index, func()) {
 	index, err := searchpkg.Open(filepath.Join(settings.Home(), "search", "index.sqlite"))
 	if err != nil {
 		log.Printf("open search index: %v", err)
-		close(service.done)
-		return service
+		return nil, func() {}
 	}
-	service.index = index
 	ctx, cancel := context.WithCancel(context.Background())
-	service.cancel = cancel
+	done := make(chan struct{})
 	go func() {
-		defer close(service.done)
+		defer close(done)
 		defer index.Close()
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		last := time.Time{}
-		ready := false
-		for {
-			if last.IsZero() || time.Since(last) >= 30*time.Second {
-				ready = runSearchPass(ctx, index, mgr, remotes, ready)
-				last = time.Now()
-			}
+		for ready := false; ; {
+			ready = runSearchPass(ctx, index, mgr, remotes, ready)
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-			case <-service.trigger:
+			case <-time.After(30 * time.Second):
 			}
 		}
 	}()
-	return service
-}
-
-func (s *searchService) notify() {
-	if s == nil || s.index == nil {
-		return
-	}
-	select {
-	case s.trigger <- struct{}{}:
-	default:
-	}
-}
-
-func (s *searchService) close() {
-	if s == nil {
-		return
-	}
-	if s.cancel != nil {
-		s.cancel()
-	}
-	<-s.done
+	return index, func() { cancel(); <-done }
 }
 
 // runSearchPass reports whether a pass has ever completed. After one has, a
@@ -113,9 +77,6 @@ func refreshSearchIndex(ctx context.Context, index *searchpkg.Index, mgr *synthe
 	}
 	identities := make([]searchpkg.Identity, 0, len(sessions))
 	for _, original := range sessions {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		value := *original
 		if mgr != nil {
 			value.Synthesis = mgr.Lookup(value.Agent, value.ID, synthesis.Revision(&value))
@@ -129,19 +90,13 @@ func refreshSearchIndex(ctx context.Context, index *searchpkg.Index, mgr *synthe
 			return err
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if err := index.Reconcile(ctx, localSourceID, identities, 0); err != nil {
 		return err
 	}
 	total := len(identities)
 	sources := []string{localSourceID}
 	if remotes != nil {
-		view, err := remotes.SearchRecords()
-		if err != nil {
-			return err
-		}
+		view := remotes.SearchRecords()
 		if view.SourceID != "" {
 			sources = append(sources, view.SourceID)
 		}
@@ -166,9 +121,6 @@ func refreshSearchIndex(ctx context.Context, index *searchpkg.Index, mgr *synthe
 					return err
 				}
 			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
 			if err := index.Reconcile(ctx, view.SourceID, remoteIDs, view.SinceMs); err != nil {
 				return err
 			}
@@ -180,9 +132,6 @@ func refreshSearchIndex(ctx context.Context, index *searchpkg.Index, mgr *synthe
 			return firstErr
 		}
 		log.Printf("search index skipped %d of %d sessions: %v", failed, attempted, firstErr)
-	}
-	if err := ctx.Err(); err != nil {
-		return err
 	}
 	if err := index.ReconcileSources(ctx, sources); err != nil {
 		return err

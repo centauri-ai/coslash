@@ -7,7 +7,6 @@ import (
 
 type Query struct {
 	Terms          []string
-	Match          string
 	DecisionIntent bool
 	Filters        map[string][]string
 }
@@ -77,10 +76,13 @@ func ParseQuery(raw string) Query {
 	if len(q.Terms) > 8 {
 		q.Terms = q.Terms[:8]
 	}
+	return q
+}
+
+func (q Query) match(op string) string {
 	terms := make([]string, len(q.Terms))
 	for i, t := range q.Terms {
 		terms[i] = literal(t)
 	}
-	q.Match = strings.Join(terms, " OR ")
-	return q
+	return strings.Join(terms, op)
 }

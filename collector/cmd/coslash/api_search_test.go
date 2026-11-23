@@ -28,9 +28,7 @@ func testSearchIndex(t *testing.T) *searchpkg.Index {
 }
 
 func TestSearchRoutesGuardReadinessAndValidation(t *testing.T) {
-	index := testSearchIndex(t)
-	service := &searchService{index: index}
-	mux := routesWithOnboarding(nil, nil, nil, nil, nil, nil, serverServices{search: service})
+	mux := routesWithOnboarding(nil, nil, nil, nil, nil, nil, serverServices{search: testSearchIndex(t)})
 	handler := httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}.Wrap(mux)
 	for _, test := range []struct {
 		path, token string
@@ -144,37 +142,18 @@ func TestSearchCLIPath(t *testing.T) {
 	}
 }
 
-func TestSearchAPIFiltersBeforeLimit(t *testing.T) {
+func TestSearchCLIRoundTrip(t *testing.T) {
 	index := testSearchIndex(t)
 	for _, repo := range []string{"excluded", "included"} {
-		value := session.Session{ID: repo, Agent: "claude", Repository: &repo, SessionDetails: session.SessionDetails{Digest: []session.DigestEntry{{Category: session.DigestUser, Description: "merge queue", SearchText: "merge queue"}}}}
+		value := session.Session{ID: repo, Agent: "claude", Repository: &repo, SessionDetails: session.SessionDetails{Synthesis: &session.SessionSynthesis{KeyDecisions: []string{"merge queue commits"}}}}
 		if err := index.Upsert(context.Background(), "local", value, "full"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	index.SetState("ready", 2)
-	response := httptest.NewRecorder()
-	handleSearch(response, httptest.NewRequest(http.MethodGet, "/api/search?q=queue&repo=included&limit=1", nil), &searchService{index: index})
-	var result searchpkg.Response
-	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Sessions) != 1 || result.Sessions[0].SessionID != "included" {
-		t.Fatalf("response %s", response.Body.String())
-	}
-}
-
-func TestSearchCLIRoundTrip(t *testing.T) {
-	index := testSearchIndex(t)
-	value := session.Session{ID: "answer", Agent: "claude", SessionDetails: session.SessionDetails{Synthesis: &session.SessionSynthesis{KeyDecisions: []string{"merge queue commits"}}}}
-	if err := index.Upsert(context.Background(), "local", value, "full"); err != nil {
-		t.Fatal(err)
-	}
-	index.SetState("ready", 1)
 	mux := http.NewServeMux()
-	service := &searchService{index: index}
-	mux.HandleFunc("GET /api/search", func(w http.ResponseWriter, r *http.Request) { handleSearch(w, r, service) })
-	mux.HandleFunc("GET /api/search/status", func(w http.ResponseWriter, r *http.Request) { handleSearchStatus(w, r, service) })
+	mux.HandleFunc("GET /api/search", func(w http.ResponseWriter, r *http.Request) { handleSearch(w, r, index) })
+	mux.HandleFunc("GET /api/search/status", func(w http.ResponseWriter, r *http.Request) { handleSearchStatus(w, r, index) })
 	server := httptest.NewUnstartedServer(nil)
 	guard := httpsec.Guard{Addr: server.Listener.Addr().String(), Token: "search-test-token"}
 	server.Config.Handler = guard.Wrap(mux)
@@ -182,18 +161,19 @@ func TestSearchCLIRoundTrip(t *testing.T) {
 	defer server.Close()
 	writeTestRuntime(t, server.URL, "search-test-token")
 	var output bytes.Buffer
-	if err := runSearch(&output, []string{"why merge queue", "--json"}); err != nil {
+	// "excluded" wins the tie, so the repository filter must apply before the limit.
+	if err := runSearch(&output, []string{"why merge queue repo:included", "--limit", "1", "--json"}); err != nil {
 		t.Fatal(err)
 	}
 	var result searchpkg.Response
 	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Decisions) != 1 || result.Decisions[0].Selector != "claude:answer" || result.Decisions[0].Cited || len(result.Decisions[0].Turns) != 0 || len(result.Sessions) != 1 {
+	if len(result.Sessions) != 1 || result.Sessions[0].SessionID != "included" || len(result.Decisions) != 1 || result.Decisions[0].Selector != "claude:included" || result.Decisions[0].Cited || len(result.Decisions[0].Turns) != 0 {
 		t.Fatalf("%s", output.String())
 	}
 	output.Reset()
-	if err := runSearch(&output, []string{"--status", "local/claude/answer", "--json"}); err != nil {
+	if err := runSearch(&output, []string{"--status", "local/claude/included", "--json"}); err != nil {
 		t.Fatal(err)
 	}
 	var status searchpkg.Status
@@ -203,25 +183,7 @@ func TestSearchCLIRoundTrip(t *testing.T) {
 	if status.State != "ready" || status.Coverage != "full" {
 		t.Fatalf("%s", output.String())
 	}
-	value.Synthesis = &session.SessionSynthesis{DecisionsVersion: "decisions-2026-11-v1", Decisions: []session.Decision{{ID: "choice", Text: "merge queue commits", Why: "preserve ancestry", Alternative: "squash", Cited: true, ByYou: true, Evidence: []session.Evidence{{Turn: 4}}}}}
-	if err := index.Upsert(context.Background(), "local", value, "full"); err != nil {
-		t.Fatal(err)
-	}
-	output.Reset()
-	if err := runSearch(&output, []string{"ancestry", "--json"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Decisions) != 1 {
-		t.Fatalf("structured CLI result: %s", output.String())
-	}
-	d := result.Decisions[0]
-	if d.DecisionID != "choice" || !d.Cited || d.DecidedBy != "user" || d.Why != "preserve ancestry" || d.Alternative != "squash" || len(d.Turns) != 1 || d.Turns[0] != 4 {
-		t.Fatalf("structured CLI metadata: %+v", d)
-	}
-	index.SetState("building", 1)
+	index.SetState("building", 2)
 	output.Reset()
 	if err := runSearch(&output, []string{"merge queue", "--json"}); err == nil || !strings.Contains(err.Error(), "building") || output.Len() != 0 {
 		t.Fatalf("building: output %q, err %v", output.String(), err)

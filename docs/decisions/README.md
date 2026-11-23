@@ -16,7 +16,6 @@ This folder records the load-bearing decisions of coSlash that the code cannot e
 
 - [Session decisions carry cite-checked evidence](session-decisions-cite-checked-evidence.md) - Read if: you change structured decisions, evidence checks, synthesis merges, decision links, or their portable-record boundary.
 - [Local search is derived private state outside session revisions](local-search-index.md) - Read if: you change search indexing, prompt retention, ranking, coverage, or search readiness.
-
 - [Synthesis is opt-in and reads only bounded derived facts](synthesis-opt-in-bounded-facts.md) - Read if: you change synthesis defaults, settings, prompt construction, input budgets, or synthesis accounting.
 - [The loopback API trusts the per-run token, not the network location](loopback-api-access-guard.md) - Read if: you add or change an HTTP route, server startup, the token file, runtime discovery, CORS, or error messages returned to clients.
 - [Personal Hub sync uses paired-device consent](personal-hub-sync-consent.md) - Read if: you touch Hub pairing, sync policy, upload, retry, export serializers, workspace sharing, or anything that sends session data off the machine.

@@ -40,6 +40,7 @@ import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { SearchDecisions, SearchMatchLine } from '@/pages/coslash/components/SearchDecisions';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
+import { useRankedSearch } from '@/pages/coslash/hooks/use-ranked-search';
 import {
   locationChoiceId,
   locationChoices,
@@ -71,7 +72,6 @@ import {
   searchHitKey,
   searchParts,
   sessionMatchesSearch,
-  useRankedSearch,
   type SearchHit,
   type SearchMatch,
 } from '@/pages/coslash/lib/search';
@@ -1019,38 +1019,22 @@ export function CoslashLayout({
   const searchMatches = useMemo(
     () =>
       new Map(
-        sessionsInRange.map((session) => [
-          sessionKey(session),
-          ranked
-            ? sessionMatchesSearch(
-                session,
-                sessionGroups
-                  .get(sessionKey(session))!
-                  .options.map((g) => [g.label, g.basis].join(' '))
-                  .join(' '),
-                queryParts.filters,
-              ) &&
-              (searchHits.has(sessionKey(session)) ||
-                (!isLocalSession(session) &&
-                  !indexedRemote.has(sessionKey(session)) &&
-                  sessionMatchesSearch(
-                    session,
-                    sessionGroups
-                      .get(sessionKey(session))!
-                      .options.map((g) => [g.label, g.basis].join(' '))
-                      .join(' '),
-                    preferences.query,
-                  )))
-            : (!searchActive || canFallbackSearch(preferences.query)) &&
-              sessionMatchesSearch(
-                session,
-                sessionGroups
-                  .get(sessionKey(session))!
-                  .options.map((g) => [g.label, g.basis].join(' '))
-                  .join(' '),
-                preferences.query,
-              ),
-        ]),
+        sessionsInRange.map((session) => {
+          const key = sessionKey(session);
+          const groupLabel = sessionGroups
+            .get(key)!
+            .options.map((g) => [g.label, g.basis].join(' '))
+            .join(' ');
+          const matches = (query: string) => sessionMatchesSearch(session, groupLabel, query);
+          return [
+            key,
+            ranked
+              ? matches(queryParts.filters) &&
+                (searchHits.has(key) ||
+                  (!isLocalSession(session) && !indexedRemote.has(key) && matches(preferences.query)))
+              : (!searchActive || canFallbackSearch(preferences.query)) && matches(preferences.query),
+          ];
+        }),
       ),
     [
       preferences.query,
