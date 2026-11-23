@@ -71,6 +71,7 @@ func (r *Runner) currentWait(ctx context.Context) *hubclient.V4ImportWait {
 	if ready {
 		conditions.spaceFull, conditions.backoff = false, false
 	}
+	conditions.spaceFull = conditions.spaceFull || r.spaceFullUntil.Load() > r.now().UnixNano()
 	reason := waitReason(conditions)
 	r.waitMu.Lock()
 	defer r.waitMu.Unlock()

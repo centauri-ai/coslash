@@ -1,6 +1,7 @@
 package syncv4
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,6 +57,17 @@ var ErrCommandPickedUp = errors.New("v4 command picked up")
 // takes seconds, so waiting a full sync interval would stretch a large first
 // sync into hours.
 const busyRetry = 20 * time.Second
+
+// spaceFullRetry holds new upload creates device-wide after space_full when the
+// Hub sends no Retry-After. A full space refuses every session's create alike.
+const spaceFullRetry = time.Hour
+
+var errSpaceFullHeld = errors.New("v4 upload creates held after space_full")
+
+func spaceFull(err error) bool {
+	var problem hubclient.V4Problem
+	return errors.As(err, &problem) && problem.Code == "space_full"
+}
 
 // Busy reports the Hub's active-upload limit (rate_limited): more uploads
 // open once in-flight ones finalize.
@@ -166,6 +179,7 @@ type Runner struct {
 	lastProgressCheckIn atomic.Int64
 	checkInGeneration   atomic.Uint64
 	checkInRetryUntil   atomic.Int64
+	spaceFullUntil      atomic.Int64
 	checkInRejections   atomic.Int32
 	lastReportedPhase   string
 	lastDiscoveryAt     time.Time
@@ -735,6 +749,11 @@ func (r *Runner) persistPolicyStop(entry *Entry, err error) error {
 	if errors.As(err, &problem) && (problem.Code == "sync_paused" || problem.Code == "device_sync_off") {
 		return r.recordFailure(entry, err)
 	}
+	if spaceFull(err) {
+		if failure := r.recordFailure(entry, err); failure != nil {
+			return failure
+		}
+	}
 	return err
 }
 
@@ -768,6 +787,10 @@ func (r *Runner) forgetMissingLocalSources(ctx context.Context, seen map[string]
 }
 
 func (r *Runner) recordFailureState(entry *Entry, failure error, sourceFailure bool) error {
+	// A held create never reached the Hub; the session that did keeps the failure.
+	if errors.Is(failure, errSpaceFullHeld) {
+		return nil
+	}
 	var preparation *sessionbackupproducer.PreparationError
 	if errors.As(failure, &preparation) && preparation.SourceMissing {
 		return r.Queue.ForgetMissingSource(*entry)
@@ -1165,6 +1188,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 				r.retryCommands[command.ID] = payload.SessionID
 				r.Queue.HoldCommand(command.ID)
 				r.newRetryCommand = true
+				r.spaceFullUntil.Store(0)
 				r.RequestDiscovery()
 				continue
 			}
@@ -1570,11 +1594,19 @@ func (r *Runner) freezeIfDue(entry *Entry) error {
 }
 
 func (r *Runner) createUpload(ctx context.Context, entry *Entry) error {
+	if until := r.spaceFullUntil.Load(); until > r.now().UnixNano() {
+		return fmt.Errorf("%w: %w", errSpaceFullHeld, hubclient.V4Problem{Code: "space_full",
+			HTTPStatus: http.StatusRequestEntityTooLarge, RetryAfter: time.Duration(until - r.now().UnixNano())})
+	}
 	manifest := entry.Manifest
 	entry.ContentSHA256 = manifest.ContentSHA256
 	key := localKey(entry.Key, manifest.ContentSHA256, fmt.Sprint(entry.Attempt))
 	status, err := r.Hub.V4Create(ctx, hubclient.V4Create{IdempotencyKey: key, Session: entry.Session, Manifest: *manifest})
 	if err != nil {
+		var problem hubclient.V4Problem
+		if errors.As(err, &problem) && problem.Code == "space_full" {
+			r.spaceFullUntil.Store(r.now().Add(cmp.Or(problem.RetryAfter, spaceFullRetry)).UnixNano())
+		}
 		return err
 	}
 	if status.SessionID == "" {
