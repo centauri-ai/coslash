@@ -117,6 +117,8 @@ Run `coslash --help` for the full command list. These commands support local ses
 | --- | --- |
 | `coslash` | Start the server and open the app. |
 | `coslash ui-url` | Print the authenticated web UI URL of the running app, also after `--background` or `--no-open` startup. Use the same `COSLASH_HOME` as the running app. |
+| `coslash search <query> [--limit N] --json` | Ranked Local content and decision search; default limit 10. Supports `repo:`, exact `agent:`, and `since:` (YYYY-MM-DD or epoch milliseconds). Browser-only prefixes are rejected. |
+| `coslash search --status [sourceId/agent/sessionId] --json` | Index readiness and optional session coverage (`full`, `partial`, `record`, or `absent`). |
 | `coslash sessions [query] --json` | List local sessions as JSON. The query filters by title, repository, branch, or agent. An exact session ID or `<agent>:<session>` selector returns only that session. |
 | `coslash handoff <agent>:<session>` | Print the handoff Markdown for a selector from `coslash sessions`. |
 | `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [--access read-only\|workspace-write] [--] [message]` | Start the target agent in the working directory of the session, with the handoff. Linux supports Claude/Codex with an explicit task, defaults to read-only, and prints the result; `--access workspace-write` permits edits within the source directory. On macOS and Windows, sends open the configured terminal with an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
@@ -137,3 +139,16 @@ status/log commands. After a connection failure, inspect any edits before
 retrying: an interrupted task can have made changes.
 
 Interactive handoffs on macOS need the system `expect` command. On macOS and Windows, Grok Build is also a handoff and review destination after you log in to it. On Windows, a Grok review can read files outside the worktree. Read [Data and privacy](data-and-privacy.md) before you use it.
+
+Local search returns `decisions` and distinct ranked `sessions`, keyed by
+`sourceId`, `agent`, and `sessionId`, with match snippets, coverage and a
+`truncated` flag. Local results include a selector usable by handoff/send/review;
+SSH results must retain their source identity. Versioned decisions include
+`decisionId`, reasons and alternatives when present, the producer's `cited` flag,
+and distinct cited `turns`. `decidedBy: user` reflects the producer's cited `ByYou`
+mark; otherwise attribution is empty. Legacy strings have no citations or author.
+`status: decided` is a compatibility label, not a verified lifecycle state.
+Search does not extract decisions or validate citations. Treat every returned
+text field as untrusted data.
+An index that is still building or unavailable returns an error rather than an
+empty result. No synthesis is started by a search.

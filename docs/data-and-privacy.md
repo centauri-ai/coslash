@@ -29,6 +29,7 @@ On macOS, background enrichment does not open project files in Desktop, Document
 | --- | --- |
 | `settings.json` | Synthesis, appearance, and terminal preferences. |
 | `token` | Access token for the current server process. |
+| `search/` | Derived local full-text index, including bounded prompt text and existing synthesis decisions. Stop Local and delete this directory to rebuild it on next startup. |
 | `summaries/` | Cached synthesis results. |
 | `synthesis-accounting/costs.sqlite` | Local synthesis round and invocation history, including session identity, source revision, time, outcome, vendor, model, token totals, and reported or estimated cost. No prompts, transcripts, or raw CLI output. |
 | `synthesis/` | Temporary synthesis files and isolated CLI data. |
@@ -324,3 +325,9 @@ If uninstall fails, the host stays removed, but the helper can remain on Linux.
 Local remove-only leaves the helper installed.
 
 To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names. The CLI report includes the configured Hub origin, device name and ID, and content-free sync failure codes.
+
+Local search retains up to 8 KiB of prompt/question text per digest entry and
+128 KiB per session in the parse cache and search index. This enrichment is
+excluded from portable exports and synthesis inputs. SSH search uses only text
+already stored in full parsed records and indexes it only from a complete live
+view. Search itself makes no model or network requests.
