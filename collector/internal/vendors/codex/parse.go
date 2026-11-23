@@ -49,7 +49,7 @@ type codexSessionAnalysis struct {
 	commands         session.CommandLog
 	skills           codexSkills
 	commitLog        []session.CommitObservation
-	pullRequests     map[string]struct{}
+	pullRequests     []session.PullRequestLink
 	fileEdits        *session.FileEditSet
 	digest           session.DigestLog
 	plan             []planStep
@@ -251,7 +251,7 @@ func analyzeCodexSessionSource(
 	if err != nil {
 		return nil, err
 	}
-	pullRequests, err := pullRequestURLs(ctx, rows)
+	pullRequests, err := pullRequestLinksContext(ctx, rows, SessionIDFromRollout(file))
 	if err != nil {
 		return nil, err
 	}
@@ -563,7 +563,7 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),
 	}
-	unifiedSessionDetails.SetPullRequestLinks(session.NewPullRequestLinks(analysis.pullRequests))
+	unifiedSessionDetails.SetPullRequestLinks(analysis.pullRequests)
 	if analysis.model != "" {
 		unifiedSessionDetails.Model = &analysis.model
 	}
@@ -711,7 +711,7 @@ func unifiedDiffStat(diff string) (additions, deletions int) {
 }
 
 var execCmdPattern = regexp.MustCompile(
-	`(?:^|[{,]\s*)(?:"cmd"|cmd)\s*:\s*("(?:[^"\\]|\\.)*")`,
+	`(?:^|[{,]\s*)(?:"cmd"|cmd)\s*:\s*("(?:[^"\\]|\\.)*"|\x60[^\x60\\]*\x60)`,
 )
 var pullRequestDirectivePattern = regexp.MustCompile(
 	`::git-create-pr\{[^}\n]*\burl="(https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+)"[^}\n]*\}`,
@@ -969,9 +969,19 @@ type codexCommandResult struct {
 	succeeded bool
 }
 
-func pullRequestURLs(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
+func pullRequestLinksContext(ctx context.Context, rows []codexRow, sessionID string) ([]session.PullRequestLink, error) {
 	urls := map[string]struct{}{}
+	created := map[string]bool{}
 	calls := map[string]codexPullRequestCall{}
+	// Untagged native calls are unambiguous only in a rollout with a single, own header.
+	ownNativeCalls := false
+	headers := 0
+	for _, row := range rows {
+		if row.Type == "session_meta" {
+			headers++
+			ownNativeCalls = headers == 1 && sessionID != "" && row.Payload.ID == sessionID && row.Payload.ForkedFromID == ""
+		}
+	}
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -980,6 +990,14 @@ func pullRequestURLs(ctx context.Context, rows []codexRow) (map[string]struct{},
 			switch row.Payload.Type {
 			case "function_call", "custom_tool_call":
 				call := codexPullRequestCall{commands: commandsFrom(row.Payload), tool: session.IsPullRequestCreateTool(row.Payload.Name)}
+				if ownNativeCalls && row.Payload.Type == "function_call" && row.Payload.Name == "exec_command" {
+					var args struct {
+						Cmd string `json:"cmd"`
+					}
+					if json.Unmarshal([]byte(row.Payload.Arguments), &args) == nil {
+						call.nativeCommand = args.Cmd
+					}
+				}
 				if call.tool || slices.ContainsFunc(call.commands, session.IsPullRequestCreate) {
 					calls[row.Payload.CallID] = call
 				}
@@ -1007,6 +1025,11 @@ func pullRequestURLs(ctx context.Context, rows []codexRow) (map[string]struct{},
 				}
 				for i, command := range call.commands {
 					if results[i].succeeded && session.IsPullRequestCreate(command) {
+						if command == call.nativeCommand && len(call.commands) == 1 {
+							if url := session.ConfirmedCreateURL(command, results[i].output); url != "" {
+								created[url] = true
+							}
+						}
 						for _, url := range session.CreatedPullRequestURLs(false, results[i].output) {
 							urls[url] = struct{}{}
 						}
@@ -1019,6 +1042,11 @@ func pullRequestURLs(ctx context.Context, rows []codexRow) (map[string]struct{},
 			item := row.Payload.Item
 			if item.Type == "CommandExecution" && item.ExitCode != nil && *item.ExitCode == 0 &&
 				len(item.Command) > 0 && session.IsPullRequestCreate(item.Command[len(item.Command)-1]) {
+				if row.Payload.Type == "item_completed" && row.Payload.ThreadID == sessionID && sessionID != "" && isShellExecution(item.Command) {
+					if url := session.ConfirmedCreateURL(item.Command[len(item.Command)-1], item.AggregatedOutput); url != "" {
+						created[url] = true
+					}
+				}
 				for _, url := range session.PullRequestURLs(item.AggregatedOutput) {
 					urls[url] = struct{}{}
 				}
@@ -1042,7 +1070,22 @@ func pullRequestURLs(ctx context.Context, rows []codexRow) (map[string]struct{},
 			}
 		}
 	}
-	return urls, nil
+	links := session.NewPullRequestLinks(urls)
+	for i := range links {
+		links[i].Created = created[links[i].URL]
+	}
+	return links, nil
+}
+
+func isShellExecution(argv []string) bool {
+	if len(argv) != 3 || (argv[1] != "-c" && argv[1] != "-lc") {
+		return false
+	}
+	switch filepath.Base(argv[0]) {
+	case "sh", "bash", "zsh", "dash", "ksh":
+		return true
+	}
+	return false
 }
 
 func commitObservationsByCall(ctx context.Context, rows []codexRow) ([]session.CommitObservation, error) {
@@ -1153,16 +1196,16 @@ func payloadText(payload codexPayload) string {
 // codexPullRequestCall is a tool call that can create a pull request: the
 // commands of its script, or a GitHub MCP create call.
 type codexPullRequestCall struct {
-	commands []string
-	tool     bool
+	commands      []string
+	nativeCommand string
+	tool          bool
 }
 
 // commandsFrom returns every command that a code-mode script or an exec call runs.
 func commandsFrom(payload codexPayload) []string {
 	var commands []string
 	for _, m := range execCmdPattern.FindAllStringSubmatch(payloadText(payload), -1) {
-		var command string
-		if json.Unmarshal([]byte(m[1]), &command) == nil {
+		if command, ok := literalCommand(m[1]); ok {
 			commands = append(commands, command)
 		}
 	}
@@ -1209,9 +1252,14 @@ func commandFrom(payload codexPayload) (string, bool) {
 	if m == nil {
 		return "", false
 	}
-	var command string
-	if err := json.Unmarshal([]byte(m[1]), &command); err != nil {
-		return "", false
+	return literalCommand(m[1])
+}
+
+func literalCommand(literal string) (string, bool) {
+	if literal[0] == '`' {
+		return literal[1 : len(literal)-1], !strings.Contains(literal, "${")
 	}
-	return command, true
+	var command string
+	err := json.Unmarshal([]byte(literal), &command)
+	return command, err == nil
 }

@@ -85,7 +85,9 @@ func TestPullRequestLinksAreCanonical(t *testing.T) {
 	if got[1].Repository != "acme/api" || got[1].Number != 10 {
 		t.Fatalf("link parts = %#v", got[1])
 	}
-	if merged := MergePullRequestLinks(got[:2], got[1:]); len(merged) != 3 {
+	got[1].Created = true
+	got[2].Created = true
+	if merged := MergePullRequestLinks(got[:2], got[1:]); len(merged) != 3 || !merged[1].Created || merged[2].Created {
 		t.Fatalf("merged = %#v", merged)
 	}
 	many := map[string]struct{}{}

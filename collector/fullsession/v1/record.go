@@ -99,6 +99,7 @@ type PullRequestLink struct {
 	URL        string `json:"url"`
 	Repository string `json:"repository"`
 	Number     int    `json:"number"`
+	Created    bool   `json:"created,omitempty"`
 }
 
 type ModelUsage struct {

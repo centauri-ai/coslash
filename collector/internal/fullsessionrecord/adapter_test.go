@@ -959,7 +959,7 @@ func TestSessionRoundTripPreservesPullRequestLinks(t *testing.T) {
 		},
 	}
 	original.SetPullRequestLinks([]session.PullRequestLink{
-		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2},
+		{URL: "https://github.com/acme/api/pull/2", Repository: "acme/api", Number: 2, Created: true},
 		{URL: "https://github.com/acme/web/pull/4", Repository: "acme/web", Number: 4},
 	})
 	record, err := FromSession("r_0123456789abcdef", original)
