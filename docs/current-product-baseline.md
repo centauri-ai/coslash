@@ -56,6 +56,8 @@ All routes are loopback-only and protected by the process access-token guard.
 
 | Method and route | Function |
 | --- | --- |
+| `GET /api/search` | Ranked Local content and decision search; optional repo, agent, since and limit filters |
+| `GET /api/search/status` | Index readiness and optional source/agent/session coverage |
 | `GET /api/sessions` | Local sessions; `sourceAware=1` adds safe local/SSH source facts |
 | `GET /api/synthesis` | Read or request the selected local session synthesis |
 | `POST /api/hub/share-synthesis` | Check or start a selected Local session's revision-bound debrief before complete-backup review; report pending, consent, eligibility, and failure states |
@@ -262,3 +264,10 @@ Claude Code, Codex, Cursor, OpenCode, Grok Build, and Pi sessions are
 collected from their XDG locations. Pi and Grok Build synthesis, reviews, and
 launch actions remain unavailable on Linux. See
 `docs/decisions/linux-local-runtime.md`.
+
+Local content queries use an all-time FTS5 index, with field-weighted relevance,
+match snippets and a matching-decisions strip consuming structured synthesis decisions (with a legacy
+string fallback). Facets filter the full returned
+match set. Search exposes readiness and retains a labelled browser fallback for
+plain-word queries while the index builds. SSH coverage is limited to persisted
+full records from a complete live view; metadata-only matches follow ranked hits.

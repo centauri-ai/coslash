@@ -14,6 +14,10 @@ catch up on what changed, and resume work with context.
 **coSlash Local** is free and open source under the [MIT license](LICENSE).
 **coSlash Hub** is an optional commercial, proprietary service with [free and paid plans](https://coslash.io/?product=hub).
 
+Search session content across all time in Local, or run
+`coslash search "why did we choose the merge queue" --json` for ranked sessions
+and decisions. Search runs locally without a model or API key.
+
 ![Current table and board views with sample sessions, followed by a repository search](docs/media/list-and-board.gif)
 
 ## Why coSlash?

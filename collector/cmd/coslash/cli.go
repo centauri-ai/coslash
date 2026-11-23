@@ -247,6 +247,7 @@ var cliCommandHelp = []struct {
 	{"service", "install login and URL handlers on macOS", "coslash service install"},
 	{"connect", "pair this Local with Hub", "coslash connect <code> --hub <origin> [--json]"},
 	{"sessions", "list local sessions as JSON", sessionsUsage()},
+	{"search", "search local session content and decisions", searchUsage},
 	{"handoff", "print a session handoff", "coslash handoff <agent>:<session>"},
 	{"send", "start an agent with a session handoff", sendUsage()},
 	{"review", "review a session with another agent", reviewHelp()},
@@ -324,6 +325,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 			fmt.Fprintln(stdout, "usage: coslash service install")
 		case "connect":
 			return runConnectCLI(stdout, stderr, args[1:])
+		case "search":
+			fmt.Fprintln(stdout, searchUsage)
 		case "sessions":
 			fmt.Fprintln(stdout, sessionsUsage())
 		case "handoff":
@@ -357,6 +360,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		err = installService()
 	case "connect":
 		return runConnectCLI(stdout, stderr, args[1:])
+	case "search":
+		err = runSearch(stdout, args[1:])
 	case "sessions":
 		err = runSessions(stdout, args[1:])
 	case "handoff":
