@@ -83,9 +83,6 @@ func normalizeDecisions(s *session.SessionSynthesis) {
 
 func checkEvidence(s *session.Session, result *session.SessionSynthesis) {
 	normalizeDecisions(result)
-	if result.DecisionsVersion == "" {
-		return
-	}
 	visible := sourceEvidence(s)
 	validDoc := false
 	if s != nil {

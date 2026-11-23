@@ -271,18 +271,18 @@ func TestParseResultEnvelopeRejectsIncompleteSynthesis(t *testing.T) {
 	}
 }
 
-func TestNormalizeKeepsTwelveIntermediateDecisions(t *testing.T) {
-	decisions := make([]string, 13)
+func TestNormalizeKeepsFiveIntermediateDecisions(t *testing.T) {
+	decisions := make([]session.Decision, 6)
 	for index := range decisions {
-		decisions[index] = fmt.Sprintf("decision-%02d", index+1)
+		decisions[index] = session.Decision{Text: fmt.Sprintf("decision-%02d", index+1)}
 	}
-	synthesis := session.SessionSynthesis{Goals: []string{"ship"}, KeyDecisions: decisions}
+	synthesis := session.SessionSynthesis{DecisionsVersion: DecisionsVersion, Goals: []string{"ship"}, Decisions: decisions}
 
 	if err := normalize(&synthesis); err != nil {
 		t.Fatal(err)
 	}
-	if len(synthesis.KeyDecisions) != 12 || synthesis.KeyDecisions[11] != "decision-12" {
-		t.Fatalf("key decisions = %#v, want first 12", synthesis.KeyDecisions)
+	if len(synthesis.Decisions) != 5 || synthesis.Decisions[4].Text != "decision-05" {
+		t.Fatalf("decisions = %#v, want first 5", synthesis.Decisions)
 	}
 }
 

@@ -23,10 +23,8 @@ import (
 )
 
 const (
-	maxIntermediateKeyDecisions = 12
-	maxFinalKeyDecisions        = 8
-	grokScratchPrefix           = ".grok-"
-	synthesisSchema             = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"decisions":{"type":"array","items":{"anyOf":[{"type":"object","properties":{"text":{"type":"string"},"why":{"type":"string"},"alternative":{"type":"string"},"byYou":{"type":"boolean"},"evidence":{"type":"array","items":{"type":"object","properties":{"turn":{"type":"integer"},"quote":{"type":"string","maxLength":160}},"required":["turn","quote"],"additionalProperties":false},"minItems":1,"maxItems":3}},"required":["text","why","alternative","byYou","evidence"],"additionalProperties":false},{"type":"object","properties":{"text":{"type":"string"},"why":{"type":"string"},"alternative":{"type":"string"},"byYou":{"type":"boolean"},"from":{"type":"array","items":{"type":"string"}}},"required":["text","why","alternative","byYou","from"],"additionalProperties":false}]},"maxItems":5},"designDoc":{"type":"string"},"nextStep":{"type":"string"}},"required":["goals","outcome","decisions","designDoc","nextStep"],"additionalProperties":false}`
+	grokScratchPrefix = ".grok-"
+	synthesisSchema   = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"decisions":{"type":"array","items":{"anyOf":[{"type":"object","properties":{"text":{"type":"string"},"why":{"type":"string"},"alternative":{"type":"string"},"byYou":{"type":"boolean"},"evidence":{"type":"array","items":{"type":"object","properties":{"turn":{"type":"integer"},"quote":{"type":"string","maxLength":160}},"required":["turn","quote"],"additionalProperties":false},"minItems":1,"maxItems":3}},"required":["text","why","alternative","byYou","evidence"],"additionalProperties":false},{"type":"object","properties":{"text":{"type":"string"},"why":{"type":"string"},"alternative":{"type":"string"},"byYou":{"type":"boolean"},"from":{"type":"array","items":{"type":"string"}}},"required":["text","why","alternative","byYou","from"],"additionalProperties":false}]},"maxItems":5},"designDoc":{"type":"string"},"nextStep":{"type":"string"}},"required":["goals","outcome","decisions","designDoc","nextStep"],"additionalProperties":false}`
 )
 
 const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
@@ -600,21 +598,39 @@ func parseGrokSynthesis(data []byte) (session.SessionSynthesis, error) {
 }
 
 func parseSynthesis(data []byte) (session.SessionSynthesis, error) {
-	result := stripJSONFence(string(data))
-	if err := requireSynthesisFields([]byte(result)); err != nil {
-		return session.SessionSynthesis{}, err
-	}
 	var raw struct {
-		Goals     []string          `json:"goals"`
-		Outcome   string            `json:"outcome"`
-		NextStep  string            `json:"nextStep"`
-		DesignDoc string            `json:"designDoc"`
+		Goals     []*string         `json:"goals"`
+		Outcome   *string           `json:"outcome"`
 		Decisions []json.RawMessage `json:"decisions"`
+		DesignDoc *string           `json:"designDoc"`
+		NextStep  *string           `json:"nextStep"`
 	}
-	if err := json.Unmarshal([]byte(result), &raw); err != nil {
+	if err := json.Unmarshal([]byte(stripJSONFence(string(data))), &raw); err != nil {
 		return session.SessionSynthesis{}, fmt.Errorf("decode synthesis result: %w", err)
 	}
-	synthesis := session.SessionSynthesis{Goals: raw.Goals, Outcome: raw.Outcome, NextStep: raw.NextStep, DesignDoc: raw.DesignDoc, DecisionsVersion: DecisionsVersion, KeyDecisions: []string{}}
+	if len(raw.Goals) == 0 {
+		return session.SessionSynthesis{}, errors.New("synthesis result has no goals")
+	}
+	goals := make([]string, 0, len(raw.Goals))
+	for _, goal := range raw.Goals {
+		if goal == nil {
+			return session.SessionSynthesis{}, errors.New("synthesis result has a null goal")
+		}
+		goals = append(goals, *goal)
+	}
+	if raw.Outcome == nil {
+		return session.SessionSynthesis{}, errors.New("synthesis result has no outcome")
+	}
+	if raw.Decisions == nil {
+		return session.SessionSynthesis{}, errors.New("synthesis result has no decisions")
+	}
+	if raw.DesignDoc == nil {
+		return session.SessionSynthesis{}, errors.New("synthesis result has no design doc")
+	}
+	if raw.NextStep == nil {
+		return session.SessionSynthesis{}, errors.New("synthesis result has no next step")
+	}
+	synthesis := session.SessionSynthesis{Goals: goals, Outcome: *raw.Outcome, NextStep: *raw.NextStep, DesignDoc: *raw.DesignDoc, DecisionsVersion: DecisionsVersion, KeyDecisions: []string{}}
 	for _, data := range raw.Decisions {
 		var decision struct {
 			Text        *string `json:"text"`
@@ -669,9 +685,6 @@ func normalize(synthesis *session.SessionSynthesis) error {
 	})
 	synthesis.Outcome = strings.Join(strings.Fields(synthesis.Outcome), " ")
 	synthesis.NextStep = concise(synthesis.NextStep, 200)
-	synthesis.KeyDecisions = dedupedLimited(synthesis.KeyDecisions, maxIntermediateKeyDecisions, func(decision string) string {
-		return session.Truncate(strings.TrimSpace(decision), 140)
-	})
 	if len(synthesis.Goals) == 0 && synthesis.Outcome == "" {
 		return errors.New("synthesis has no goal or outcome")
 	}
