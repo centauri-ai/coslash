@@ -24,7 +24,7 @@ func TestSearchTextBoundsAndRevision(t *testing.T) {
 		t.Fatal("invalid session bound")
 	}
 	s := Session{Agent: "claude", ID: "test", SessionDetails: SessionDetails{Digest: log.Entries()}}
-	before, err := LocalDetailRevision(s)
+	before, err := LocalDetailRevision(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestSearchTextBoundsAndRevision(t *testing.T) {
 		copy.Digest[i].SearchTextTruncated = false
 	}
 	copy.Synthesis = &SessionSynthesis{KeyDecisions: []string{"local"}}
-	after, err := LocalDetailRevision(*copy)
+	after, err := LocalDetailRevision(t.Context(), *copy)
 	if err != nil || before != after {
 		t.Fatal("local enrichment changed revision")
 	}
