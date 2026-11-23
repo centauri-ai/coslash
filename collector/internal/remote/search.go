@@ -20,8 +20,8 @@ type SearchView struct {
 
 // SearchRecords returns records only from a complete, live view, over whatever
 // history window the list already fetched; it never widens that window.
-// Snapshot records are immutable; cloning happens after releasing the lock.
-func (manager *Manager) SearchRecords() (SearchView, error) {
+// Snapshot records are immutable, so the view shares them.
+func (manager *Manager) SearchRecords() SearchView {
 	manager.mu.Lock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.snapshot == nil {
 		view := SearchView{}
@@ -29,18 +29,18 @@ func (manager *Manager) SearchRecords() (SearchView, error) {
 			view.SourceID = manager.cfg.ID
 		}
 		manager.mu.Unlock()
-		return view, nil
+		return view
 	}
 	view := SearchView{SourceID: manager.cfg.ID, SinceMs: manager.snapshot.CoverageSinceMs}
 	health := manager.healthLocked(view.SinceMs)
 	if !health.Complete || health.State != StateOK || manager.legacyStale {
 		manager.mu.Unlock()
-		return view, nil
+		return view
 	}
 	for _, stale := range manager.familyStale {
 		if stale {
 			manager.mu.Unlock()
-			return view, nil
+			return view
 		}
 	}
 	records := make([]SearchRecord, 0, len(manager.snapshot.FullRecords))
@@ -54,13 +54,6 @@ func (manager *Manager) SearchRecords() (SearchView, error) {
 		records = append(records, SearchRecord{Record: full.Record, Repository: repositories[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}]})
 	}
 	manager.mu.Unlock()
-	for i := range records {
-		copy, err := cloneFullSessionRecord(records[i].Record)
-		if err != nil {
-			return SearchView{SourceID: view.SourceID}, err
-		}
-		records[i].Record = *copy
-	}
 	view.Records, view.Complete = records, true
-	return view, nil
+	return view
 }

@@ -2,10 +2,10 @@
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiFetch } from './api';
-import { canFallbackSearch, searchHitKey, searchParts, useRankedSearch } from './search';
+import { apiFetch } from '@/pages/coslash/lib/api';
+import { useRankedSearch } from './use-ranked-search';
 
-vi.mock('./api', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/pages/coslash/lib/api', () => ({ apiFetch: vi.fn() }));
 
 const fetch = vi.mocked(apiFetch);
 let root: Root | undefined;
@@ -31,7 +31,7 @@ async function tick(ms: number) {
 function response(body: unknown) {
   return { ok: true, json: async () => body } as Response;
 }
-const results = { indexState: 'ready', sessions: [], decisions: [], truncated: false };
+const results = { sessions: [], decisions: [], truncated: false };
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
@@ -40,23 +40,6 @@ afterEach(async () => {
 });
 
 describe('ranked search', () => {
-  it('separates all prefixes and retains quoted content', () => {
-    expect(
-      searchParts('repo:app agent:codex machine:box group:work status:idle since:123 "merge queue"'),
-    ).toEqual({
-      content: '"merge queue"',
-      filters: 'repo:app agent:codex machine:box group:work status:idle since:123',
-    });
-    expect(searchParts('repo:app').content).toBe('');
-    expect(searchParts('* ""').content).toBe('');
-    expect(searchParts('repo:app *').content).toBe('');
-    expect(canFallbackSearch('merge queue')).toBe(true);
-    expect(canFallbackSearch('"merge queue"')).toBe(false);
-    expect(canFallbackSearch('since:123 queue')).toBe(false);
-    expect(searchHitKey({ sourceId: 'local', agent: 'codex', sessionId: 'one' })).not.toBe(
-      searchHitKey({ sourceId: 'ssh', agent: 'codex', sessionId: 'one' }),
-    );
-  });
   it('polls building and runs the current query once ready without an edit', async () => {
     vi.useFakeTimers();
     fetch

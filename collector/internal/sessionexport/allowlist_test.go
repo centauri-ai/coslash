@@ -119,15 +119,13 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 		"Output":  {false, "command output never crosses"},
 	},
 	reflect.TypeOf(session.DigestEntry{}): {
-		"SearchText":          {false, "local search index text"},
-		"SearchTextTruncated": {false, "local search coverage"},
-		"SourceEntryID":       {false, "local branch context"},
-		"ParentEntryID":       {false, "local branch context"},
-		"BranchID":            {false, "local branch context"},
-		"Inherited":           {false, "local branch context"},
-		"Active":              {false, "local branch context"},
-		"ContextSelected":     {false, "local branch context"},
-		"ContextDescription":  {false, "local branch context"},
+		"SourceEntryID":      {false, "local branch context"},
+		"ParentEntryID":      {false, "local branch context"},
+		"BranchID":           {false, "local branch context"},
+		"Inherited":          {false, "local branch context"},
+		"Active":             {false, "local branch context"},
+		"ContextSelected":    {false, "local branch context"},
+		"ContextDescription": {false, "local branch context"},
 
 		"Turn":        {false, "digest remains local"},
 		"Category":    {false, "digest remains local"},
@@ -136,6 +134,9 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 		"SubagentID":  {false, "digest remains local"},
 		"Time":        {false, "local timeline timestamp"},
 		"SpawnKey":    {false, "local parser linkage"},
+
+		"SearchText":          {false, "local search index text"},
+		"SearchTextTruncated": {false, "local search coverage"},
 	},
 	reflect.TypeOf(session.FileEdit{}): {
 		"Path":      {true, "proven repository-relative path"},

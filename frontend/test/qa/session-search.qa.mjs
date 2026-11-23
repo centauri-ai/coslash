@@ -92,7 +92,6 @@ test('ranked search loads older matches, opens sessions, and fits a narrow scree
   await page.route('**/api/search?*', (route) =>
     route.fulfill({
       json: {
-        indexState: 'ready',
         truncated: false,
         indexed: [],
         sessions: [
@@ -106,8 +105,6 @@ test('ranked search loads older matches, opens sessions, and fits a narrow scree
         decisions: [
           {
             ...identity,
-            kind: 'decision',
-            status: 'decided',
             text: 'Keep queue isolation',
             cited: false,
             turns: [],

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -9,7 +10,7 @@ import (
 	searchpkg "github.com/centauri-ai/coslash/collector/internal/search"
 )
 
-func handleSearchStatus(w http.ResponseWriter, r *http.Request, service *searchService) {
+func handleSearchStatus(w http.ResponseWriter, r *http.Request, index *searchpkg.Index) {
 	q := r.URL.Query()
 	var identity *searchpkg.Identity
 	if q.Get("source") != "" || q.Get("agent") != "" || q.Get("session") != "" {
@@ -20,7 +21,7 @@ func handleSearchStatus(w http.ResponseWriter, r *http.Request, service *searchS
 		identity = &searchpkg.Identity{SourceID: q.Get("source"), Agent: q.Get("agent"), SessionID: q.Get("session")}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if service == nil || service.index == nil {
+	if index == nil {
 		status := searchpkg.Status{State: "unavailable"}
 		if identity != nil {
 			status.Coverage = "absent"
@@ -28,7 +29,7 @@ func handleSearchStatus(w http.ResponseWriter, r *http.Request, service *searchS
 		_ = json.NewEncoder(w).Encode(status)
 		return
 	}
-	status, err := service.index.Status(r.Context(), identity)
+	status, err := index.Status(r.Context(), identity)
 	if err != nil {
 		log.Printf("search status: %v", err)
 		http.Error(w, "could not read search status", http.StatusInternalServerError)
@@ -37,15 +38,10 @@ func handleSearchStatus(w http.ResponseWriter, r *http.Request, service *searchS
 	_ = json.NewEncoder(w).Encode(status)
 }
 
-func handleSearch(w http.ResponseWriter, r *http.Request, service *searchService) {
+func handleSearch(w http.ResponseWriter, r *http.Request, index *searchpkg.Index) {
 	q := r.URL.Query()
 	if len(q.Get("q")) > 8*1024 {
 		http.Error(w, "search query is too long", http.StatusBadRequest)
-		return
-	}
-	parsed := searchpkg.ParseQuery(q.Get("q"))
-	if len(parsed.Terms) == 0 {
-		http.Error(w, "search requires content terms", http.StatusBadRequest)
 		return
 	}
 	since, err := parseSince(q.Get("since"))
@@ -61,30 +57,21 @@ func handleSearch(w http.ResponseWriter, r *http.Request, service *searchService
 			return
 		}
 	}
-	if service == nil || service.index == nil {
-		http.Error(w, "search index unavailable", http.StatusServiceUnavailable)
+	if index == nil {
+		http.Error(w, searchpkg.ErrUnavailable.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	status, err := service.index.Status(r.Context(), nil)
-	if err != nil {
-		log.Printf("search status: %v", err)
-		http.Error(w, "search index unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	if status.State != "ready" {
-		message := "search index unavailable"
-		if status.State == "building" {
-			message = "search index building"
-		}
-		http.Error(w, message, http.StatusServiceUnavailable)
-		return
-	}
-	result, err := service.index.Search(r.Context(), q.Get("q"), searchpkg.Options{Repo: q.Get("repo"), Agent: q.Get("agent"), Since: since, Limit: limit})
-	if err != nil {
+	result, err := index.Search(r.Context(), q.Get("q"), searchpkg.Options{Repo: q.Get("repo"), Agent: q.Get("agent"), Since: since, Limit: limit})
+	switch {
+	case errors.Is(err, searchpkg.ErrEmptyQuery):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, searchpkg.ErrBuilding), errors.Is(err, searchpkg.ErrUnavailable):
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	case err != nil:
 		log.Printf("search query: %v", err)
 		http.Error(w, "could not search sessions", http.StatusInternalServerError)
-		return
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
 }

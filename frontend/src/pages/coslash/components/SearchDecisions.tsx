@@ -30,9 +30,7 @@ export function SearchDecisions({
   onSelect: (session: Session) => void;
 }) {
   const byKey = new Map(sessions.map((session) => [sessionKey(session), session]));
-  const hits = decisions
-    .filter((hit) => (hit.status === 'decided' || hit.status === 'applied') && byKey.has(searchHitKey(hit)))
-    .slice(0, 5);
+  const hits = decisions.filter((hit) => byKey.has(searchHitKey(hit))).slice(0, 5);
   if (!hits.length) return null;
   return (
     <div className="flex min-w-0 flex-col gap-2 py-3" aria-label="Matching decisions">

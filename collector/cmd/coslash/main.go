@@ -29,6 +29,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/review"
+	searchpkg "github.com/centauri-ai/coslash/collector/internal/search"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -374,10 +375,10 @@ func main() {
 	restartInstalled := make(chan string, 1)
 	settingsOptions := newSettingsOptionsCache()
 	defer settingsOptions.close()
-	searchService := startSearchService(mgr, remoteManager)
-	defer searchService.close()
+	searchIndex, stopSearch := startSearchIndex(mgr, remoteManager)
+	defer stopSearch()
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{search: searchService, settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests, updateRequests: updateRequests})
+		serverServices{search: searchIndex, settingsOptions: settingsOptions, queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests, updateRequests: updateRequests})
 	onboardings.ensureSync(hub)
 	shutdownComplete := make(chan error, 1)
 	var shutdownOnce sync.Once
@@ -734,7 +735,7 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 }
 
 type serverServices struct {
-	search          *searchService
+	search          *searchpkg.Index
 	sendContext     context.Context
 	headlessSend    headlessSender
 	queue           *syncv4.Queue
@@ -849,7 +850,6 @@ func routesWithOnboarding(
 			return
 		}
 		handleList(w, r, mgr, reviewManager, remoteManager)
-		service.search.notify()
 	})
 	api.HandleFunc("GET /api/synthesis-costs", func(w http.ResponseWriter, r *http.Request) {
 		handleSynthesisCosts(w, r, mgr)

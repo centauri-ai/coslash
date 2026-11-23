@@ -1,16 +1,26 @@
 package search
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 )
 
-var kindWeights = map[string]float64{"decision": 3, "title": 2.5, "goal": 2, "finding": 2, "prompt": 1.5, "answer": 1.5, "plan": 1.5, "recap": 1, "commit": 1, "pr": 1, "command": .7, "file": .7, "place": .5}
-var ErrEmptyQuery = errors.New("search requires content terms")
+var kindWeights = map[string]float64{"decision": 3, "title": 2.5, "goal": 2, "prompt": 1.5, "answer": 1.5, "plan": 1.5, "recap": 1, "commit": 1, "pr": 1, "command": .7, "file": .7, "place": .5}
+
+var (
+	ErrEmptyQuery  = errors.New("search requires content terms")
+	ErrBuilding    = errors.New("search index building")
+	ErrUnavailable = errors.New("search index unavailable")
+)
+
+// matchFrom selects FTS matches with their unit and session; callers append filters.
+const matchFrom = ` FROM units_fts JOIN units u ON u.id=units_fts.rowid JOIN sessions s USING(source_id,agent,session_id) WHERE units_fts MATCH ?`
 
 type Options struct {
 	Repo, Agent string
@@ -23,54 +33,43 @@ type Match struct {
 	Snippet string   `json:"snippet"`
 	Ranges  [][2]int `json:"ranges"`
 }
-type SessionHit struct {
+
+// sessionRef is the session context shared by session and decision hits.
+type sessionRef struct {
 	Identity
-	Score       float64 `json:"score"`
-	Coverage    string  `json:"coverage"`
-	Turns       []int   `json:"turns"`
-	Match       Match   `json:"match"`
-	Name        string  `json:"name"`
-	Repo        string  `json:"repo"`
-	Branch      string  `json:"branch"`
-	Mtime       int64   `json:"mtime"`
-	SourceLabel string  `json:"sourceLabel"`
-	Selector    string  `json:"selector,omitempty"`
-}
-type decisionRecord struct {
-	DecisionID  string `json:"decisionId,omitempty"`
-	Why         string `json:"why,omitempty"`
-	Alternative string `json:"alternative,omitempty"`
-	Kind        string `json:"kind"`
-	Text        string `json:"text"`
-	Status      string `json:"status"`
-	DecidedBy   string `json:"decidedBy"`
-	Turns       []int  `json:"turns"`
-	Cited       bool   `json:"cited"`
-}
-type DecisionHit struct {
-	DecisionID  string `json:"decisionId,omitempty"`
-	Why         string `json:"why,omitempty"`
-	Alternative string `json:"alternative,omitempty"`
 	Name        string `json:"name"`
 	Repo        string `json:"repo"`
 	Mtime       int64  `json:"mtime"`
 	SourceLabel string `json:"sourceLabel"`
 	Selector    string `json:"selector,omitempty"`
-	Identity
-	Kind      string  `json:"kind"`
-	Status    string  `json:"status"`
-	DecidedBy string  `json:"decidedBy"`
-	Text      string  `json:"text"`
-	Turns     []int   `json:"turns"`
-	Cited     bool    `json:"cited"`
-	Score     float64 `json:"score"`
+}
+type SessionHit struct {
+	sessionRef
+	Score    float64 `json:"score"`
+	Coverage string  `json:"coverage"`
+	Turns    []int   `json:"turns"`
+	Match    Match   `json:"match"`
+	Branch   string  `json:"branch"`
+}
+type decisionRecord struct {
+	DecisionID  string `json:"decisionId,omitempty"`
+	Why         string `json:"why,omitempty"`
+	Alternative string `json:"alternative,omitempty"`
+	Text        string `json:"text"`
+	DecidedBy   string `json:"decidedBy"`
+	Turns       []int  `json:"turns"`
+	Cited       bool   `json:"cited"`
+}
+type DecisionHit struct {
+	sessionRef
+	decisionRecord
+	Score float64 `json:"score"`
 }
 type Response struct {
-	Indexed    []Identity    `json:"indexed"`
-	IndexState string        `json:"indexState"`
-	Truncated  bool          `json:"truncated"`
-	Decisions  []DecisionHit `json:"decisions"`
-	Sessions   []SessionHit  `json:"sessions"`
+	Indexed   []Identity    `json:"indexed"`
+	Truncated bool          `json:"truncated"`
+	Decisions []DecisionHit `json:"decisions"`
+	Sessions  []SessionHit  `json:"sessions"`
 }
 type candidate struct {
 	hit   SessionHit
@@ -79,69 +78,53 @@ type candidate struct {
 }
 
 func (i *Index) Search(ctx context.Context, raw string, options Options) (Response, error) {
+	result := Response{Indexed: []Identity{}, Sessions: []SessionHit{}, Decisions: []DecisionHit{}}
+	q := ParseQuery(raw)
+	if len(q.Terms) == 0 {
+		return result, ErrEmptyQuery
+	}
 	i.mu.RLock()
 	state := i.state
 	i.mu.RUnlock()
-	result := Response{IndexState: state, Sessions: []SessionHit{}, Decisions: []DecisionHit{}}
-	result.Indexed = []Identity{}
+	if state == "building" {
+		return result, ErrBuilding
+	}
+	if state != "ready" {
+		return result, ErrUnavailable
+	}
 	// Overlay rewrites may reuse row IDs; eligibility and scoring need one snapshot.
 	tx, err := i.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return result, err
 	}
 	defer tx.Rollback()
-	indexedRows, err := tx.QueryContext(ctx, "SELECT source_id, agent, session_id FROM sessions WHERE source_id != 'local' ORDER BY source_id,agent,session_id")
-	if err != nil {
+	if result.Indexed, err = identities(ctx, tx, "SELECT source_id,agent,session_id FROM sessions WHERE source_id!='local' ORDER BY source_id,agent,session_id"); err != nil {
 		return result, err
 	}
-	for indexedRows.Next() {
-		var id Identity
-		if err = indexedRows.Scan(&id.SourceID, &id.Agent, &id.SessionID); err != nil {
-			indexedRows.Close()
-			return result, err
-		}
-		result.Indexed = append(result.Indexed, id)
-	}
-	err = indexedRows.Err()
-	indexedRows.Close()
-	if err != nil {
-		return result, err
-	}
-	q := ParseQuery(raw)
-	if len(q.Terms) == 0 {
-		return result, ErrEmptyQuery
-	}
-	where := ""
-	args := []any{q.Match}
+	where, filters := "", []any{}
 	if options.Repo != "" {
 		where += " AND s.repo=?"
-		args = append(args, options.Repo)
+		filters = append(filters, options.Repo)
 	}
 	if options.Agent != "" {
 		where += " AND s.agent=?"
-		args = append(args, options.Agent)
+		filters = append(filters, options.Agent)
 	}
 	if options.Since != 0 {
 		where += " AND s.mtime>=?"
-		args = append(args, options.Since)
+		filters = append(filters, options.Since)
 	}
-	terms := make([]string, len(q.Terms))
-	for n, term := range q.Terms {
-		terms[n] = literal(term)
-	}
-	decisionUnits, err := matchingUnits(ctx, tx, strings.Join(terms, " AND "), "u.kind IN ('decision','finding')"+where, args[1:])
+	decisionUnits, err := matchingUnits(ctx, tx, q.match(" AND "), "u.kind='decision'"+where, filters)
 	if err != nil {
 		return result, err
 	}
 	var titlePhraseUnits map[int64]bool
-	phrase := strings.Join(q.Terms, " ")
-	if len(strings.Fields(phrase)) > 1 {
-		titlePhraseUnits, err = matchingUnits(ctx, tx, literal(phrase), "u.kind='title'"+where, args[1:])
-		if err != nil {
+	if phrase := strings.Join(q.Terms, " "); strings.Contains(phrase, " ") {
+		if titlePhraseUnits, err = matchingUnits(ctx, tx, literal(phrase), "u.kind='title'"+where, filters); err != nil {
 			return result, err
 		}
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT u.id,s.source_id,s.agent,s.session_id,s.coverage,s.mtime,s.name,s.repo,s.branch,u.kind,u.turn,u.text,u.record_json,bm25(units_fts),highlight(units_fts,0,char(1),char(2)) FROM units_fts JOIN units u ON u.id=units_fts.rowid JOIN sessions s USING(source_id,agent,session_id) WHERE units_fts MATCH ?`+where, args...)
+	rows, err := tx.QueryContext(ctx, "SELECT u.id,s.source_id,s.agent,s.session_id,s.coverage,s.mtime,s.name,s.repo,s.branch,u.kind,u.turn,u.record_json,bm25(units_fts),highlight(units_fts,0,char(1),char(2))"+matchFrom+where, append([]any{q.match(" OR ")}, filters...)...)
 	if err != nil {
 		return result, err
 	}
@@ -150,18 +133,16 @@ func (i *Index) Search(ctx context.Context, raw string, options Options) (Respon
 	for rows.Next() {
 		var unitID int64
 		var hit SessionHit
-		var kind, text, record, highlight string
+		var kind, record, highlight string
 		var turn int
 		var bm25 float64
-		if err = rows.Scan(&unitID, &hit.SourceID, &hit.Agent, &hit.SessionID, &hit.Coverage, &hit.Mtime, &hit.Name, &hit.Repo, &hit.Branch, &kind, &turn, &text, &record, &bm25, &highlight); err != nil {
+		if err = rows.Scan(&unitID, &hit.SourceID, &hit.Agent, &hit.SessionID, &hit.Coverage, &hit.Mtime, &hit.Name, &hit.Repo, &hit.Branch, &kind, &turn, &record, &bm25, &highlight); err != nil {
 			rows.Close()
 			return result, err
 		}
-		hit.SourceLabel = "Local"
-		if hit.SourceID != "local" {
-			hit.SourceLabel = "SSH"
-		} else {
-			hit.Selector = hit.Agent + ":" + hit.SessionID
+		hit.SourceLabel = "SSH"
+		if hit.SourceID == "local" {
+			hit.SourceLabel, hit.Selector = "Local", hit.Agent+":"+hit.SessionID
 		}
 		unitTurns := []int{}
 		if turn > 0 {
@@ -171,7 +152,7 @@ func (i *Index) Search(ctx context.Context, raw string, options Options) (Respon
 		if titlePhraseUnits[unitID] {
 			score *= 1.5
 		}
-		if kind == "decision" || kind == "finding" {
+		if kind == "decision" {
 			var r decisionRecord
 			if err = json.Unmarshal([]byte(record), &r); err != nil {
 				rows.Close()
@@ -183,29 +164,13 @@ func (i *Index) Search(ctx context.Context, raw string, options Options) (Respon
 			if !r.Cited {
 				score *= .6
 			}
-			switch r.Status {
-			case "proposed":
-				score *= .5
-			case "superseded":
-				score *= .3
-			}
 			unitTurns = r.Turns
-			if r.Turns == nil {
-				r.Turns = []int{}
-			}
 			if decisionUnits[unitID] {
-				decisions = append(decisions, DecisionHit{DecisionID: r.DecisionID, Why: r.Why, Alternative: r.Alternative, Name: hit.Name, Repo: hit.Repo, Mtime: hit.Mtime, SourceLabel: hit.SourceLabel, Selector: hit.Selector, Identity: hit.Identity, Kind: kind, Status: r.Status, DecidedBy: r.DecidedBy, Text: r.Text, Turns: r.Turns, Cited: r.Cited, Score: score})
+				decisions = append(decisions, DecisionHit{hit.sessionRef, r, score})
 			}
 		}
 		c := candidates[hit.Identity]
 		if c == nil {
-			hit.SourceLabel = "Local"
-			if hit.SourceID != "local" {
-				hit.SourceLabel = "SSH"
-			}
-			if hit.SourceID == "local" {
-				hit.Selector = hit.Agent + ":" + hit.SessionID
-			}
 			c = &candidate{hit: hit, kinds: map[string]float64{}}
 			candidates[hit.Identity] = c
 		}
@@ -214,9 +179,7 @@ func (i *Index) Search(ctx context.Context, raw string, options Options) (Respon
 			c.hit.Match = makeMatch(kind, turn, highlight)
 			c.hit.Turns = append([]int{}, unitTurns...)
 		}
-		if score > c.kinds[kind] {
-			c.kinds[kind] = score
-		}
+		c.kinds[kind] = max(c.kinds[kind], score)
 	}
 	err = rows.Err()
 	rows.Close()
@@ -225,59 +188,30 @@ func (i *Index) Search(ctx context.Context, raw string, options Options) (Respon
 	}
 	// Use the same tokenizer and stemmer for coverage as for candidate retrieval.
 	for _, term := range q.Terms {
-		termArgs := append([]any{literal(term)}, args[1:]...)
-		rows, err = tx.QueryContext(ctx, `SELECT DISTINCT s.source_id,s.agent,s.session_id FROM units_fts JOIN units u ON u.id=units_fts.rowid JOIN sessions s USING(source_id,agent,session_id) WHERE units_fts MATCH ?`+where, termArgs...)
+		ids, err := identities(ctx, tx, "SELECT DISTINCT s.source_id,s.agent,s.session_id"+matchFrom+where, append([]any{literal(term)}, filters...)...)
 		if err != nil {
 			return result, err
 		}
-		for rows.Next() {
-			var id Identity
-			if err = rows.Scan(&id.SourceID, &id.Agent, &id.SessionID); err != nil {
-				rows.Close()
-				return result, err
-			}
+		for _, id := range ids {
 			if c := candidates[id]; c != nil {
 				c.terms++
 			}
 		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return result, err
-		}
 	}
 	for _, c := range candidates {
-		scores := make([]float64, 0, len(c.kinds))
-		for _, s := range c.kinds {
-			scores = append(scores, s)
-		}
-		sort.Sort(sort.Reverse(sort.Float64Slice(scores)))
+		scores := slices.SortedFunc(maps.Values(c.kinds), func(a, b float64) int { return cmp.Compare(b, a) })
 		total := scores[0]
-		for n := 1; n < len(scores) && n < 3; n++ {
-			total += .25 * scores[n]
+		for _, s := range scores[1:min(len(scores), 3)] {
+			total += .25 * s
 		}
 		c.hit.Score = total * (.5 + .5*float64(c.terms)/float64(len(q.Terms)))
 		result.Sessions = append(result.Sessions, c.hit)
 	}
-	sort.Slice(result.Sessions, func(a, b int) bool {
-		l, r := result.Sessions[a], result.Sessions[b]
-		if l.Score != r.Score {
-			return l.Score > r.Score
-		}
-		if l.Mtime != r.Mtime {
-			return l.Mtime > r.Mtime
-		}
-		return identityLess(l.Identity, r.Identity)
+	slices.SortFunc(result.Sessions, func(l, r SessionHit) int {
+		return cmp.Or(cmp.Compare(r.Score, l.Score), cmp.Compare(r.Mtime, l.Mtime), compareIdentity(l.Identity, r.Identity))
 	})
-	sort.SliceStable(decisions, func(a, b int) bool {
-		l, r := decisions[a], decisions[b]
-		if l.Score != r.Score {
-			return l.Score > r.Score
-		}
-		if l.Identity != r.Identity {
-			return identityLess(l.Identity, r.Identity)
-		}
-		return l.Text < r.Text
+	slices.SortStableFunc(decisions, func(l, r DecisionHit) int {
+		return cmp.Or(cmp.Compare(r.Score, l.Score), compareIdentity(l.Identity, r.Identity), cmp.Compare(l.Text, r.Text))
 	})
 	limit := 2000
 	if options.Limit > 0 && options.Limit < limit {
@@ -306,10 +240,26 @@ func (i *Index) Search(ctx context.Context, raw string, options Options) (Respon
 	return result, nil
 }
 
+func identities(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]Identity, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []Identity{}
+	for rows.Next() {
+		var id Identity
+		if err := rows.Scan(&id.SourceID, &id.Agent, &id.SessionID); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // matchingUnits keeps phrase and all-term checks on the same FTS tokenizer as retrieval.
 func matchingUnits(ctx context.Context, tx *sql.Tx, match, where string, filters []any) (map[int64]bool, error) {
-	args := append([]any{match}, filters...)
-	rows, err := tx.QueryContext(ctx, `SELECT u.id FROM units_fts JOIN units u ON u.id=units_fts.rowid JOIN sessions s USING(source_id,agent,session_id) WHERE units_fts MATCH ? AND `+where, args...)
+	rows, err := tx.QueryContext(ctx, "SELECT u.id"+matchFrom+" AND "+where, append([]any{match}, filters...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -325,14 +275,8 @@ func matchingUnits(ctx context.Context, tx *sql.Tx, match, where string, filters
 	return ids, rows.Err()
 }
 
-func identityLess(a, b Identity) bool {
-	if a.SourceID != b.SourceID {
-		return a.SourceID < b.SourceID
-	}
-	if a.Agent != b.Agent {
-		return a.Agent < b.Agent
-	}
-	return a.SessionID < b.SessionID
+func compareIdentity(a, b Identity) int {
+	return cmp.Or(cmp.Compare(a.SourceID, b.SourceID), cmp.Compare(a.Agent, b.Agent), cmp.Compare(a.SessionID, b.SessionID))
 }
 func makeMatch(kind string, turn int, highlight string) Match {
 	// Ranges count Unicode code points, matching Array.from in the browser.

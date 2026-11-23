@@ -42,11 +42,6 @@ func TestSearchTextBoundsAndRevision(t *testing.T) {
 	if strings.Contains(string(data), "private needle") {
 		t.Fatal("search text leaked into JSON")
 	}
-	cloned := Clone(copy)
-	cloned.Digest[0].SearchText = "changed"
-	if copy.Digest[0].SearchText != "private needle" {
-		t.Fatal("search text aliases clone")
-	}
 }
 
 func TestSearchQuestionPreservesFullAnswer(t *testing.T) {
