@@ -67,6 +67,7 @@ type HubSync struct {
 	SyncState         string             `json:"syncState"`
 	PolicyKnown       bool               `json:"policyKnown"`
 	Pending           int                `json:"pending"`
+	ListedOnly        int                `json:"listedOnly,omitempty"`
 	Failing           int                `json:"failing"`
 	Parked            int                `json:"parked"`
 	TopFailureCodes   []FailureCodeCount `json:"topFailureCodes"`

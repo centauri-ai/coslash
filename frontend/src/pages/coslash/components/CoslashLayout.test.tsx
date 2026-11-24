@@ -350,6 +350,19 @@ describe('CoslashLayout', () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
+  it('marks no time range as selected while search ignores the range', () => {
+    const pressed = (query: string) => {
+      vi.stubGlobal('sessionStorage', { getItem: () => JSON.stringify({ query }), setItem: () => {} });
+      return (
+        renderLayout({ range: 'month' }).match(
+          /aria-pressed="true"[^>]*>(30 days|All time|Today|This week|7 days)</g,
+        ) ?? []
+      );
+    };
+    expect(pressed('')).toHaveLength(1);
+    expect(pressed('retry')).toHaveLength(0);
+  });
+
   it('does not match an unnamed remote session by its first prompt', () => {
     vi.stubGlobal('sessionStorage', {
       getItem: () => JSON.stringify({ query: 'remote-private-prompt' }),

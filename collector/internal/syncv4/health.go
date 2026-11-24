@@ -22,6 +22,7 @@ type HealthSnapshot struct {
 	LastCheckInResult string
 	LastHubFailure    *HubContactFailure
 	Pending           int
+	ListedOnly        int
 	Failing           int
 	Parked            int
 	TopFailureCodes   []FailureCodeCount
@@ -72,12 +73,23 @@ func ReadHealth(root string) (HealthSnapshot, error) {
 		at := time.UnixMilli(saved.LastCheckInAtMs)
 		health.LastCheckInAt = &at
 	}
+	// Without history or backfill, Hub lists sessions outside the import plan
+	// and uploads them only when someone brings them in.
+	var planned map[string]bool
+	if plan := saved.Config.ImportPlan; plan != nil && !plan.History && !plan.Backfill {
+		planned = map[string]bool{}
+		for _, entry := range (&Queue{state: saved}).plannedEntriesLocked(*plan) {
+			planned[entry.Key] = true
+		}
+	}
 	failures := map[string]int{}
 	for _, entry := range saved.Entries {
 		if entry.Excluded {
 			continue
 		}
-		if pending(entry) {
+		if pending(entry) && planned != nil && !planned[entry.Key] {
+			health.ListedOnly++
+		} else if pending(entry) {
 			health.Pending++
 		}
 		if entry.FailureCode != "" {

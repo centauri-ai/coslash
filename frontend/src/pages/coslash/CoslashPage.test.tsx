@@ -4,15 +4,17 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import type { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
+import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import type { SettingsDialog } from '@/pages/coslash/components/SettingsDialog';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import type { CoslashSettings } from '@/pages/coslash/lib/settings';
 import { CoslashPage } from './CoslashPage';
 
-const { retrySessions, refreshDiagnostics } = vi.hoisted(() => ({
+const { retrySessions, refreshDiagnostics, diagnosticsState } = vi.hoisted(() => ({
   retrySessions: vi.fn(),
   refreshDiagnostics: vi.fn(),
+  diagnosticsState: { diagnostics: null as unknown },
 }));
 let dialog: ComponentProps<typeof SettingsDialog>;
 let layout: ComponentProps<typeof CoslashLayout>;
@@ -36,7 +38,7 @@ vi.mock('@/pages/coslash/hooks/use-sessions', () => ({
   useSessions: () => ({ sessions: [], machines: [], isLoading: false, retrySessions }),
 }));
 vi.mock('@/pages/coslash/hooks/use-diagnostics', () => ({
-  useDiagnostics: () => ({ refresh: refreshDiagnostics }),
+  useDiagnostics: () => ({ refresh: refreshDiagnostics, diagnostics: diagnosticsState.diagnostics }),
 }));
 vi.mock('@/pages/coslash/hooks/use-directed-handoffs', () => ({
   useDirectedHandoffs: () => ({ handoffs: [] }),
@@ -64,7 +66,36 @@ afterEach(async () => {
   await act(async () => mounted.unmount());
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  diagnosticsState.diagnostics = null;
 });
+
+it.each([
+  ['a source without root sessions', 'unreadable', 0, true],
+  ['a source with sessions outside the range', 'ok', 3, false],
+] as const)(
+  'shows first-run onboarding for %s only when no source has sessions',
+  async (_, state, sessions, onboarding) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.mocked(useSettings).mockReturnValue({
+      response: null,
+      save: vi.fn(),
+      isLoading: false,
+      loadError: null,
+      saveError: null,
+      isSaving: false,
+    });
+    diagnosticsState.diagnostics = {
+      checks: [],
+      sources: [
+        { agent: 'claude', state: 'missing', sessions: 0 },
+        { agent: 'codex', state, sessions },
+      ],
+    };
+    mounted = root();
+    await act(async () => mounted.render(<CoslashPage />));
+    expect((layout.emptyContent as ReactElement | undefined)?.type === FirstRunOnboarding).toBe(onboarding);
+  },
+);
 
 it.each([
   ['no remote', undefined, undefined, 0],

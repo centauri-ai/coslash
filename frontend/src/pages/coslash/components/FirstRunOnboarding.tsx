@@ -26,7 +26,8 @@ export function FirstRunOnboarding({
         <div>
           <div className="text-lg font-semibold">No agent sessions found on this machine.</div>
           <div className="text-coslash-muted pt-2 text-sm">
-            coSlash reads Claude Code and Codex transcripts from your home directory. Nothing to read yet.
+            coSlash reads Claude Code, Codex, Cursor, OpenCode, Pi, and Grok sessions from your home
+            directory. Nothing to read yet.
           </div>
         </div>
         {loadFailed ? (

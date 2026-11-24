@@ -280,9 +280,7 @@ export function CoslashPage() {
       />
     ) : undefined;
 
-  const firstRun = diagnostics?.sources.every(
-    (source) => source.state === 'missing' || source.state === 'empty',
-  );
+  const firstRun = diagnostics?.sources.every((source) => source.sessions === 0);
   const emptyContent =
     librarySessions.length === 0 && (diagnosticsLoading || diagnosticsLoadFailed || firstRun) ? (
       <FirstRunOnboarding

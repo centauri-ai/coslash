@@ -96,7 +96,9 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Detail = "Enabled with " + snapshot.Synthesis.Model + "."
 	}
 	checks = append(checks, synthesis)
-	checks = append(checks, openCodePluginCheck(snapshot))
+	if snapshotHasOpenCode(snapshot) {
+		checks = append(checks, openCodePluginCheck(snapshot))
+	}
 	if vendors.PiCollectionSupported() && snapshotHasPi(snapshot) {
 		checks = append(checks, piExtensionCheck(snapshot))
 	}
@@ -111,6 +113,18 @@ func derive(snapshot *Snapshot) []Check {
 		})
 	}
 	return checks
+}
+
+func snapshotHasOpenCode(snapshot *Snapshot) bool {
+	if snapshot.openCodePlugin.Installed || snapshot.openCodePlugin.Err != nil {
+		return true
+	}
+	for _, source := range snapshot.Sources {
+		if source.Agent == vendors.AgentOpenCode && (source.CLI.Found || source.State != SourceMissing) {
+			return true
+		}
+	}
+	return false
 }
 
 func snapshotHasPi(snapshot *Snapshot) bool {

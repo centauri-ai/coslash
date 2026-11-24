@@ -96,7 +96,10 @@ func discoverHeaders(ctx context.Context) (*vendors.SourceScan, string, map[stri
 		scan.RecordSkipped("Pi runtime metadata", err)
 	}
 	for _, path := range paths {
-		if _, err := os.Stat(path); err != nil {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			// Runtime history outlives deleted transcripts; there is nothing left to read.
+			continue
+		} else if err != nil {
 			scan.RecordSkipped(path, err)
 			continue
 		}

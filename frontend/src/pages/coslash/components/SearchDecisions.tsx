@@ -1,10 +1,16 @@
+import type { ReactNode } from 'react';
 import { searchHitKey, type DecisionHit, type SearchMatch } from '@/pages/coslash/lib/search';
 import { sessionDisplayTitle, sessionKey, type Session } from '@/pages/coslash/lib/session';
 
+const MATCH_LEAD_CHARS = 30;
+
 export function SearchMatchLine({ match }: { match: SearchMatch }) {
   const chars = Array.from(match.snippet);
-  let end = 0;
-  const parts = [];
+  // The line truncates at its end, so start near the first match to keep it visible.
+  const firstStart = match.ranges?.[0]?.[0] ?? 0;
+  const cut = firstStart > MATCH_LEAD_CHARS ? firstStart - MATCH_LEAD_CHARS : 0;
+  let end = cut;
+  const parts: ReactNode[] = cut > 0 ? ['…'] : [];
   for (const [start, stop] of match.ranges ?? []) {
     if (start < end || stop <= start || stop > chars.length) continue;
     parts.push(chars.slice(end, start).join(''));

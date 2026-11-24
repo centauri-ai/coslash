@@ -665,10 +665,13 @@ export function CoslashLayout({
                           key={option.value}
                           type="button"
                           className={cn(
-                            'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
-                            range === option.value &&
-                              'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
+                            'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors disabled:cursor-default',
+                            {
+                              'bg-coslash-surface text-coslash-ink font-semibold shadow-sm':
+                                range === option.value && !searchActive,
+                            },
                           )}
+                          aria-pressed={range === option.value && !searchActive}
                           disabled={searchActive}
                           onClick={() => onRangeChange(option.value)}
                         >

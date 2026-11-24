@@ -179,6 +179,27 @@ func TestRuntimeOverrideSiblingCollection(t *testing.T) {
 	}
 }
 
+func TestRuntimeHistoryForDeletedTranscriptIsNotSkipped(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "pi-history"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	deleted := filepath.Join(t.TempDir(), "deleted.jsonl")
+	record := RuntimeRecord{Version: 1, RuntimeID: "deleted-owner", PID: os.Getpid(), ProcessStartIdentity: "terminated", StartedAtMs: 1, SessionID: "deleted.session", TranscriptPath: deleted, WorkState: "idle", Sequence: 1, UpdatedAtMs: 1}
+	data, _ := json.Marshal(runtimeEvidence{Record: record, Exited: true})
+	if err := os.WriteFile(filepath.Join(home, "pi-history", "deleted.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	scan, _, err := discover(t.Context())
+	if err != nil || scan.SkippedTotal != 0 || len(scan.Files) != 0 {
+		t.Fatalf("deleted runtime transcript scan = %+v, %v", scan, err)
+	}
+}
+
 func TestPiCollectionHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

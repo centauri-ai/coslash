@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -169,12 +171,25 @@ func buildDoctorHubHealth(ctx context.Context, client doctorHubClient, origin, d
 	return &diagnostics.HubSync{
 		Origin: origin, DeviceName: deviceName, DeviceID: queue.InstallID, Paired: paired,
 		LastCheckInAtMs: checkInAt, LastCheckInResult: lastResult, LastFailure: lastFailure, SyncState: state,
-		PolicyKnown: queue.PolicyKnown, Pending: queue.Pending, Failing: queue.Failing,
+		PolicyKnown: queue.PolicyKnown, Pending: queue.Pending, ListedOnly: queue.ListedOnly, Failing: queue.Failing,
 		Parked: queue.Parked, TopFailureCodes: failures,
 	}
 }
 
+// Linux registers the coslash: handler through xdg-mime, which a headless
+// server does not have; no restart can register it there.
+var protocolHandlerRegistrable = func() bool {
+	if runtime.GOOS != "linux" {
+		return true
+	}
+	_, err := exec.LookPath("xdg-mime")
+	return err == nil
+}
+
 func addProtocolHandlerDoctorCheck(snapshot *diagnostics.Snapshot) {
+	if !protocolHandlerRegistrable() {
+		return
+	}
 	state := protocolHandlerState()
 	status := diagnostics.StatusWarn
 	fix := "Restart coSlash Local to register the link handler."
@@ -256,7 +271,11 @@ func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
 			fmt.Fprintln(w, failure.Sentence)
 			fmt.Fprintf(w, "Raw error: %s\n", failure.RawError)
 		}
-		fmt.Fprintf(w, "Sync: %s\nQueue: pending %d, failing %d, parked %d\n", snapshot.Hub.SyncState, snapshot.Hub.Pending, snapshot.Hub.Failing, snapshot.Hub.Parked)
+		fmt.Fprintf(w, "Sync: %s\nQueue: pending %d, failing %d, parked %d", snapshot.Hub.SyncState, snapshot.Hub.Pending, snapshot.Hub.Failing, snapshot.Hub.Parked)
+		if snapshot.Hub.ListedOnly > 0 {
+			fmt.Fprintf(w, "; listed in Hub only %d (bring them in from Hub)", snapshot.Hub.ListedOnly)
+		}
+		fmt.Fprintln(w)
 		if len(snapshot.Hub.TopFailureCodes) > 0 {
 			codes := make([]string, 0, len(snapshot.Hub.TopFailureCodes))
 			for _, failure := range snapshot.Hub.TopFailureCodes {

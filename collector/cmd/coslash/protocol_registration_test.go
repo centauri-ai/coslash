@@ -150,10 +150,28 @@ func TestUnregisterPreviousProtocolHandlerLeavesCurrentPath(t *testing.T) {
 	}
 }
 
+func useProtocolHandlerRegistrable(t *testing.T, registrable bool) {
+	previous := protocolHandlerRegistrable
+	protocolHandlerRegistrable = func() bool { return registrable }
+	t.Cleanup(func() { protocolHandlerRegistrable = previous })
+}
+
+func TestProtocolHandlerDoctorCheckSkipsHostsThatCannotRegister(t *testing.T) {
+	setProtocolHandlerTestHome(t)
+	useFakeProtocolHandlerBackend(t, &fakeProtocolHandlerBackend{})
+	useProtocolHandlerRegistrable(t, false)
+	snapshot := &diagnostics.Snapshot{}
+	addProtocolHandlerDoctorCheck(snapshot)
+	if len(snapshot.Checks) != 0 {
+		t.Fatalf("doctor link check on a host without a handler registry = %#v", snapshot.Checks)
+	}
+}
+
 func TestProtocolHandlerDoctorStates(t *testing.T) {
 	setProtocolHandlerTestHome(t)
 	fake := &fakeProtocolHandlerBackend{}
 	useFakeProtocolHandlerBackend(t, fake)
+	useProtocolHandlerRegistrable(t, true)
 	current, err := currentExecutablePath()
 	if err != nil {
 		t.Fatal(err)

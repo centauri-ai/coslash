@@ -118,3 +118,36 @@ func TestHubContactFailureStreakPersistsChangesAndResetsOnSuccess(t *testing.T) 
 		t.Fatalf("transition logs = %q, want %q", output.String(), wantLogs)
 	}
 }
+
+func TestReadHealthSeparatesSessionsOutsideTheImportPlan(t *testing.T) {
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	config := hubclient.V4Config{ImportPlan: &hubclient.V4ImportPlan{Version: 1, Window: "3d", MaxSessions: 30}}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: config}, now); err != nil {
+		t.Fatal(err)
+	}
+	recent := Entry{Key: "recent", Activity: now.Add(-time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}}
+	old := Entry{Key: "old", Activity: now.Add(-10 * 24 * time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}}
+	if err := queue.Merge([]Entry{recent, old}, now); err != nil {
+		t.Fatal(err)
+	}
+	health, err := ReadHealth(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Pending != 1 || health.ListedOnly != 1 {
+		t.Fatalf("pending = %d, listed only = %d, want 1 and 1", health.Pending, health.ListedOnly)
+	}
+
+	config.ImportPlan.History = true
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 2, Config: config}, now); err != nil {
+		t.Fatal(err)
+	}
+	if health, err = ReadHealth(root); err != nil || health.Pending != 2 || health.ListedOnly != 0 {
+		t.Fatalf("history plan health = %+v, %v", health, err)
+	}
+}
