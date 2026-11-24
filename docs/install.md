@@ -265,11 +265,18 @@ Local and points it at the new Hub.
 On Linux, connecting starts the second copy as its own systemd user service
 (or `crontab` entry) and prints its name; it listens on a free loopback port
 when 8787 is taken. On macOS, a custom data home gets no login entry, so start
-the second copy after each sign-in with `COSLASH_HOME="$HOME/.coslash-second"
-coslash --background`. On Windows, pairing still registers a Run entry, but
-that entry does not include the custom `COSLASH_HOME` and starts the default-home
-Local at sign-in. In PowerShell, start the second copy after each sign-in by
-setting the same `COSLASH_HOME` as above and running `coslash --background`.
+the second copy after each sign-in. `coslash --background` stays attached to
+the terminal that starts it, so detach it:
+
+```sh
+COSLASH_HOME="$HOME/.coslash-second" nohup coslash --background >/dev/null 2>&1 &
+```
+
+On Windows, pairing still registers a Run entry, but that entry does not
+include the custom `COSLASH_HOME` and starts the default-home Local at sign-in.
+In PowerShell, start the second copy after each sign-in by setting the same
+`COSLASH_HOME` as above and running
+`Start-Process coslash -ArgumentList '--background' -WindowStyle Hidden`.
 
 Limits:
 
