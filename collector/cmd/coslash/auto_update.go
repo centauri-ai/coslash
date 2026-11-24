@@ -855,11 +855,22 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 					}
 				}
 				_ = os.Remove(staged)
-				failedVersion, retryAfter = prompt.Version, time.Now().Add(15*time.Minute)
+				failedVersion, retryAfter = recordAutomaticUpdateFailure(queue, prompt.Version, failedVersion, retryAfter, time.Now())
 				continue
 			}
 			log.Printf("prepare coSlash Local update: %v", err)
-			failedVersion, retryAfter = prompt.Version, time.Now().Add(15*time.Minute)
+			failedVersion, retryAfter = recordAutomaticUpdateFailure(queue, prompt.Version, failedVersion, retryAfter, time.Now())
 		}
 	}
+}
+
+// recordAutomaticUpdateFailure reports a failed automatic update to the Hub
+// once per version and retry window, and returns the new window.
+func recordAutomaticUpdateFailure(queue *syncv4.Queue, version, failedVersion string, retryAfter, now time.Time) (string, time.Time) {
+	if version != failedVersion || !now.Before(retryAfter) {
+		if err := queue.LogUpdateFailure(now); err != nil {
+			log.Printf("record update failure for the Hub: %v", err)
+		}
+	}
+	return version, now.Add(15 * time.Minute)
 }
