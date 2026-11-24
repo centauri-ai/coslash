@@ -262,6 +262,11 @@ coslash ui-url
 Without the separate `COSLASH_HOME`, the connect command reaches your existing
 Local and points it at the new Hub.
 
+Pair each data home on a computer with a different Hub or account. Hub treats
+copies on the same computer and account as one device: when a second copy pairs,
+Hub replaces the first copy's device, and the first copy's check-ins fail with
+`HTTP 401` until you connect it again.
+
 On Linux, connecting starts the second copy as its own systemd user service
 (or `crontab` entry) and prints its name; it listens on a free loopback port
 when 8787 is taken. On macOS, a custom data home gets no login entry, so start
