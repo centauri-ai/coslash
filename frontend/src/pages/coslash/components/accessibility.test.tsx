@@ -228,6 +228,55 @@ describe('coSlash accessibility', () => {
     }
   });
 
+  it('collapses the Folders category and expands it while a location search is active', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const sessions = [makeSession({ id: 'notes', cwd: '/ws/notes' })];
+    const mount = document.createElement('div');
+    document.body.replaceChildren(mount);
+    const root = createRoot(mount);
+    try {
+      await act(async () =>
+        root.render(
+          <CoslashLayout {...layoutProps} sessions={sessions} reviewIndex={buildReviewIndex(sessions)} />,
+        ),
+      );
+      const sidebar = mount.querySelector('[aria-label="Filters"]')!;
+      const toggle = () =>
+        [...sidebar.querySelectorAll<HTMLButtonElement>('h3 button')].find(
+          (el) => el.textContent === 'Folders',
+        )!;
+      const folderRow = () => [...sidebar.querySelectorAll('button')].find((el) => el.title === '/ws/notes');
+      const input = sidebar.querySelector<HTMLInputElement>('[aria-label="Find a location"]')!;
+      const search = (value: string) =>
+        act(async () => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      expect(toggle().getAttribute('aria-expanded')).toBe('true');
+      expect(folderRow()).toBeDefined();
+      await act(async () => toggle().click());
+      expect(toggle().getAttribute('aria-expanded')).toBe('false');
+      expect(folderRow()).toBeUndefined();
+      await search('notes');
+      expect(toggle().disabled).toBe(true);
+      expect(folderRow()).toBeDefined();
+      await search('');
+      expect(folderRow()).toBeUndefined();
+    } finally {
+      await act(async () => root.unmount());
+      sessionStorage.clear();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(['list', 'board'])('selects a session once per title click in the %s view', async (view) => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
       true;

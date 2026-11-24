@@ -212,6 +212,7 @@ export function CoslashLayout({
   useEffect(() => saveSessionViewPreferences({ ...preferences, range }), [preferences, range]);
 
   const [expandedRepos, setExpandedRepos] = useState<Record<string, boolean>>({});
+  const [foldersOpen, setFoldersOpen] = useState(true);
   const locationInput = useRef<HTMLInputElement>(null);
   const sessionGroups = useMemo(
     () => new Map(sessions.map((session) => [sessionKey(session), locationGroups(session)])),
@@ -348,6 +349,7 @@ export function CoslashLayout({
   ];
   const normalizedGroupQuery = groupQuery.trim().toLowerCase();
   const choices = locationChoices(groups, normalizedGroupQuery);
+  const foldersVisible = !!normalizedGroupQuery || foldersOpen;
   const locationOption = (group: Group): FacetOption => {
     const id = locationChoiceId(group);
     const selected = preferences.groupFilters.includes(id);
@@ -549,8 +551,24 @@ export function CoslashLayout({
                 )}
                 {choices.folders.length > 0 && (
                   <section>
-                    <h3 className={locationHeading}>Folders</h3>
-                    <FacetRows options={choices.folders.map(locationOption)} />
+                    <h3>
+                      <button
+                        type="button"
+                        aria-expanded={foldersVisible}
+                        disabled={!!normalizedGroupQuery}
+                        onClick={() => setFoldersOpen((open) => !open)}
+                        className={cn(
+                          locationHeading,
+                          'hover:text-coslash-ink flex w-full cursor-pointer items-center gap-1 disabled:cursor-default',
+                        )}
+                      >
+                        Folders
+                        <ChevronRight
+                          className={cn('size-3 transition-transform', { 'rotate-90': foldersVisible })}
+                        />
+                      </button>
+                    </h3>
+                    {foldersVisible && <FacetRows options={choices.folders.map(locationOption)} />}
                   </section>
                 )}
                 <FacetRows options={choices.unlocated.map(locationOption)} />
