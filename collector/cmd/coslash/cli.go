@@ -37,6 +37,7 @@ var errRuntimeAlreadyRunning = errors.New("another coSlash app is already runnin
 
 type runtimeDescriptor struct {
 	BaseURL string `json:"baseURL"`
+	Version string `json:"version,omitempty"`
 }
 
 func acquireRuntimeLock() (*os.File, error) {
@@ -78,7 +79,7 @@ func writeRuntime(baseURL string) error {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(runtimeDescriptor{BaseURL: baseURL})
+	data, err := json.Marshal(runtimeDescriptor{BaseURL: baseURL, Version: normalizedVersion()})
 	if err != nil {
 		return err
 	}
@@ -124,6 +125,16 @@ func exclusiveRuntimeLockHeld(name string) bool {
 
 func runtimeOwnerActive() bool {
 	return exclusiveRuntimeLockHeld("runtime.lock") && exclusiveRuntimeLockHeld(readinessFilename)
+}
+
+// runtimeOwnerRuns reports whether the ready runtime owner is the given version.
+func runtimeOwnerRuns(version string) bool {
+	if !runtimeOwnerActive() {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(settings.Home(), runtimeFilename))
+	var runtime runtimeDescriptor
+	return err == nil && json.Unmarshal(data, &runtime) == nil && runtime.Version == version
 }
 
 func readRuntime() (string, string, error) {

@@ -320,7 +320,7 @@ func launchUpdateHelper(staged, attemptID string) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyUpdateVersions(target, staged); err != nil {
+	if _, err := verifyUpdateVersions(target, staged); err != nil {
 		return err
 	}
 	current, err := os.Open(target)
@@ -429,7 +429,7 @@ func runUpdateApply(arguments []string) {
 		}
 		defer confirmation.Close()
 	}
-	if err := verifyUpdateVersions(target, staged); err != nil {
+	if _, err := verifyUpdateVersions(target, staged); err != nil {
 		_ = atomicfile.Write(readyPath, []byte("error"), 0o600, nil)
 		return
 	}
@@ -442,7 +442,8 @@ func runUpdateApply(arguments []string) {
 		writeUpdateFailure(attemptID)
 		return
 	}
-	if err := verifyUpdateVersions(target, staged); err != nil {
+	next, err := verifyUpdateVersions(target, staged)
+	if err != nil {
 		log.Printf("refuse coSlash Local replacement: %v", err)
 		writeUpdateFailure(attemptID)
 		if !backgroundLoginLoadedForTarget(target) {
@@ -482,19 +483,10 @@ func runUpdateApply(arguments []string) {
 			return
 		}
 	}
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
-		if runtimeOwnerActive() {
-			if attemptID != "" {
-				if err := writeUpdateOutcome(attemptID, "update_ready"); err != nil {
-					log.Printf("record update readiness: %v", err)
-					return
-				}
-			}
-			_ = os.Remove(backup)
-			return
-		}
+	for deadline := time.Now().Add(30 * time.Second); !runtimeOwnerRuns(next) && time.Now().Before(deadline); {
+		time.Sleep(200 * time.Millisecond)
 	}
-	if runtimeOwnerActive() {
+	if runtimeOwnerRuns(next) {
 		if attemptID != "" {
 			if err := writeUpdateOutcome(attemptID, "update_ready"); err != nil {
 				log.Printf("record update readiness: %v", err)
@@ -519,7 +511,7 @@ func automaticUpdateNeeded(enabled bool, prompt syncv4.UpdatePrompt, runningVers
 	return enabled && prompt.Available && hubclient.NewerClientVersion(runningVersion, prompt.Version)
 }
 
-func verifyUpdateVersions(target, staged string) error {
+func verifyUpdateVersions(target, staged string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	readVersion := func(executable string) (string, error) {
@@ -612,16 +604,32 @@ func settleLegacyTarget(target, running string, readVersion func(string) (string
 	return check()
 }
 
-func verifyUpdateVersionsWith(target, staged string, readVersion func(string) (string, error)) error {
+// verifyUpdateVersionsWith returns the staged version when it is newer than the installed one.
+func verifyUpdateVersionsWith(target, staged string, readVersion func(string) (string, error)) (string, error) {
 	current, err := readVersion(target)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("cannot read installed version: %w", err)
 	}
 	next, err := readVersion(staged)
-	if err != nil || !hubclient.NewerClientVersion(current, next) {
-		return errors.New("update must be newer than the installed executable")
+	if err != nil {
+		return "", fmt.Errorf("cannot read staged version: %w", err)
 	}
-	return nil
+	if !hubclient.NewerClientVersion(current, next) {
+		return "", fmt.Errorf("staged %q is not newer than installed %q", next, current)
+	}
+	return next, nil
+}
+
+// newerInstalledExecutable returns the installed executable when it is newer than this process.
+func newerInstalledExecutable() (string, bool) {
+	target, err := updateTarget()
+	if err != nil {
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	installed, err := readExecutableVersion(ctx, target)
+	return target, err == nil && hubclient.NewerClientVersion(normalizedVersion(), installed)
 }
 
 func writeUpdateFailure(id string) {
@@ -719,9 +727,19 @@ func waitForUpdateHandoff(ctx context.Context, queue *syncv4.Queue, current stri
 	}
 }
 
-func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string, string) error, onLegacyRollback func(string), reportUpdate func()) {
+func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPrepared func(string, string) error, onRestartInstalled func(string), reportUpdate func()) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	// A login-agent respawn can start the old executable before the update
+	// helper replaces it, so compare once the helper releases the update lock.
+	installedChecked := false
+	restartIfInstalledNewer := func() bool {
+		target, newer := newerInstalledExecutable()
+		if newer {
+			onRestartInstalled(target)
+		}
+		return newer
+	}
 	failedVersion := ""
 	var retryAfter time.Time
 	var nextAutomatic time.Time
@@ -736,6 +754,15 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 			case <-requested:
 				explicit = true
 			case <-ticker.C:
+			}
+		}
+		if updateInProgress() {
+			continue
+		}
+		if !installedChecked {
+			installedChecked = true
+			if restartIfInstalledNewer() {
+				return
 			}
 		}
 		if consumeUpdateFailure(queue) {
@@ -754,7 +781,7 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 				if errors.Is(err, errLegacyInstalledChanged) {
 					_ = queue.SetUpdateStage(update.ID, "failed", "update_failed")
 					reportUpdate()
-					onLegacyRollback(target)
+					onRestartInstalled(target)
 					return
 				}
 				nextLegacySettlement = time.Now().Add(30 * time.Second)
@@ -762,6 +789,9 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 			}
 			if update.Stage == "failed" || !hubclient.NewerClientVersion(normalizedVersion(), update.TargetVersion) {
 				continue
+			}
+			if restartIfInstalledNewer() {
+				return
 			}
 			if _, err := updateTarget(); err != nil {
 				_ = queue.SetUpdateStage(update.ID, "failed", "update_unavailable")
@@ -802,6 +832,9 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 		requestedVersionAvailable := explicit && prompt.Available && hubclient.NewerClientVersion(normalizedVersion(), prompt.Version)
 		shouldUpdate := requestedVersionAvailable || automaticUpdateNeeded(config.AutoUpdate, prompt, normalizedVersion())
 		if shouldUpdate && (explicit || prompt.Version != failedVersion || time.Now().After(retryAfter)) {
+			if restartIfInstalledNewer() {
+				return
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			staged, err := prepareAutomaticUpdate(ctx, prompt)
 			cancel()

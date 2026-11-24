@@ -449,6 +449,33 @@ func TestNativeCollectorConfirmsUpdateHandoffFromHelperReceipt(t *testing.T) {
 	f.requireNoHostAccess()
 }
 
+// A login-agent respawn of the old release can win the runtime lock before the
+// update helper replaces the executable. It must then hand over to the newer
+// installed release instead of running, and retrying the update, forever.
+func TestNativeRespawnBeforeReplacementRunsInstalledRelease(t *testing.T) {
+	f := newStartupFixture(t, 97)
+	f.install(f.oldBinary)
+	updateLock, err := os.OpenFile(filepath.Join(f.coslash, updateLockName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer updateLock.Close()
+	if err := unix.Flock(int(updateLock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	command := f.start()
+	f.waitReady(oldVersion)
+	f.install(f.newBinary)
+	if err := unix.Flock(int(updateLock.Fd()), unix.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	f.waitExit(command)
+	f.waitReady(newVersion)
+	f.shutdown()
+	waitFor(t, "installed collector shutdown", 30*time.Second, func() bool { return !f.ownerActive() })
+	f.requireNoHostAccess()
+}
+
 func TestNativeLegacyRollbackRestartsInstalledCollector(t *testing.T) {
 	t.Parallel()
 	f := newStartupFixture(t, 97)
