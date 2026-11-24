@@ -2,7 +2,7 @@
   <a href="https://coslash.io"><img src="frontend/public/brand/coslash-logo.svg" alt="coSlash" height="72"></a>
 </p>
 
-**Search and resume any agent session.**
+<p align="center"><strong>Search and resume any agent session.</strong></p>
 
 [![CI](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml/badge.svg)](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml)
 [![Go 1.26.10](https://img.shields.io/badge/Go-1.26.10-00ADD8?logo=go)](collector/go.mod)
