@@ -172,22 +172,54 @@ func TestAutomaticUpdateRejectsStaleAndInvalidRecommendations(t *testing.T) {
 func TestVerifyUpdateVersionsChecksInstalledExecutable(t *testing.T) {
 	versions := map[string]string{"installed": "1.2.3", "staged": "1.2.4"}
 	read := func(path string) (string, error) {
-		version, ok := versions[path]
-		if !ok {
+		version := versions[path]
+		if version == "" {
 			return "", errors.New("missing executable")
 		}
 		return version, nil
 	}
-	if err := verifyUpdateVersionsWith("installed", "staged", read); err != nil {
-		t.Fatalf("newer staged executable rejected: %v", err)
+	if next, err := verifyUpdateVersionsWith("installed", "staged", read); err != nil || next != "1.2.4" {
+		t.Fatalf("newer staged executable = %q, %v", next, err)
 	}
-	versions["installed"] = "1.2.5"
-	if err := verifyUpdateVersionsWith("installed", "staged", read); err == nil {
-		t.Fatal("staged executable older than installed executable was accepted")
+	for _, test := range []struct {
+		installed, staged string
+		want              string
+	}{
+		{"1.2.5", "1.2.4", `staged "1.2.4" is not newer than installed "1.2.5"`},
+		{"1.2.4", "1.2.4", `staged "1.2.4" is not newer than installed "1.2.4"`},
+		{"", "1.2.4", "cannot read installed version: missing executable"},
+		{"1.2.3", "", "cannot read staged version: missing executable"},
+	} {
+		versions = map[string]string{"installed": test.installed, "staged": test.staged}
+		if _, err := verifyUpdateVersionsWith("installed", "staged", read); err == nil || err.Error() != test.want {
+			t.Errorf("installed %q, staged %q: error = %v, want %q", test.installed, test.staged, err, test.want)
+		}
 	}
-	delete(versions, "installed")
-	if err := verifyUpdateVersionsWith("installed", "staged", read); err == nil {
-		t.Fatal("unverifiable installed executable was accepted")
+}
+
+func TestRuntimeOwnerRunsRequiresReadyOwnerVersion(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	owner, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if err := writeRuntime("http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeOwnerRuns(normalizedVersion()) {
+		t.Fatal("an owner that is not ready was reported as running")
+	}
+	ready, err := acquireRuntimeReadiness()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	if !runtimeOwnerRuns(normalizedVersion()) {
+		t.Fatal("the ready owner's version was not recognized")
+	}
+	if runtimeOwnerRuns("99.0.0") {
+		t.Fatal("a ready owner of another version was accepted as the update")
 	}
 }
 
