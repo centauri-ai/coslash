@@ -43,7 +43,7 @@ export function FacetRow({
       {/* Stretched over the row, so the whole row still toggles the facet. */}
       <button
         type="button"
-        className="flex min-w-0 cursor-pointer items-center gap-[9px] text-left after:absolute after:inset-0 [&>svg]:size-3.5"
+        className="flex min-w-0 cursor-pointer items-center gap-[9px] text-left after:absolute after:inset-0 [&>svg]:size-3.5 [&>svg]:shrink-0"
         title={title}
         aria-pressed={selected}
         onClick={onClick}
