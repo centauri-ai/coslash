@@ -9,6 +9,7 @@
   <a href="collector/go.mod"><img src="https://img.shields.io/badge/Go-1.26.10-00ADD8?logo=go" alt="Go 1.26.10"></a>
   <a href="frontend/.nvmrc"><img src="https://img.shields.io/badge/Node-24.21.0-339933?logo=node.js&logoColor=white" alt="Node 24.21.0"></a>
   <a href="https://github.com/centauri-ai/coslash/releases"><img src="https://img.shields.io/github/v/release/centauri-ai/coslash" alt="Latest release"></a>
+  <a href="https://github.com/centauri-ai/coslash/releases"><img src="https://img.shields.io/github/downloads/centauri-ai/coslash/total.svg" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/centauri-ai/coslash" alt="License"></a>
 </p>
 
