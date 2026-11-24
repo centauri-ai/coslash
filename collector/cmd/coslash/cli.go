@@ -451,7 +451,7 @@ func runSessions(stdout io.Writer, args []string) error {
 		}
 	}
 	if !jsonOutput {
-		return usage
+		return errors.New("coslash sessions prints JSON only; add --json\n" + sessionsUsage())
 	}
 	client, err := newLocalAPIClient()
 	if err != nil {

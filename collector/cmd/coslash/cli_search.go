@@ -44,7 +44,7 @@ func searchRequestPath(args []string) (string, error) {
 		}
 	}
 	if !jsonOutput {
-		return "", errors.New(searchUsage)
+		return "", errors.New("coslash search prints JSON only; add --json\n" + searchUsage)
 	}
 	values := url.Values{}
 	if status {

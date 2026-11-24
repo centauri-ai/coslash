@@ -1176,3 +1176,12 @@ func writeTestRuntime(t *testing.T, baseURL, token string) {
 	}
 	t.Cleanup(func() { ready.Close() })
 }
+
+func TestJSONOnlyCommandsNameTheMissingFlag(t *testing.T) {
+	for _, args := range [][]string{{"sessions"}, {"search", "retry"}} {
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(&stdout, &stderr, args); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "prints JSON only; add --json") {
+			t.Fatalf("%v: code=%d stdout=%q stderr=%q", args, code, stdout.String(), stderr.String())
+		}
+	}
+}
