@@ -123,6 +123,30 @@ func TestPiExtensionCheckAppearsOnlyWhenPiIsDetected(t *testing.T) {
 	t.Fatal("Pi extension check missing when Pi is detected")
 }
 
+func TestOpenCodePluginCheckAppearsOnlyWhenOpenCodeIsDetected(t *testing.T) {
+	hasCheck := func(snapshot *Snapshot) bool {
+		for _, check := range derive(snapshot) {
+			if check.ID == "opencode.plugin" {
+				return true
+			}
+		}
+		return false
+	}
+	missing := Source{Agent: vendors.AgentOpenCode, State: SourceMissing, CLI: CLI{Name: "opencode"}}
+	if hasCheck(&Snapshot{Sources: []Source{missing}}) {
+		t.Fatal("OpenCode plugin check appeared without an OpenCode CLI or database")
+	}
+	withCLI := missing
+	withCLI.CLI.Found = true
+	withDatabase := missing
+	withDatabase.State = SourceEmpty
+	for _, source := range []Source{withCLI, withDatabase} {
+		if !hasCheck(&Snapshot{Sources: []Source{source}}) {
+			t.Fatalf("OpenCode plugin check missing for %+v", source)
+		}
+	}
+}
+
 func TestCursorIDEExecutableFindsApplicationBundle(t *testing.T) {
 	t.Setenv("PATH", "")
 	home := t.TempDir()
