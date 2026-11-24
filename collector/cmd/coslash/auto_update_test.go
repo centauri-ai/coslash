@@ -28,6 +28,37 @@ func TestAutomaticUpdateSkipsTheRunningRelease(t *testing.T) {
 	}
 }
 
+func TestAutomaticUpdateFailureIsReportedOncePerVersionWindow(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	queue, err := syncv4.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	version, retryAfter := recordAutomaticUpdateFailure(queue, "1.2.4", "", time.Time{}, now)
+	lines, through := queue.PendingLog(now)
+	if len(lines) != 0 {
+		t.Fatalf("a Hub without %s got %+v", hubclient.CapabilityUpdateFailureLog, lines)
+	}
+	if err := queue.AcknowledgeLog(through); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.ApplyPolicy(hubclient.V4CheckIn{Capabilities: []string{hubclient.CapabilityUpdateFailureLog}}); err != nil {
+		t.Fatal(err)
+	}
+	version, retryAfter = recordAutomaticUpdateFailure(queue, "1.2.4", version, retryAfter, now.Add(time.Minute))
+	if lines, _ := queue.PendingLog(now.Add(time.Minute)); len(lines) != 0 {
+		t.Fatalf("a failure inside the retry window was reported again: %+v", lines)
+	}
+	later := now.Add(16 * time.Minute)
+	version, retryAfter = recordAutomaticUpdateFailure(queue, "1.2.4", version, retryAfter, later)
+	recordAutomaticUpdateFailure(queue, "1.2.4", version, retryAfter, later.Add(time.Minute))
+	lines, _ = queue.PendingLog(later.Add(time.Minute))
+	if len(lines) != 1 || lines[0].Code != "update_failed" || lines[0].Level != "error" || lines[0].SessionID != "" {
+		t.Fatalf("lines = %+v", lines)
+	}
+}
+
 func TestUpdateHelperFailureSurvivesRestart(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	root := t.TempDir()

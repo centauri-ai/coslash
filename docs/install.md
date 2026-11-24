@@ -111,6 +111,8 @@ active queue work, restart, and roll back unless the new version becomes ready.
 Local only installs a version newer than the installed executable; an old saved
 recommendation cannot downgrade it. A running Local that finds a newer installed
 executable restarts into it instead of updating again.
+A failed automatic update is retried every 15 minutes. When Hub supports it,
+the device page shows the failure once per retry window.
 Homebrew and portable installs use the device's manual update action.
 For a Linux install in a custom directory, the script registers the location
 for automatic updates. The directory must be inside the current user's home,

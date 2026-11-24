@@ -98,6 +98,11 @@ type V4Queue struct {
 
 const CapabilityLocalDiagnostics = "local-sync-diagnostics/v1"
 
+// CapabilityUpdateFailureLog is advertised by a Hub that accepts the
+// device-level update_failed log line. An older Hub rejects the whole
+// check-in on that code.
+const CapabilityUpdateFailureLog = "update-failure-log/v1"
+
 type LocalDiagnostics struct {
 	Version     int                `json:"version"`
 	Account     DiagnosticsAccount `json:"account"`

@@ -49,6 +49,7 @@ var logMessages = map[string]string{
 	"space_full":                     "The space is full.",
 	"malformed_artifact":             "The session data could not be read.",
 	"idempotency_conflict":           "This session key already has different data.",
+	"update_failed":                  "coSlash Local could not install an automatic update and will retry. To update now, use Update on this device or reinstall coSlash Local.",
 }
 
 // hubLogCode maps a failure the queue recorded (code, and the error when the
@@ -122,7 +123,8 @@ func (q *Queue) PendingLogLimit(now time.Time, limit int) ([]hubclient.V4LogEntr
 			break
 		}
 		through = line.Seq
-		if line.At.Before(now.Add(-logRetention)) {
+		if line.At.Before(now.Add(-logRetention)) ||
+			line.Code == "update_failed" && !slices.Contains(q.state.HubCapabilities, hubclient.CapabilityUpdateFailureLog) {
 			continue
 		}
 		at := line.At
@@ -161,6 +163,25 @@ func (q *Queue) pendingDeviceLine(line LogLine) bool {
 	return line.SessionID == "" && slices.ContainsFunc(q.state.Log, func(pending LogLine) bool {
 		return pending.SessionID == "" && pending.Code == line.Code
 	})
+}
+
+// LogUpdateFailure queues a device-level update_failed line for a failed
+// automatic update. PendingLog sends it only to a Hub that advertises
+// CapabilityUpdateFailureLog.
+func (q *Queue) LogUpdateFailure(now time.Time) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	line := LogLine{At: now.UTC().Truncate(time.Microsecond), Level: "error", Code: "update_failed"}
+	if q.pendingDeviceLine(line) {
+		return nil
+	}
+	priorLog, priorLogSeq := q.state.Log, q.state.LogSeq
+	q.appendLog(line)
+	if err := q.save(); err != nil {
+		q.state.Log, q.state.LogSeq = priorLog, priorLogSeq
+		return err
+	}
+	return nil
 }
 
 // appendLog keeps every unsent line until the Hub acknowledges it. A first
