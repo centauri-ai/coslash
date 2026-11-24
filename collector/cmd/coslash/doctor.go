@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -174,7 +176,20 @@ func buildDoctorHubHealth(ctx context.Context, client doctorHubClient, origin, d
 	}
 }
 
+// Linux registers the coslash: handler through xdg-mime, which a headless
+// server does not have; no restart can register it there.
+var protocolHandlerRegistrable = func() bool {
+	if runtime.GOOS != "linux" {
+		return true
+	}
+	_, err := exec.LookPath("xdg-mime")
+	return err == nil
+}
+
 func addProtocolHandlerDoctorCheck(snapshot *diagnostics.Snapshot) {
+	if !protocolHandlerRegistrable() {
+		return
+	}
 	state := protocolHandlerState()
 	status := diagnostics.StatusWarn
 	fix := "Restart coSlash Local to register the link handler."
