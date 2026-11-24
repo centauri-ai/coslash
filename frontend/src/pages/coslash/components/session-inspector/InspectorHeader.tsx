@@ -94,8 +94,18 @@ export function HeaderMeta({
     <div className="flex flex-col gap-2 pt-2">
       <div className="text-coslash-muted flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-xs">
         <div className="flex min-w-40 flex-1 items-center gap-1 overflow-hidden">
-          <Badge variant="secondary">{checkout?.repo ?? sessionLocationFact(detail)}</Badge>
-          {checkout && !checkout.main && <Badge variant="secondary">{checkout.label}</Badge>}
+          <Badge
+            variant="secondary"
+            className="min-w-0 shrink"
+            title={checkout?.repo ?? sessionLocationFact(detail)}
+          >
+            <span className="truncate">{checkout?.repo ?? sessionLocationFact(detail)}</span>
+          </Badge>
+          {checkout && !checkout.main && (
+            <Badge variant="secondary" className="min-w-0 shrink" title={checkout.label}>
+              <span className="truncate">{checkout.label}</span>
+            </Badge>
+          )}
           <span>/</span>
           {detail.branch == null || detail.branch.trim() === '' ? (
             <Badge variant="secondary">—</Badge>
