@@ -260,6 +260,8 @@ describe('coSlash accessibility', () => {
           Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
+      expect(sidebar.classList.contains('w-[214px]')).toBe(true);
+      expect(toggle().classList.contains('w-full')).toBe(true);
       expect(toggle().getAttribute('aria-expanded')).toBe('true');
       expect(folderRow()).toBeDefined();
       await act(async () => toggle().click());
