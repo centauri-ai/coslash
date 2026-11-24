@@ -4,11 +4,13 @@
 
 <p align="center"><strong>Search and resume any agent session.</strong></p>
 
-[![CI](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml/badge.svg)](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml)
-[![Go 1.26.10](https://img.shields.io/badge/Go-1.26.10-00ADD8?logo=go)](collector/go.mod)
-[![Node 24.21.0](https://img.shields.io/badge/Node-24.21.0-339933?logo=node.js&logoColor=white)](frontend/.nvmrc)
-[![Latest release](https://img.shields.io/github/v/release/centauri-ai/coslash)](https://github.com/centauri-ai/coslash/releases)
-[![License](https://img.shields.io/github/license/centauri-ai/coslash)](LICENSE)
+<p align="center">
+  <a href="https://github.com/centauri-ai/coslash/actions/workflows/ci.yml?query=event%3Amerge_group"><img src="https://github.com/centauri-ai/coslash/actions/workflows/ci.yml/badge.svg?event=merge_group" alt="CI"></a>
+  <a href="collector/go.mod"><img src="https://img.shields.io/badge/Go-1.26.10-00ADD8?logo=go" alt="Go 1.26.10"></a>
+  <a href="frontend/.nvmrc"><img src="https://img.shields.io/badge/Node-24.21.0-339933?logo=node.js&logoColor=white" alt="Node 24.21.0"></a>
+  <a href="https://github.com/centauri-ai/coslash/releases"><img src="https://img.shields.io/github/v/release/centauri-ai/coslash" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/centauri-ai/coslash" alt="License"></a>
+</p>
 
 coSlash brings your coding-agent sessions into one board: **every agent harness, every
 machine, local or remote.** See which agents need you, catch up on what changed, and
