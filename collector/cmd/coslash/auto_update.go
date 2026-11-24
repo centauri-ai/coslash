@@ -37,6 +37,7 @@ func updateTarget() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	target = normalizeExecutablePath(runtime.GOOS, target)
 	target, err = filepath.Abs(target)
 	if err != nil {
 		return "", err
@@ -49,6 +50,13 @@ func updateTarget() (string, error) {
 		return "", errors.New("update target has an unexpected name")
 	}
 	return target, nil
+}
+
+func normalizeExecutablePath(goos, target string) string {
+	if goos == "linux" {
+		return strings.TrimSuffix(target, " (deleted)")
+	}
+	return target
 }
 
 func automaticUpdatesSupported(goos, channel string, branchBuild bool) bool {
@@ -551,9 +559,7 @@ func settleLegacyInstallation() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if runtime.GOOS == "linux" {
-		target = strings.TrimSuffix(target, " (deleted)")
-	}
+	target = normalizeExecutablePath(runtime.GOOS, target)
 	target, err = filepath.Abs(target)
 	if err != nil {
 		return "", err

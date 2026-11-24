@@ -410,6 +410,20 @@ func TestUpdateAssetForShippedPlatforms(t *testing.T) {
 	}
 }
 
+func TestNormalizeExecutablePath(t *testing.T) {
+	for _, test := range []struct {
+		goos, path, want string
+	}{
+		{"linux", "/opt/coslash (deleted)", "/opt/coslash"},
+		{"linux", "/opt/coslash", "/opt/coslash"},
+		{"darwin", "/opt/coslash (deleted)", "/opt/coslash (deleted)"},
+	} {
+		if got := normalizeExecutablePath(test.goos, test.path); got != test.want {
+			t.Errorf("normalizeExecutablePath(%q, %q) = %q, want %q", test.goos, test.path, got, test.want)
+		}
+	}
+}
+
 func TestLegacySettlementRetiresOnlyRegularBackupAndChecksInstalledVersion(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "coslash")

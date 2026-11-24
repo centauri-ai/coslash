@@ -217,17 +217,11 @@ func TestRuntimeReadinessPreservesExclusiveOwnership(t *testing.T) {
 }
 
 func TestRuntimeLockAcquisitionClearsStaleDiscovery(t *testing.T) {
-	called := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		io.WriteString(w, "[]")
-	}))
-	defer server.Close()
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	if err := writeToken("stale-token"); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRuntime(server.URL); err != nil {
+	if err := writeRuntime("http://127.0.0.1:4321"); err != nil {
 		t.Fatal(err)
 	}
 	lock, err := acquireRuntimeLock()
@@ -235,13 +229,18 @@ func TestRuntimeLockAcquisitionClearsStaleDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.Close()
+	for _, name := range []string{runtimeFilename, "token"} {
+		if _, err := os.Stat(filepath.Join(settings.Home(), name)); !os.IsNotExist(err) {
+			t.Fatalf("stale %s still exists: %v", name, err)
+		}
+	}
 
 	var stdout, stderr bytes.Buffer
 	if code := runCLI(&stdout, &stderr, []string{"sessions", "--json"}); code == 0 {
 		t.Fatalf("sessions trusted stale discovery during restart: %s", stdout.String())
 	}
-	if called {
-		t.Fatal("stale runtime endpoint received a request during restart")
+	if !strings.Contains(stderr.String(), "coSlash app is not running") {
+		t.Fatalf("sessions did not reject stale discovery before a request: %s", stderr.String())
 	}
 }
 
