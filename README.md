@@ -1,4 +1,6 @@
-<a href="https://coslash.io"><img src="frontend/public/brand/coslash-logo.svg" alt="coSlash" height="44"></a>
+<p align="center">
+  <a href="https://coslash.io"><img src="frontend/public/brand/coslash-logo.svg" alt="coSlash" height="56"></a>
+</p>
 
 **Search and resume any agent session.**
 
