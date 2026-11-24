@@ -136,6 +136,55 @@ func TestScaleFailureLogUsesCursorAcrossFiveHundredLineBatches(t *testing.T) {
 	}
 }
 
+func TestUpdateFailureLogWaitsForCapabilityDiscovery(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	for _, supported := range []bool{true, false} {
+		name := "unsupported"
+		var capabilities []string
+		if supported {
+			name = "supported"
+			capabilities = []string{hubclient.CapabilityUpdateFailureLog}
+		}
+		t.Run(name, func(t *testing.T) {
+			queue, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			queue.appendLog(LogLine{At: now, Level: "error", Code: "too_large"})
+			if err := queue.LogUpdateFailure(now); err != nil {
+				t.Fatal(err)
+			}
+			lines, through := queue.PendingLog(now)
+			if len(lines) != 1 || lines[0].Code != "too_large" || through != 1 {
+				t.Fatalf("unknown capability state did not stop at update failure: lines=%+v through=%d", lines, through)
+			}
+			if err := queue.AcknowledgeLog(through); err != nil {
+				t.Fatal(err)
+			}
+			if lines, through := queue.PendingLog(now); len(lines) != 0 || through != 0 {
+				t.Fatalf("update failure was acknowledged before capability discovery: lines=%+v through=%d", lines, through)
+			}
+			if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: capabilities}, now); err != nil {
+				t.Fatal(err)
+			}
+			lines, through = queue.PendingLog(now)
+			if supported {
+				if len(lines) != 1 || lines[0].Code != "update_failed" || through == 0 {
+					t.Fatalf("supported Hub did not receive retained failure: lines=%+v through=%d", lines, through)
+				}
+			} else if len(lines) != 0 || through == 0 {
+				t.Fatalf("unsupported Hub did not skip retained failure: lines=%+v through=%d", lines, through)
+			}
+			if err := queue.AcknowledgeLog(through); err != nil {
+				t.Fatal(err)
+			}
+			if lines, through := queue.PendingLog(now); len(lines) != 0 || through != 0 {
+				t.Fatalf("acknowledged failure remains pending: lines=%+v through=%d", lines, through)
+			}
+		})
+	}
+}
+
 // A failure recorded before the session has a Hub row is still logged, without
 // a session ID; the Hub shows it on the device page.
 func TestFailureBeforeTheHubSessionExistsIsLoggedForTheDevice(t *testing.T) {

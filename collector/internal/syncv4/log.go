@@ -122,11 +122,18 @@ func (q *Queue) PendingLogLimit(now time.Time, limit int) ([]hubclient.V4LogEntr
 		if len(lines) == limit {
 			break
 		}
-		through = line.Seq
-		if line.At.Before(now.Add(-logRetention)) ||
-			line.Code == "update_failed" && !slices.Contains(q.state.HubCapabilities, hubclient.CapabilityUpdateFailureLog) {
+		if line.At.Before(now.Add(-logRetention)) {
+			through = line.Seq
 			continue
 		}
+		if line.Code == "update_failed" && !slices.Contains(q.state.HubCapabilities, hubclient.CapabilityUpdateFailureLog) {
+			if !q.state.PolicyKnown {
+				break
+			}
+			through = line.Seq
+			continue
+		}
+		through = line.Seq
 		at := line.At
 		// A clock set back since the failure must not date it in the future.
 		if at.After(now) {

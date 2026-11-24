@@ -855,19 +855,19 @@ func watchAutomaticUpdates(queue *syncv4.Queue, requested <-chan struct{}, onPre
 					}
 				}
 				_ = os.Remove(staged)
-				failedVersion, retryAfter = recordAutomaticUpdateFailure(queue, prompt.Version, failedVersion, retryAfter, time.Now())
+				failedVersion, retryAfter = recordUpdateFailure(queue, !explicit, prompt.Version, failedVersion, retryAfter, time.Now())
 				continue
 			}
 			log.Printf("prepare coSlash Local update: %v", err)
-			failedVersion, retryAfter = recordAutomaticUpdateFailure(queue, prompt.Version, failedVersion, retryAfter, time.Now())
+			failedVersion, retryAfter = recordUpdateFailure(queue, !explicit, prompt.Version, failedVersion, retryAfter, time.Now())
 		}
 	}
 }
 
-// recordAutomaticUpdateFailure reports a failed automatic update to the Hub
-// once per version and retry window, and returns the new window.
-func recordAutomaticUpdateFailure(queue *syncv4.Queue, version, failedVersion string, retryAfter, now time.Time) (string, time.Time) {
-	if version != failedVersion || !now.Before(retryAfter) {
+// recordUpdateFailure reports automatic failures once per version and retry
+// window, while preserving the retry window for owner-requested attempts.
+func recordUpdateFailure(queue *syncv4.Queue, automatic bool, version, failedVersion string, retryAfter, now time.Time) (string, time.Time) {
+	if automatic && (version != failedVersion || !now.Before(retryAfter)) {
 		if err := queue.LogUpdateFailure(now); err != nil {
 			log.Printf("record update failure for the Hub: %v", err)
 		}
